@@ -8,15 +8,22 @@ import { externalAppFilesRoot } from "./lawoss/workspace-app-files.js";
 // Spravovaný engine beží od v0.2.9 v izolovanom režime (upstream #227): skills idú do `skills.paths`.
 const skillPaths = (skills: string[] | { paths?: string[] } | undefined): string[] => Array.isArray(skills) ? skills : skills?.paths ?? [];
 
-async function waitForEngineWorkspaces(requestsPath: string, workspaces: string[]) {
-  const deadline = Date.now() + 3000;
-  while (Date.now() < deadline) {
-    const requests = (await readFile(requestsPath, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
-    const directories = requests.map(request => new URL(request, "http://localhost").searchParams.get("directory"));
-    if (workspaces.every(workspace => directories.includes(workspace))) return;
-    await new Promise(resolve => setTimeout(resolve, 25));
-  }
-  throw new Error("Engine fixture did not finish startup synchronization for every workspace");
+// LAWOSS: rozpočet RAM 2 GB (issue #367). Štart nesmie v engine spustiť MCP
+// žiadneho klienta; otvorenie klienta (GET /mcp) ho spustí len v jeho priečinku.
+async function assertStartupLeavesMcpDormant(server: Awaited<ReturnType<typeof startEmbeddedServer>>, requestsPath: string, opened: string, other: string) {
+  const scoped = async () => (await readFile(requestsPath, "utf8").catch(() => "")).trim().split("\n").filter(Boolean)
+    .map((request) => new URL(request, "http://localhost")).filter((request) => request.searchParams.has("directory") || request.searchParams.has("header-directory"));
+  const directoryOf = (request: URL) => request.searchParams.get("directory") ?? request.searchParams.get("header-directory");
+  await new Promise(resolve => setTimeout(resolve, 300));
+  expect((await scoped()).filter((request) => request.pathname.startsWith("/mcp"))).toEqual([]);
+  const workspace = server.config.workspaces.find((entry) => entry.path === opened);
+  if (!workspace) throw new Error("Opened synthetic workspace is missing");
+  const response = await fetch(`http://127.0.0.1:${server.port}/workspace/${workspace.id}/opencode/mcp`, { headers: { Authorization: "Bearer client-token" } });
+  expect(response.status).toBe(200);
+  await response.arrayBuffer();
+  const mcp = (await scoped()).filter((request) => request.pathname.startsWith("/mcp"));
+  expect(mcp.some((request) => directoryOf(request) === opened)).toBe(true);
+  expect(mcp.some((request) => directoryOf(request) === other)).toBe(false);
 }
 
 test("embedded startup applies host outside policy before seeding an unconfigured workspace", async () => {
@@ -90,8 +97,13 @@ http.createServer((request, response) => {
   if (request.url === "/global/health") {
     response.writeHead(200, { "Content-Type": "application/json" });
     response.end(JSON.stringify({ healthy: true, version: "embedded-app-files-fixture" }));
-  } else response.end("ok");
-  fs.appendFileSync(requestsPath, request.url + "\\n");
+  } else {
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end("{}");
+  }
+  const headerDirectory = request.headers["x-opencode-directory"];
+  const logged = headerDirectory ? request.url + (request.url.includes("?") ? "&" : "?") + "header-directory=" + encodeURIComponent(decodeURIComponent(String(headerDirectory))) : request.url;
+  fs.appendFileSync(requestsPath, logged + "\\n");
 }).listen(port, "127.0.0.1", () => {
   process.stdout.write("opencode server listening on http://127.0.0.1:" + port + "\\n");
 });
@@ -118,8 +130,7 @@ process.on("SIGTERM", () => process.exit(0));
     expect(runtimeConfig.instructions).toContain(join(workspace, "AGENTS.md"));
     expect((await readdir(workspace)).sort()).toEqual(["AGENTS.md", "original.txt"]);
     expect(await readdir(firstWorkspace)).toEqual(["original.txt"]);
-    // Finish startup before terminating the engine, otherwise its retry loop leaks into later tests.
-    await waitForEngineWorkspaces(`${envPath}.requests`, [firstWorkspace, workspace]);
+    await assertStartupLeavesMcpDormant(server, `${envPath}.requests`, workspace, firstWorkspace);
     await server.stop();
     server = await startEmbeddedServer({
       host: "127.0.0.1", port: 0, configPath, workspaces: [firstWorkspace, workspace],
@@ -136,7 +147,7 @@ process.on("SIGTERM", () => process.exit(0));
     expect(JSON.parse(await readFile(envPath, "utf8"))).toEqual({ configDir: firstExpected, disableProjectConfig: "true" });
     const restartedRuntimeConfig = JSON.parse(await readFile(join(dirname(configPath), "runtime-opencode-config.json"), "utf8")) as { skills?: string[] | { paths?: string[] } };
     expect(skillPaths(restartedRuntimeConfig.skills)).toContain(join(firstExpected, "skills"));
-    await waitForEngineWorkspaces(`${envPath}.requests`, [firstWorkspace, workspace]);
+    await assertStartupLeavesMcpDormant(server, `${envPath}.requests`, firstWorkspace, workspace);
   } finally {
     await server?.stop();
     if (originalDataDir === undefined) delete process.env.LEGALWORK_DATA_DIR;

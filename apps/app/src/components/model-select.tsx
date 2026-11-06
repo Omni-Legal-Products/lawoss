@@ -17,7 +17,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useWorkspace } from "@/react-app/shell/workspace-provider";
-import { getConnectedProviderItems, useProviderListQuery } from "@/react-app/infra/provider-list-query";
+import { useProviderListQuery } from "@/react-app/infra/provider-list-query";
+import { offeredProviderItems } from "@/lawoss/shell/model-readiness";
 import {
   Command,
   CommandCollection,
@@ -66,9 +67,10 @@ export function useModelOptions(open: boolean) {
   }, [client, refetch]);
 
   // Org-level provider restrictions were removed with the cloud backend;
-  // surface every connected provider model.
+  // surface every connected provider model. LAWOSS: except upstream free
+  // models, which never get client data (#231).
   return React.useMemo(() => {
-    return getConnectedProviderItems(data).flatMap((provider) =>
+    return offeredProviderItems(data).flatMap((provider) =>
       Object.entries(provider.models).map(([id, model]) => ({
         providerID: provider.id,
         modelID: id,

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +18,16 @@ type EngineRequest = {
 
 // Keep the engine sync retry backoff tiny so failure-path tests stay fast.
 process.env.LEGALWORK_MCP_SYNC_RETRY_DELAY_MS = "10";
+
+// LAWOSS: tieto testy overujú mechaniku synchronizácie MCP v otvorených
+// priečinkoch, preto bežia bez limitu RAM rozpočtu (všetky priečinky aktívne).
+// Limit samotný overuje lawoss/engine-mcp-budget.e2e.test.ts.
+const previousBudget = process.env.LAWOSS_ENGINE_MCP_INSTANCES;
+beforeAll(() => { process.env.LAWOSS_ENGINE_MCP_INSTANCES = "0"; });
+afterAll(() => {
+  if (previousBudget === undefined) delete process.env.LAWOSS_ENGINE_MCP_INSTANCES;
+  else process.env.LAWOSS_ENGINE_MCP_INSTANCES = previousBudget;
+});
 
 const stops: Array<() => void | Promise<void>> = [];
 const roots: string[] = [];

@@ -27,6 +27,8 @@ type AiStepText = {
   open: string;
   continueReady: string;
   continueWithout: string;
+  /** N1: prvý štart enginu na čistom profile; overovanie ešte beží dlhšie než `CHECK_SLOW_MS`. */
+  checkingSlow: string;
   /** N-A5-8: poskytovateľ ani po `CHECK_LIMIT_MS` neodpovedá (sieť, proxy, certifikát). */
   unreachable: string;
   retry: string;
@@ -35,6 +37,7 @@ type AiStepText = {
 const aiStepText: Record<Language, AiStepText> = {
   sk: {
     checking: "Overujem pripojenie modelu…",
+    checkingSlow: "Overovanie trvá dlhšie než zvyčajne. Pri prvom spustení sa pripravuje prostredie AI, čo môže trvať niekoľko minút.",
     ready: "Model je pripojený:",
     none: "Zatiaľ nemáte pripojený model. Pokračovať môžete aj bez neho, asistent však začne odpovedať až po pripojení modelu v nastaveniach AI.",
     pick: "Poskytovateľ je pripojený, ale model zatiaľ nie je vybraný. Vyberte ho v nastaveniach AI.",
@@ -48,6 +51,7 @@ const aiStepText: Record<Language, AiStepText> = {
   },
   cs: {
     checking: "Ověřuji připojení modelu…",
+    checkingSlow: "Ověřování trvá déle než obvykle. Při prvním spuštění se připravuje prostředí AI, což může trvat několik minut.",
     ready: "Model je připojen:",
     none: "Zatím nemáte připojený model. Pokračovat můžete i bez něj, asistent ale začne odpovídat až po připojení modelu v nastavení AI.",
     pick: "Poskytovatel je připojen, ale model zatím není vybrán. Vyberte ho v nastavení AI.",
@@ -61,6 +65,7 @@ const aiStepText: Record<Language, AiStepText> = {
   },
   en: {
     checking: "Checking the model connection…",
+    checkingSlow: "This is taking longer than usual. The first start prepares the AI environment, which can take a few minutes.",
     ready: "Model connected:",
     none: "No model is connected yet. You can continue without one, but the assistant only answers once a model is connected in the AI settings.",
     pick: "A provider is connected, but no model is selected yet. Choose one in the AI settings.",
@@ -74,6 +79,7 @@ const aiStepText: Record<Language, AiStepText> = {
   },
   de: {
     checking: "Modellverbindung wird geprüft…",
+    checkingSlow: "Das dauert länger als üblich. Beim ersten Start wird die KI-Umgebung vorbereitet, was einige Minuten dauern kann.",
     ready: "Modell verbunden:",
     none: "Noch ist kein Modell verbunden. Sie können ohne Modell fortfahren, der Assistent antwortet aber erst, wenn in den KI-Einstellungen ein Modell verbunden ist.",
     pick: "Ein Anbieter ist verbunden, aber noch kein Modell ausgewählt. Wählen Sie es in den KI-Einstellungen.",
@@ -92,6 +98,8 @@ export type AiModelView = {
   state: ComposerModelState | "checking" | "no-workspace" | "unreachable";
   /** N-A5-8: znova overiť pripojenie, keď poskytovateľ neodpovedal (stav `unreachable`). */
   retry?: () => void;
+  /** N1: overovanie trvá dlhšie než `CHECK_SLOW_MS`, napr. prvý štart enginu (stav `checking`). */
+  slow?: boolean;
   modelLabel?: string;
   /** Pripojení poskytovatelia (karty v kroku AI asistent, C1); bez enginu prázdne. */
   providers?: readonly { id: string; name: string }[];
@@ -128,7 +136,7 @@ export function AiStepView({
 }) {
   const text = aiStepText[locale];
   const message = {
-    checking: text.checking,
+    checking: model.slow ? text.checkingSlow : text.checking,
     ready: text.ready,
     "no-model": text.none,
     "pick-model": text.pick,
@@ -232,13 +240,20 @@ export function useOnboardingModelView<P extends ModelPrefs>(defaultModel: Model
  * N-A5-8 (test 25. 10. 2026): keď poskytovateľ neodpovedá (sieť, proxy, certifikát), krok 4 ukazoval „Overujem
  * pripojenie…“ viac ako 10 minút. Po tomto čase (alebo pri chybe zoznamu poskytovateľov) povie, že pripojenie sa
  * nepodarilo overiť, čo skúsiť a ponúkne „Skúsiť znova“.
+ *
+ * N1 (test alfa10, 6. 11. 2026): prvý štart enginu na čistom profile trval 43,6 s a engine odpovedá až potom. Limit
+ * preto pokrýva aj čas zoznamu poskytovateľov pri studenom štarte (90 s, `ENGINE_BOOTSTRAP_TIMEOUT_MS`) a po
+ * `CHECK_SLOW_MS` krok povie, že to trvá dlhšie a čo to môže byť (príčinu appka nepozná). Nedostupná sieť po limite
+ * dostane tú istú hlášku ako doteraz, len neskôr.
  */
-export const CHECK_LIMIT_MS = 20_000;
+export const CHECK_LIMIT_MS = 120_000;
+export const CHECK_SLOW_MS = 20_000;
 
 /** Stav overovania s časovým limitom: `checking` najviac `CHECK_LIMIT_MS` (`expired`), potom alebo pri chybe `unreachable` s opakovaním. */
-export function boundedCheck(view: AiModelView, checking: boolean, failed: boolean, expired: boolean, retry: () => void): AiModelView {
+export function boundedCheck(view: AiModelView, checking: boolean, failed: boolean, expired: boolean, retry: () => void, slow = false): AiModelView {
   if (failed || (checking && expired)) return { state: "unreachable", retry };
-  return checking ? { state: "checking" } : view;
+  if (!checking) return view;
+  return slow ? { state: "checking", slow: true } : { state: "checking" };
 }
 
 export function useOnboardingModel(scope?: OnboardingModelScope): AiModelView {
@@ -247,10 +262,13 @@ export function useOnboardingModel(scope?: OnboardingModelScope): AiModelView {
   const [target, setTarget] = useState<OpencodeTarget | null | undefined | "failed">(undefined);
   const [attempt, setAttempt] = useState(0);
   const [expired, setExpired] = useState(false);
+  const [slow, setSlow] = useState(false);
   useEffect(() => {
     setExpired(false);
+    setSlow(false);
     const timer = setTimeout(() => setExpired(true), CHECK_LIMIT_MS);
-    return () => clearTimeout(timer);
+    const slowTimer = setTimeout(() => setSlow(true), CHECK_SLOW_MS);
+    return () => { clearTimeout(timer); clearTimeout(slowTimer); };
   }, [scope?.workspaceId, scope?.directory, attempt]);
   useEffect(() => {
     let cancelled = false;
@@ -278,7 +296,7 @@ export function useOnboardingModel(scope?: OnboardingModelScope): AiModelView {
   };
   return onboardingCheckView({
     target: target === undefined ? "pending" : target === null ? "none" : target === "failed" ? "failed" : "found",
-    pending: query.isPending, failed: query.isError && !query.data, expired,
+    pending: query.isPending, failed: query.isError && !query.data, expired, slow,
   }, query.data && resolved ? { ...view, workspaceId: resolved.workspaceId } : view, retry);
 }
 
@@ -287,11 +305,11 @@ export function useOnboardingModel(scope?: OnboardingModelScope): AiModelView {
  * nepodarilo sa ho zistiť (`failed`, vypršaný čas pri štarte) alebo je (`found`). Nezistený priestor nie je
  * „žiadny priestor“: povie, že pripojenie sa nepodarilo overiť, a ponúkne opakovanie (review N-A5-8).
  */
-export function onboardingCheckView(input: { target: "pending" | "none" | "failed" | "found"; pending: boolean; failed: boolean; expired: boolean }, view: AiModelView, retry: () => void): AiModelView {
+export function onboardingCheckView(input: { target: "pending" | "none" | "failed" | "found"; pending: boolean; failed: boolean; expired: boolean; slow?: boolean }, view: AiModelView, retry: () => void): AiModelView {
   if (input.target === "none") return { state: "no-workspace" };
   const checking = input.target === "pending" || (input.target === "found" && input.pending);
   const failed = input.target === "failed" || (input.target === "found" && input.failed);
-  return boundedCheck(view, checking, failed, input.expired, retry);
+  return boundedCheck(view, checking, failed, input.expired, retry, input.slow);
 }
 
 /** Zmena modelu v kroku AI asistent: uloží sa ako predvolený model v Nastaveniach AI. */

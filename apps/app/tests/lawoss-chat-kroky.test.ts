@@ -143,3 +143,26 @@ describe("review N-A5-2/7", () => {
   });
 });
 
+
+describe("doplnky z LAWOSS Marketplace (test inštalácie 3. 11. 2026)", () => {
+  test("sk: dopyt do Slov-Lex nie je „Čítanie súborov“, ale zdroj podľa názvu doplnku", () => {
+    setLocale("sk");
+    expect(getToolActivityLabel(tool("slovlex_get_law", { number: "40/1964" }))).toBe("Dopyt do zdroja Slov-Lex");
+    expect(getToolHistoryLabel(tool("slovlex_get_law", {}, true))).toBe("Zdroj: Slov-Lex");
+    expect(getToolHistoryLabel(tool("rpo_rpo_search", {}, true))).toBe("Zdroj: Register právnických osôb");
+    expect(getToolRunSummary([tool("rpo_rpo_search", {}, true), tool("slovlex_get_law", {}, true)])).toBe(t("tool_run.summary.search"));
+    expect(getToolIcon(tool("slovlex_get_law", {}, true))).toBe(getToolIcon(tool("grep", { pattern: "x" }, true)));
+  });
+
+  test("server s iným menom než doplnok a najdlhšia zhoda", () => {
+    setLocale("cs");
+    expect(getToolHistoryLabel(tool("fs_opendata_mcp_vat_status", {}, true))).toBe("Zdroj: Finanční správa SR");
+    expect(getToolHistoryLabel(tool("cz_eu-registry_search", {}, true))).toBe("Zdroj: České registry");
+    expect(getToolHistoryLabel(tool("ruz_get_statement", {}, true))).toBe("Zdroj: Registr účetních závěrek SR");
+  });
+
+  test("nástroj bez zhody so serverom marketplace ostáva podľa upstream vzoru", () => {
+    setLocale("sk");
+    expect(getToolRunSummary([tool("ruzovy_get_list", {}, true)])).toBe(t("tool_run.summary.read"));
+  });
+});

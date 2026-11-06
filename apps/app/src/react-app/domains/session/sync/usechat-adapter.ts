@@ -5,6 +5,7 @@ import type { FilePart, Part, ToolPart } from "@opencode-ai/sdk/v2/client";
 import type { LegalworkSessionSnapshot } from "../../../../app/lib/legalwork-server";
 import { safeStringify } from "../../../../app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "../../../../app/types";
+import { appLoadedAt, interruptedBeforeLoad } from "../../../../lawoss/chat/interrupted-run";
 import { eigenweltProviderRecoveryMessage } from "./eigenwelt-provider-error";
 import {
   parseDynamicToolUIPart,
@@ -14,7 +15,7 @@ import {
 import { t } from "@/i18n";
 import { subscriptionModelErrorKey } from "@/lawoss/providers/subscription-models";
 import { eigenweltUsageLimitFromError, isAnthropicUsageLimitError, providerUsageLimitErrorText } from "@/app/lib/provider-usage-limit";
-import { commentaryIsAnswer, isModelCommentary } from "@/lawoss/chat/commentary";
+import { commentaryIsAnswer, commentaryTag, isModelCommentary } from "@/lawoss/chat/commentary";
 
 function recordValue(value: unknown, key: string) {
   if (!value || typeof value !== "object") return undefined;
@@ -214,15 +215,18 @@ function mapSnapshotToolParts(part: ToolPart): UIMessage["parts"] {
 }
 
 export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMessage[] {
-  return snapshot.messages.flatMap((message) => {
+  const loadedAt = appLoadedAt();
+  return snapshot.messages.flatMap((message, index) => {
     const created = message.info.time?.created;
     const summary = message.info.role === "assistant" && "summary" in message.info && message.info.summary === true;
+    // 🟡 LAWOSS: odpoveď prerušená zatvorením appky (N-A9-16); len zobrazenie, nie stav behu.
+    const interrupted = interruptedBeforeLoad(message.info, { last: index === snapshot.messages.length - 1, idle: snapshot.status.type === "idle", loadedAt });
     // 🟡 LAWOSS: správa, ktorá končí ťah a jej jediný text je komentár modelu, ho ukáže ako odpoveď (N-A5-2, #269).
     const commentaryAnswer = commentaryIsAnswer(message.parts, message.info);
     const uiMessage = {
       id: message.info.id,
       role: message.info.role,
-      metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), ...(summary ? { summary: true } : {}) } },
+      metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), ...(summary ? { summary: true } : {}), ...(interrupted ? { interrupted: true } : {}) } },
       parts: message.parts.flatMap<UIMessage["parts"][number]>((part) => {
         if (part.type === "text") {
           if (part.synthetic || part.ignored) return [];
@@ -231,7 +235,7 @@ export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMess
             type: isModelCommentary(part) && !commentaryAnswer ? "reasoning" : "text",
             text: getTextPartValue(part),
             state: "done" as const,
-            providerMetadata: { opencode: { partId: part.id } },
+            providerMetadata: { opencode: { partId: part.id, ...commentaryTag(part) } },
           }];
         }
         if (part.type === "reasoning") {

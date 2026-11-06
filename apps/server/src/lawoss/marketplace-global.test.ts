@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installCloudPlugin, readInstalledCloudPlugins } from "../cloud-plugins.js";
 import { resolveClaudePluginBundle } from "../claude-plugin-bundle.js";
-import { runtimeMcpMapForWorkspace, setMcpEnabled } from "../mcp.js";
+import { addMcp, runtimeMcpMapForWorkspace, setMcpEnabled } from "../mcp.js";
+import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
 import { availableUpdates, installGlobalPlugin, moveWorkspacePlugin, pluginFileChanges, removeGlobalPlugin, updateGlobalPlugin, workspaceTarget } from "./marketplace-global.js";
 import { marketplaceStatePath, readUpdateState, runMarketplaceCheck } from "./marketplace-updates.js";
@@ -214,6 +216,133 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     expect(await readFile(legacySkill, "utf8").catch(() => null)).toBeNull();
     expect((await readInstalledCloudPlugins(config, "ws_a")).plugins[PLUGIN_ID]).toBeUndefined();
     expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo).toBeDefined();
+  });
+
+  test("failed destination publication preserves edited workspace installation and supports explicit retry", async () => {
+    const config = serverConfig(root);
+    const bundle = await resolveClaudePluginBundle({ url: url(SHA1) });
+    const workspaceRoot = join(root, "a"), target = workspaceTarget("ws_a", workspaceRoot);
+    await installCloudPlugin({ serverConfig: config, workspaceId: "ws_a", workspaceRoot, marketplaceId: null, resolved: bundle.resolved, provenance: { source: bundle.preview.source, version: bundle.preview.version } });
+    const path = ".opencode/skills/demo-plugin/demo/SKILL.md", legacySkill = join(workspaceRoot, path);
+    const edited = "Synthetic user edit must survive a refused move.\n";
+    await writeFile(legacySkill, edited);
+    await setMcpEnabled(config, "ws_a", "demo", false);
+    await addMcp(config, "ws_a", "unrelated", { type: "remote", url: "https://synthetic.invalid/mcp", enabled: true }, "global");
+    const registryBefore = await readInstalledCloudPlugins(config, "ws_a");
+    const workspaceBefore = await readRuntimeOpencodeConfig(config, "ws_a");
+    const sharedBefore = await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID);
+    const blocker = join(globalPluginTarget().root, "skills", "demo-plugin");
+    await mkdir(join(globalPluginTarget().root, "skills"), { recursive: true });
+    await writeFile(blocker, "Ordinary destination-parent blocker");
+    await expect(moveWorkspacePlugin(config, target, PLUGIN_ID, url(SHA1), { [path]: "keep" })).rejects.toThrow();
+    expect(await readFile(legacySkill, "utf8")).toBe(edited);
+    expect(await readInstalledCloudPlugins(config, "ws_a")).toEqual(registryBefore);
+    expect(await readRuntimeOpencodeConfig(config, "ws_a")).toEqual(workspaceBefore);
+    expect(await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).toEqual(sharedBefore);
+    expect((await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID]).toBeUndefined();
+    expect(await readFile(blocker, "utf8")).toBe("Ordinary destination-parent blocker");
+    await rm(blocker);
+    const retry = await moveWorkspacePlugin(config, target, PLUGIN_ID, url(SHA1), { [path]: "keep" });
+    expect(retry.status).toBe("moved");
+    expect(await readFile(skillPath(), "utf8")).toBe(edited);
+    await expect(readFile(legacySkill, "utf8")).rejects.toThrow();
+    expect((await readInstalledCloudPlugins(config, "ws_a")).plugins[PLUGIN_ID]).toBeUndefined();
+    expect((await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID]).toBeDefined();
+    expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo?.enabled).toBe(false);
+    expect((await runtimeMcpMapForWorkspace(config, "ws_b")).unrelated).toEqual({ type: "remote", url: "https://synthetic.invalid/mcp", enabled: true });
+  });
+
+  test("failed carried-edit backup preserves an existing global installation and the source", async () => {
+    const config = serverConfig(root);
+    await installGlobalPlugin(config, url(SHA1));
+    const bundle = await resolveClaudePluginBundle({ url: url(SHA1) });
+    const workspaceRoot = join(root, "a"), target = workspaceTarget("ws_a", workspaceRoot);
+    await installCloudPlugin({ serverConfig: config, workspaceId: "ws_a", workspaceRoot, marketplaceId: null, resolved: bundle.resolved, provenance: { source: bundle.preview.source, version: bundle.preview.version } });
+    const path = ".opencode/skills/demo-plugin/demo/SKILL.md", legacySkill = join(workspaceRoot, path);
+    await writeFile(legacySkill, "Synthetic local edit\n");
+    await writeFile(skillPath(), "Synthetic existing global edit\n");
+    await setMcpEnabled(config, globalPluginTarget().recordId, "demo", false);
+    const sharedBefore = await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID);
+    const workspaceBefore = await readRuntimeOpencodeConfig(config, "ws_a");
+    const globalBefore = await readInstalledCloudPlugins(config, globalPluginTarget().recordId);
+    const blocker = join(globalPluginTarget().root, "lawoss-zalohy");
+    await writeFile(blocker, "Ordinary backup-parent blocker");
+    await expect(moveWorkspacePlugin(config, target, PLUGIN_ID, url(SHA1), { [path]: "keep" })).rejects.toThrow();
+    expect(await readFile(legacySkill, "utf8")).toBe("Synthetic local edit\n");
+    expect(await readFile(skillPath(), "utf8")).toBe("Synthetic existing global edit\n");
+    expect(await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).toEqual(sharedBefore);
+    expect(await readRuntimeOpencodeConfig(config, "ws_a")).toEqual(workspaceBefore);
+    expect(await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).toEqual(globalBefore);
+    expect((await readInstalledCloudPlugins(config, "ws_a")).plugins[PLUGIN_ID]).toBeDefined();
+    await rm(blocker);
+    const retried = await moveWorkspacePlugin(config, target, PLUGIN_ID, url(SHA1), { [path]: "keep" });
+    if (retried.status !== "moved") throw new Error("Expected successful explicit retry");
+    expect(await readFile(retried.backups[0]!, "utf8")).toBe("Synthetic local edit\n");
+    expect(await readFile(skillPath(), "utf8")).toBe("Synthetic existing global edit\n");
+    expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo?.enabled).toBe(false);
+    expect((await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID]).toEqual(globalBefore.plugins[PLUGIN_ID]);
+    expect((await readInstalledCloudPlugins(config, "ws_a")).plugins[PLUGIN_ID]).toBeUndefined();
+  });
+
+  test("late failed move never publishes a disabled source connector as enabled", async () => {
+    const originalFiles = repo[SHA1];
+    const savedParent = join(root, "saved-destination-skills");
+    const blocker = join(globalPluginTarget().root, "skills", "demo-plugin");
+    let injected = false;
+    let primaryFailure: { error: unknown } | undefined;
+    try {
+      repo[SHA1] = { ...originalFiles };
+      for (let index = 0; index < 64; index++) repo[SHA1]![`plugins/demo/skills/padding-${index}/SKILL.md`] = `---\nname: padding-${index}\ndescription: Synthetic padding\n---\nFixture.\n`;
+      const config = serverConfig(root), workspaceRoot = join(root, "a");
+      const bundle = await resolveClaudePluginBundle({ url: url(SHA1) });
+      await installCloudPlugin({ serverConfig: config, workspaceId: "ws_a", workspaceRoot, marketplaceId: null, resolved: bundle.resolved, provenance: { source: bundle.preview.source, version: bundle.preview.version } });
+      const path = ".opencode/skills/demo-plugin/demo/SKILL.md", legacySkill = join(workspaceRoot, path);
+      const edited = "Synthetic disabled connector move edit\n";
+      await writeFile(legacySkill, edited);
+      await setMcpEnabled(config, "ws_a", "demo", false);
+      let settled = false;
+      const moving = moveWorkspacePlugin(config, workspaceTarget("ws_a", workspaceRoot), PLUGIN_ID, url(SHA1), { [path]: "keep" })
+        .then(() => ({ failed: false }), () => ({ failed: true })).finally(() => { settled = true; });
+      const observedEnabled: unknown[] = [];
+      const deadline = Date.now() + 3000;
+      while (Date.now() < deadline && !settled) {
+        const global = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.demo;
+        if (global) observedEnabled.push(global.enabled);
+        const published = (await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID];
+        if (published && readFileSync(skillPath(), "utf8") !== edited) {
+          renameSync(blocker, savedParent);
+          writeFileSync(blocker, "Ordinary carried-edit parent blocker");
+          injected = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      const outcome = await moving;
+      expect(injected).toBe(true); // Refuse a missed failure boundary rather than treating it as product evidence.
+      expect(outcome.failed).toBe(true);
+      expect(await readFile(legacySkill, "utf8")).toBe(edited);
+      expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp?.demo?.enabled).toBe(false);
+      expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.demo?.enabled).toBe(false);
+      expect(observedEnabled.length).toBeGreaterThan(0);
+      expect(observedEnabled.every((enabled) => enabled === false)).toBe(true);
+      await rm(blocker); await rename(savedParent, blocker); injected = false;
+      const retried = await moveWorkspacePlugin(config, workspaceTarget("ws_a", workspaceRoot), PLUGIN_ID, url(SHA1), { [path]: "keep" });
+      expect(retried.status).toBe("moved");
+      expect(await readFile(skillPath(), "utf8")).toBe(edited);
+      expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo?.enabled).toBe(false);
+    } catch (error) {
+      primaryFailure = { error };
+      throw error;
+    } finally {
+      try {
+        if (injected) { await rm(blocker); await rename(savedParent, blocker); }
+      } catch (cleanupError) {
+        if (primaryFailure) throw new AggregateError([primaryFailure.error, cleanupError], "Move fixture and cleanup failed");
+        throw cleanupError;
+      } finally {
+        repo[SHA1] = originalFiles;
+      }
+    }
   });
 
   test("odinštalovanie: upravený súbor sa bez rozhodnutia nevymaže, predvolene ide do zálohy", async () => {

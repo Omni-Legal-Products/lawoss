@@ -50,7 +50,7 @@ jobs:
             executable: win-unpacked/LAWOSS.exe
             asar: win-unpacked/resources/app.asar
             securityTarget: win-unpacked/LAWOSS.exe
-          - os: macos-14
+          - os: macos-15
             target: aarch64-apple-darwin
             platform: mac
             arch: arm64
@@ -171,6 +171,41 @@ jobs:
         if: runner.os != 'Linux'
         timeout-minutes: 3
         run: node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
+      # LAWOSS: rozpočet RAM 2 GB (#367). Zabalená appka, 10 syntetických klientov,
+      # balík SK základ z pinovaného commitu LAWOSS Marketplace (lokálne zrkadlo,
+      # bez GitHub API limitu), 4 otvorenia klienta; špička celého stromu procesov ≤ 2048 MB
+      # a po ukončení žiadne siroty. Artefakt nesie len čísla (scripts/memory-budget/run.mjs).
+      - name: Cache synthetic dataset for the RAM budget
+        if: runner.os == 'macOS'
+        uses: actions/cache@v4
+        with:
+          path: .work/synthetic-sk/dataset-v1.zip
+          key: synthetic-sk-okf-v1-0edddcc3c22eb877
+      - name: Verify RAM budget (2 GB) with the packaged app
+        if: runner.os == 'macOS'
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          node --test scripts/memory-budget/memory.test.mjs
+          mkdir -p .work/synthetic-sk
+          zip=.work/synthetic-sk/dataset-v1.zip
+          [ -f "$zip" ] || curl --fail --location --retry 3 "$(node -p 'require("./synthetic-dataset.json").download_url')" --output "$zip"
+          echo "$(node -p 'require("./synthetic-dataset.json").sha256')  $zip" | shasum -a 256 -c -
+          unzip -q -o "$zip" -d .work/synthetic-sk
+          ref="$(node -p 'require("./apps/app/src/lawoss/domains/marketplace/marketplace-snapshot.json").ref')"
+          git clone --quiet https://github.com/Omni-Legal-Products/lawoss-marketplace.git .work/lawoss-marketplace
+          git -C .work/lawoss-marketplace cat-file -e "$ref^{commit}"
+          node scripts/memory-budget/run.mjs --app "apps/desktop/dist-electron/${{ matrix.executable }}" \
+            --dataset .work/synthetic-sk/LAWOSS-SK-synthetic-v1 --marketplace-repo .work/lawoss-marketplace \
+            --clients 10 --open 4 --budget-mb 2048 --out "$RUNNER_TEMP/memory-budget"
+      - name: Upload RAM budget measurement
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-budget-${{ matrix.os }}
+          path: ${{ runner.temp }}/memory-budget/memory-budget.json
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Verify Windows installer packaging
         if: runner.os == 'Windows'
         run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --win --${{ matrix.arch }} --publish never

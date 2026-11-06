@@ -125,6 +125,7 @@ import { STORAGE_LINK_SOURCE, STORAGE_OPEN_EVENT, parseStorageRefLink, type Stor
 import { groupMessages, isMessageGroup, getAssistantRenderGroups, groupAssistantToolRuns, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
 import { t } from "@/i18n";
 import { aiBoundariesRefusal } from "@/lawoss/domains/ai/boundaries-refusal";
+import { InterruptedRunNotice, isInterruptedRun } from "@/lawoss/chat/interrupted-run";
 
 function MessageTimestamp({ message, className }: { message: UIMessage; className?: string }) {
   const created = getMessageCreated(message)
@@ -949,7 +950,9 @@ function MessageGroup({
   // client-side messages (e.g. session errors) don't exist on the server and
   // silently corrupt fork/revert boundaries.
   const lastRealItem = items.findLast((item) => !isSessionErrorMessage(item.message))
-  if (!lastItem || isMessageEmptyGroup(items)) return null
+  // 🟡 LAWOSS: prázdna odpoveď prerušená zatvorením appky ostane viditeľná ako veta (N-A9-16).
+  const interrupted = !isLiveGroup && items.some((item) => isInterruptedRun(item.message))
+  if (!lastItem || (isMessageEmptyGroup(items) && !interrupted)) return null
 
   const renderableItems = getRenderableMessages(items)
   const hasText = renderableItems.some((item) => item.message.parts.some((part) => part.type === "text" && part.text.trim()))
@@ -972,6 +975,7 @@ function MessageGroup({
   return (
       <div className="flex flex-col gap-2 group/message-group">
       {displayItems.map(renderItem)}
+      {interrupted ? <InterruptedRunNotice /> : null}
       {filedTasks.length > 0 ? <ArtifactList messages={EMPTY_MESSAGES} tasks={filedTasks} /> : null}
       {/* The graph and the sources belong under the finished answer, not among
           the retrieval steps. They are collected across the whole turn, since

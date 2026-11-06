@@ -6,6 +6,7 @@
  */
 import { t } from "@/i18n";
 import { truncateText } from "@/components/tools/path";
+import { marketplaceToolConnector } from "@/lawoss/domains/marketplace/mcp-servers";
 
 type Labels = { active: string; done: string };
 
@@ -57,6 +58,9 @@ function label(name: string, input: unknown, phase: keyof Labels): string | null
   if (description) return truncateText(description, phase === "active" ? 64 : 80);
   const labels = TOOL_LABELS[name] ?? inappLabels(name);
   if (labels) return t(labels[phase]);
+  // Dopyt do verejného zdroja z LAWOSS Marketplace, nie „Čítanie súborov“ podľa `get` v mene nástroja.
+  const source = marketplaceToolConnector(name)?.title;
+  if (source) return t(phase === "active" ? "lawoss.tool.source" : "lawoss.tool.source_done", { source });
   // Iný nástroj LAWOSS bez vlastného textu: všeobecný krok, nikdy názov nástroja.
   return name.startsWith("lawoss_") ? t(phase === "active" ? "tool.working" : "tool_run.summary.tool") : null;
 }
@@ -75,7 +79,8 @@ const TOOL_CATEGORIES: Record<string, LawossToolCategory> = {
   lawoss_documents_export: "write",
   legalwork_project_remote_folders: "browse",
 };
-export const lawossToolCategory = (name: string): LawossToolCategory | null => TOOL_CATEGORIES[name] ?? null;
+export const lawossToolCategory = (name: string): LawossToolCategory | null =>
+  TOOL_CATEGORIES[name] ?? (marketplaceToolConnector(name) ? "search" : null);
 
 /** Krok počas behu, alebo `null`, keď má nástroj upstream text. */
 export const lawossToolActivityLabel = (name: string, input: unknown): string | null => label(name, input, "active");

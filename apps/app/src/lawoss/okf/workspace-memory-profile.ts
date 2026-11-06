@@ -1,4 +1,4 @@
-import { t } from "@/i18n";
+import { t, type Language } from "@/i18n";
 import type { LegalworkServerClient, LegalworkWorkspaceMemoryStatus } from "@/app/lib/legalwork-server";
 import { parseWorkspaceMemoryProfile, parseWorkspaceMemoryProfileText, type WorkspaceMemoryProfile } from "../../../../../lawoss/okf-pamat/src/workspace-memory-profile";
 export { parseWorkspaceMemoryProfile, parseWorkspaceMemoryProfileText, type WorkspaceMemoryProfile };
@@ -12,7 +12,31 @@ export async function loadMemoryProfile(client: MemoryProfileClient, workspaceId
   if (stat.kind !== "file") throw new Error(t("lawoss.integrations.error.memory_not_file"));
   const { content } = await client.readWorkspaceFile(workspaceId, MEMORY_PROFILE_PATH);
   try { return { content, profile: parseWorkspaceMemoryProfileText(content) }; }
-  catch (error) { throw new Error(t("lawoss.integrations.error.memory_invalid", { detail: error instanceof Error ? error.message : String(error) })); }
+  catch (error) { throw new Error(t("lawoss.integrations.error.memory_invalid", { detail: memoryProfileProblem(null, error) })); }
+}
+
+/**
+ * Parser v `okf-pamat` (prenosná vrstva) hlási chyby po anglicky; advokát dostane vetu v jazyku appky
+ * (test inštalácie 3. 11. 2026: „Neplatné mapovanie: Invalid version 1 memory profile.“ pri novom formulári).
+ */
+const PROBLEMS: readonly [RegExp, string][] = [
+  [/^Invalid profile source\/root count/, "lawoss.integrations.memory.problem.count"],
+  [/^Invalid or duplicate root/, "lawoss.integrations.memory.problem.root"],
+  [/^Invalid or duplicate source/, "lawoss.integrations.memory.problem.source"],
+  [/^Role \S+ cannot be writable/, "lawoss.integrations.memory.problem.writable"],
+  [/^Invalid identity anchors/, "lawoss.integrations.memory.problem.anchors_invalid"],
+  [/^At least one case_memory source must be required/, "lawoss.integrations.memory.problem.case_memory"],
+  [/^At least one required source must have identity anchors/, "lawoss.integrations.memory.problem.anchors_required"],
+  [/byte limit exceeded/, "lawoss.integrations.memory.problem.size"],
+];
+const MATTER_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/;
+
+export function memoryProfileProblem(profile: WorkspaceMemoryProfile | null, failure: unknown, locale?: Language): string {
+  const message = failure instanceof Error ? failure.message : String(failure);
+  const key = profile && /^Invalid version 1 memory profile/.test(message) && !MATTER_ID.test(profile.matterId)
+    ? "lawoss.integrations.memory.problem.identity"
+    : PROBLEMS.find(([pattern]) => pattern.test(message))?.[1] ?? "lawoss.integrations.memory.problem.other";
+  return locale ? t(key, locale) : t(key);
 }
 export function previewMemoryProfile(profile: WorkspaceMemoryProfile): string {
   const content = `${JSON.stringify(parseWorkspaceMemoryProfile(profile), null, 2)}\n`;

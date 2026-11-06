@@ -99,7 +99,9 @@ test.skipIf(!binary)("chat prípadu: appka dostane udalosti a kartu povolenia z 
     const rootStream = await fetch(`${opencodeBaseUrl}/event?${new URLSearchParams({ directory: clientA })}`, { headers: { authorization: `Bearer ${token}` }, signal: abort.signal });
     expect(rootStream.status).toBe(200);
     void (async () => { const reader = rootStream.body!.getReader(); try { for (;;) { const chunk = await reader.read(); if (chunk.done) break; rootEvents += new TextDecoder().decode(chunk.value); } } catch { /* zrušené */ } })();
-    await Bun.sleep(500);
+    // Kontrolný odber je pripojený, keď engine pošle `server.connected`, nie po pevnej pauze (#221): inak by jeho
+    // negatívna kontrola nižšie prešla aj bez odberu. Synchronizácia appky si otázky enginu načíta pri pripojení sama.
+    await until(() => rootEvents.includes("server.connected") || undefined, "root event stream connected");
 
     const cache = getReactQueryClient();
     const turn = async (reply: "reject" | "once") => {

@@ -14,6 +14,7 @@ import { useQueryCacheState } from "@/react-app/infra/query-cache-state";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { describeRouteError } from "@/react-app/shell/route-workspaces";
 import { acknowledgeInteraction, seedTodoState, todoKey } from "./session-sync";
+import { answeredByApp, autoReplyDue, claimPermissionReply, leavePermissionToLawyer, releasePermissionReply, rememberSessionApproval } from "@/lawoss/lite/session-approvals";
 import {
   permissionKey, questionKey, interactionSessionsKey, emptyInteractionSessions,
   interactionSessionIds, sortInteractionRequests, replyToPermission, replyToQuestion,
@@ -99,32 +100,55 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
 
   // One request at a time keeps parallel subagents from stacking panels over
   // the composer. Questions and approvals share the same arrival order.
-  const firstPermission = pendingPermissions[0];
+  // LAWOSS: žiadosť, za ktorú odpovedá appka, nie je karta; advokát na ňu nemôže kliknúť zároveň s odpoveďou.
+  const firstPermission = pendingPermissions.find((permission) => !answeredByApp(permission, [permission.sessionID, ...(sessionId ? [sessionId] : [])]));
   const firstQuestion = pendingQuestions[0];
   const permissionFirst = firstPermission && (!firstQuestion || sortInteractionRequests(firstPermission, firstQuestion) <= 0);
   const activePermission = permissionFirst ? firstPermission : null;
   const respondPermission = useCallback(
-    async (requestID: string, reply: "once" | "always" | "reject") => {
+    async (requestID: string, reply: "once" | "always" | "reject", options?: { rememberForSession?: boolean }) => {
       if (!client || !workspaceId || !sessionId) return;
       const pendingPermission = pendingPermissions.find((permission) => permission.id === requestID);
-      if (!pendingPermission || permissionReplyBusyRef.current) return;
+      if (!pendingPermission || permissionReplyBusyRef.current || !claimPermissionReply(requestID, "lawyer")) return;
       permissionReplyBusyRef.current = true;
       setPermissionReplyBusy(true);
       try {
         await replyToPermission(client, pendingPermission, reply, workspaceRoot, serverClient);
+        // LAWOSS: až po úspešnej odpovedi a pred potvrdením, aby ďalšiu čakajúcu žiadosť pokrylo hneď pri prekreslení.
+        if (options?.rememberForSession) rememberSessionApproval(pendingPermission);
         if (pendingPermission.protocol === "host") useSessionActivityStore.getState().setWaitingRequest(workspaceId, pendingPermission.sessionID, "permission", requestID, false);
         acknowledgeInteraction(pendingPermission.protocol === "host" && hostScope ? hostScope : workspaceId, pendingPermission.sessionID, requestID, "permission");
       } catch (error) {
+        leavePermissionToLawyer(requestID);
         toast.error(t("app.error_request_failed"), {
           description: describeRouteError(error),
         });
       } finally {
+        releasePermissionReply(requestID);
         permissionReplyBusyRef.current = false;
         setPermissionReplyBusy(false);
       }
     },
     [client, serverClient, hostScope, pendingPermissions, sessionId, workspaceId, workspaceRoot],
   );
+
+  // LAWOSS (MČ 2. 11. 2026): otázku, ktorú advokát už povolil „do konca konverzácie“, odpovie appka „once“ sama.
+  // Každá dostane najviac jednu odpoveď; keď zlyhá, advokát dostane kartu a appka to neskúša znova.
+  const [, showFailedAutoReply] = useState(0);
+  useEffect(() => {
+    if (!client || !sessionId) return;
+    for (const permission of pendingPermissions) {
+      if (!autoReplyDue(permission, [permission.sessionID, sessionId]) || !claimPermissionReply(permission.id, "app")) continue;
+      void replyToPermission(client, permission, "once", workspaceRoot, serverClient).then(
+        () => acknowledgeInteraction(workspaceId, permission.sessionID, permission.id, "permission"),
+        (error: unknown) => {
+          leavePermissionToLawyer(permission.id);
+          toast.error(t("app.error_request_failed"), { description: describeRouteError(error) });
+          showFailedAutoReply((count) => count + 1);
+        },
+      );
+    }
+  }, [client, serverClient, pendingPermissions, sessionId, workspaceId, workspaceRoot]);
 
   const activeQuestion = permissionFirst ? null : firstQuestion ?? null;
   const respondQuestion = useCallback(

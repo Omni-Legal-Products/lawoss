@@ -8,6 +8,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { BRAND_NAME, UPSTREAM_BRAND_NAME } from "@/lawoss/branding";
 import { Surface } from "@/react-app/design-system/surface";
 
+import { LEGALWORK_SOURCE_OFFERED } from "./legalwork-source";
 import { setLegalworkSource } from "./legalwork-source-sync";
 import { useLegalworkSource } from "./use-legalwork-source";
 
@@ -17,6 +18,7 @@ import { useLegalworkSource } from "./use-legalwork-source";
  * voliteľný prepínač, vlastné integrácie ostávajú bez zmeny. Meno upstreamu ide do
  * textu ako parameter (`{source}`), lebo `t()` by „LegalWork“ v slovníku nahradil
  * za LAWOSS; tu ho advokát vidieť má, aby vedel, odkiaľ konektory pochádzajú.
+ * V alfe sa zdroj LegalWork neponúka (`LEGALWORK_SOURCE_OFFERED`, MČ 2. 11. 2026).
  */
 export function IntegrationSourcesCard() {
   const locale = useLocale();
@@ -29,17 +31,19 @@ export function IntegrationSourcesContent({
   locale,
   legalWorkEnabled,
   onLegalworkChange,
+  offerLegalwork = LEGALWORK_SOURCE_OFFERED,
 }: {
   locale: Language;
   legalWorkEnabled: boolean;
   onLegalworkChange: (enabled: boolean) => void;
+  offerLegalwork?: boolean;
 }) {
   const switchLabelId = useId();
   const source = UPSTREAM_BRAND_NAME;
   return (
     <Surface className="p-5" aria-label={t("lawoss.integrations.sources.aria", locale)} data-lawoss-sources="">
       <p className="text-[11px] font-medium text-dls-secondary">{t("lawoss.integrations.sources.eyebrow", locale)}</p>
-      <div className="mt-3 grid gap-3 md:grid-cols-3">
+      <div className={`mt-3 grid gap-3 ${offerLegalwork ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
         <SourceTile
           title={BRAND_NAME}
           state={
@@ -51,7 +55,7 @@ export function IntegrationSourcesContent({
           description={t("lawoss.integrations.sources.lawoss_description", locale)}
           accent
         />
-        <SourceTile
+        {offerLegalwork ? <SourceTile
           title={<span id={switchLabelId}>{source}</span>}
           state={
             <Switch
@@ -63,7 +67,7 @@ export function IntegrationSourcesContent({
           }
           description={t("lawoss.integrations.sources.legalwork_description", { source, lng: locale })}
           note={t(legalWorkEnabled ? "lawoss.integrations.sources.legalwork_on" : "lawoss.integrations.sources.legalwork_off", { source, lng: locale })}
-        />
+        /> : null}
         <SourceTile
           title={t("lawoss.integrations.sources.custom_title", locale)}
           description={t("lawoss.integrations.sources.custom_description", locale)}

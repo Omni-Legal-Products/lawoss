@@ -1,8 +1,19 @@
-import { expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { installMissingOnboardingSkills, installOnboardingSkillsQuietly } from "../src/lawoss/domains/onboarding/install-pack";
 import { LegalworkServerError } from "../src/app/lib/legalwork-server";
 import { novySpisSkillBody, okfCliSource } from "../src/lawoss/okf/skill-bundle";
 import type { OkfSkillClient } from "../src/lawoss/okf/skill-refresh";
+
+import { useSessionActivityStore } from "../src/react-app/domains/session/status/session-activity-store";
+
+let previousActivity = useSessionActivityStore.getState();
+beforeEach(() => {
+  previousActivity = useSessionActivityStore.getState();
+  useSessionActivityStore.setState({ recordsByWorkspaceId: {}, statusesByWorkspaceId: {} });
+});
+afterEach(() => {
+  useSessionActivityStore.setState({ recordsByWorkspaceId: previousActivity.recordsByWorkspaceId, statusesByWorkspaceId: previousActivity.statusesByWorkspaceId });
+});
 
 type Skill = { name: string; scope: "project" | "global"; content: string };
 
@@ -73,4 +84,31 @@ test("dokončenie onboardingu: zlyhanie skillov sa len zapíše, nič nevyhodí"
   warn.mockRestore();
   // Bez chyby vráti výsledok ako bežná inštalácia.
   expect(await installOnboardingSkillsQuietly(clientFixture([]).client, "workspace", "sk")).toMatchObject({ modified: [] });
+});
+
+test("background onboarding provisions unopened folders without engine reload; opened folders retain refresh", async () => {
+  const background = clientFixture([]);
+  const reloads: string[] = [];
+  const client = { ...background.client, reloadEngine: async (id: string) => { reloads.push(id); return { ok: true }; } };
+  const result = await installMissingOnboardingSkills(client, "unopened", "sk", "background");
+  expect(result.written).toHaveLength(5);
+  expect(background.calls.skill).toHaveLength(5);
+  expect(background.calls.resource).toHaveLength(5);
+  expect(reloads).toEqual([]);
+  const opened = clientFixture([]);
+  const active = { ...opened.client, reloadEngine: client.reloadEngine };
+  expect((await installMissingOnboardingSkills(active, "opened", "sk")).written).toHaveLength(5);
+  expect(reloads).toEqual(["opened"]);
+  expect((await installMissingOnboardingSkills(active, "opened", "sk")).written).toEqual([]);
+  expect(reloads).toEqual(["opened"]);
+});
+
+
+test("opened onboarding retains the production busy guard for another waiting session", async () => {
+  useSessionActivityStore.getState().setWaitingRequest("synthetic-other", "waiting-session", "permission", "pending-request", true);
+  const f = clientFixture([]);
+  const reloads: string[] = [];
+  const client = { ...f.client, reloadEngine: async (id: string) => { reloads.push(id); return { ok: true }; } };
+  expect((await installMissingOnboardingSkills(client, "opened", "sk")).written).toHaveLength(5);
+  expect(reloads).toEqual([]);
 });

@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import net from "node:net";
 import { randomUUID } from "node:crypto";
 
@@ -6,6 +6,8 @@ import { withoutServerCredentials } from "./lawoss/engine-credentials.js";
 import { lawossEngineEnv } from "./lawoss/engine-network.js";
 import { engineStartTimeoutMs } from "./lawoss/engine-start-timeout.js";
 import { killProcessTree } from "./lawoss/process-tree.js";
+// LAWOSS: engine a jeho MCP neprežijú pád appky (rozpočet RAM 2 GB, #367).
+import { watchEngineParent } from "./lawoss/engine-parent-watchdog.js";
 
 export type ManagedOpencodeServer = {
   url: string;
@@ -225,6 +227,8 @@ function makeTerminator(child: ChildProcess, exited: Promise<void>): () => Promi
       }
       await Promise.race([exited, delay(SIGTERM_GRACE_MS)]);
       if (alive()) {
+        // LAWOSS: zaseknutý engine nedokončí ukončenie svojich MCP; zabiť aj priamych potomkov.
+        if (process.platform !== "win32" && child.pid) spawnSync("pkill", ["-KILL", "-P", String(child.pid)], { stdio: "ignore", timeout: 2000 });
         try {
           child.kill("SIGKILL");
         } catch {
@@ -296,6 +300,7 @@ export async function createManagedOpencodeServer(options: {
       child.once("exit", () => resolve());
     });
     const terminate = makeTerminator(child, exited);
+    watchEngineParent(child);
     let closing = false;
     let lastStderr = "";
     child.stderr?.on("data", (chunk) => {

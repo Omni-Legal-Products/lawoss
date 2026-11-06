@@ -7,7 +7,7 @@
  *   MCP v spoločnom riadku, záznam pôvodu pod `GLOBAL_PLUGIN_RECORD_ID`.
  * - Doterajšie inštalácie do jedného priečinka ostávajú funkčné. Presun je výslovná akcia:
  *   najprv sa stiahne balík (pri chybe sa nič nezmení), potom sa podľa voľby advokáta zálohujú
- *   alebo prenesú jeho úpravy, odstráni sa kópia v priečinku a plugin sa nainštaluje globálne.
+ *   alebo prenesú jeho úpravy, publikuje sa globálny cieľ a až potom sa odstráni kópia v priečinku.
  * - Aktualizácia porovná SHA-256 súborov so záznamom pôvodu. Upravený alebo odstránený súbor
  *   bez rozhodnutia advokáta vráti `needs_decision`; nič sa neprepíše bez opýtania.
  *   Voľby: `keep` (ponechať moju úpravu), `replace` (prevziať novú verziu), `backup`
@@ -25,7 +25,7 @@ import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig, runtimeMcpMap } from "../runt
 import type { ServerConfig } from "../types.js";
 import { contentSha256 } from "./plugin-provenance.js";
 import { globalPluginTarget, installLocation, type PluginInstallTarget } from "./plugin-install-target.js";
-import { MARKETPLACE_OWNER, MARKETPLACE_REPO, marketplacePluginUrl, type MarketplaceUpdateState } from "./marketplace-updates.js";
+import { isNewerVersion, MARKETPLACE_OWNER, MARKETPLACE_REPO, marketplacePluginUrl, type MarketplaceUpdateState } from "./marketplace-updates.js";
 
 export type FileResolution = "keep" | "replace" | "backup";
 export type FileChange = { path: string; title: string; state: "modified" | "missing" };
@@ -84,7 +84,7 @@ export function availableUpdates(plugins: readonly CloudImportedPlugin[], state:
     if (!isMarketplacePlugin(plugin)) return [];
     const dir = plugin.provenance?.source.dir ?? plugin.pluginId.slice(MARKETPLACE_ID_PREFIX.length);
     const next = release.plugins.find((item) => item.path === dir);
-    if (!next || next.version === (plugin.provenance?.version ?? null)) return [];
+    if (!next || !isNewerVersion(next.version, plugin.provenance?.version ?? null)) return [];
     return [{ pluginId: plugin.pluginId, name: plugin.name, installed: plugin.provenance?.version ?? null, available: next.version, path: next.path }];
   });
 }
@@ -130,7 +130,7 @@ async function restoreDisabled(config: ServerConfig, names: readonly string[]): 
   for (const name of names) await setMcpEnabled(config, target.recordId, name, false).catch(() => false);
 }
 
-async function installGlobal(config: ServerConfig, bundle: ClaudePluginBundle, preserve?: ReadonlySet<string>): Promise<CloudImportedPlugin> {
+async function installGlobal(config: ServerConfig, bundle: ClaudePluginBundle, preserve?: ReadonlySet<string>, disabledMcpNames?: ReadonlySet<string>): Promise<CloudImportedPlugin> {
   const target = globalPluginTarget();
   return installCloudPlugin({
     serverConfig: config,
@@ -141,6 +141,7 @@ async function installGlobal(config: ServerConfig, bundle: ClaudePluginBundle, p
     provenance: provenanceOf(bundle),
     global: true,
     preserve,
+    disabledMcpNames,
   });
 }
 
@@ -241,21 +242,10 @@ export async function moveWorkspacePlugin(
   }
 
   const names = mcpNames(legacy);
-  const sharedBefore = runtimeMcpMap(await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID));
   const disabled = [...await disabledMcp(config, workspace.recordId, names), ...await disabledMcp(config, GLOBAL_MCP_ID, names)];
-  // removeCloudPlugin ruší MCP v oboch riadkoch; spoločné záznamy iných inštalácií sa hneď vrátia.
-  await removeCloudPlugin({ serverConfig: config, workspaceId: workspace.recordId, workspaceRoot: workspace.root, pluginId });
-  let item: CloudImportedPlugin;
-  if (bundle) {
-    item = await installGlobal(config, bundle);
-  } else {
-    for (const name of names) {
-      const entry = sharedBefore[name];
-      if (entry) await addMcp(config, target.recordId, name, entry, "global");
-    }
-    item = existing!;
-  }
-  await restoreDisabled(config, [...new Set(disabled)]);
+  // Destination publication can fail. Keep the active source and its registry
+  // until the global files, carried edits and backups have all been written.
+  const item = bundle ? await installGlobal(config, bundle, undefined, new Set(disabled)) : existing!;
 
   // Prenesená úprava: prepíše globálny súbor, len ak ho advokát globálne neupravil; inak ide bokom.
   const globalChanged = new Set((await pluginFileChanges(target, item)).map((change) => change.path));
@@ -273,5 +263,14 @@ export async function moveWorkspacePlugin(
       backups.push(to);
     }
   }
+  // Source removal clears matching MCPs in both rows. Restore the freshly
+  // published global entries, rather than the old workspace resource paths.
+  const sharedPublished = runtimeMcpMap(await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID));
+  await removeCloudPlugin({ serverConfig: config, workspaceId: workspace.recordId, workspaceRoot: workspace.root, pluginId, scope: "workspace" });
+  for (const name of names) {
+    const entry = sharedPublished[name];
+    if (entry) await addMcp(config, target.recordId, name, entry, "global");
+  }
+  await restoreDisabled(config, [...new Set(disabled)]);
   return { status: "moved", item, backups, carried };
 }

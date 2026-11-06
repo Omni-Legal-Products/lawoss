@@ -164,7 +164,8 @@ describe("LAWOSS stráž Eigenweltu a analytiky", () => {
     // Zdroj LegalWork predvolene zapnutý alebo voľba so sieťou.
     const source = "apps/app/src/lawoss/domains/integrations/legalwork-source.ts";
     assert.ok(fails(source, (text) => text.replace("} catch {\n    return false;\n  }\n}\n\nlet enabled", "} catch {\n    return true;\n  }\n}\n\nlet enabled")));
-    assert.ok(fails(source, (text) => text.replace("let enabled = read();", "let enabled = true;")));
+    assert.ok(fails(source, (text) => text.replace("let enabled = LEGALWORK_SOURCE_OFFERED && read();", "let enabled = true;")));
+    assert.ok(fails(source, (text) => text.replace("LEGALWORK_SOURCE_OFFERED = false;", "LEGALWORK_SOURCE_OFFERED = true;")));
     assert.ok(fails(source, (text) => `${text}\nvoid fetch("https://example.test");\n`));
     assert.ok(fails("apps/app/src/lawoss/domains/integrations/legalwork-source-sync.ts", (text) => `${text}\nvoid connectMcp;\n`));
     // LegalQuants sa vykreslí (a skenuje GitHub) aj bez zdroja.
@@ -194,7 +195,7 @@ describe("LAWOSS stráž Eigenweltu a analytiky", () => {
     // Inštalácia pre všetkých klientov z iného repozitára, upozornenie so sieťou, onboarding so sieťou pri otvorení.
     assert.ok(fails("apps/server/src/lawoss/marketplace-global.ts", (text) => text.replace("/tree/[a-f0-9]{40}/", "/tree/[^/]+/")));
     assert.ok(fails("apps/app/src/lawoss/domains/marketplace/update-notifier.tsx", (text) => text.replace("const view = await api.view()", 'await api.check("manual");\n      const view = await api.view()')));
-    assert.ok(fails("apps/app/src/lawoss/domains/onboarding/packs-step.tsx", (text) => text.replace("useLawossMarketplace({ api })", "useLawossMarketplace({ api, checkOnOpen: true })")));
+    assert.ok(fails("apps/app/src/lawoss/domains/marketplace/marketplace-offer.tsx", (text) => text.replace("useLawossMarketplace({ api })", "useLawossMarketplace({ api, checkOnOpen: true })")));
     assert.ok(fails("apps/server/src/server.ts", (text) => text.replace("const stopMarketplaceCheck = startWeeklyMarketplaceCheck(config);", "const stopMarketplaceCheck = () => undefined;")));
 
     // Nová adresa, druhý časovač alebo priamy fetch v module kontroly.

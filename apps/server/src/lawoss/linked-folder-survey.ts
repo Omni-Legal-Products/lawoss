@@ -9,6 +9,9 @@
  *   dva podpriečinky pomenované ako veci (kód `M049 …`, `SYN-0001`, rok na začiatku, spisová značka). Právna
  *   forma sama nie je signál: priečinky protistrán ju nesú tiež.
  *
+ * - Mäkké potvrdenie aj pri priečinku s kódom iného klienta tej istej rady (`C999 …` ku klientovi `C001 …`) bez karty
+ *   klienta: kód sám nič nedokazuje, ale advokát má vedieť, čo pripája (N-A9-14, test 2. 11. 2026).
+ *
  * Prieskum je ohraničený (jedna úroveň obsahu podpriečinkov, limit položiek), nesleduje symbolické odkazy a beží
  * len pri natívnom zápise nového priečinka, nie pri každom zostavení mapy. Chýbajúci priečinok nič nenájde. Keď
  * prieskum nedobehne (limit, nečitateľný podpriečinok), nepovolí potichu: vráti aspoň mäkké `practice_like`.
@@ -18,7 +21,7 @@ import { lstat, readdir } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { isPathWithin } from "./path-within.js";
 
-export type LinkedFolderSurvey = { kind: "practice" | "other_client" } | { kind: "practice_like"; clients: string[] } | null;
+export type LinkedFolderSurvey = { kind: "practice" | "other_client" } | { kind: "practice_like"; clients: string[] } | { kind: "other_code"; code: string } | null;
 
 const CLIENT_CARDS = ["client.md", "klient.md"];
 const OFFICE_DIRS = new Set(["office", "_kancelaria"]);
@@ -30,6 +33,18 @@ const CODE = /^[A-Z]{1,3}[-_]?\d{2,}(?![\p{L}\d])/u;
 const YEAR_PREFIX = /^20\d{2}(?:[-_. ](?:0[1-9]|1[0-2]))?[-_ ]+\p{L}/u;
 /** Spisová značka v názve („5Cb 12/2024“, „12 C 345/2023“). */
 const CASE_NUMBER = /(?:^|\s)\d{1,3}\s?\p{L}{1,4}\s?\d{1,6}\/\d{2,4}(?:$|\s)/u;
+/** Kód klienta na začiatku názvu priečinka (`C001 SYN …`, `K-0042`): rada písmen a číslo. */
+const CLIENT_CODE = /^(\p{Lu}{1,3})[-_ ]?(\d{3,5})(?![\p{L}\d])/u;
+/**
+ * Kód iného klienta tej istej rady (`C999` pri vlastnom `C001`). Vlastný klient bez kódu alebo iná rada (`M049` je vec)
+ * nič nehlási. Mená sa porovnávajú v NFC (macOS a SMB vracajú NFD).
+ */
+export function otherClientCode(folder: string, ownRoot: string | null): string | null {
+  if (!ownRoot) return null;
+  const own = CLIENT_CODE.exec(basename(ownRoot).normalize("NFC")), found = CLIENT_CODE.exec(basename(folder).normalize("NFC"));
+  if (!own || !found || own[1] !== found[1] || own[2] === found[2]) return null;
+  return found[0];
+}
 const looksLikeMatter = (name: string): boolean => CODE.test(name) || YEAR_PREFIX.test(name) || CASE_NUMBER.test(name);
 const isOfficeName = (name: string): boolean => OFFICE_DIRS.has(name.toLowerCase());
 
@@ -79,6 +94,7 @@ export async function surveyLinkedFolder(folder: string, ownRoot: string | null)
   // pripája aj bez profilu praxe. Vyššie položený `Office` (napr. `~/Office`) výnimku nemá.
   if (ownRoot !== null && isOfficeName(basename(folder)) && [dirname(ownRoot), dirname(dirname(ownRoot))].includes(dirname(folder))) return null;
   const top = await listing(folder, LIMIT.children);
+  const code = otherClientCode(folder, ownRoot);
   // Výpis môže byť neúplný (limit, chyba čítania): priame značky kancelárie sa overia aj bez neho.
   if (await officeIn(folder, top.entries) || await ancestorHasOffice(folder)) return { kind: "practice" };
   // Predok s kanceláriou: priečinok leží v praxi (aj keď nie je v profile), aj v praxi vlastného klienta.
@@ -101,5 +117,6 @@ export async function surveyLinkedFolder(folder: string, ownRoot: string | null)
     if (inside.entries.filter((entry) => entry.directory && looksLikeMatter(entry.name)).length >= 2) clients.push(child.name);
   }
   const names = clients.sort((a, b) => a.localeCompare(b)).slice(0, LIMIT.clients);
-  return clients.length >= 2 || incomplete ? { kind: "practice_like", clients: names } : null;
+  if (clients.length >= 2 || incomplete) return { kind: "practice_like", clients: names };
+  return code ? { kind: "other_code", code } : null;
 }

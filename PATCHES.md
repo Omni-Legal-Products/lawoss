@@ -1,5 +1,117 @@
 # LAWOSS downstream patches
 
+## Runner macos-14 nahradený macos-15 (2026-11-06)
+
+GitHub 2. 11. 2026 vyradil obraz `macos-14`: joby sa rušia bez runnera (`The configuration 'macos-14-arm64-us-default' is not supported`).
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `.github/workflows/alpha-macos-aarch64.yml`, `ci-desktop-packaging.yml`, `ci-okf-pamat.yml`, `ci-okf.yml`, `ci-tests.yml`, `release-macos-aarch64.yml` | `macos-14` → `macos-15`. Povinná kontrola rulesetu dev `legalwork-tests (macos-14)` sa tým musí premenovať na `legalwork-tests (macos-15)`. |
+
+## Nálezy testu alfa10: rozpočet MCP a aktivácia klienta (2026-11-06, #367)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/server.ts` | N4: `POST /instance/dispose` a `POST /mcp` v tom istom priečinku idú za sebou (`createEngineDirectoryLanes`, `lawoss/engine-mcp-budget.ts`). Engine 1.18.29 uloží klienta z `POST /mcp` aj do už uvoľnenej inštancie a proces žije do jeho zastavenia. Reload na pozadí (`background`) neregistruje MCP, ktoré nová inštancia má zo súboru (`skipFileProvided`); explicitný reload ostáva ako upstream. |
+| `apps/server/src/server.ts` | N3: `admitEngineMcp` počíta akciu chatu do priečinka chatu (`engineSessionScope`, `GET /session/:id`), lebo engine spustí chat prípadu v jeho priečinku, aj keď ho front správ pošle cez koreň klienta. `forwardOpencodeRequest` (+2 riadky) číta `GET /mcp` a `GET /command` z priečinka toho istého klienta, ktorý má MCP spustené (`residentEngineMcpDirectory`), aby čítanie nespustilo druhú sadu. |
+| `apps/server/src/routes/workspaces.ts`, `apps/server/src/server.ts` | N1: `POST /workspaces/:id/activate` po zápise výberu čaká na engine najviac 4 s (`startEngineActivation`). `POST /instance/dispose` na ešte nepostavený priečinok ho najprv postaví a `GET /mcp` čaká na všetky MCP, preto uvoľnenie dobehne na pozadí v poradí rozpočtu (`budget.reset`) a MCP spustí prvé použitie. Bežiaci chat sa nepreruší. Skorá chyba enginu (503) ostáva v odpovedi; pri limite 0 je postup ako upstream, len s kontrolou bežiaceho chatu. |
+| `apps/server/src/workspace-activate.e2e.test.ts` | Mock enginu odpovedá na `GET /session/status` (+2 riadky), lebo aktivácia sa pred uvoľnením pýta na bežiaci chat. |
+
+## Komentár ukázaný ako odpoveď prežije neskorú aktualizáciu časti (2026-11-06, #348)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/sync/session-sync.ts` | `upsertPart` nahrádza existujúcu časť cez `keepCommentaryAnswer` z `apps/app/src/lawoss/chat/commentary.ts`: neskorý `message.part.updated` komentára po konci ťahu ho už nezmapuje späť na uvažovanie. Pri `message.updated` sa `withCommentaryAnswer` volá len na upsertnutú správu namiesto `.map` cez celý transcript. Regresia: `apps/app/tests/lawoss-komentar-zivy-a-nacitany.test.ts`. Pri syncu zachovať. |
+
+## Súbor len na čítanie sa nesťahuje znova, kým sa nezmenil (2026-11-06, #367)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/artifacts/artifact-panel.tsx`, `apps/app/src/react-app/domains/session/artifacts/artifact-query.ts` | Kľúč pri `getQueryData` mal 4 prvky, kľúč query 5 (`generation`), takže porovnanie so `stat` nikdy neprebehlo a súbor len na čítanie sa sťahoval každé 2 s. Čítanie je presunuté do nového `artifact-query.ts` (`artifactQueryOptions`, `artifactQueryKey`), kde query, porovnanie aj ukladanie v paneli používajú ten istý kľúč. Regresia: `apps/app/tests/lawoss-artifact-query-key.test.ts` (skutočný `QueryObserver`). Pri syncu zachovať jeden kľúč; upstream zmeny `queryFn` prenášať do `artifact-query.ts`. |
+
+## Engine pri studenom štarte číta len katalóg LAWOSS (2026-11-02, #336)
+
+Upstream test opravy #230 (`model-catalog-engine.e2e.test.ts`) čaká, že engine prevezme katalóg z relay (`OPENCODE_MODELS_URL`/`OPENCODE_MODELS_PATH` od volajúceho). LAWOSS relay nespúšťa a `lawossEngineEnv()` tieto premenné zámerne prepisuje pribaleným katalógom (rozhodnutie MČ 5. 10. 2026), takže test so skutočným enginom vždy padal. V CI to nebolo vidno, lebo krok serverových testov nemá `LEGALWORK_TEST_OPENCODE_BIN` a test preskočil.
+## Vlastníctvo session activity v testoch (2026-11-04)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/tests/session-sync-permissions.test.ts`, `apps/app/tests/lawoss-onboarding-install-pack.test.ts` | Fixture zachytí pôvodné activity maps, pracuje s vlastnými prázdnymi mapami a po teste obnoví presné pôvodné referencie. Permission cleanup obnoví activity aj po zlyhaní query-cache cleanup. Waiting evidence z permission fixture tak neblokuje foreground reload control neskoršieho testu. Nová kontrola skutočného waiting session potvrdzuje zachovaný produkčný busy guard; žiadna produkčná logika/timeout/assertion nie je oslabená. |
+
+## Background provisioning onboarding skillov (2026-11-04)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/shell/welcome-route.tsx` | Dávka ostatných klientov odovzdá `background` do `lawoss/domains/onboarding/install-pack.ts`. Reálna inštalácia missing/unmodified skillov a resources ostáva, ale nevolá reload enginu neotvoreného priečinka. Predvolený `opened` zachová existujúci foreground refresh, busy guard aj command availability kontrolu pri otvorení chatu. Serverový explicitný reload kontrakt sa nemení; pri syncu zachovať rozlíšenie background/foreground. |
+
+## Vypnuté MCP už pri publikovaní presunu (2026-11-04)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/cloud-plugins.ts` | Voliteľné interné `disabledMcpNames` nastaví `enabled: false` vo finálnej connector config pred `addMcp`, nie až po návrate importéra. `lawoss/marketplace-global.ts` odovzdá zachytené vypnuté názvy pri novej globálnej publikácii MOVE. Ani neskoré zlyhanie carried-edit zápisu tak nesprístupní enabled partial destination. Bez parametra zostáva bežná inštalácia/merge bez zmeny; pôvodné connectorDefaults/provenance ostávajú pravdivé. Regresia v `lawoss/marketplace-global.test.ts` používa skutočný registry publication handshake a filesystem refusal, zachovanie zdroja a explicitný retry. |
+
+## Lenivý štart runtime MCP (2026-11-04)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/model-catalog-engine.e2e.test.ts` | `test.skipIf(!engineBin)` → `test.skip` +1 komentár. Správanie LAWOSS overuje nový `apps/server/src/lawoss/engine-catalog.integration.test.ts`: studený engine vidí katalóg z `LAWOSS_MODELS_CATALOG`, nie katalóg volajúceho, a zrkadlo volajúceho nedostane žiadnu požiadavku. Pri syncu zachovať, kým LAWOSS nespúšťa relay. |
+| `.github/workflows/ci-tests.yml` | Krok so skutočným enginom spúšťa aj `apps/server/src/lawoss/engine-catalog.integration.test.ts` (krok má `test -x`, nepreskočí sa potichu). |
+## Rozdrobený SSE stream: lineárny čas a `\r\n` medzi kúskami (2026-11-04, #337)
+
+`serverSentEvents()` robil pri každom kúsku `buffer += text` a `indexOf("\n\n")` od začiatku (kvadratický čas: rámec 200 000 B po 1 znaku ~2,5 s) a `\r\n` normalizoval po kúskoch, takže `\r` | `\n` medzi kúskami dal falošnú hranicu udalosti.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `packages/types/src/sync-events.ts` | `serverSentEvents()`: nedokončená udalosť sa drží ako zoznam kúskov a spája sa až po nájdení hranice, hľadá sa len od posledného prehľadaného miesta; po kúsku končiacom `\r` sa úvodné `\n` ďalšieho kúska zahodí (je to `\r\n`). `\n\n`, `\r\n\r\n` aj `\r\r` fungujú ako doteraz. Test: nový `apps/server/src/lawoss/server-sent-events-chunks.test.ts`. Nedokončená udalosť má hranicu `maxEventBytes` (16 MiB): pridlhá sa zahodí celá a číta sa až od ďalšej hranice, nezávisle od delenia streamu. Po 256 kúskoch sa zlúči len beh od posledného zlúčenia, takže každý znak sa skopíruje raz a jednoznakové kúsky nestoja 10 B na znak (2026-11-06). |
+## Automatická kontrola aktualizácií len s dostupným updaterom (2026-11-04)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/settings/state/electron-updater-state.ts` | Automatický efekt pred kontrolou vyžaduje `electronUpdaterBridge()?.check`. Otvorenie Nastavení vo webovom klientovi tak nevyvolá Electron-only chybu. Ručné kontroly, natívny updater a ochrana dostupnej/stiahnutej aktualizácie ostávajú. Pripojená regresia `apps/app/tests/electron-updater-state.test.ts` používa izolované procesy s reálnym hookom; pôvodný webový scenár je overený aj v prehliadači. Pri syncu zachovať capability guard. |
+
+## Odložené upozornenia čítačiek query cache (2026-11-04)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/infra/query-cache-state.ts` | `useQueryCacheState` odovzdáva upozornenia cez `notifyManager.batchCalls`, rovnako ako natívne TanStack hooky. Vytvorenie query počas renderu iného komponentu tak nesmie synchrónne aktualizovať čítačku cache. Živý syntetický headless vstup reprodukoval React varovanie `SessionRoute` / `ClientLinkedFoldersNavItem`; regresia `apps/app/tests/query-cache-state-mount.test.tsx` pripája skutočné React DOM hooky a overuje aj doručenie hodnoty. Stabilný `subscribe` (`useCallback`) sa neprihlasuje pri každom renderi a cez `hashKey`/`event.query.queryHash` počúva len svoju query, takže streaming neprebúdza ostatné čítačky; regresie v tom istom teste (2026-11-06). Pri syncu zachovať odložené notifikácie aj filter. |
+## Brána rozpočtu RAM 2 GB v CI (2026-11-05)
+
+Issue #367. Nový `scripts/memory-budget/run.mjs` spustí zabalenú appku s izolovaným profilom, 10 syntetickými klientmi (SYNTHETIC_DATA.md) a balíkom LAWOSS Marketplace „SK základ“ z pinovaného commitu snapshotu (lokálne zrkadlo GitHub API z checkoutu `lawoss-marketplace`, bez limitu neautentifikovaného API), postupne otvorí 4 klientov a každé ~2 s zmeria fyzickú pamäť celého stromu procesov (macOS physical footprint, Linux PSS). Zlyhá, keď špička prekročí 2048 MB alebo po ukončení ostanú siroty. Artefakt obsahuje len čísla a fázu zlyhania.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `.github/workflows/ci-desktop-packaging.yml` | Na macOS po „Verify Windows and macOS packaged startup“: cache datasetu, krok „Verify RAM budget (2 GB) with the packaged app“ (overenie SHA-256 datasetu, klon `lawoss-marketplace` s commitom snapshotu, `node --test scripts/memory-budget/memory.test.mjs`, meranie) a upload `memory-budget.json`. Windows a Linux zatiaľ nie (Windows bez merania súkromnej pamäte stromu; Linux runner bez overenia). |
+
+## MCP len pre otvoreného klienta, strop a uvoľnenie nečinných inštancií enginu (2026-11-05)
+
+Rozpočet RAM 2 GB, issue #367. Engine OpenCode 1.18.29 drží inštanciu na priečinok a pri prvom dotyku MCP stavu (`GET /mcp`, `GET /command`, prompt) v nej spustí všetky zapnuté MCP; inštancie sám neuvoľní. Výpis chatov všetkých klientov (bočný panel) a štartová synchronizácia tak spustili MCP v každom klientovi: 10 klientov + balík „SK základ“ = 139 procesov, 4,7 GB. Nový `apps/server/src/lawoss/engine-mcp-budget.ts` eviduje priečinky s MCP, drží ich najviac `LAWOSS_ENGINE_MCP_INSTANCES` (predvolene 1; 0 = pôvodné správanie) a nečinné bez bežiaceho chatu uvoľní (`POST /instance/dispose`) po `LAWOSS_ENGINE_MCP_IDLE_MS` (predvolene 10 min) alebo pri otvorení ďalšieho klienta.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/server.ts` | +2 importy; `startServer` zaregistruje rozpočet (1 riadok `cleanups`). Pripravenosť pred výpisom chatov volá `GET /path` namiesto `GET /mcp` (inštancia vznikne bez MCP; poradie studených štartov zostáva v `engine-warmup-gate`). Proxy `/opencode/*`, príkaz chatu a SDK požiadavky servera prejdú `admitEngineMcp`: cesty, ktoré v engine spúšťajú MCP, otvoria priečinok v rozpočte, ostatné len predĺžia jeho životnosť (proxy rozdelená na `forwardOpencodeRequest` a `dispatchOpencodeProxyRequest` bez zmeny správania). Hromadné reloady na pozadí (`reloadOpencodeEngine(…, { background: true })` po zmene v Marketplace, SystemOne, politike firmy a Eigenwelt), `syncRuntimeMcpToOpencodeEngine`, `disconnectMcpFromOpencodeEngine` a štartová `syncAllWorkspacesRuntimeMcpToEngine` neotvoreného klienta nezobudia: reload ho len uvoľní, MCP dostane pri prvom použití. Explicitný reload klienta (`/workspace/:id/engine/reload`, aktivácia, poskytovateľ) ho otvorí v rozpočte a zachová kontrakt pripravenosti a obnovy MCP. Prvé použitie zaregistruje len MCP, ktoré inštancia nemá zo súboru runtime konfigurácie (`engineFileMcpEntries`), aby engine zdieľané MCP nespustil druhýkrát. |
+| `apps/server/src/mcp.engine-sync.e2e.test.ts` | Mechanika synchronizácie beží s `LAWOSS_ENGINE_MCP_INSTANCES=0` (všetky priečinky aktívne); limit overuje nový `apps/server/src/lawoss-engine-mcp-budget.e2e.test.ts`. |
+| `apps/server/src/claude-plugin-bundle.e2e.test.ts` | MCP nainštalovaného pluginu dostane engine až po otvorení klienta (+3 riadky). |
+
+Nové LAWOSS súbory: `apps/server/src/lawoss/engine-mcp-budget.ts` + `engine-mcp-budget.test.ts`, `apps/server/src/lawoss-engine-mcp-budget.e2e.test.ts`. Upravené LAWOSS testy: `embedded-app-files.e2e.test.ts` (štart nespustí MCP žiadneho klienta), `workspace-reconnect.e2e.test.ts` (fixture odpovie aj na `/path`). Windows CI (`ci-windows-portable.yml`) spúšťa oba nové testy.
+## Engine a jeho MCP neprežijú pád appky (2026-11-05)
+
+Rozpočet RAM 2 GB, issue #367. Po páde hlavného procesu (SIGKILL) ostalo s 10 klientmi a balíkom „SK základ“ bežať 67 procesov (engine + 66× `node`) s ~4,3 GB. Na macOS a Linuxu `makeTerminator` posielal signál len priamemu potomkovi a úklid pri štarte zabil len engine, nie jeho MCP.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/managed-opencode.ts` | +1 import, +1 riadok po spustení: `watchEngineParent(child)` z nového `apps/server/src/lawoss/engine-parent-watchdog.ts` (strážny `sh` ~1 MB číta rúru od rodiča; pri jej zániku pošle enginu SIGTERM, po 5 s SIGKILL jemu aj priamym potomkom; pri bežnom konci enginu sa ukončí sám; PID enginu bez zmeny; nie na Windows). Pred záložným SIGKILL zaseknutého enginu `pkill -KILL -P` jeho priamych potomkov (mimo Windows). |
+| `apps/desktop/electron/runtime.mjs` | Úklid osiretých sidecarov pri štarte zabalenej appky číta `ps -Ao pid=,ppid=,command=` a ukončí aj celý strom potomkov osiretého enginu (MCP), engine prvý. Windows bez zmeny (taskkill). |
+
+Nový LAWOSS súbor: `apps/server/src/lawoss/engine-parent-watchdog.ts` + test so skutočnými procesmi.
+## Limit haldy V8 rendererov (2026-11-05)
+
+Rozpočet RAM 2 GB, issue #367. Renderer (okno appky, karta prehliadača, náhľad) nemal limit haldy; únik alebo obrovský dokument ho nechal rásť, kým systém nezačal swapovať. Nový `apps/desktop/electron/lawoss-memory-budget.mjs` pridá rendererom `js-flags=--max-old-space-size=512` (`LAWOSS_RENDERER_HEAP_MB`, 0 = bez limitu; explicitný limit z `ELECTRON_EXTRA_LAUNCH_ARGS` má prednosť). Pri vyčerpaní renderer skončí s `render-process-gone: oom` a existujúca obsluha okno znovu načíta (najviac 3×); engine a chaty bežia ďalej. Hlavný proces (a v ňom vložený server) týmto prepínačom obmedziť nejde, na to treba server vyčleniť do vlastného procesu (ADR).
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/desktop/electron/main.mjs` | +1 import, +1 volanie `applyRendererHeapLimit(app)` hneď po `ELECTRON_EXTRA_LAUNCH_ARGS`, pred `whenReady`. |
+| `apps/desktop/package.json` | Nový test `electron/lawoss-memory-budget.test.mjs` v zozname `test`. |
+
 ## Čitateľné Podrobnosti na karte úpravy súboru a externého priečinka (2026-10-31)
 
 Regresia N-A7 z 30. 10. 2026, nález N-A8-3: Podrobnosti ukazovali surový JSON `{ "filepath": …, "diff": … }` a `{ "filepath": …, "parentDir": … }`, blok „Kontrola“ v dialógu surový diff s hlavičkami `@@`, `+++`, `---`.
@@ -153,7 +265,7 @@ Alfa 2, oprava P3a (N-A3-3, N-18, N-A2-7; rozhodnutie MČ: čítanie dokumentov 
 | `apps/server/package.json` | Build zahŕňa `src/opencode-plugins/lawoss-memory-tools.ts`. |
 | `.github/workflows/ci-tests.yml` | Krok so skutočným enginom spúšťa aj `apps/server/src/lawoss/okf-pamat-citanie.integration.test.ts` (`LAWOSS_PAMAT_ENGINE=1`): zhrnutie spisu cez `okf-pamat` + `lawoss_memory` + `glob`/`read` bez jedinej karty, cudzí spis odmietnutý. |
 | `apps/app/src/lib/tool-activity.ts`, `apps/app/src/components/tools/tool-presentation.ts` | `lawoss_memory` má počas behu existujúci popis „Čítanie obsahu priečinka klienta“ a po skončení kategóriu čítania, nie názov nástroja. Test `apps/app/tests/lawoss-memory-tool-label.test.ts`. N-A5-7 (25. 10. 2026): pred upstream textami sa volá `lawossToolActivityLabel`/`lawossToolHistoryLabel` z LAWOSS súboru `apps/app/src/lawoss/chat/tool-labels.ts` (+1 import a 2 riadky v každom, v `tool-presentation.ts` aj kategória kroku cez `lawossToolCategory`): kroky `lawoss_documents_*`, `lawoss_files`, `legalwork_project_remote_folders`, `legalwork_shell`, `storage_*` a čítanie prepisu chatu `ses_….md` majú text pre advokáta v SK/CS/EN/DE, iný `lawoss_*` nástroj všeobecný krok. Test `apps/app/tests/lawoss-chat-kroky.test.ts`. |
-| `apps/app/src/react-app/domains/session/sync/session-sync.ts`, `apps/app/src/react-app/domains/session/sync/usechat-adapter.ts` | N-A5-2 (25. 10. 2026): textová časť modelu OpenAI vo fáze `commentary` (`metadata.openai.phase`, napr. GPT-6 Luna pred nástrojmi) sa v živom prenose (`toUIPart`) aj v načítanom chate (`snapshotToUIMessages`) mapuje na uvažovanie, takže je skrytá, kým advokát nezapne „Zobraziť uvažovanie modelu“; v načítanom chate ho ukáže ako odpoveď len správa, ktorá končí ťah (nie krok s nástrojom, `finish` „tool-calls“, #269) a nemá iný text (+1 import a 1–2 riadky v každom, pravidlo v `apps/app/src/lawoss/chat/commentary.ts`). Test `apps/app/tests/lawoss-chat-kroky.test.ts`. |
+| `apps/app/src/react-app/domains/session/sync/session-sync.ts`, `apps/app/src/react-app/domains/session/sync/usechat-adapter.ts` | N-A5-2 (25. 10. 2026): textová časť modelu OpenAI vo fáze `commentary` (`metadata.openai.phase`, napr. GPT-6 Luna pred nástrojmi) sa v živom prenose (`toUIPart`) aj v načítanom chate (`snapshotToUIMessages`) mapuje na uvažovanie, takže je skrytá, kým advokát nezapne „Zobraziť uvažovanie modelu“; ako odpoveď ho ukáže len správa, ktorá končí ťah (nie krok s nástrojom, `finish` „tool-calls“, #269) a nemá iný text: načítaný chat pri konverzii, živý prenos pri `message.updated` (časť uvažovania z komentára nesie príznak `commentary`, #269 P3) (+1 import a 1–3 riadky v každom, pravidlo v `apps/app/src/lawoss/chat/commentary.ts`). Testy `apps/app/tests/lawoss-chat-kroky.test.ts`, `apps/app/tests/lawoss-komentar-zivy-a-nacitany.test.ts`. |
 
 ## Technické texty pre advokáta (2026-10-23, P6, N-A3-6)
 
@@ -1217,7 +1329,7 @@ Baseline `dev` `34df1a4f` (po syncu v0.2.4, #161), upstream `v0.2.9`. Merge má 
 | `apps/app/src/react-app/domains/onboarding/welcome-page.tsx`, `apps/app/src/react-app/domains/workspace/create-project-modal.tsx`, `apps/app/src/react-app/domains/workspace/project-defaults-store.ts`, `apps/app/src/react-app/shell/settings-route.tsx` | Jazyk upstream šablón projektu (#268) cez `currentTemplateLocale()` z `apps/app/src/lawoss/i18n/template-locale.ts`: upstream pozná len `en` a `de`, SK a CS dostanú anglickú šablónu. |
 | `apps/app/src/react-app/shell/settings-route.tsx` | Adaptér `lawossPluginImports` (stabilný `useMemo`) nad `extensionsStore`: po importe obnoví aj `nativeIntegrations`. `firmClient` pre `McpView` len pri neskrytom `firm-hub`. Konštanta `mcpView` dostala späť `installedSkills`, `installedPlugins`, `removeCloudPlugin` a podmienený `uninstallSkill`; `catalogView={<NativeCatalog>}` a `onRefresh={refreshNativeIntegrations}` ostávajú. |
 | `apps/app/src/react-app/domains/settings/pages/extensions-view.tsx` | V novom layoute upstreamu (`IntegrationLibraryLayoutContext`): `IntegrationSourcesCard` nad záložkami, `fileMemoryView` a `Chevron7IntegrationCard` nad `mcpView` v záložke Konektory, `catalogView` nad knižnicou balíkov v záložke Plugins; filter „Tím“ skrytý pri `firm-hub`. |
-| `apps/app/src/react-app/domains/settings/pages/file-storage-view.tsx` | Natívne úložiská upstreamu (Google Drive, OneDrive, SharePoint, #272) len so zapnutým zdrojom LegalWork (`useLegalworkSource()`). |
+| `apps/app/src/react-app/domains/settings/pages/file-storage-view.tsx` | Natívne úložiská upstreamu (Google Drive, OneDrive, SharePoint, #272) len so zapnutým zdrojom LegalWork (`useLegalworkSource()`). V alfe (`lawoss/domains/integrations/alpha-storage.ts`, MČ 2. 11. 2026) sú všetky karty dialógu „Pridať úložisko“ vyblednuté a neaktívne (`alphaStorageCard`) s vysvetlivkou o lokálnych priečinkoch. |
 | `apps/app/src/react-app/domains/settings/connector-config.tsx` | Spravované prihlásenie (Nango broker na platforme Eigenwelt) sa neponúka pri skrytom `eigenwelt-account`: metóda je vždy vlastná OAuth aplikácia a výber metódy je skrytý. |
 | `apps/app/src/react-app/domains/settings/pages/skills-view.tsx`, `apps/app/src/react-app/domains/settings/pages/hub-share-dialog.tsx` | `SkillLibraryRow` má `onShare` len pri neskrytom `firm-hub`; `HubShareDialogProps.initialSelection` prevzal upstream pole `label?`. |
 | `apps/app/src/react-app/domains/settings/shell/settings-page.tsx` | Karta `appearance` ostáva v zozname aj po presune témy a jazyka do Customization (Lite nemá kartu `shell`). |
@@ -1626,6 +1738,9 @@ Alfa 2, úloha A1 (akceptácia 22. 10. 2026: N-13, N-21, dvojitá karta). Pravid
 | `packages/types/src/desktop-ipc.ts` | `HostApprovalRequest` má voliteľné `command` a `hostWide`: zložená karta shellu ukáže presný príkaz a vetu, čo jedno schválenie pokrýva (súbory, internet, priečinky mimo klienta), mimo zbaleného „Podrobnosti“. |
 | `apps/server/package.json` | Build zahŕňa `src/opencode-plugins/lawoss-file-operations.ts`. |
 | `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | Karta `lawoss_files` (`metadata.lawossFiles`): nadpis podľa úkonu, rozsah „pôvodná → nová“ / „Zmazať …“ po riadkoch (SK/CS/EN/DE v `lawoss/i18n/shell.ts`). Karta spravovaného shellu s `host.command`/`host.hostWide` ukáže príkaz a lokalizovanú vetu o rozsahu (`lawoss.shell_card.host_wide`). „Povoliť do konca konverzácie“ sa neponúka pri natívnej karte `edit` (engine by ho držal pre všetky chaty klienta), pri karte príkazu pre celý počítač, pri `external_directory` (engine si „always“ pamätá pre celú inštanciu klienta, nie konverzáciu; vlastné pripojené priečinky odpovedá plugin bez karty) ani pri `always: []`. +1 import, ~12 riadkov. |
+| `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | V `PermissionApprovalPanel` +1 import a +1 tlačidlo „Povoliť do konca konverzácie“ (`data-lawoss-session-approval`) pri karte `edit`, `lawoss_file_change` a `external_directory`, kde engine „always“ neponúka a karta nemá varovanie o inom klientovi (`offersSessionApproval` v `apps/app/src/lawoss/lite/session-approvals.ts`). Klik odpovie „once“ s voľbou `rememberForSession` (voliteľný 3. parameter `respondPermission`, -1 import). Karta so zmazaním do Koša tlačidlo nemá. Rozhodnutie MČ 2. 11. 2026, test `apps/app/tests/lawoss-povolit-pre-sedenie.test.tsx`. |
+| `apps/app/src/react-app/domains/session/sync/use-session-interactions.ts` | +1 import a +1 `useEffect`: čakajúcu otázku, ktorú pokrýva povolenie „do konca konverzácie“ z `session-approvals.ts` (chat žiadosti alebo otvorený chat), odpovie appka „once“ sama a potvrdí ju (`acknowledgeInteraction`). Rozhodnutie MČ 2. 11. 2026. |
+| `apps/app/src/react-app/domains/session/sync/use-session-interactions.ts` | Oprava po review #340. `firstPermission` preskočí žiadosť, za ktorú odpovedá appka (`answeredByApp`), takže sa neukáže ako karta a nezablokuje otázku za ňou. `respondPermission` si žiadosť vezme cez `claimPermissionReply` (+1 podmienka), takže klik počas automatickej odpovede druhú odpoveď nepošle; držiteľ je v `session-approvals.ts` mimo hooku, lebo tú istú žiadosť vidí chat aj otvorený podagent a po znovuotvorení chatu beží nový hook. Povolenie zapamätá až úspešná odpoveď, pred `acknowledgeInteraction`, aby ďalšiu čakajúcu žiadosť pokrylo pri prekreslení (3. parameter, +1 riadok). Keď odpoveď zlyhá, žiadosť ostane na karte, príde chybové hlásenie a appka ju už neodpovie (`leavePermissionToLawyer`, +1 `useState`, +2 riadky v `catch`/`finally`). |
 | `apps/server/src/agent-sandbox/service.test.ts`, `apps/server/src/runtime-opencode-config-store.test.ts` | Upstream scenáre so stavom „nič nenastavené“ teraz výslovne zapíšu `bash`/`edit` `allow` (engine default, ktorý testujú), resp. očakávajú predvolené `edit: "ask"`. |
 
 ## Otváranie obrazoviek po aktivácii klienta (2026-10-25)
@@ -1671,8 +1786,60 @@ Nález N-A8-6 z regresie 30. 10. 2026: po skončení behu ostal nad composerom p
 |---|---|
 | `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `hasActivePlan` sa počíta až za `chatStreaming` cez `planBarVisible(props.todos ?? [], chatStreaming)` namiesto `hasUnfinishedTodos(...)` (+1 import, presun 1 riadku, +1 komentár). Pruh aj jeho miesto nad composerom sú len počas behu (odosielanie, beh, opakovanie, čakanie na povolenie či odpoveď). `todo-panel.tsx` sa nemení. |
 
+### Konektory doplnkov z LAWOSS Marketplace podľa názvu doplnku (2026-11-03, feat/alfa9-po-teste-am)
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/settings/pages/mcp-view.tsx` | +1 import a 2 riadky: `displayName` a popis riadku konektora skúsia pred „Vlastný konektor“ LAWOSS súbor `apps/app/src/lawoss/domains/marketplace/mcp-servers.ts` (meno MCP servera → doplnok v snapshote marketplace). Globálne nainštalovaný doplnok sa tak volá „Slov-Lex“ s popisom z katalógu a zdrojom „Plugin: LAWOSS Marketplace“, nie „slovlex · Vlastný konektor“; upstream vyhľadanie importovaného balíka (`importedConnectorPlugin`) pozná len inštalácie do workspace. Test `apps/app/tests/lawoss-marketplace-mcp-servers.test.ts`. Dôvod: test inštalácie balíka SK základ 3. 11. 2026. |
+
+### Odpoveď prerušená zatvorením appky (2026-11-03, feat/alfa9-po-teste-am, N-A9-16)
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/sync/usechat-adapter.ts` | +1 import a 3 riadky v `snapshotToUIMessages`: odpoveď bez `time.completed` aj bez `error`, vytvorená pred načítaním appky, dostane v metadata `interrupted: true` (posledná správa len keď snapshot hlási `idle`). Rozhoduje LAWOSS súbor `apps/app/src/lawoss/chat/interrupted-run.tsx`. Len zobrazenie: stav behu, aktivita ani cache transkriptu sa nemenia. |
+| `apps/app/src/components/chat/message-list.tsx` | +1 import a 3 riadky v `MessageGroup`: skupina krokov odpovede, ktorej niektorá správa nesie tento príznak, sa nevynechá ani keď je prázdna a pod krokmi ukáže vetu „Odpoveď sa nedokončila, lebo sa aplikácia počas práce zavrela…“. Dôvod: engine odpoveď prerušenú zabitím procesu neuzavrie, chat po reštarte ukázal len kroky bez odpovede a bez vety (test 2. 11. 2026, J2). Test `apps/app/tests/lawoss-preruseny-beh.test.tsx`. |
+
 ### Pripnutý QEMU 11.1.2 pre Windows runtime (2026-10-31, fix/ci-qemu-11-1-2-pin)
 
 | Súbory | Downstream zmena a dôvod |
 | --- | --- |
 | `scripts/sandbox/ci-matrix.mjs`, `.github/workflows/sandbox-runtime.yml`, `scripts/ci/sandbox-matrix.test.mjs` | Windows položky matice nesú `qemuPackage` a `qemuSha256` balíka `qemu-11.1.2-1` z repozitára MSYS2. Krok „Download QEMU packages with retries (Windows)“ balík stiahne, overí SHA-256 a nainštaluje cez `pacman -U`; `-cc` ostáva cez `pacman -S`. Test overí pripnutie aj to, že workflow neinštaluje QEMU z hlavy repozitára. Dôvod: MSYS2 vydal 11.1.3 a `package-runtime.mjs` prijíma len overenú 11.1.2, takže `sandbox-runtime` na Windowse zlyhal a povinné „Package and launch“ sa preskočili (rozhodnutie MČ 31. 10.). Prechod na 11.1.3 je samostatný krok. |
+
+### Bezplatný model mimo onboardingu (2026-11-04, fix/bezplatny-model-mimo-onboardingu, #231)
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `apps/app/src/components/model-select.tsx`, `apps/app/src/react-app/domains/session/modals/use-model-picker.ts` | Ponuka modelov (composer, Nastavenia AI, domov, plánované úlohy, Fusion, okno výberu) číta `offeredProviderItems` z `lawoss/shell/model-readiness.ts` namiesto `getConnectedProviderItems`: upstream bezplatné modely (`isFreeModel`: `:free`, nulová cena pri `api`/`env`) sa neponúknu. Platené, vlastné a lokálne modely ostávajú. Dôvod: AGENTS.md „Do not use upstream free models with client, privileged, or matter data“; každý chat beží v priečinku klienta. Pri syncu zachovať. |
+| `apps/app/src/react-app/domains/session/chat/workspace-chat.tsx` | Model uložený pre kartu chatu (`legalwork.chat-models.v1`, posledne použitý v chate) sa hodnotí cez `modelReadiness` ako v composeri, takže bezplatný model je „nedostupný“ (predtým len `isModelAvailableInConnectedProviders`). |
+| `apps/app/src/app/lib/opencode.ts` | `createClient` odmietne `session.prompt`, `promptAsync` a `command` s modelom `:free` (`isFreeModelRequest`) chybou `session_route.model_unavailable` a nič neodošle. Poistka pre cesty mimo brány composera (hlas, pracovné postupy, úvodná správa projektu, uložené výbery). Model s nulovou cenou bez `:free` sa bez katalógu rozpoznať nedá; ten stráži `modelReadiness`. Regresia: `apps/app/tests/lawoss-free-model-paths.test.ts`. |
+### Katalóg integrácií a skilly Claude (2026-11-04, fix/255-katalog-a-skilly, #255)
+
+Nálezy N-A3-4 a N-1 z UI testu 25. 10. 2026. Pravidlá sú v LAWOSS súboroch `apps/app/src/lawoss/feature-flags.ts` (nové `isSkillHiddenByDefault`) a v nových `apps/server/src/lawoss/claude-global-skills.ts` (`isIgnoredSkillRoot`) a `apps/desktop/electron/lawoss-skill-roots.mjs` (`withoutClaudeGlobalSkills`); návrat je zmena jednej konštanty. Testy `apps/app/tests/lawoss-skryte-balicky-lehot.test.ts`, `apps/app/tests/lawoss-odinstalovanie-potvrdenie.test.tsx`, `apps/server/src/lawoss/claude-global-skills.test.ts`, `apps/desktop/electron/lawoss-skill-roots.test.mjs`.
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/settings/extension-state.ts` | +1 import a 2 riadky v `isLegalWorkExtensionHidden`: skill bez uloženej voľby (`skill:<názov>`) je skrytý, ak ho tak označí `isSkillHiddenByDefault`. Týka sa troch anglických balíkov lehôt LegalWorku (`de-/ew-civil-deadlines`, `us-federal-civil-deadlines`), ktoré server zapisuje do globálnej knižnice skillov; kalendár a výpočet lehôt alfa neprevzala. V katalógu integrácií ich ukáže len „Zobraziť skryté“ a advokát ich môže odkryť (uloží sa „0“). Nič sa nemaže. Zhodu názvov s `DEADLINE_SKILLS` stráži test. |
+| `apps/server/src/skills.ts`, `apps/server/src/skill-resources.ts` | +1 import a 1 riadok na začiatku `listSkillsInDir` a `findSkillDirInBase`: priečinok `~/.claude/skills` sa preskočí, či ide o globálny koreň, alebo o nadradený priečinok klienta bez gitu; „domov“ je `HOME` procesu aj skutočný domov z `os.userInfo()`, aby izolovaný `HOME` testovacej zostavy nečítal skutočné `~/.claude/skills`. Skilly advokáta z Claude Code sa tak nezobrazia v appke a nedostane ich ani engine (`skills.paths` v `legalwork-runtime-config.ts` berie cesty z `listSkills`; vlastné externé hľadanie enginu vypína `OPENCODE_DISABLE_EXTERNAL_SKILLS` v `managed-opencode.ts`). Skilly LAWOSS a z LAWOSS Marketplace (globálny priečinok OpenCode) a `.claude/skills` vnútri priečinka klienta sa čítajú ďalej; výslovný import z Claude (`plugin-imports.ts`) ostáva. |
+| `apps/server/src/skills-outside-link.test.ts` | Fixture globálnej knižnice, na ktorú ukazuje odkaz `.claude/skills` projektu, je `globalSkillsDir()` namiesto `~/.claude/skills` (+1 import, 3 riadky, +1 komentár). Scenár (odkaz mimo workspace sa preskočí, hľadanie pokračuje v globálnej knižnici) sa nemení. |
+| `apps/desktop/electron/main.mjs`, `apps/desktop/package.json` | +1 import; `collectProjectSkillRoots` a `collectGlobalSkillRoots` vracajú `withoutClaudeGlobalSkills(roots)` (rovnaké pravidlo ako server pre desktopový zoznam, čítanie, zápis a odinštalovanie skillov); nový test v zozname `test`. |
+### Stratená udalosť pri registrácii sledovania na macOS (2026-11-04, fix/nestabilne-testy-ci; doplnené 2026-11-06, fix/integ-352)
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `apps/server/src/reload-watcher.ts`, `apps/server/src/reload-watcher.test.ts`, nový `apps/server/src/lawoss/concurrency-limiter.ts` (+ test) | Na macOS nový `fs.watch` prebuduje spoločný FSEvents stream procesu a nedoručené udalosti ostatných sledovaní môžu zaniknúť. Neplatí to len pre Bun 1.4.2: sonda s dvoma súbormi na Node 24.21.0 stratila 4 z 90 udalostí oproti 0 z 90 v striedanej kontrole bez nového sledovania, Node 26.7.0 spolu 2 zo 114 oproti 0 z 33 (malá vzorka; Electron priamo nemeraný), preto podmienka ostáva `darwin`, nie Bun. Po registrácii (strom, `.opencode`, štart pracoviska) jediný časovač modulu po utíchnutí registrácií raz prejde živé sledovania a tie znovu porovnajú odtlačky `config`, `agents`, `skills`, `commands`, `plugins`; nezmenený odtlačok nič nevyšle a zväzkové dôvody počas bootstrapu ostávajú potlačené. Časovač je `unref` a zruší sa so zatvorením posledného sledovania. Všetky odtlačky (baseline aj kontroly, všetky platformy) idú cez spoločný front so súbehom 2, lebo čítajú celé súbory a server v desktope beží v hlavnom procese Electronu; pôvodne ich pri 4 pracoviskách bežalo 24 naraz. Voliteľné vstupy `reconcileDelayMs` (predvolene `debounceMs`) a `fingerprint` používajú len testy. Príčina náhodného `Expected: "config"` v `reload-watcher.test.ts` na macos-14 (#220, review #352). |
+### Pribalený npm pre balíky LAWOSS Marketplace (2026-11-03, fix/alfa10-pribalit-npm)
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `apps/desktop/scripts/prepare-node-runtime.mjs` | Z toho istého archívu Node (rovnaký SHA-256) sa pribalí aj npm: na všetkých platformách do `resources/node/lib/npm` (nie do `node_modules/npm`: electron-builder priečinky `node_modules` v `extraResources` vynechá, prvý beh CI zostavil appku bez npm) a vlastné spúšťače `npm` (`#!/bin/sh`, cestu berie z `$0`, nie zo symlinku ani z `#!/usr/bin/env node`) a `npm.cmd` (ten z archívu hľadá `node_modules\npm`). Oba vypínajú kontrolu novej verzie npm. `runtime.json` nesie `npm: "lib/npm"`, starší cache sa pripraví znova. Dôvod: balíky LAWOSS Marketplace spúšťajú `node scripts/run.mjs`, ktorý pri prvom behu volá `npm ci`; na počítači bez Node.js s npm MCP nenabehol („npm is required for the first run“). Zabalená appka už dáva `resources/node` do PATH enginu hneď za sidecary (`childProcessPath`), takže `npm` z neho nájde aj MCP. |
+| `apps/desktop/electron-builder.yml` | Filter `extraResources` pre `resources/node` pustí aj `npm`, `npm.cmd` a `lib/npm/**` (vrátane vnorených `node_modules` npm). |
+| `apps/desktop/electron/runtime.mjs` (bez zmeny) | Zamýšľané: `resources/node` je v PATH enginu pred systémovým PATH, takže pribalený npm prekryje systémový aj v bash nástroji agenta. Na Windows volá `run.mjs` balíkov npm bez shellu; funguje to až s opravou spúšťača z lawoss-marketplace #41 a novým snapshotom. |
+| `apps/desktop/scripts/check-packaged-security.mjs` | +1 import `checkBundledNpm` z nového `electron/lawoss-npm-smoke.mjs` a na konci volanie s riadkom PASS. Package and launch (ubuntu, `windows-2022`) overí `npm --version` a `npm ci --omit=dev --ignore-scripts` v zabalenej appke s jediným pribaleným Node v PATH. |
+### Staré verzie runtime doplnkov po aktualizácii (2026-11-04, fix/alfa10-stare-verzie-doplnkov, #357)
+
+Po aktualizácii doplnku ostávala predchádzajúca verzia runtime v `.opencode/plugin-resources/<namespace>/<sha256>` a odinštalovanie nechalo prázdne priečinky. Logika je v novom súbore `apps/server/src/lawoss/plugin-resource-cleanup.ts`: po zápise záznamu sa v tom istom namespace odstránia priečinky digestu, na ktoré neodkazuje žiadny záznam (v globálnom koreni oba záznamy `GLOBAL_MCP_ID` a `GLOBAL_PLUGIN_RECORD_ID`) ani uložené nastavenie MCP, a staging starší ako 15 minút. Odkazy sa nesledujú, chyba (zamknutý súbor na Windows) sa len zapíše do logu.
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/server/src/cloud-plugins.ts` | +1 import, nová funkcia `pruneUnusedPluginResources` (prečíta záznamy a MCP dotknutých riadkov, cestu overí cez `resolveWorkspaceInstallPath` a `assertPluginDestination`), volanie na konci `installCloudPlugin` po `writeInstalledCloudPlugins` a na konci `removeCloudPlugin` pre namespace z jeho súborov (+2 riadky). Neúspešná inštalácia sa k upratovaniu nedostane, doterajší runtime ostáva. |
+| `apps/server/src/cloud-plugin-resources.test.ts` | Posledný assert testu „failed resource update…“ tvrdil, že po úspešnej aktualizácii v1 runtime ostáva; teraz očakáva `ENOENT`. Assert po neúspešnej aktualizácii (v1 nedotknutý) ostáva. |

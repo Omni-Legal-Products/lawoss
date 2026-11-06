@@ -13,6 +13,7 @@ import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from "./runtime-opencode-con
 import { connectorConfigVariables } from "./connector-config.js";
 import { isPathWithin } from "./lawoss/path-within.js";
 import { readContentHash, readProvenance, withContentHash, withProvenance, type PluginProvenance } from "./lawoss/plugin-provenance.js";
+import { pluginResourceNamespaces, pluginResourceRecordIds, prunePluginResourceNamespace, referencedResourceEntries } from "./lawoss/plugin-resource-cleanup.js";
 
 const OPENCODE_SKILL_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const OPENCODE_MCP_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/;
@@ -679,6 +680,26 @@ async function preparePluginResources(workspaceRoot: string, namespace: string, 
   return resourceNamespace;
 }
 
+/**
+ * 🟡 LAWOSS (#357): po zápise záznamu inštalácie odstrániť verzie runtime, na ktoré už nič
+ * neodkazuje (lawoss/plugin-resource-cleanup.ts). Best-effort, inštaláciu nikdy nezhodí.
+ */
+async function pruneUnusedPluginResources(config: ServerConfig, recordId: string, workspaceRoot: string, namespace: string, global = false): Promise<void> {
+  const path = `.opencode/plugin-resources/${namespace}`;
+  try {
+    const ids = pluginResourceRecordIds(recordId, global);
+    const records = await Promise.all(ids.map((id) => readInstalledCloudPlugins(config, id)));
+    const mcp = await Promise.all(ids.map(async (id) => (await readRuntimeOpencodeConfig(config, id)).mcp));
+    await prunePluginResourceNamespace({
+      namespaceDir: resolveWorkspaceInstallPath(workspaceRoot, path, global),
+      assertSafe: () => assertPluginDestination(workspaceRoot, path, global),
+      referenced: referencedResourceEntries(records.flatMap((record) => Object.values(record.plugins)), namespace, mcp),
+    });
+  } catch (error) {
+    console.warn(`[lawoss] Skipped cleanup of plugin runtimes for ${namespace}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 async function removePluginWorkspaceFile(workspaceRoot: string, path: string, global = false): Promise<void> {
   if (!path.startsWith(".opencode/")) return;
   const absolutePath = resolveWorkspaceInstallPath(workspaceRoot, path, global);
@@ -727,6 +748,8 @@ export async function installCloudPlugin(input: {
   resourceFiles?: Array<{ path: string; bytes: Uint8Array; mode?: number }>;
   preserveSkillMetadata?: boolean;
   preserveConnectorSetup?: boolean;
+  /** Retain disabled connectors during publication, before any runtime row can expose them. */
+  disabledMcpNames?: ReadonlySet<string>;
   provenance?: PluginProvenance | null;
   /** LAWOSS: logické cesty, ktoré aktualizácia neprepíše (advokát si ponechal svoju úpravu). */
   preserve?: ReadonlySet<string>;
@@ -755,7 +778,8 @@ export async function installCloudPlugin(input: {
       for (const config of configs) {
         connectorDefaults[config.name] = input.resolved.plugin.connectorDefaults?.[config.name] ?? config.config;
         const previousConfig = previousMcp[config.name];
-        const connection = existing && previousConfig ? mergeConnectorSetup(config.config, previousConfig, existing.connectorDefaults?.[config.name]) : config.config;
+        const merged = existing && previousConfig ? mergeConnectorSetup(config.config, previousConfig, existing.connectorDefaults?.[config.name]) : config.config;
+        const connection = input.disabledMcpNames?.has(config.name) ? { ...merged, enabled: false } : merged;
         // Plugins are installed per workspace, so the MCPs they bring stay with it.
         await addMcp(input.serverConfig, input.workspaceId, config.name, connection, input.global ? "global" : "workspace");
         files.push({
@@ -853,6 +877,7 @@ export async function installCloudPlugin(input: {
     marketplaces: { ...current.marketplaces, ...nextMarketplaces },
     plugins: { ...current.plugins, [input.resolved.plugin.id]: imported },
   }));
+  await pruneUnusedPluginResources(input.serverConfig, input.workspaceId, input.workspaceRoot, namespace, input.global);
 
   return imported;
 }
@@ -896,6 +921,7 @@ export async function removeCloudPlugin(input: {
     }));
     return { ...current, marketplaces, plugins };
   });
+  for (const namespace of pluginResourceNamespaces(imported.files)) await pruneUnusedPluginResources(input.serverConfig, registryId, input.workspaceRoot, namespace, global);
 
   return imported;
 }

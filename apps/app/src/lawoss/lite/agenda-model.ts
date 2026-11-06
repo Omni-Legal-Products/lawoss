@@ -8,7 +8,7 @@ import { deadlineKey, isOfficeFile, recordDeadlines, recordKey, type MatterInput
 import { isManagedDeadline, managedDeadlineTrusted } from "../../../../../lawoss/okf/deadline-workflow";
 import { deadlineText, isCalendarDay } from "../okf/view-rules";
 import { APP_TASKS_PATH, liteDeadlineLink, liteMatterLink } from "./links";
-import type { TodayTask } from "./today-model";
+import { clientOf, type TodayTask } from "./today-model";
 
 export type AgendaKind = "deadline" | "work" | "candidate";
 export const AGENDA_KINDS: readonly AgendaKind[] = ["deadline", "work", "candidate"];
@@ -20,6 +20,8 @@ export type AgendaEvent = {
   date: string;
   title: string;
   matter: { path: string; title: string };
+  /** Meno klienta, ak sa líši od názvu prípadu (N-A9-15: v agende dňa praxe 66 rovnakých úloh bez klienta). */
+  client?: string;
   /** Lehota z kancelárie, nie z prípadu. */
   office?: true;
   link: string;
@@ -31,7 +33,7 @@ type Source = {
   matters: readonly MatterOverview[];
   upcomingDeadlines: readonly UpcomingDeadline[];
   overdue: readonly UpcomingDeadline[];
-  inputs: readonly Pick<MatterInput, "path" | "records" | "recordFiles" | "deadlineWorkflowEvidence">[];
+  inputs: readonly (Pick<MatterInput, "path" | "records" | "recordFiles" | "deadlineWorkflowEvidence"> & Partial<Pick<MatterInput, "scopePaths" | "clientTitle">>)[];
 };
 
 const byDateThenTitle = (a: AgendaEvent, b: AgendaEvent): number =>
@@ -40,27 +42,34 @@ const byDateThenTitle = (a: AgendaEvent, b: AgendaEvent): number =>
 /** Všetky udalosti rozsahu (prax alebo klient) bez časového okna; zdieľaný záznam raz. Úlohy aplikácie (N-A5-4) s dátumom sú pracovné termíny. */
 export function agendaEvents(source: Source, appTasks: readonly TodayTask[] = []): AgendaEvent[] {
   const out = new Map<string, AgendaEvent>();
+  const inputs = new Map(source.inputs.map((input) => [input.path, input]));
+  // Klient rovnakým pravidlom ako skupiny na Dnes (`clientOf`); meno rovné názvu prípadu sa neopakuje.
+  const clientName = (matter: { path: string; title: string }): { client?: string } => {
+    const name = clientOf(matter, inputs.get(matter.path)).name?.trim();
+    return name && name !== matter.title ? { client: name } : {};
+  };
   for (const d of [...source.overdue, ...source.upcomingDeadlines]) {
     if (d.invalid || !isCalendarDay(d.date)) continue;
     const key = `deadline:${deadlineKey(d)}`;
-    if (!out.has(key)) out.set(key, { key, kind: "deadline", date: d.date, title: deadlineText(d), matter: { path: d.matter.path, title: d.matter.title }, ...(isOfficeFile(d.file) ? { office: true as const } : {}), link: liteDeadlineLink(d.matter.path, d.recordId, d.date) });
+    if (!out.has(key)) out.set(key, { key, kind: "deadline", date: d.date, title: deadlineText(d), matter: { path: d.matter.path, title: d.matter.title }, ...clientName(d.matter), ...(isOfficeFile(d.file) ? { office: true as const } : {}), link: liteDeadlineLink(d.matter.path, d.recordId, d.date) });
   }
   for (const matter of source.matters) {
     for (const task of matter.openTasks) {
       const due = task.due?.trim().slice(0, 10);
       const key = `work:${recordKey(matter.path, task)}`;
       if (!due || !isCalendarDay(due) || out.has(key)) continue;
-      out.set(key, { key, kind: "work", date: due, title: task.title, matter: { path: matter.path, title: matter.title }, link: liteMatterLink(matter.path) });
+      out.set(key, { key, kind: "work", date: due, title: task.title, matter: { path: matter.path, title: matter.title }, ...clientName(matter), link: liteMatterLink(matter.path) });
     }
   }
   const titles = new Map(source.matters.map((m) => [m.path, m.title]));
   for (const input of source.inputs) {
     for (const record of input.records) {
       if (!isManagedDeadline(record) || managedDeadlineTrusted(record, input.deadlineWorkflowEvidence)) continue;
+      const matter = { path: input.path, title: titles.get(input.path) ?? input.path };
       for (const d of recordDeadlines(record)) {
         const key = `candidate:${recordKey(input.path, { id: record.id, file: input.recordFiles?.[record.id] })}\u0000${d.date}`;
         if (d.invalid || out.has(key)) continue;
-        out.set(key, { key, kind: "candidate", date: d.date, title: record.title, matter: { path: input.path, title: titles.get(input.path) ?? input.path }, link: liteMatterLink(input.path) });
+        out.set(key, { key, kind: "candidate", date: d.date, title: record.title, matter, ...clientName(matter), link: liteMatterLink(input.path) });
       }
     }
   }
@@ -69,7 +78,10 @@ export function agendaEvents(source: Source, appTasks: readonly TodayTask[] = []
     if (!due || !isCalendarDay(due)) continue;
     out.set(`work:${task.key}`, { key: `work:${task.key}`, kind: "work", date: due, title: task.title, matter: { path: "", title: task.app?.client ?? "" }, link: APP_TASKS_PATH, appTaskId: task.id });
   }
-  return [...out.values()].sort(byDateThenTitle);
+  const events = [...out.values()].sort(byDateThenTitle);
+  // Jeden klient v rozsahu (Domov klienta, prax s jedným klientom): meno by sa len opakovalo.
+  if (new Set(events.flatMap((event) => event.client ? [event.client] : [])).size > 1) return events;
+  return events.map(({ client: _client, ...event }) => event);
 }
 
 /** Udalosti po dňoch (kľúč RRRR-MM-DD). */

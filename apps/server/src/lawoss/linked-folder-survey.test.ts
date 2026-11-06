@@ -4,7 +4,7 @@ import { afterEach, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { surveyLinkedFolder } from "./linked-folder-survey.js";
+import { otherClientCode, surveyLinkedFolder } from "./linked-folder-survey.js";
 
 const roots: string[] = [];
 const locked: string[] = [];
@@ -58,4 +58,21 @@ test("výnimka pamäte kancelárie len pre kanceláriu vlastnej praxe, nie pre O
   }
   expect(await surveyLinkedFolder(join(root, "Dáta", "Prax", "Office"), own)).toBeNull();
   expect(await surveyLinkedFolder(join(root, "Office"), own)).toEqual({ kind: "practice" });
+});
+
+// N-A9-14 (test 2. 11. 2026): kanárik „C999 SYN Kanarik“ mimo praxe sa ku klientovi C001 pripojil bez otázky.
+test("priečinok s kódom iného klienta tej istej rady pýta potvrdenie, vec a iná rada nie", async () => {
+  const root = await temp();
+  const own = join(root, "Prax", "C001 SYN Tatran");
+  const canary = join(root, "Kanarik", "C999 SYN Kanarik");
+  await mkdir(own, { recursive: true });
+  await mkdir(canary, { recursive: true });
+  await writeFile(join(canary, "Podklady.pdf"), "x");
+  expect(await surveyLinkedFolder(canary, own)).toEqual({ kind: "other_code", code: "C999" });
+  expect(otherClientCode(join(root, "M049 Reklamácia"), own)).toBeNull();
+  expect(otherClientCode(join(root, "C001 kópia"), own)).toBeNull();
+  expect(otherClientCode(canary, join(root, "Novák"))).toBeNull();
+  expect(otherClientCode(canary, null)).toBeNull();
+  // NFD z macOS: „Č“ s háčkom v rozloženom tvare je tá istá rada.
+  expect(otherClientCode(join(root, "Č002 Iný".normalize("NFD")), join(root, "Č001 Vlastný"))).toBe("Č002");
 });

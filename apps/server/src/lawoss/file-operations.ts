@@ -100,7 +100,8 @@ export function visibleName(text: string): string {
     (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
 }
 
-type Root = { path: string; canonical: string; label: string | null };
+/** `offline`: a linked folder that cannot be reached now (N-A9-9); its `canonical` is only the written path. */
+type Root = { path: string; canonical: string; label: string | null; offline?: true };
 
 /**
  * Card labels of linked folders. Two with the same name are told apart by their parent, then by the full path.
@@ -117,12 +118,27 @@ export function linkedFolderLabels(linked: readonly string[], paths: Pick<Platfo
   });
 }
 
+/** Errors of a folder that is not there now: an unmounted volume, a server that does not answer, a lost share. */
+const OFFLINE_CODES = new Set(["ENOENT", "ENOTDIR", "EACCES", "EPERM", "ETIMEDOUT", "EHOSTDOWN", "EHOSTUNREACH", "ENXIO", "EIO", "ESTALE"]);
+
 async function clientRoots(config: ServerConfig, workspace: WorkspaceInfo): Promise<Root[]> {
   const linked = await linkableFolders(config, workspace, authorizedFolders(runtimeExternalDirectory(await readRuntimeOpencodeConfig(config, workspace.id))));
   const labels = linkedFolderLabels(linked);
   const roots = [{ path: workspace.path, label: null }, ...linked.map((folder, index) => ({ path: folder, label: labels[index]! }))];
-  return Promise.all(roots.map(async (root) => ({ ...root, canonical: await resolveWorkspaceFilePath(root.path, ".", { allowRoot: true }) })));
+  // N-A9-9 (test 2. 11. 2026): a linked NAS that was disconnected made every change in the client fail with ENOENT.
+  // Only the client's own folder must be reachable; a missing linked folder is skipped and named when a path is in it.
+  return Promise.all(roots.map(async (root, index) => {
+    const canonical = await resolveWorkspaceFilePath(root.path, ".", { allowRoot: true }).catch((error: unknown) => {
+      // Only an unreachable folder is skipped; a boundary refusal (ApiError) or another failure still stops the plan.
+      const code = error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : "";
+      if (index === 0 || !OFFLINE_CODES.has(code)) throw error;
+      return null;
+    });
+    return canonical ? { ...root, canonical } : { ...root, canonical: root.path, offline: true as const };
+  }));
 }
+
+const offlineRoot = (label: string) => `The linked folder ${visibleName(label)} cannot be reached now (for example a network drive that is disconnected). Nothing was changed. Ask the user to connect it and try again.`;
 
 /** Compared case-insensitively and without trailing dots/spaces, as APFS and NTFS resolve names. */
 const PROTECTED_SEGMENTS = new Set([".git", LAWOSS_TRASH_FOLDER]);
@@ -177,6 +193,7 @@ async function foldersAfterPlan(directory: string, pending: Pending): Promise<st
 
 async function expandCaseCodes(roots: Root[], requested: string, nested: readonly string[], pending: Pending): Promise<string> {
   for (const root of isAbsolute(requested) ? roots : roots.slice(0, 1)) {
+    if (root.offline) continue;
     const inside = relative(root.path, isAbsolute(requested) ? requested : join(root.path, requested));
     if (!inside || inside.startsWith("..") || isAbsolute(inside)) continue;
     const parts = inside.split(sep);
@@ -214,6 +231,11 @@ async function expandCaseCodes(roots: Root[], requested: string, nested: readonl
 async function locate(roots: Root[], written: string, nested: readonly string[], pending: Pending | null): Promise<Located> {
   const requested = pending ? await expandCaseCodes(roots, written, nested, pending) : written;
   for (const root of roots) {
+    if (root.offline) {
+      if (isAbsolute(requested) && isPathWithin(folded(root.path), folded(requested)))
+        throw new ApiError(409, "file_operation_folder_offline", offlineRoot(root.label ?? root.path));
+      continue;
+    }
     const canonical = await resolveWorkspaceFilePath(root.path, requested, { preserveLeaf: true }).catch(() => null);
     if (!canonical) continue;
     if (inNestedClient(nested, canonical)) throw new ApiError(403, "file_operation_outside_client", OUTSIDE);
@@ -429,23 +451,28 @@ async function moveToTrash(config: ServerConfig, item: Planned): Promise<Trashed
 }
 
 const errorCode = (error: unknown) => error instanceof Error && "code" in error ? error.code : undefined;
+const messageOf = (error: unknown) => error instanceof Error ? error.message : String(error);
 const targetExists = (item: Planned) => new ApiError(409, "file_operation_target_exists", `${item.to} already exists. This tool never overwrites. Nothing was changed. ${NEW_NAME}`);
 
-/** Content of a file or folder tree: names, kinds, sizes, SHA-256 of files and link targets. */
-async function treeDigest(location: string, signal?: AbortSignal): Promise<string> {
+/** Content of a file or folder tree: names, kinds, sizes, SHA-256 of files and link targets. Exported for tests. */
+export async function treeDigest(location: string, signal?: AbortSignal): Promise<string> {
   const hash = createHash("sha256");
   const pending = [location];
-  while (pending.length) {
+  // An index, not `shift()`, which is quadratic for a large folder under V8. Same breadth-first order, same digest.
+  for (let next = 0; next < pending.length; next += 1) {
     // Between files, not inside a read: the copy is removed after an abort, and an open handle would block that on Windows.
     signal?.throwIfAborted();
-    const current = pending.shift() ?? location;
+    const current = pending[next] ?? location;
     const info = await lstat(current);
     // A network share may store names in another Unicode form: compare the names, not their bytes.
     const name = relative(location, current).split(sep).join("/").normalize("NFC");
     if (info.isSymbolicLink()) hash.update(`L\0${name}\0${await readlink(current)}\n`);
     else if (info.isDirectory()) {
       hash.update(`D\0${name}\n`);
-      for (const child of (await readdir(current)).sort()) pending.push(join(current, child));
+      // Sorted by the NFC name as well: the NFD (APFS) and NFC (SMB) forms of „á“ sort on opposite sides of „b“ (#221).
+      const children = (await readdir(current)).map((child) => ({ child, key: child.normalize("NFC") }));
+      children.sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : a.child < b.child ? -1 : a.child > b.child ? 1 : 0);
+      for (const { child } of children) pending.push(join(current, child));
     } else if (!info.isFile()) throw new Error(`${name || "The item"} is not a regular file or folder and cannot be moved to another drive. Nothing was moved.`);
     else {
       const file = createHash("sha256");
@@ -471,9 +498,13 @@ export async function moveAcrossVolumes(config: ServerConfig, item: Planned & { 
     // The last file is read after treeDigest's own check: a chat stopped during that read keeps its original.
     signal?.throwIfAborted();
   } catch (error) {
-    // Only the copy this call made is removed: the plan checked that the target did not exist.
-    if (errorCode(error) !== "EEXIST" && errorCode(error) !== "ERR_FS_CP_EEXIST") await rm(item.target, { recursive: true, force: true });
-    throw errorCode(error) === "EEXIST" || errorCode(error) === "ERR_FS_CP_EEXIST" ? targetExists(item) : error;
+    if (errorCode(error) === "EEXIST" || errorCode(error) === "ERR_FS_CP_EEXIST") throw targetExists(item);
+    // Only the copy this call made is removed: the plan checked that the target did not exist. When that fails too,
+    // the move's own error stays first and is the cause; the user also learns that the copy is still there (#221).
+    await rm(item.target, { recursive: true, force: true }).catch((cleanup: unknown) => {
+      throw new Error(`${messageOf(error)} The incomplete copy ${item.to} could not be removed (${String(errorCode(cleanup) ?? "error")}); remove it before trying again.`, { cause: error });
+    });
+    throw error;
   }
   try { return (await moveToTrash(config, item)).shown; }
   catch (error) { throw new Error(`The copy on the other drive is complete, but the original could not be moved to the Trash, so both exist now: ${error instanceof Error ? error.message : String(error)}`); }
@@ -503,10 +534,25 @@ async function moveWithoutReplacing(config: ServerConfig, item: Planned & { sour
     // No hard links on this volume (FAT, exFAT, some network shares): rename after checking the target is free.
     return checkedRename(config, item, signal);
   }
-  // The old name stays when the file is held open (Windows): drop the new one so the move fails cleanly.
-  try { await unlink(item.source); }
-  catch (error) { await unlink(item.target).catch(() => {}); throw error; }
+  await dropOldName(item);
   return undefined;
+}
+
+/**
+ * The old name stays when the file is held open (Windows, a document open in Word: `EBUSY`): drop the new name so the
+ * move fails cleanly. The same lock usually blocks that too; the user then learns that the file has both names, rather
+ * than a retry failing later with „already exists“ (#221).
+ */
+async function dropOldName(item: Planned & { source: string; target: string }): Promise<void> {
+  try { await unlink(item.source); return; }
+  catch (error) {
+    const reason = errorCode(error) === "EBUSY" ? `${item.from} is open in another program, so it was not moved. Close it and try again.`
+      : `${item.from} could not be removed from its old place (${String(errorCode(error) ?? "error")}), so it was not moved.`;
+    await unlink(item.target).catch((undo: unknown) => {
+      throw new Error(`${reason} The file now has both names, ${item.from} and ${item.to}: one file, not a copy. After closing it, remove ${item.to} to undo the move, or ${item.from} to finish it (${String(errorCode(undo) ?? "error")}).`, { cause: error });
+    });
+    throw new Error(`${reason} Nothing was moved.`, { cause: error });
+  }
 }
 
 async function execute(config: ServerConfig, item: Planned, signal?: AbortSignal): Promise<Trashed | undefined> {

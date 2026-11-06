@@ -1,4 +1,5 @@
 import { getMcpServerName, type McpDirectoryInfo } from "../../../app/constants";
+import { isSkillHiddenByDefault } from "@/lawoss/feature-flags";
 
 const EXTENSION_DISABLED_KEY_PREFIX = "legalwork.extension.disabled.";
 const EXTENSION_ENABLED_KEY_PREFIX = "legalwork.extension.enabled.";
@@ -45,7 +46,9 @@ export function isLegalWorkExtensionHidden(entryOrId: McpDirectoryInfo | string)
   const stored = window.localStorage.getItem(`${EXTENSION_HIDDEN_KEY_PREFIX}${id}`);
   if (stored === "1") return true;
   if (stored === "0") return false;
-  return typeof entryOrId !== "string" && entryOrId.defaultHidden === true;
+  // 🟡 LAWOSS: balíky lehôt LegalWorku sú v katalógu predvolene skryté (`lawoss/feature-flags.ts`).
+  if (typeof entryOrId === "string") return id.startsWith("skill:") && isSkillHiddenByDefault(id.slice("skill:".length));
+  return entryOrId.defaultHidden === true;
 }
 
 export function setLegalWorkExtensionHidden(entryOrId: McpDirectoryInfo | string, hidden: boolean) {

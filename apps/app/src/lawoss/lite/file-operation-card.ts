@@ -10,6 +10,8 @@
  * karte úprav (`edit`), pri `external_directory` (vlastné pripojené priečinky odobrí plugin bez karty,
  * takže karta je vždy na priečinok mimo klienta), keď engine nemá čo uložiť (`always: []`, napr.
  * `lawoss_files`) ani pri karte príkazu, ktorá pokrýva celý počítač (server ju nepamätá).
+ * Pri úpravách a priečinku mimo chatu ponúka karta namiesto toho povolenie, ktoré si appka drží len
+ * pre tento chat (`session-approvals.ts`, MČ 2. 11. 2026).
  */
 import { t } from "@/i18n";
 import type { PendingPermission } from "@/app/types";
@@ -86,7 +88,22 @@ function title(changes: PlannedChange[]): string {
  * next to the item deleted or moved is named right under the change, so the lawyer sees which one goes.
  */
 function warnings(change: PlannedChange): string[] {
+  if (scratchFolder(change)) return [t("lawoss.files.scratch_note")];
   return change.similar?.length ? [t("lawoss.files.similar_warning", undefined, { path: change.from ?? "", names: change.similar.join(", ") })] : [];
+}
+
+/**
+ * N-A9-13 (test 2. 11. 2026): pred „Spusti v termináli ls“ agent pýtal „Nový priečinok: .legalwork/scratch/terminal-ls“
+ * bez vysvetlenia. Pracovný priečinok agenta (pokyn enginu: dočasné súbory len v `.legalwork/scratch/<úloha>`) dostane vetu.
+ */
+const scratchFolder = (change: PlannedChange): boolean =>
+  change.operation === "create_folder" && /(?:^|\/)\.legalwork\/scratch(?:\/|$)/.test(change.to ?? "");
+
+/** Can this request delete anything? A plan that cannot be read counts as yes, it may hide a deletion. */
+export function mayDeleteFiles(metadata: Record<string, unknown>): boolean {
+  if (metadata.lawossFiles === undefined) return false;
+  const changes = plannedChanges(metadata);
+  return !changes || changes.some((change) => change.operation === "delete");
 }
 
 /** The card's readable content, or `null` when the request is not from `lawoss_files`. */

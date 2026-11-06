@@ -8,6 +8,7 @@ import { parseFrontmatter, buildFrontmatter } from "./frontmatter.js";
 import { exists } from "./utils.js";
 import { validateDescription, validateSkillName } from "./validators.js";
 import { isOutsideWorkspacePath, resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
+import { isIgnoredSkillRoot } from "./lawoss/claude-global-skills.js";
 import { ApiError } from "./errors.js";
 import { globalSkillsDir, projectSkillsDir } from "./workspace-files.js";
 import { BUNDLED_WORKFLOW_NAMES, originalBundledWorkflow } from "./bundled-workflows.js";
@@ -118,6 +119,8 @@ async function parseSkillEntry(
 }
 
 export async function listSkillsInDir(dir: string, scope: "project" | "global", skipped?: SkippedSkill[], workspaceRoot?: string): Promise<SkillItem[]> {
+  // 🟡 LAWOSS: globálne skilly Claude (~/.claude/skills) sa nečítajú (lawoss/claude-global-skills.ts).
+  if (isIgnoredSkillRoot(dir)) return [];
   let readableDir = dir;
   if (workspaceRoot) {
     try {

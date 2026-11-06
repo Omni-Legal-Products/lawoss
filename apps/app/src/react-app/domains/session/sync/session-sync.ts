@@ -34,7 +34,7 @@ import {
   resolveInteractionLineage, refreshWorkspaceInteractions, createInteractionSnapshot,
   interactionRequestKey, interactionSessionIds, interactionSessionsKey, noteInteractionFolder, type InteractionSessions, type InteractionSnapshot,
 } from "./interaction-state";
-import { isModelCommentary } from "@/lawoss/chat/commentary";
+import { commentaryTag, isModelCommentary, keepCommentaryAnswer, withCommentaryAnswer } from "@/lawoss/chat/commentary";
 export { permissionKey, questionKey, seedPermissionState, seedQuestionState } from "./interaction-state";
 
 type SyncOptions = {
@@ -533,7 +533,7 @@ function toUIPart(part: Part): UIMessage["parts"][number] | null {
       type: isModelCommentary(part) ? "reasoning" : "text",
       text: part.text,
       state: "done",
-      providerMetadata: { opencode: { partId: part.id } },
+      providerMetadata: { opencode: { partId: part.id, ...commentaryTag(part) } },
     };
   }
   if (part.type === "reasoning") {
@@ -634,7 +634,7 @@ function upsertPart(messages: UIMessage[], messageId: string, partId: string, ne
       return { ...message, parts: [...message.parts, next] };
     }
     const parts = message.parts.slice();
-    parts[index] = next;
+    parts[index] = keepCommentaryAnswer(message.parts[index]!, next); // 🟡 LAWOSS: koniec ťahu ukázal komentár ako odpoveď (#348).
     return { ...message, parts };
   });
 }
@@ -1079,9 +1079,13 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), ...(info.summary ? { summary: true } : {}) } },
       parts: [],
     } satisfies UIMessage;
-    queryClient.setQueryData<UIMessage[]>(transcriptKey(workspaceId, info.sessionID), (current = []) =>
-      upsertMessage(current, next),
-    );
+    // 🟡 LAWOSS: koniec ťahu hneď po komentári ukáže komentár ako odpoveď aj naživo, ako v načítanom chate (#269).
+    queryClient.setQueryData<UIMessage[]>(transcriptKey(workspaceId, info.sessionID), (current = []) => {
+      const messages = upsertMessage(current, next); // Vždy nové pole, prepnúť sa dá len táto správa.
+      const index = messages.findIndex((message) => message.id === info.id);
+      messages[index] = withCommentaryAnswer(messages[index]!, info);
+      return messages;
+    });
     return;
   }
 

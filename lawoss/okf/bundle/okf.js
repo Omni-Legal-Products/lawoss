@@ -1403,6 +1403,7 @@ var looksLikeMatterFolder = (name) => codeOf(name) !== undefined || looksLikeMat
 // src/onboarding/suggest.ts
 var PRACTICE_MIN_CLIENTS = 5;
 var PRACTICE_MIN_RATIO = 0.5;
+var WRAPPER_SCORE = 0.6;
 var CODED_MIN_CLIENTS = 2;
 var CODED_SCORE = 0.8;
 var LEGACY_OFFICE_SCORE = 0.9;
@@ -1506,11 +1507,32 @@ function codedHierarchy(index, candidates) {
   if (childPrefixes.some((found) => found.includes(prefix)))
     return false;
   const withMatters = childPrefixes.filter((found) => found.length > 0).length;
-  return withMatters >= CODED_MIN_CLIENTS && withMatters * 2 >= coded.length;
+  return withMatters >= CODED_MIN_CLIENTS && withMatters * 2 > coded.length;
 }
-function legacyOffice(index) {
-  const office = OFFICE_DIRS.some((name) => childrenOf(index, name).some((entry) => OFFICE_EVIDENCE.has(nameOf(entry.path).toLowerCase())));
-  return office && childrenOf(index, CLIENTS_DIR).some((client) => client.kind === "directory" && childrenOf(index, client.path).some((entry) => entry.kind === "file" && CLIENT_CARDS.has(nameOf(entry.path).toLowerCase())));
+function legacyOffice(index, under = "") {
+  const prefix = under ? `${under}/` : "";
+  const office = OFFICE_DIRS.some((name) => childrenOf(index, `${prefix}${name}`).some((entry) => OFFICE_EVIDENCE.has(nameOf(entry.path).toLowerCase())));
+  return office && childrenOf(index, `${prefix}${CLIENTS_DIR}`).some((client) => client.kind === "directory" && childrenOf(index, client.path).some((entry) => entry.kind === "file" && CLIENT_CARDS.has(nameOf(entry.path).toLowerCase())));
+}
+function practiceLike(index, files, child) {
+  if (OFFICE_DIRS.some((office) => files.has(`${child}/${office}/okf.config`)))
+    return true;
+  if (legacyOffice(index, child))
+    return true;
+  return childrenOf(index, child).some((entry) => entry.kind === "directory" && nameOf(entry.path) === CLIENTS_DIR);
+}
+function singleClientWrapper(index, root, dirs) {
+  const [only] = dirs;
+  if (dirs.length !== 1 || !only || codeOf(basename2(root)))
+    return;
+  const code = codeOf(nameOf(only.path));
+  if (!code || startsWithMatterWord(code.rest) || looksLikeMatterName(nameOf(only.path)))
+    return;
+  const matters = matterLevelDirs(index, only.path).flatMap((entry) => {
+    const child = codeOf(nameOf(entry.path));
+    return child ? [child.prefix] : [];
+  });
+  return matters.length > 0 && matters.every((prefix) => prefix !== code.prefix) ? only : undefined;
 }
 var depthOf = (path) => path ? path.split("/").length : 0;
 function mattersOf(index, files, unit, unitName) {
@@ -1583,6 +1605,9 @@ async function suggestFromSurvey(survey) {
   }
   if (!top.length)
     return { ...base, level: "unknown", marked: false, score: 0, signals: ["empty"] };
+  const childPractices = top.filter((entry) => entry.kind === "directory" && practiceLike(index, files, entry.path)).map((entry) => rawNameOf(entry.path));
+  if (childPractices.length >= 2)
+    return { ...base, level: "unknown", marked: false, score: 0, signals: ["several_practices"], childPractices };
   const legal = clientCandidates.filter((candidate) => hasLegalForm(nameOf(candidate.path)));
   const withMatters = clientCandidates.filter((candidate) => childrenOf(index, candidate.path).some((entry) => entry.kind === "directory" && looksLikeMatterName(nameOf(entry.path))));
   const clientish = new Set([...legal, ...withMatters].map((candidate) => candidate.path));
@@ -1604,6 +1629,11 @@ async function suggestFromSurvey(survey) {
       signals.push("matter_named_children");
     const score = coded ? Math.max(round(ratio), CODED_SCORE) : signals.length === 1 && signals[0] === "matter_named_children" ? Math.min(round(ratio), WEAK_SCORE) : round(ratio);
     return { ...base, level: "practice", marked: false, score, signals, clientPattern: heuristicPattern, clients: heuristicClients, practiceCandidates: heuristicClients, practicePattern: heuristicPattern };
+  }
+  const wrapped = singleClientWrapper(index, survey.root, dirs);
+  if (wrapped && !await findAncestorOffice(survey.root)) {
+    const clients = [{ path: wrapped.path, name: nameOf(wrapped.path) }];
+    return { ...base, level: "practice", marked: false, score: WRAPPER_SCORE, signals: ["single_client_wrapper"], clientPattern: "*", clients, practiceCandidates: clients, practicePattern: "*" };
   }
   if (looksLikeMatterName(basename2(survey.root)))
     return { ...base, level: "matter", marked: false, score: 0.8, signals: ["matter_named_root"] };

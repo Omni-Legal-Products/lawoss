@@ -87,18 +87,31 @@ export function marketplacePluginUrl(sha: string, path: string): string {
 
 const SEMVER_TAG = /^v?(\d+)\.(\d+)\.(\d+)$/;
 
+const compareParts = (a: readonly number[], b: readonly number[]): number => {
+  for (let index = 0; index < 3; index += 1) if ((a[index] ?? 0) !== (b[index] ?? 0)) return (a[index] ?? 0) - (b[index] ?? 0);
+  return 0;
+};
+
 /** Najvyšší tag v tvare `vX.Y.Z` (alebo `X.Y.Z`); iné tagy sa ignorujú. */
 export function highestVersionTag(names: readonly string[]): string | null {
   const versions = names.flatMap((name) => {
     const match = SEMVER_TAG.exec(name);
     return match ? [{ name, parts: match.slice(1).map(Number) }] : [];
   });
-  const compare = (a: number[], b: number[]) => {
-    for (let index = 0; index < 3; index += 1) if ((a[index] ?? 0) !== (b[index] ?? 0)) return (a[index] ?? 0) - (b[index] ?? 0);
-    return 0;
-  };
-  versions.sort((a, b) => compare(b.parts, a.parts));
+  versions.sort((a, b) => compareParts(b.parts, a.parts));
   return versions[0]?.name ?? null;
+}
+
+/**
+ * Je verzia vydania novšia ako nainštalovaná? Appka môže inštalovať z katalógu novšieho ako posledné vydanie
+ * (pribalený katalóg pripnutý na commit za tagom); staršie vydanie sa potom nesmie ponúknuť ako aktualizácia.
+ * Neznáma alebo nečíselná verzia sa porovná len na rovnosť, ako doteraz.
+ */
+export function isNewerVersion(available: string, installed: string | null): boolean {
+  if (available === installed) return false;
+  const next = SEMVER_TAG.exec(available), current = installed === null ? null : SEMVER_TAG.exec(installed);
+  if (!next || !current) return true;
+  return compareParts(next.slice(1).map(Number), current.slice(1).map(Number)) > 0;
 }
 
 async function getJson(fetchImpl: Fetch, url: string): Promise<{ status: number; body: unknown }> {

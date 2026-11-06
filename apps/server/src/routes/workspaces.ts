@@ -40,7 +40,8 @@ interface RegisterWorkspaceRoutesOptions {
   ensureWritable: (config: ServerConfig) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
   serializeWorkspace: (workspace: ServerConfig["workspaces"][number]) => unknown;
-  reloadOpencodeEngine: (config: ServerConfig, workspace: WorkspaceInfo) => Promise<void>;
+  // LAWOSS: engine sa pri aktivácii obnoví na pozadí; výsledok príde najneskôr po krátkom čakaní (issue #367).
+  startEngineActivation: (config: ServerConfig, workspace: WorkspaceInfo) => Promise<{ error?: unknown }>;
   /** Project sync (project-sync.ts) hears about local edits it has to carry to the firm. */
   onProjectDetailsSaved: (workspaceId: string, before: ProjectField[], after: ProjectField[]) => Promise<void>;
   onProjectRenamed: (workspaceId: string, name: string) => Promise<void>;
@@ -364,7 +365,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     ensureWritable,
     resolveWorkspace,
     serializeWorkspace,
-    reloadOpencodeEngine,
+    startEngineActivation,
     onProjectDetailsSaved,
     onProjectRenamed,
     onProjectRemoved,
@@ -718,7 +719,8 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
   });
 
   addRoute(routes, "POST", "/workspaces/:id/activate", "host", async (ctx) => {
-    return serializeWorkspaceMutation(config, async () => {
+    let engineActivation: Promise<{ error?: unknown }> = Promise.resolve({});
+    const activated = await serializeWorkspaceMutation(config, async () => {
       const workspace = await resolveWorkspaceForRegistry(ctx.params.id);
       // Engine activation can create its state directory. Validate the original
       // local folder first, so a disconnected project is not replaced by an empty one.
@@ -743,10 +745,13 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
         timestamp: Date.now(),
       });
       if (workspace.workspaceType === "local" && resolveWorkspaceOpencodeConnection(config, workspace).baseUrl?.trim()) {
-        await reloadOpencodeEngine(config, workspace);
+        engineActivation = startEngineActivation(config, workspace);
       }
       return jsonResponse({ activeId: workspace.id, workspace: serializeWorkspace(workspace), persisted });
     });
+    const { error } = await engineActivation;
+    if (error) throw error;
+    return activated;
   });
 
   addRoute(routes, "DELETE", "/workspaces/:id", "host", async (ctx) => {

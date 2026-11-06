@@ -1,7 +1,8 @@
-import { t } from "@/i18n";
+import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import type { SkillCard } from "../../../app/types";
 import type { ImportedPlugin } from "../../../app/lib/extension-imports";
 import type { LegalworkClaudePluginPreview } from "../../../app/lib/legalwork-server";
@@ -12,6 +13,7 @@ import { catalogUpdateState, installedProvenance } from "./installed-plugin";
 import type { LawossMarketplaceApi, MarketplaceView } from "./marketplace-api";
 import { catalogPluginId, catalogPluginUrl, installCatalogEntry, type CatalogActions, type InstallResult } from "./native-actions";
 import { globalInstalledIds, installGlobalEntries, useLawossMarketplace } from "./use-lawoss-marketplace";
+import { MarketplaceIntro } from "./marketplace-offer";
 import { FileDecisionForm, LegacyInstallsPanel, MarketplaceUpdatesPanel, useGlobalRemove } from "./updates-panel";
 
 export { RecommendedBundlesPanel } from "./bundles-panel";
@@ -62,6 +64,7 @@ export function NativeCatalog(props: Props) {
       <h3 className="text-base font-medium text-dls-text">{MARKETPLACE_SNAPSHOT.name}</h3>
       <p className="text-sm text-dls-secondary">{t("lawoss.marketplace.catalog.description", locale)}</p>
     </div>
+    <MarketplaceIntro />
     {props.error ? <p role="alert" className="text-sm text-red-11">{t("lawoss.integrations.catalog.load_error", locale, { detail: props.error instanceof Error ? props.error.message : String(props.error) })}</p> : null}
     <MarketplaceUpdatesPanel api={marketplace.api} view={marketplace.view} checking={marketplace.checking} error={marketplace.error}
       onCheck={() => void marketplace.check("manual")}
@@ -121,6 +124,7 @@ function CatalogCard({ entry, context, installed, installedGlobal }: { entry: Ma
   const [preview, setPreview] = useState<LegalworkClaudePluginPreview | null>(null);
   const [working, setWorking] = useState(false);
   const [status, setStatus] = useState<InstallResult | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const removal = useGlobalRemove(context.api, context.refreshAll);
   const global = entry.install.action === "plugin" && context.target === "global";
   const permitted = global
@@ -177,7 +181,7 @@ function CatalogCard({ entry, context, installed, installedGlobal }: { entry: Ma
       <div className="mt-3 space-y-2">
         <p>{global ? t("lawoss.marketplace.target.scope_global", locale) : t("lawoss.integrations.catalog.scope", locale, { name: context.workspaceName || t("lawoss.integrations.catalog.workspace", locale) })}</p>
         <p className="break-all">{t("lawoss.integrations.catalog.source", locale, { source: `${entry.source.repository}@${entry.source.ref}` })}</p>
-        <p>{t("lawoss.integrations.catalog.requires", locale, { dependencies: entry.dependencies.join(", ") })}</p>
+        {entry.dependencies.length ? <p>{t("lawoss.integrations.catalog.requires", locale, { dependencies: entry.dependencies.join(", ") })}</p> : null}
         <p>{entry.humanGate}</p>
         {entry.install.action === "okf" ? <p>{t("lawoss.integrations.catalog.okf_install", locale)}</p> : <>
           <Button variant="outline" disabled={working || context.busy || !context.workspaceId} onClick={() => void showPreview()}>{t("lawoss.integrations.catalog.load_contents", locale)}</Button>
@@ -190,7 +194,9 @@ function CatalogCard({ entry, context, installed, installedGlobal }: { entry: Ma
         {global && installedGlobal ? null : <Button variant="outline" disabled={disabled || (entry.install.action === "plugin" && !preview && !global)} onClick={() => void install()}>
           {working ? t("lawoss.integrations.catalog.working", locale) : confirmLabel}
         </Button>}
-        {installedGlobal ? <Button variant="ghost" disabled={working || !context.api} onClick={() => void uninstall()}>{t("lawoss.marketplace.remove.global", locale)}</Button> : null}
+        {installedGlobal ? <GlobalRemoveAction name={entry.name} locale={locale} disabled={working || !context.api} confirming={confirmRemove}
+          onRequest={() => setConfirmRemove(true)} onCancel={() => setConfirmRemove(false)}
+          onConfirm={() => { setConfirmRemove(false); void uninstall(); }} /> : null}
         {removal.queue.pending.map((item) => <FileDecisionForm key={item.id} title={item.title} changes={item.changes} mode={item.mode}
           onCancel={() => removal.queue.done(item.id)}
           onConfirm={(resolutions) => void item.retry(resolutions).catch((error: unknown) => setStatus({ ok: false, message: error instanceof Error ? error.message : String(error) }))} />)}
@@ -199,6 +205,30 @@ function CatalogCard({ entry, context, installed, installedGlobal }: { entry: Ma
     {context.loading && entry.install.action === "plugin" ? <p role="status" className="text-xs text-dls-secondary">{t("lawoss.integrations.catalog.loading_status", locale)}</p> : null}
     {status ? <p role={status.ok ? "status" : "alert"} className="text-sm text-dls-secondary">{status.messageKey ? t(status.messageKey, locale) : status.message}</p> : null}
   </article>;
+}
+
+/**
+ * Odinštalovanie pre všetkých klientov (#255): tlačidlo len otvorí potvrdenie, doplnok sa odstráni až po ňom.
+ * Upravené súbory potom ešte rieši `FileDecisionForm` (zálohovať alebo zahodiť).
+ */
+export function GlobalRemoveAction({ name, locale, disabled, confirming, onRequest, onCancel, onConfirm }: {
+  name: string;
+  locale: Language;
+  disabled: boolean;
+  confirming: boolean;
+  onRequest: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return <>
+    <Button variant="ghost" disabled={disabled} onClick={onRequest}>{t("lawoss.marketplace.remove.global", locale)}</Button>
+    <ConfirmModal open={confirming} variant="danger"
+      title={t("lawoss.marketplace.remove.confirm_title", locale, { name })}
+      message={t("lawoss.marketplace.remove.confirm_description", locale)}
+      confirmLabel={t("lawoss.marketplace.remove.global", locale)}
+      cancelLabel={t("lawoss.marketplace.decision.cancel", locale)}
+      onCancel={onCancel} onConfirm={onConfirm} />
+  </>;
 }
 
 /** Verzia v katalógu a nainštalovaná verzia (bez siete). */

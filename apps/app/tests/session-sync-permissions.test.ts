@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { UIMessage } from "ai";
 import type { PermissionRequest, PermissionV2Request, QuestionRequest } from "@opencode-ai/sdk/v2/client";
 
+import { useSessionActivityStore } from "../src/react-app/domains/session/status/session-activity-store";
 import type { LegalworkSessionSnapshot } from "../src/app/lib/legalwork-server";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import { interactionSessionIds, interactionSessionsKey, type InteractionSessions } from "../src/react-app/domains/session/sync/interaction-state";
@@ -124,8 +125,16 @@ function snapshotWithMessages(
   } as unknown as LegalworkSessionSnapshot;
 }
 
+let previousActivity = useSessionActivityStore.getState();
+beforeEach(() => {
+  previousActivity = useSessionActivityStore.getState();
+  useSessionActivityStore.setState({ recordsByWorkspaceId: {}, statusesByWorkspaceId: {} });
+});
 afterEach(() => {
-  getReactQueryClient().clear();
+  try { getReactQueryClient().clear(); }
+  finally {
+    useSessionActivityStore.setState({ recordsByWorkspaceId: previousActivity.recordsByWorkspaceId, statusesByWorkspaceId: previousActivity.statusesByWorkspaceId });
+  }
 });
 
 describe("session permission sync", () => {

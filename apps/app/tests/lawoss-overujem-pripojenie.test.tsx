@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { setLocale } from "../src/i18n";
 import { LegalworkServerError } from "../src/app/lib/legalwork-server";
-import { AiStepView, boundedCheck, CHECK_LIMIT_MS, onboardingCheckView, type AiModelView } from "../src/lawoss/domains/onboarding/ai-step";
+import { AiStepView, boundedCheck, CHECK_LIMIT_MS, CHECK_SLOW_MS, onboardingCheckView, type AiModelView } from "../src/lawoss/domains/onboarding/ai-step";
 import { AssistantStepView } from "../src/lawoss/domains/onboarding/wizard/assistant-step";
 import { readyRows } from "../src/lawoss/domains/onboarding/wizard/ready-model";
 import { wizardText } from "../src/lawoss/domains/onboarding/wizard/wizard-text";
@@ -22,12 +22,29 @@ const sk = wizardText("sk");
 describe("krok 4: overovanie má časový limit a obyčajnú hlášku", () => {
   const ready: AiModelView = { state: "ready", modelLabel: "GPT-6 Luna" };
   test("overuje sa najviac CHECK_LIMIT_MS, potom alebo pri chybe „nepodarilo sa overiť“ s opakovaním", () => {
-    expect(CHECK_LIMIT_MS).toBeLessThanOrEqual(30_000);
+    // N1 (test alfa10): prvý štart enginu na čistom profile trval 43,6 s; „nepodarilo sa overiť“ by bolo nepravdivé.
+    expect(CHECK_LIMIT_MS).toBeGreaterThanOrEqual(90_000);
+    expect(CHECK_LIMIT_MS).toBeLessThanOrEqual(180_000);
+    expect(CHECK_SLOW_MS).toBeLessThanOrEqual(30_000);
     expect(boundedCheck(ready, true, false, false, noop)).toEqual({ state: "checking" });
     expect(boundedCheck(ready, true, false, true, noop)).toMatchObject({ state: "unreachable" });
     expect(boundedCheck(ready, false, true, false, noop)).toMatchObject({ state: "unreachable" });
     expect(boundedCheck(ready, false, false, true, noop)).toBe(ready);
     expect(boundedCheck(ready, true, false, true, noop).retry).toBe(noop);
+  });
+
+  test("po CHECK_SLOW_MS overovanie pokračuje s vysvetlením prvého štartu, nie s chybou", () => {
+    const ready: AiModelView = { state: "ready", modelLabel: "GPT-6 Luna" };
+    expect(boundedCheck(ready, true, false, false, noop, true)).toEqual({ state: "checking", slow: true });
+    expect(boundedCheck(ready, false, false, false, noop, true)).toBe(ready);
+    expect(boundedCheck(ready, true, false, true, noop, true)).toMatchObject({ state: "unreachable" });
+    expect(onboardingCheckView({ target: "found", pending: true, failed: false, expired: false, slow: true }, ready, noop)).toEqual({ state: "checking", slow: true });
+    const model: AiModelView = { state: "checking", slow: true };
+    const html = renderToStaticMarkup(<AssistantStepView text={sk} locale="sk" model={model} boundariesOn={false} busy={false} onOpenAiSettings={noop} onContinue={noop} />);
+    expect(html).toContain("Pri prvom spustení sa pripravuje prostredie");
+    expect(html).not.toContain("nepodarilo overiť");
+    expect(readyRows(sk, { model, agent: "ask" }).find((item) => item.id === "ai")).toMatchObject({ tone: "checking", value: sk("aiStateCheckingSlow") });
+    expect(renderToStaticMarkup(<AiStepView locale="sk" model={model} busy={false} onOpenAiSettings={noop} onContinue={noop} />)).toContain("Pri prvom spustení sa pripravuje prostredie");
   });
 
   test("review: nezistený priestor (vypršaný čas pri štarte) nie je „žiadny priestor“, ale neoverené pripojenie", () => {

@@ -5,8 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ReloadEventStore } from "./events.js";
+import { computeReloadFingerprint } from "./reload-fingerprint.js";
 import { startReloadWatchers } from "./reload-watcher.js";
-import type { ServerConfig, WorkspaceInfo } from "./types.js";
+import type { ReloadReason, ServerConfig, WorkspaceInfo } from "./types.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { promoteSkillToWorkflow } from "./github-skills.js";
 
@@ -361,4 +362,139 @@ describe("reload watcher close", () => {
       }
     });
   }, 30_000);
+});
+
+// 🟡 LAWOSS: dorovnanie po registrácii fs.watch nesmie pri W pracoviskách spustiť W×5
+// odtlačkov naraz (server v desktope beží v hlavnom procese Electronu).
+function observedFingerprint() {
+  const calls = new Map<string, number>();
+  let inFlight = 0, peak = 0, total = 0;
+  const fingerprint = async (root: string, reason: ReloadReason) => {
+    const key = `${root}\0${reason}`;
+    calls.set(key, (calls.get(key) ?? 0) + 1);
+    total += 1;
+    inFlight += 1;
+    peak = Math.max(peak, inFlight);
+    try {
+      // Bez prekrytia by súbeh na rýchlom disku nebol pozorovateľný.
+      await sleep(15);
+      return await computeReloadFingerprint(root, reason);
+    } finally { inFlight -= 1; }
+  };
+  return { fingerprint, count: (root: string, reason: ReloadReason) => calls.get(`${root}\0${reason}`) ?? 0, peak: () => peak, total: () => total };
+}
+
+async function buildWorkspaces(root: string, count: number) {
+  const { config, workspace } = buildConfig(root);
+  const roots = Array.from({ length: count }, (_, index) => join(root, `client-${index}`));
+  for (const dir of roots) {
+    for (const tree of ["skills", "commands", "plugins", "agents"]) await mkdir(join(dir, ".opencode", tree), { recursive: true });
+  }
+  config.workspaces = roots.map((path, index) => ({ ...workspace, id: `client-${index}`, path }));
+  // Udalosti z prípravy nesmú doraziť až novým sledovaniam a zarátať sa do meraní.
+  await sleep(200);
+  return { config, roots };
+}
+
+const reconcilesOnThisPlatform = process.platform === "darwin";
+
+describe("reload watcher reconcile after a new fs.watch", () => {
+  test("a burst of registrations across workspaces runs one reconcile pass", async () => {
+    await withWorkspace(async (root) => {
+      const { config, roots } = await buildWorkspaces(root, 4);
+      const observed = observedFingerprint();
+      // Oneskorenie presahuje 200 ms prehľadávanie stromov: burst = štart aj registrácie stromov.
+      const watcher = startReloadWatchers({ config, reloadEvents: new ReloadEventStore(), debounceMs: 30, reconcileDelayMs: 500, fingerprint: observed.fingerprint });
+      try {
+        // commands a plugins nedostanú žiadnu udalosť: 1× baseline + 1× jediné dorovnanie.
+        const expected = reconcilesOnThisPlatform ? 2 : 1;
+        for (let attempt = 0; attempt < 240 && roots.some(dir => observed.count(dir, "plugins") < expected); attempt += 1) await sleep(25);
+        // Druhý prechod by prišiel najneskôr po ďalšom oneskorení a debounce.
+        await sleep(700);
+        for (const dir of roots) {
+          expect({ dir, commands: observed.count(dir, "commands"), plugins: observed.count(dir, "plugins") }).toEqual({ dir, commands: expected, plugins: expected });
+        }
+      } finally { watcher.close(); }
+    });
+  }, 10_000);
+
+  test("fingerprints across workspaces stay within the concurrency bound", async () => {
+    await withWorkspace(async (root) => {
+      const { config } = await buildWorkspaces(root, 4);
+      const observed = observedFingerprint();
+      const watcher = startReloadWatchers({ config, reloadEvents: new ReloadEventStore(), debounceMs: 30, reconcileDelayMs: 300, fingerprint: observed.fingerprint });
+      try {
+        await sleep(1_200);
+        // 4 × 6 baseline odtlačkov dokazuje, že meranie nie je prázdne.
+        expect(observed.total()).toBeGreaterThanOrEqual(24);
+        expect(observed.peak()).toBeLessThanOrEqual(2);
+      } finally { watcher.close(); }
+    });
+  }, 10_000);
+
+  test("waiting fingerprints of a closed watcher read nothing", async () => {
+    await withWorkspace(async (root) => {
+      const { config } = await buildWorkspaces(root, 4);
+      const observed = observedFingerprint();
+      const watcher = startReloadWatchers({ config, reloadEvents: new ReloadEventStore(), debounceMs: 30, reconcileDelayMs: 100, fingerprint: observed.fingerprint });
+      watcher.close();
+      const afterClose = observed.total();
+      await sleep(500);
+      // Pred zatvorením mohli začať najviac dva; ostatné z fronty nesmú čítať súbory.
+      expect(afterClose).toBeLessThanOrEqual(2);
+      expect(observed.total()).toBe(afterClose);
+    });
+  }, 10_000);
+
+  test.skipIf(!reconcilesOnThisPlatform)("a change without a delivered event is noticed after the next registration", async () => {
+    await withWorkspace(async (root) => {
+      const { config, workspace } = buildConfig(root);
+      // Koreňový Skills/ odtlačok číta, ale žiadne sledovanie ho nepokrýva: zmena v ňom
+      // sa správa presne ako udalosť stratená pri otvorení nového fs.watch.
+      const skill = join(root, "Skills", "demo", "SKILL.md");
+      await mkdir(join(root, "Skills", "demo"), { recursive: true });
+      await writeFile(skill, "first\n");
+      await sleep(200);
+      const events = new ReloadEventStore();
+      const watcher = startReloadWatchers({ config, reloadEvents: events, debounceMs: 30, reconcileDelayMs: 100 });
+      try {
+        await watcher.refreshWorkspace(workspace.id);
+        await sleep(400);
+        await writeFile(skill, "second\n");
+        await sleep(500);
+        // Kontrola: bez registrácie zmenu nič neohlási, inak by test o dorovnaní nič nedokazoval.
+        expect(events.list(workspace.id)).toEqual([]);
+        await mkdir(join(root, ".opencode"));
+        let event = null;
+        for (let attempt = 0; attempt < 120 && !event; attempt += 1) {
+          event = events.list(workspace.id).find(item => item.reason === "skills") ?? null;
+          if (!event) await sleep(25);
+        }
+        expect(event?.reason).toBe("skills");
+      } finally { watcher.close(); }
+    });
+  }, 10_000);
+
+  test.skipIf(!reconcilesOnThisPlatform)("a pending reconcile does not keep the process alive", async () => {
+    await withWorkspace(async (root) => {
+      const script = join(root, "child.ts");
+      const workspaceRoot = join(root, "client");
+      await mkdir(workspaceRoot);
+      const moduleUrl = (name: string) => JSON.stringify(new URL(`./${name}`, import.meta.url).href);
+      await writeFile(script, [
+        `import { startReloadWatchers } from ${moduleUrl("reload-watcher.ts")};`,
+        `import { ReloadEventStore } from ${moduleUrl("events.ts")};`,
+        `const workspace = { id: "client", name: "Client", path: ${JSON.stringify(workspaceRoot)}, preset: "starter", workspaceType: "local" };`,
+        `startReloadWatchers({ config: { workspaces: [workspace] }, reloadEvents: new ReloadEventStore(), reconcileDelayMs: 60000 });`,
+      ].join("\n"));
+      const child = Bun.spawn([process.execPath, script], { stdout: "ignore", stderr: "ignore" });
+      const deadline = setTimeout(() => child.kill(), 8_000);
+      try {
+        const started = Date.now();
+        await child.exited;
+        expect(Date.now() - started).toBeLessThan(8_000);
+        expect(child.signalCode).toBeNull();
+      } finally { clearTimeout(deadline); }
+    });
+  }, 12_000);
 });

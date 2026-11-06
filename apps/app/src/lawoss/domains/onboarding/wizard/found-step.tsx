@@ -7,7 +7,7 @@
 import { useId, type ReactNode } from "react";
 import { Briefcase, Check, CircleAlert, FilePlus2, FileText, Folder, Landmark, ShieldCheck, UserRound } from "lucide-react";
 import type { OnboardingSuggestion, SuggestedClient, SuggestedUnit } from "../api";
-import { childPath, clientName, folderName, matterClientName, nestedClientWarnings, nestedClientWarningText, nestedInClient, rootClientName, type BatchItem } from "../found-flow";
+import { childPath, clientName, severalPractices, folderName, matterClientName, nestedClientWarnings, nestedClientWarningText, nestedInClient, rootClientName, type BatchItem } from "../found-flow";
 import type { FoundTextKey } from "../found-text";
 import { OkfNotice } from "../okf-notice";
 import type { ConnectedClient, WizardConnected } from "../onboarding-state";
@@ -182,6 +182,15 @@ const LEVELS: readonly WizardLevel[] = ["client", "practice", "matter"];
 const LEVEL_TEXT: Record<WizardLevel, FoundTextKey> = { client: "asClient", practice: "asPractice", matter: "asMatter" };
 const SCOPES: readonly Scope[] = ["client", "practice"];
 
+/** Tlačidlá výberu jednej praxe z koreňa s viacerými praxami (N-A9-12); spoločné pre panel aj sprievodcu. */
+export function PracticePicks({ text, busy, names, onPick }: { text: FoundText; busy: boolean; names: readonly string[]; onPick: (name: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {names.map((name) => <button key={name} type="button" className="lw-btn gold" disabled={busy} onClick={() => onPick(name)}>{text("pickChild", { name })}</button>)}
+    </div>
+  );
+}
+
 export type WizardFoundProps = {
   text: WizardText;
   found: FoundText;
@@ -211,6 +220,13 @@ export function WizardFoundView({ text, found, busy, suggestion, headline, level
   const noClients = practiceEach && suggestion.clients.length === 0;
   const tableDisabled = level === "practice" && scope === "practice";
   const nestedWarnings = nestedClientWarnings(suggestion, level);
+  const practices = severalPractices(suggestion);
+  // N-A9-12: koreň s viacerými praxami sa nepripája; ostáva len výber jednej praxe.
+  if (practices.length) return (
+    <StepScreen step="found" title={text("foundTitle")} lead={<p className="lw-status warn" role="alert">{headline}</p>} nav={nav} focusOnMount>
+      <PracticePicks text={found} busy={busy} names={practices} onPick={(name) => onPickRoot(childPath(name))} />
+    </StepScreen>
+  );
   const primary = level === "matter"
     ? found("useParent", { name: matterClientName(suggestion) })
     : practiceEach ? text("foundAddClients", { count: selected.length }) : text("foundAdd");

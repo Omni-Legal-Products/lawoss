@@ -340,10 +340,11 @@ STRUCTURE.push(
     must: [
       /const ENABLED_VALUE = "on";/,
       /return storage\(\)\?\.getItem\(LEGALWORK_SOURCE_STORAGE_KEY\) === ENABLED_VALUE;\s*\} catch \{\s*return false;/,
-      /let enabled = read\(\);/,
+      /export const LEGALWORK_SOURCE_OFFERED = false;/,
+      /let enabled = LEGALWORK_SOURCE_OFFERED && read\(\);/,
     ],
     mustNot: [/\bfetch\s*\(/, /https?:\/\//, /^import /m],
-    why: "Zdroj LegalWork je predvolene vypnutý (chýbajúca alebo iná hodnota = vypnuté) a voľba nevolá sieť.",
+    why: "Zdroj LegalWork je predvolene vypnutý (chýbajúca alebo iná hodnota = vypnuté) a voľba nevolá sieť. V alfe sa neponúka vôbec (MČ 2. 11. 2026).",
   },
   {
     file: "apps/app/src/lawoss/domains/integrations/legalwork-source-sync.ts",
@@ -445,9 +446,9 @@ STRUCTURE.push(
     why: "Kontrola pri otvorení len v LAWOSS Marketplace (checkOnOpen).",
   },
   {
-    file: "apps/app/src/lawoss/domains/onboarding/packs-step.tsx",
+    file: "apps/app/src/lawoss/domains/marketplace/marketplace-offer.tsx",
     mustNot: [/checkOnOpen/, /\.check\(/],
-    why: "Krok onboardingu pri otvorení nejde na sieť; inštaluje až tlačidlom.",
+    why: "Ponuka na konci onboardingu pri otvorení nejde na sieť; inštaluje až tlačidlom.",
   },
 );
 

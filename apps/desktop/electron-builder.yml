@@ -44,6 +44,11 @@ extraResources:
       - node.exe
       - LICENSE
       - runtime.json
+      # LAWOSS: npm pre balíky LAWOSS Marketplace (scripts/prepare-node-runtime.mjs); v lib/npm,
+      # lebo electron-builder priečinky node_modules v extraResources vynechá.
+      - npm
+      - npm.cmd
+      - lib/npm/**
   - from: ../server/resources/ocr
     to: ocr
   # LAWOSS: pribalený katalóg modelov. Engine je samostatný proces a do app.asar

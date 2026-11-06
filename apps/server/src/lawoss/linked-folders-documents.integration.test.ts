@@ -123,8 +123,13 @@ test.skipIf(!binary)("pripojený priečinok: chat klienta aj prípadu čítajú 
 
   let engineBase = "";
   const at = (directory: string, path: string) => `${engineBase}${path}${path.includes("?") ? "&" : "?"}directory=${encodeURIComponent(directory)}`;
-  /** Jeden chat v `directory`: otázka enginu, ktorá visí ≥ 3 s, je karta pre používateľa (zamietne sa); plugin odpovedá hneď. */
-  const attempt = async (directory: string, plan: Step[]) => {
+  /**
+   * Jeden chat v `directory`. Bez `rejectCards` test na otázky enginu neodpovedá: odpovedať má plugin, a otázka, ktorá
+   * ostane visieť, je karta pre používateľa (beh skončí na limite cyklu a vráti ju v `prompts`). S `rejectCards` sa
+   * každá otázka hneď zamietne ako na karte. O karte tak nerozhoduje čas (prvá verzia: ≥ 3 s), ktorý na pomalom
+   * runneri prekročí aj odpoveď pluginu (#221).
+   */
+  const attempt = async (directory: string, plan: Step[], rejectCards = false) => {
     steps = plan;
     modelRequests.length = 0;
     const json = { "content-type": "application/json" };
@@ -132,21 +137,23 @@ test.skipIf(!binary)("pripojený priečinok: chat klienta aj prípadu čítajú 
     const accepted = await fetch(at(directory, `/session/${created.id}/prompt_async`), { method: "POST", headers: json,
       body: JSON.stringify({ agent: "legalwork", model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: "Prečítaj dokumenty v pripojenom priečinku." }] }) });
     expect(accepted.ok).toBe(true);
-    const firstSeen = new Map<string, number>();
-    const prompts: string[] = [];
+    const prompts: string[] = [], rejected = new Set<string>();
+    let pending: { id: string; permission: string }[] = [];
     for (let i = 0; i < 900; i++) {
-      const pending = z.array(z.object({ id: z.string(), permission: z.string() })).parse(await (await fetch(at(directory, "/permission"))).json());
+      pending = z.array(z.object({ id: z.string(), permission: z.string() })).parse(await (await fetch(at(directory, "/permission"))).json());
       for (const ask of pending) {
-        const seen = firstSeen.get(ask.id);
-        if (seen === undefined) { firstSeen.set(ask.id, Date.now()); continue; }
-        if (Date.now() - seen < 3000) continue;
+        if (!rejectCards || rejected.has(ask.id)) continue;
+        rejected.add(ask.id);
         prompts.push(ask.permission);
-        await fetch(at(directory, `/permission/${ask.id}/reply`), { method: "POST", headers: json, body: JSON.stringify({ reply: "reject" }) });
+        const reply = await fetch(at(directory, `/permission/${ask.id}/reply`), { method: "POST", headers: json, body: JSON.stringify({ reply: "reject" }) });
+        expect(reply.ok).toBe(true);
       }
       const status = z.record(z.string(), z.object({ type: z.string() })).parse(await (await fetch(at(directory, "/session/status"))).json());
       if (i > 5 && pending.length === 0 && (status[created.id]?.type ?? "idle") === "idle") break;
       await Bun.sleep(100);
     }
+    // Otázka, na ktorú plugin neodpovedal, je karta pre používateľa.
+    if (!rejectCards) prompts.push(...pending.map((ask) => ask.permission));
     const parts = toolPartsSchema.parse(await (await fetch(at(directory, `/session/${created.id}/message`))).json()).flatMap((message) => message.parts).filter((part) => part.tool);
     return { prompts, model: modelRequests.join("\n"), tools: parts.map((part) => ({ tool: part.tool, status: part.state?.status, output: part.state?.output ?? part.state?.error ?? "" })) };
   };
@@ -195,7 +202,7 @@ test.skipIf(!binary)("pripojený priečinok: chat klienta aj prípadu čítajú 
     expect(await documents.list(workspaces[1]!)).toEqual([]);
 
     // Natívne čítanie v chate B: karta, ktorú možno zamietnuť; obsah nepríde.
-    const native = await attempt(clientB, [nativeRead]);
+    const native = await attempt(clientB, [nativeRead], true);
     expect(native.prompts).toEqual(["external_directory"]);
     expect(native.tools.map((part) => part.status)).toEqual(["error"]);
     expect(native.model).not.toContain("SYN obsah pripojeneho podkladu");

@@ -3,10 +3,8 @@ import { useEffect, useEffectEvent, useState } from "react";
 
 import type { Client, ModelOption } from "@/app/types";
 import { modelDisplayName } from "@/app/utils/models";
-import {
-  useProviderListQuery,
-  getConnectedProviderItems,
-} from "@/react-app/infra/provider-list-query";
+import { useProviderListQuery } from "@/react-app/infra/provider-list-query";
+import { offeredProviderItems } from "@/lawoss/shell/model-readiness";
 import {
   openModelPickerEvent,
   pendingModelPickerProviderIdsKey,
@@ -85,7 +83,8 @@ export function useModelPicker(input: UseModelPickerInput) {
       seenIds = new Set();
     }
     const options: ModelOption[] = [];
-    for (const provider of getConnectedProviderItems(data)) {
+    // LAWOSS: upstream free models are not offered; they never get client data (#231).
+    for (const provider of offeredProviderItems(data)) {
       const modelIds = Object.keys(provider.models);
       const isNew = !seenIds.has(provider.id) || recentProviderIds.has(provider.id);
       for (const id of modelIds) {
