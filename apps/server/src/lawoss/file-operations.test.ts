@@ -10,7 +10,7 @@ import type { ServerConfig } from "../types.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
 import { auditLogPath } from "../audit.js";
 import { fileOperationReport } from "../opencode-plugins/lawoss-file-operations-text.js";
-import { applyFileOperations, confusableNames, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, moveAcrossVolumes, LAWOSS_TRASH_FOLDER, linkedFolderLabels, planFileOperations, systemTrashReliable, visibleName, type PlannedFileOperation } from "./file-operations.js";
+import { applyFileOperations, confusableNames, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, moveAcrossVolumes, LAWOSS_TRASH_FOLDER, linkedFolderLabels, planFileOperations, systemTrashReliable, treeDigest, visibleName, type PlannedFileOperation } from "./file-operations.js";
 
 const roots: string[] = [];
 const stops: Array<() => void | Promise<void>> = [];
@@ -390,6 +390,35 @@ test("a move cancelled at its last check, after the copy is verified, keeps the 
   await expect(moveAcrossVolumes(config, step("Druhe"), last.signal)).rejects.toMatchObject({ name: "AbortError" });
   expect(await readFile(join(client, "Druhe", "M001", "zmluva.txt"), "utf8")).toBe("SYN zmluva");
   expect(await readdir(client)).not.toContain("Druhe-presun");
+});
+
+// The value is only ever compared within one move, but it must not change with how the tree is walked.
+test("the tree digest keeps its value and its breadth-first, NFC-sorted order", async () => {
+  const { client } = await office();
+  const folder = join(client, "Odtlacok");
+  await mkdir(join(folder, "a", "hlbsie"), { recursive: true });
+  await mkdir(join(folder, "z"));
+  await writeFile(join(folder, "a\u0301.txt"), "SYN NFD");
+  await writeFile(join(folder, "b.txt"), "SYN b");
+  await writeFile(join(folder, "a", "hlbsie", "c.txt"), "SYN c");
+  await writeFile(join(folder, "z", "d.txt"), "SYN d");
+  expect(await treeDigest(folder)).toBe("7d9d3da975254771b4576a261aea00e4eeca6c2d39d6d38f25ba2b8506654a07");
+});
+
+test("the tree digest walks a large folder without Array.shift, which is quadratic in the packaged runtime", async () => {
+  const { client } = await office();
+  const folder = join(client, "Velky");
+  await mkdir(folder);
+  // Empty folders only, so the count cannot come from reading a file.
+  await Promise.all(Array.from({ length: 16 }, (_, i) => mkdir(join(folder, `podpriecinok-${i}`))));
+  const shift = Array.prototype.shift;
+  let shifted = 0;
+  Array.prototype.shift = function (this: unknown[]) {
+    if (new Error().stack?.includes("treeDigest")) shifted += 1;
+    return shift.call(this);
+  };
+  try { await treeDigest(folder); } finally { Array.prototype.shift = shift; }
+  expect(shifted).toBe(0);
 });
 
 /** A share that stores names in NFC (SMB, NAS): the copy `cp` makes there has the same files under NFC names. */

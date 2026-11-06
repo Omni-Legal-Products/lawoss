@@ -453,14 +453,15 @@ const errorCode = (error: unknown) => error instanceof Error && "code" in error 
 const messageOf = (error: unknown) => error instanceof Error ? error.message : String(error);
 const targetExists = (item: Planned) => new ApiError(409, "file_operation_target_exists", `${item.to} already exists. This tool never overwrites. Nothing was changed. ${NEW_NAME}`);
 
-/** Content of a file or folder tree: names, kinds, sizes, SHA-256 of files and link targets. */
-async function treeDigest(location: string, signal?: AbortSignal): Promise<string> {
+/** Content of a file or folder tree: names, kinds, sizes, SHA-256 of files and link targets. Exported for tests. */
+export async function treeDigest(location: string, signal?: AbortSignal): Promise<string> {
   const hash = createHash("sha256");
   const pending = [location];
-  while (pending.length) {
+  // An index, not `shift()`, which is quadratic for a large folder under V8. Same breadth-first order, same digest.
+  for (let next = 0; next < pending.length; next += 1) {
     // Between files, not inside a read: the copy is removed after an abort, and an open handle would block that on Windows.
     signal?.throwIfAborted();
-    const current = pending.shift() ?? location;
+    const current = pending[next] ?? location;
     const info = await lstat(current);
     // A network share may store names in another Unicode form: compare the names, not their bytes.
     const name = relative(location, current).split(sep).join("/").normalize("NFC");
