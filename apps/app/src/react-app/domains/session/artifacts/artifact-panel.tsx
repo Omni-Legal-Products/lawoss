@@ -6,7 +6,7 @@ import { isDocumentReadTool } from "./document-agent-read";
 import { useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
 import { ProjectFilePanel } from "../../workspace/project-file-panel";
 import { keepHandoffCopy } from "./document-handoff-copy";
-import { binaryMatchesStat, retainBinaryContent } from "./binary-content";
+import { artifactQueryKey, artifactQueryOptions, isTextContent, nextBinaryRevision, type ArtifactQueryState } from "./artifact-query";
 import { usePdfVisualSource } from "./use-pdf-visual-source";
 import { flushSync } from "react-dom";
 /** @jsxImportSource react */
@@ -32,7 +32,7 @@ import type { DocxEditorApi } from "./artifact-docx-editor";
 import { artifactDocumentKey, reconcileDocxSnapshot, registerUnsavedDocument, savedDocxSnapshot, publishedDocxSnapshot, type DocxSnapshot } from "./docx-document-state";
 import { drainDocxRecovery } from "./docx-recovery";
 import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
-import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type TextData } from "./open-target";
+import { isCollectibleArtifactTarget, type Data, type OpenTarget } from "./open-target";
 import { MediaPreview } from "./media-preview";
 import { type PdfPreviewApi, HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable } from "./preview";
 import { t } from "@/i18n";
@@ -90,29 +90,13 @@ type ArtifactPanelViewProps = {
   onClose: () => void;
 };
 
-type ArtifactQueryState =
-  | (TextData & { updatedAt: number | null })
-  | (BinaryData & { contentType: string | null; updatedAt: number | null; downloadedUpdatedAt?: number | null; revision: number });
-
 type SaveArtifactInput = Data & { baseUpdatedAt: number | null; baseContent?: string };
-
-let fallbackBinaryRevision = 0;
-
-function nextBinaryRevision(updatedAt: number | null) {
-  if (updatedAt !== null) return updatedAt;
-  fallbackBinaryRevision += 1;
-  return fallbackBinaryRevision;
-}
 
 function absoluteWorkspacePath(root: string, path: string) {
   const cleanRoot = root.trim().replace(/[/\\]+$/, "");
   const cleanPath = path.trim().replace(/^\.\//, "");
   
   return cleanRoot ? `${cleanRoot}/${cleanPath}` : cleanPath;
-}
-
-function isTextContent(target: OpenTarget): boolean {
-  return ["markdown", "text", "sheet", "html"].includes(target.preview) && !/\.(xlsx|xls|ods)$/i.test(target.value);
 }
 
 export function ArtifactPanel(props: ArtifactPanelProps) {
@@ -277,46 +261,10 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
     gcTime: 5 * 60 * 1000,
   });
 
-  const { data, error, isError, isLoading, refetch } = useQuery<ArtifactQueryState>({
-    queryKey: ["artifact-panel", workspaceId, target.id, client.baseUrl, runtimeEntry?.generation] as const,
-    queryFn: async () => {
-      if (target.kind === "url") {
-        throw new Error(t("artifact.urls_open_in_browser"));
-      }
-      else if (target.exists === false) {
-        throw new Error(t("artifact.file_not_found"));
-      }
-
-      if (isTextContent(target)) {
-        const result = await client.readWorkspaceFile(workspaceId, target.value);
-        
-        return { kind: "text", data: result.content, updatedAt: result.updatedAt ?? null };
-      }
-
-      const previous = queryClient.getQueryData<ArtifactQueryState>(["artifact-panel", workspaceId, target.id, client.baseUrl]);
-      if ((localReadOnly || reader.current) && previous?.kind === "binary") {
-        // Older servers without stat/version metadata retain the download path.
-        const stat = await client.statWorkspaceFile(workspaceId, target.value).catch(() => null);
-        if (stat && binaryMatchesStat(previous, stat)) return previous;
-      }
-      const result = await client.downloadWorkspaceFile(workspaceId, target.value);
-      const updatedAt = result.updatedAt ?? target.updatedAt ?? null;
-
-      return {
-        kind: "binary",
-        data: retainBinaryContent(previous?.kind === "binary" ? previous.data : undefined, result.data),
-        contentType: result.contentType,
-        downloadedUpdatedAt: result.updatedAt,
-        updatedAt,
-        revision: nextBinaryRevision(result.updatedAt),
-      };
-    },
-    refetchInterval: localReadOnly ? 2000 : false,
-    refetchOnMount: "always",
-    refetchOnReconnect: false,
-    refetchOnWindowFocus: false,
-    staleTime: Infinity,
-  });
+  const artifactKey = artifactQueryKey(workspaceId, target, client.baseUrl, runtimeEntry?.generation);
+  const { data, error, isError, isLoading, refetch } = useQuery(artifactQueryOptions({
+    queryClient, client, workspaceId, target, generation: runtimeEntry?.generation, localReadOnly, isReader: () => reader.current,
+  }));
 
   const access = useDocumentOwnership({
     enabled: isEditableDocument || (writableFile && isTextContent(target)),
@@ -390,7 +338,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   const visualSource = usePdfVisualSource({ client, workspaceId, path: target.value, enabled: target.preview === "pdf", refresh: async accept => {
     const result = await client.downloadWorkspaceFile(workspaceId, target.value);
     if (!accept(result.data)) return;
-    queryClient.setQueryData<ArtifactQueryState>(["artifact-panel", workspaceId, target.id, client.baseUrl, runtimeEntry?.generation], {
+    queryClient.setQueryData<ArtifactQueryState>(artifactKey, {
       kind: "binary", data: result.data, contentType: result.contentType, downloadedUpdatedAt: result.updatedAt,
       updatedAt: result.updatedAt ?? null, revision: nextBinaryRevision(result.updatedAt ?? null),
     });
@@ -453,7 +401,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
       if (savedDocx) { snapshotRef.current = savedDocx; setDocumentSnapshot(savedDocx); }
       access.saved();
       queryClient.setQueryData<ArtifactQueryState>(
-        ["artifact-panel", workspaceId, target.id, client.baseUrl, runtimeEntry?.generation] as const,
+        artifactKey,
         input.kind === "text"
           ? { kind: "text", data: result.content ?? input.data, updatedAt: result.updatedAt ?? null }
           : savedDocx ? publishedDocxSnapshot(savedDocx, nextBinaryRevision(result.updatedAt ?? null)) : {
