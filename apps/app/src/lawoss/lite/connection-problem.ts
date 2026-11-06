@@ -25,3 +25,18 @@ export function isConnectionProblem(error: unknown): boolean {
   if (cause && cause !== error && isConnectionProblem(cause)) return true;
   return typeof message === "string" && NETWORK_TEXT.test(message);
 }
+
+/**
+ * #338: pripojenie bez prístupu hostiteľa (webový klient v `dev:headless-web` má len token spolupracovníka,
+ * alebo neplatný token hostiteľa). Prehľad praxe je len pre hostiteľa; obrazovka to povie vetou a nedotazuje
+ * sa dookola, odmietnutie sa o chvíľu nezmení. Rozhoduje stav a kód odpovede servera, nie text chyby.
+ */
+export function isHostAccessDenied(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  return Reflect.get(error, "status") === 401 && Reflect.get(error, "code") === "unauthorized";
+}
+
+/** Krátke opakovanie pri štarte (adresa servera ešte nie je), nie po odmietnutí hostiteľa. */
+export function retryUnlessHostAccessDenied(error: unknown, attemptsLeft: number): boolean {
+  return attemptsLeft > 1 && !isHostAccessDenied(error);
+}

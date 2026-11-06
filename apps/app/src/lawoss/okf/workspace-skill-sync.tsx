@@ -16,6 +16,7 @@ import { resolveOpenClient, type OpenClientReader, type OpenClientWorkspace } fr
 import { refreshOkfSkills, type OkfSkillClient } from "./skill-refresh";
 import { reloadAfterSkillWrites } from "./skill-availability";
 import { notifyModifiedOkfSkills } from "./skill-refresh-notice";
+import { retryUnlessHostAccessDenied } from "../lite/connection-problem";
 
 export type OkfSkillSyncClient = OkfSkillClient & OpenClientReader & Pick<LegalworkServerClient, "onboardingStatus" | "capabilities"> & Partial<Pick<LegalworkServerClient, "reloadEngine">>;
 export type OkfSkillSyncResult =
@@ -84,7 +85,8 @@ export function OkfWorkspaceSkillSync({ workspaceId }: { workspaceId: string }) 
         })
         .catch((error: unknown) => {
           if (cancelled) return;
-          if (left > 1) timer = setTimeout(() => attempt(left - 1), RETRY_MS);
+          // #338: odmietnutie hostiteľa sa o 750 ms nezmení; ďalšie pokusy by len zaťažili server.
+          if (retryUnlessHostAccessDenied(error, left)) timer = setTimeout(() => attempt(left - 1), RETRY_MS);
           else {
             finished = true;
             console.warn("[lawoss] OKF skills were not refreshed for the open workspace", error);

@@ -27,6 +27,7 @@ import { validateStore } from "../../../../../lawoss/okf-pamat/src/validate.ts";
 import { selectSourceSnapshot } from "./practice-read-state";
 import { loadOkfConnection, type OkfConnection } from "./connection";
 import type { OfficeMemoryRead } from "./office-memory";
+import { isHostAccessDenied } from "../lite/connection-problem";
 
 export type OkfReadClient = Pick<LegalworkServerClient, "listWorkspaceDirectory" | "readWorkspaceFile"> & Partial<Pick<LegalworkServerClient, "lawossDeadlineRequest">>;
 /** `folderUnavailable`: id pracovného priestoru, ktorého priečinok na disku chýba (presunutý, premenovaný, odpojený disk). */
@@ -722,9 +723,17 @@ function usePracticeRootQuery(connection: OkfConnection | null) {
     retry: false,
     retryOnMount: false,
     refetchOnWindowFocus: true,
-    refetchInterval: OKF_REFRESH_MS,
+    refetchInterval: (query) => practiceRootRefetchInterval(query.state.error),
   });
   return root;
+}
+
+/**
+ * #338: odmietnutie hostiteľa sa o chvíľu nezmení, preto sa koreň praxe ďalej nedotazuje. Nový token (iná
+ * `authGeneration`) je nový kľúč a prečíta sa hneď; Skúsiť znova a návrat do okna tiež.
+ */
+export function practiceRootRefetchInterval(error: unknown): number | false {
+  return isHostAccessDenied(error) ? false : OKF_REFRESH_MS;
 }
 
 /** Koreň praxe z profilu onboardingu; `undefined`, kým sa číta, `null` bez praxe alebo pri chybe. */
@@ -737,7 +746,9 @@ export function usePracticeRoot(connection: OkfConnection | null): string | null
  * Rozsah pohľadu: koreň praxe z profilu onboardingu, kým sa nenačíta `pending` (žiadne čítanie jedného
  * klienta, ktoré by o chvíľu nahradila celá prax). Chyba čítania profilu = `unavailable` (#168).
  */
-export type ScopeResolution = { state: "ready" | "pending" | "unavailable"; scope: OkfScope | null; pending: boolean; excludedWorkspaceIds: readonly string[]; message?: string };
+export type ScopeResolution = { state: "ready" | "pending" | "unavailable"; scope: OkfScope | null; pending: boolean; excludedWorkspaceIds: readonly string[]; message?: string;
+  /** #338: profil odmietol server, lebo pripojenie nemá prístup hostiteľa (napr. webový klient s tokenom spolupracovníka). */
+  hostAccessDenied?: boolean };
 export function useOkfScope(connection: OkfConnection | null, anchor: RouteWorkspace | null): ScopeResolution {
   const client = connection?.client ?? null;
   const root = usePracticeRootQuery(connection);
@@ -748,7 +759,7 @@ export function useOkfScope(connection: OkfConnection | null, anchor: RouteWorks
     [workspaces, anchor, practiceRoot],
   );
   const pending = !root.isError && practiceRoot === undefined && anchor !== null;
-  return { scope, pending, state: root.isError || (anchor && practiceRoot && !scope) ? "unavailable" : pending ? "pending" : "ready", excludedWorkspaceIds: excludedWorkspaceIds(workspaces ?? [],scope), ...(root.isError ? { message: message(root.error) } : {}) };
+  return { scope, pending, state: root.isError || (anchor && practiceRoot && !scope) ? "unavailable" : pending ? "pending" : "ready", excludedWorkspaceIds: excludedWorkspaceIds(workspaces ?? [],scope), ...(root.isError ? { message: message(root.error), ...(isHostAccessDenied(root.error) ? { hostAccessDenied: true } : {}) } : {}) };
 }
 
 /** Spojenie na server rovnako ako v Novom spise, len ako hook. */

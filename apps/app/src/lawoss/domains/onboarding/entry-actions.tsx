@@ -10,6 +10,7 @@ import { isLawossHomeWorkspace } from "../../home-workspace";
 import { ADD_FOLDER_PATH, NEW_CLIENT_PATH, NEW_MATTER_PATH, organizeFolderLink } from "../../lite/links";
 import { activeWorkspace, officeWorkspace, useOkfConnection, useOkfScope } from "../../okf/read-model";
 import { clientPreferenceScope, newMatterLink, practiceClientChoices } from "../../lite/client-choice";
+import { retryUnlessHostAccessDenied } from "../../lite/connection-problem";
 import { ClientPickerDialog } from "../../lite/client-picker";
 import type { OkfChoice } from "./api";
 
@@ -47,9 +48,10 @@ export function useOkfChoice(skip: boolean): { offered: boolean | undefined; kno
           }).onboardingStatus();
         })
         .then((status) => { if (!cancelled) setChoice({ offered: offersOkf(status), known: true }); })
-        .catch(() => {
+        .catch((error: unknown) => {
           if (cancelled) return;
-          if (left > 1) timer = setTimeout(() => attempt(left - 1), STATUS_RETRY_MS);
+          // #338: odmietnutie hostiteľa sa o 750 ms nezmení; ďalšie pokusy by len zaťažili server.
+          if (retryUnlessHostAccessDenied(error, left)) timer = setTimeout(() => attempt(left - 1), STATUS_RETRY_MS);
           else setChoice({ offered: offersOkf(null), known: false });
         });
     };
