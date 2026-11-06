@@ -37,6 +37,16 @@ Rozpočet RAM 2 GB, issue #367. Engine OpenCode 1.18.29 drží inštanciu na pri
 | `apps/server/src/claude-plugin-bundle.e2e.test.ts` | MCP nainštalovaného pluginu dostane engine až po otvorení klienta (+3 riadky). |
 
 Nové LAWOSS súbory: `apps/server/src/lawoss/engine-mcp-budget.ts` + `engine-mcp-budget.test.ts`, `apps/server/src/lawoss-engine-mcp-budget.e2e.test.ts`. Upravené LAWOSS testy: `embedded-app-files.e2e.test.ts` (štart nespustí MCP žiadneho klienta), `workspace-reconnect.e2e.test.ts` (fixture odpovie aj na `/path`). Windows CI (`ci-windows-portable.yml`) spúšťa oba nové testy.
+## Engine a jeho MCP neprežijú pád appky (2026-11-05)
+
+Rozpočet RAM 2 GB, issue #367. Po páde hlavného procesu (SIGKILL) ostalo s 10 klientmi a balíkom „SK základ“ bežať 67 procesov (engine + 66× `node`) s ~4,3 GB. Na macOS a Linuxu `makeTerminator` posielal signál len priamemu potomkovi a úklid pri štarte zabil len engine, nie jeho MCP.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/managed-opencode.ts` | +1 import, +1 riadok po spustení: `watchEngineParent(child)` z nového `apps/server/src/lawoss/engine-parent-watchdog.ts` (strážny `sh` ~1 MB číta rúru od rodiča; pri jej zániku pošle enginu SIGTERM, po 5 s SIGKILL jemu aj priamym potomkom; pri bežnom konci enginu sa ukončí sám; PID enginu bez zmeny; nie na Windows). Pred záložným SIGKILL zaseknutého enginu `pkill -KILL -P` jeho priamych potomkov (mimo Windows). |
+| `apps/desktop/electron/runtime.mjs` | Úklid osiretých sidecarov pri štarte zabalenej appky číta `ps -Ao pid=,ppid=,command=` a ukončí aj celý strom potomkov osiretého enginu (MCP), engine prvý. Windows bez zmeny (taskkill). |
+
+Nový LAWOSS súbor: `apps/server/src/lawoss/engine-parent-watchdog.ts` + test so skutočnými procesmi.
 
 ## Čitateľné Podrobnosti na karte úpravy súboru a externého priečinka (2026-10-31)
 
