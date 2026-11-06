@@ -307,7 +307,7 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
   }, [desktopConfig, downloadUpdate, onReleaseChannelChange, releaseChannel, setError, updateAutoDownload]);
 
   useEffect(() => {
-    if (!updateAutoCheck || updateEnv?.supported === false) return;
+    if (!updateAutoCheck || !electronUpdaterBridge()?.check || updateEnv?.supported === false) return;
     const key = `${releaseChannel}:${appVersion ?? "unknown"}`;
     if (autoCheckKeyRef.current === key) return;
     autoCheckKeyRef.current = key;

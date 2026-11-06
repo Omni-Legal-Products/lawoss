@@ -781,3 +781,26 @@ Review found first attempt cached all metadata too broadly and omitted host owne
 - Znovupoužiteľný vzor: vlastník asynchrónnej navigácie musí prežiť obnovu dát, ale každá návšteva sa pri odchode definitívne zneplatní. Skutočná zmena pripojenia musí ďalej obnoviť odberateľov.
 
 - PR preflight nad dev `0bac4c6b`: frozen install úspešný; Bun 1.4.2 úplná app sada 3238 pass / 3 skip / 0 fail, 130871 assertions (3241 testov v 419 súboroch); Node24 app typecheck a diff check exit0. Snímka so syntetickými údajmi vizuálne overená. Bežiaca lokálna aplikácia zostala v pôvodnom pracovnom strome.
+
+## 2026-11-04 — alpha 20261104-000153-0a5c6e: notifikácie query cache
+
+- Živý syntetický headless vstup a pripojený React DOM test reprodukovali aktualizáciu SessionRoute počas renderu ClientLinkedFoldersNavItem. QueryObserver pri vytvorení query synchrónne oznamoval zmenu surovému odberateľovi useQueryCacheState.
+- Odber používa notifyManager.batchCalls rovnako ako TanStack hooky; čítačka dostane hodnotu po renderi. Regresia pred opravou 0 pass / 1 fail, po oprave 1 pass / 0 fail.
+- Bun 1.4.2: 244 vybraných app testov v 7 súboroch prešlo; app typecheck prešiel. Čerstvý prehliadač po oprave: klient viditeľný, linked-folder query prítomná, bez pôvodného React varovania. Today host-only alert a Marketplace oprávnenia sú samostatné nálezy; bez zásahu do autorizácie.
+- Poučenie: surové QueryCache notifikácie môžu vzniknúť počas useQuery renderu; React odberateľov upozorniť cez plánovač knižnice. Zdrojové testy a dev browser nie sú natívna šesťplatformová akceptácia.
+
+## 2026-11-04 — alpha 20261104-003911-65a471: Marketplace bez host oprávnenia
+
+- Dvakrát potvrdený testerom a nezávisle reprodukovaný headless prehliadač: spolupracovník bez host tokenu videl aktívnu globálnu inštaláciu a automatické kontroly končili 401.
+- loadMarketplaceApi teraz vyžaduje host capability z existujúceho resolvera. Bez nej sa použije doterajší workspace fallback katalógu: globálne ovládanie vypnuté, žiadne volania host-only Marketplace routes. EN/CS/SK/DE vysvetlia chýbajúce oprávnenie. Serverová autorizácia ostala bez zmeny.
+- Regresia skutočného resolvera/loadera a NativeCatalog: bez hosta a pri uloženom vzdialenom spojení zlyhala pred opravou; loopback host ostáva povolený. Po oprave 27 app testov na hoste aj v izolovanom candidate Docker a 15 server testov prešlo; typecheck a i18n kontroly prešli.
+- Živý syntetický prehliadač po oprave: katalóg dostupný, workspace cieľ vybraný, oba globálne ovládacie prvky vypnuté, bez update alertu a bez Marketplace požiadaviek. Inštalácia ani aktualizácia sa nespúšťala. Dev test nenahrádza finálny inštalátor ani šesťplatformovú akceptáciu.
+- Poučenie: existencia API klienta nie je oprávnenie; host-only klienta vytvoriť až z rozlíšeného host prístupu, bez vypožičiavania host tokenu pre vzdialený renderer.
+
+## 2026-11-04 — alpha 20261104-011336-b0a077: tiché webové Nastavenia bez natívneho updatera
+
+- Tester aj nezávislý čerstvý prehliadač potvrdili, že samotné otvorenie Nastavení vo webe vyvolalo Electron-only updater chybu bez ručnej kontroly. Neznáme updateEnv nebránilo automatickému efektu zavolať chýbajúci bridge.
+- Automatický efekt teraz vyžaduje dostupnú metódu updater.check. Ručné kontroly a ich unsupported hlásenie ostávajú; ochrana dostupnej, sťahovanej a pripravenej aktualizácie sa nemení. PATCHES.md zaznamenáva upstream hook.
+- Pripojený reálny React hook v izolovaných procesoch: pred opravou 6 pass / 2 fail (web a chýbajúca natívna metóda); po oprave deväť scenárov vrátane natívnej automatickej a menu kontroly prešlo. Úložisko/globály vlastnia fixture procesy, model ani sieť sa nevolajú. Simulovaný native bridge nie je natívna release akceptácia.
+- Vybrané app testy: 24 pass na hoste aj v izolovanom candidate Docker, typecheck prešiel. Živý syntetický web po kliknutí Nastavenia: bez updater chyby a status ostal null. Finálny inštalátor a šesťplatformová akceptácia zostávajú blocked.
+- Poučenie: automatický efekt musí overiť podporovanú capability pred operáciou; manuálna diagnostika nemá nahrádzať capability gate pri mountovaní stránky.

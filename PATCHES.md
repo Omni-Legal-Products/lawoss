@@ -15,6 +15,17 @@ Upstream test opravy #230 (`model-catalog-engine.e2e.test.ts`) čaká, že engin
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
 | `packages/types/src/sync-events.ts` | `serverSentEvents()`: nedokončená udalosť sa drží ako zoznam kúskov a spája sa až po nájdení hranice, hľadá sa len od posledného prehľadaného miesta; po kúsku končiacom `\r` sa úvodné `\n` ďalšieho kúska zahodí (je to `\r\n`). `\n\n`, `\r\n\r\n` aj `\r\r` fungujú ako doteraz. Test: nový `apps/server/src/lawoss/server-sent-events-chunks.test.ts`. |
+## Automatická kontrola aktualizácií len s dostupným updaterom (2026-11-04)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/settings/state/electron-updater-state.ts` | Automatický efekt pred kontrolou vyžaduje `electronUpdaterBridge()?.check`. Otvorenie Nastavení vo webovom klientovi tak nevyvolá Electron-only chybu. Ručné kontroly, natívny updater a ochrana dostupnej/stiahnutej aktualizácie ostávajú. Pripojená regresia `apps/app/tests/electron-updater-state.test.ts` používa izolované procesy s reálnym hookom; pôvodný webový scenár je overený aj v prehliadači. Pri syncu zachovať capability guard. |
+
+## Odložené upozornenia čítačiek query cache (2026-11-04)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/infra/query-cache-state.ts` | `useQueryCacheState` odovzdáva upozornenia cez `notifyManager.batchCalls`, rovnako ako natívne TanStack hooky. Vytvorenie query počas renderu iného komponentu tak nesmie synchrónne aktualizovať čítačku cache. Živý syntetický headless vstup reprodukoval React varovanie `SessionRoute` / `ClientLinkedFoldersNavItem`; regresia `apps/app/tests/query-cache-state-mount.test.tsx` pripája skutočné React DOM hooky a overuje aj doručenie hodnoty. Pri syncu zachovať odložené notifikácie. |
 
 ## Čitateľné Podrobnosti na karte úpravy súboru a externého priečinka (2026-10-31)
 
