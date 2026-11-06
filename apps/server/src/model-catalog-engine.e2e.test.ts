@@ -9,7 +9,8 @@ import type { ServerConfig } from "./types.js";
 
 const engineBin = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 
-test.skipIf(!engineBin)("a cold engine sees Eigenwelt models on its first provider read", async () => {
+// LAWOSS: relay sa nespúšťa a engine číta len katalóg LAWOSS (lawoss/engine-network.ts); overuje lawoss/engine-catalog.integration.test.ts.
+test.skip("a cold engine sees Eigenwelt models on its first provider read", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-catalog-engine-"));
   const previousUrl = process.env.OPENCODE_MODELS_URL;
   const modelId = "legalwork-catalog-startup-probe";

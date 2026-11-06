@@ -1,5 +1,14 @@
 # LAWOSS downstream patches
 
+## Engine pri studenom štarte číta len katalóg LAWOSS (2026-11-02, #336)
+
+Upstream test opravy #230 (`model-catalog-engine.e2e.test.ts`) čaká, že engine prevezme katalóg z relay (`OPENCODE_MODELS_URL`/`OPENCODE_MODELS_PATH` od volajúceho). LAWOSS relay nespúšťa a `lawossEngineEnv()` tieto premenné zámerne prepisuje pribaleným katalógom (rozhodnutie MČ 5. 10. 2026), takže test so skutočným enginom vždy padal. V CI to nebolo vidno, lebo krok serverových testov nemá `LEGALWORK_TEST_OPENCODE_BIN` a test preskočil.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/model-catalog-engine.e2e.test.ts` | `test.skipIf(!engineBin)` → `test.skip` +1 komentár. Správanie LAWOSS overuje nový `apps/server/src/lawoss/engine-catalog.integration.test.ts`: studený engine vidí katalóg z `LAWOSS_MODELS_CATALOG`, nie katalóg volajúceho, a zrkadlo volajúceho nedostane žiadnu požiadavku. Pri syncu zachovať, kým LAWOSS nespúšťa relay. |
+| `.github/workflows/ci-tests.yml` | Krok so skutočným enginom spúšťa aj `apps/server/src/lawoss/engine-catalog.integration.test.ts` (krok má `test -x`, nepreskočí sa potichu). |
+
 ## Čitateľné Podrobnosti na karte úpravy súboru a externého priečinka (2026-10-31)
 
 Regresia N-A7 z 30. 10. 2026, nález N-A8-3: Podrobnosti ukazovali surový JSON `{ "filepath": …, "diff": … }` a `{ "filepath": …, "parentDir": … }`, blok „Kontrola“ v dialógu surový diff s hlavičkami `@@`, `+++`, `---`.
