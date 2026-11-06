@@ -130,7 +130,8 @@ async function clientRoots(config: ServerConfig, workspace: WorkspaceInfo): Prom
   return Promise.all(roots.map(async (root, index) => {
     const canonical = await resolveWorkspaceFilePath(root.path, ".", { allowRoot: true }).catch((error: unknown) => {
       // Only an unreachable folder is skipped; a boundary refusal (ApiError) or another failure still stops the plan.
-      if (index === 0 || !OFFLINE_CODES.has((error as NodeJS.ErrnoException).code ?? "")) throw error;
+      const code = error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : "";
+      if (index === 0 || !OFFLINE_CODES.has(code)) throw error;
       return null;
     });
     return canonical ? { ...root, canonical } : { ...root, canonical: root.path, offline: true as const };

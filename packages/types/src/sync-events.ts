@@ -37,7 +37,10 @@ export function serverSentEvents(onData: (data: string) => void): (text: string)
   let endsWithNewline = false;
   let afterCarriageReturn = false; // the last piece ended in "\r", already read as a line end
   return (piece) => {
-    if (afterCarriageReturn && piece.startsWith("\n")) piece = piece.slice(1); // "\r" | "\n" is one "\r\n"
+    if (afterCarriageReturn && piece.startsWith("\n")) {
+      piece = piece.slice(1); // "\r" | "\n" is one "\r\n"
+      afterCarriageReturn = false;
+    }
     if (piece === "") return;
     afterCarriageReturn = piece.endsWith("\r");
     const text = piece.replace(/\r\n?/g, "\n");

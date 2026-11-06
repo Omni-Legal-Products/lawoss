@@ -15,6 +15,16 @@ function feedInChunks(stream: string, size: number) {
 const frames = ['data: {"a":1}\ndata: {"b":2}\n\n', "event: x\ndata: second\n\n", "data: ok\n\n"].join("");
 
 describe("serverSentEvents v rozdrobenom streame", () => {
+  test("po \\r | \\n ako samostatných kúskoch ďalší \\n ukončí udalosť", () => {
+    expect(feedInChunks("data: a\r\n\ndata: b\r\n\n", 1)).toEqual(["a", "b"]);
+    const { got, feed } = collect();
+    for (const piece of ["data: a\r", "\n", "\n", "data: b\n\n"]) feed(piece);
+    expect(got).toEqual(["a", "b"]);
+    const other = collect();
+    for (const piece of ["data: x\r", "\n", "\n"]) other.feed(piece);
+    expect(other.got).toEqual(["x"]);
+  });
+
   for (const [name, eol] of [
     ["LF", "\n"],
     ["CRLF", "\r\n"],
