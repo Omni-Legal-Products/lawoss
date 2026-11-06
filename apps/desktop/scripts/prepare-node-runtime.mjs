@@ -2,7 +2,7 @@
 // macOS 12 support of Electron 43; Node 24 requires macOS 13.5 or later.
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,10 +23,17 @@ const name = `node-v${config.version}-${target}`;
 const archive = `${name}.${isWindows ? "zip" : "tar.gz"}`;
 const output = path.join(desktopRoot, "resources/node");
 const executable = isWindows ? "node.exe" : "node";
-const expectedMetadata = JSON.stringify({ version: config.version, target, archiveSha256: config.sha256[target] });
+// 🟡 LAWOSS: npm z toho istého archívu, aby balíky LAWOSS Marketplace (`node scripts/run.mjs`)
+// pri prvom spustení nainštalovali závislosti aj bez Node.js v systéme.
+// npm leží v `lib/npm`, nie v `node_modules/npm`: electron-builder priečinky `node_modules` v extraResources vynechá.
+const npmLauncher = isWindows ? "npm.cmd" : "npm";
+const npmCli = "lib/npm/bin/npm-cli.js";
+const expectedMetadata = JSON.stringify({ version: config.version, target, archiveSha256: config.sha256[target], npm: "lib/npm" });
 try {
   const existing = JSON.parse(await readFile(path.join(output, "runtime.json"), "utf8"));
   const binaryHash = createHash("sha256").update(await readFile(path.join(output, executable))).digest("hex");
+  await readFile(path.join(output, npmLauncher));
+  await readFile(path.join(output, npmCli));
   if (JSON.stringify(existing.source) === expectedMetadata && existing.binarySha256 === binaryHash) {
     console.log(`[node-runtime] ${config.version} ${target} already verified`);
     process.exit(0);
@@ -40,21 +47,37 @@ try {
   const hash = createHash("sha256").update(bytes).digest("hex");
   if (hash !== config.sha256[target]) throw new Error(`Node runtime checksum mismatch for ${archive}`);
   await mkdir(output, { recursive: true });
+  for (const stale of ["lib", "node_modules"]) await rm(path.join(output, stale), { recursive: true, force: true });
   if (isWindows) {
-    const files = unzipSync(bytes, { filter: ({ name: entry }) => entry === `${name}/node.exe` || entry === `${name}/LICENSE` });
-    for (const file of ["node.exe", "LICENSE"]) {
+    const npmPrefix = `${name}/node_modules/npm/`;
+    const files = unzipSync(bytes, { filter: ({ name: entry }) => entry === `${name}/node.exe` || entry === `${name}/LICENSE`
+      || (entry.startsWith(npmPrefix) && !entry.endsWith("/")) });
+    for (const file of ["node.exe", "LICENSE", "node_modules/npm/bin/npm-cli.js"]) {
       if (!files[`${name}/${file}`]) throw new Error(`Node archive is missing ${file}`);
-      await writeFile(path.join(output, file), files[`${name}/${file}`]);
     }
+    for (const [entry, content] of Object.entries(files)) {
+      const relative = entry.startsWith(npmPrefix) ? path.join("lib/npm", entry.slice(npmPrefix.length)) : entry.slice(name.length + 1);
+      const destination = path.join(output, relative);
+      await mkdir(path.dirname(destination), { recursive: true });
+      await writeFile(destination, content);
+    }
+    // Vlastný npm.cmd: ten z archívu hľadá npm v `node_modules\npm`.
+    await writeFile(path.join(output, "npm.cmd"), '@ECHO off\r\nSETLOCAL\r\nSET npm_config_update_notifier=false\r\n"%~dp0node.exe" "%~dp0lib\\npm\\bin\\npm-cli.js" %*\r\n');
   } else {
     const archivePath = path.join(temporary, archive);
     await writeFile(archivePath, bytes);
-    const result = spawnSync("tar", ["-xzf", archivePath, "-C", temporary, `${name}/bin/node`, `${name}/LICENSE`], { stdio: "inherit" });
+    const result = spawnSync("tar", ["-xzf", archivePath, "-C", temporary, `${name}/bin/node`, `${name}/LICENSE`, `${name}/lib/node_modules/npm`], { stdio: "inherit" });
     if (result.error) throw result.error;
     if (result.status !== 0) throw new Error(`Node runtime extraction failed: ${result.status}`);
     await copyFile(path.join(temporary, name, "bin/node"), path.join(output, "node"));
     await copyFile(path.join(temporary, name, "LICENSE"), path.join(output, "LICENSE"));
     await chmod(path.join(output, "node"), 0o755);
+    await cp(path.join(temporary, name, "lib/node_modules/npm"), path.join(output, "lib/npm"), { recursive: true });
+    // Vlastný spúšťač namiesto symlinku bin/npm: `#!/usr/bin/env node` by hľadal systémový Node
+    // a symlink by electron-builder nemusel zachovať. Cestu berie z $0 bez `dirname`, aby fungoval
+    // aj s PATH, v ktorom je len tento priečinok.
+    await writeFile(path.join(output, "npm"), '#!/bin/sh\ncase "$0" in */*) dir="${0%/*}" ;; *) dir=. ;; esac\nnpm_config_update_notifier=false exec "$dir/node" "$dir/lib/npm/bin/npm-cli.js" "$@"\n');
+    await chmod(path.join(output, "npm"), 0o755);
   }
   const binarySha256 = createHash("sha256").update(await readFile(path.join(output, executable))).digest("hex");
   await writeFile(path.join(output, "runtime.json"), JSON.stringify({ source: JSON.parse(expectedMetadata), binarySha256 }, null, 2) + "\n");

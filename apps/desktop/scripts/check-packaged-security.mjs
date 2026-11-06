@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { checkOkfCliWithNode } from "../electron/lawoss-okf-cli-smoke.mjs"; // 🟡 LAWOSS: kontrola bundlov OKF na konci
+import { checkBundledNpm } from "../electron/lawoss-npm-smoke.mjs"; // 🟡 LAWOSS: npm pre balíky LAWOSS Marketplace
 const require = createRequire(import.meta.url);
 const builderRequire = createRequire(require.resolve("electron-builder"));
 const libRequire = createRequire(builderRequire.resolve("app-builder-lib"));
@@ -102,3 +103,5 @@ try {
 // pribalený Node ich musí spustiť ako ESM aj v ceste s medzerou a diakritikou.
 await checkOkfCliWithNode({ nodeDirectory });
 console.log("PASS: OKF CLI bundles create a client, a matter and its memory with bundled Node in a path with spaces");
+const npmVersion = await checkBundledNpm({ nodeDirectory });
+console.log(`PASS: bundled npm ${npmVersion} runs npm ci with only the bundled Node on PATH`);
