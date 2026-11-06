@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Runner macos-14 nahradený macos-15 (2026-11-06)
+
+GitHub 2. 11. 2026 vyradil obraz `macos-14`: joby sa rušia bez runnera (`The configuration 'macos-14-arm64-us-default' is not supported`).
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `.github/workflows/alpha-macos-aarch64.yml`, `ci-desktop-packaging.yml`, `ci-okf-pamat.yml`, `ci-okf.yml`, `ci-tests.yml`, `release-macos-aarch64.yml` | `macos-14` → `macos-15`. Povinná kontrola rulesetu dev `legalwork-tests (macos-14)` sa tým musí premenovať na `legalwork-tests (macos-15)`. |
+
 ## Nálezy testu alfa10: rozpočet MCP a aktivácia klienta (2026-11-06, #367)
 
 | Súbory | Downstream doplnenie a dôvod |
