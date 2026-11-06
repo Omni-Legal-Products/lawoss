@@ -76,6 +76,7 @@ import { FORK_RELEASE_DOWNLOAD_BASE_URL, FORK_RELEASES_URL, brandAppName } from 
 import { canonicalTypedDirectory, pickedDirectories } from "./lawoss-picked-path.mjs";
 import { lawossFolderState } from "./lawoss-folder-state.mjs";
 import { withoutClaudeGlobalSkills } from "./lawoss-skill-roots.mjs";
+import { applyRendererHeapLimit } from "./lawoss-memory-budget.mjs";
 
 const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
 const openComputerUse = createOpenComputerUseIntegration({ getDataDir: () => app.getPath("userData") });
@@ -621,6 +622,8 @@ if (extraLaunchArgs) {
     }
   }
 }
+// LAWOSS: limit haldy V8 rendererov, rozpočet RAM 2 GB (#367); po ELECTRON_EXTRA_LAUNCH_ARGS, tie majú prednosť.
+applyRendererHeapLimit(app);
 // Browser automation uses the per-tab broker, not Chromium's global listener.
 configureRemoteDebugging(app);
 configureFakeMediaForTests(app, envFlagEnabled("LEGALWORK_ELECTRON_FAKE_MEDIA"));
