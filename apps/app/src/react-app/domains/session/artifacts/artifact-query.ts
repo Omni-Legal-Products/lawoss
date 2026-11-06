@@ -50,7 +50,7 @@ export function artifactQueryOptions({ queryClient, client, workspaceId, target,
 
       if (isTextContent(target)) {
         const result = await client.readWorkspaceFile(workspaceId, target.value);
-        
+
         return { kind: "text", data: result.content, updatedAt: result.updatedAt ?? null };
       }
 
