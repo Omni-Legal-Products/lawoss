@@ -1,5 +1,6 @@
 // LAWOSS: lawoss_files na serveri – plán pre jednu kartu, vykonanie len schváleného plánu, pravdivý výsledok.
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import * as fsp from "node:fs/promises";
 import { access, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, posix, win32 } from "node:path";
@@ -389,6 +390,84 @@ test("a move cancelled at its last check, after the copy is verified, keeps the 
   await expect(moveAcrossVolumes(config, step("Druhe"), last.signal)).rejects.toMatchObject({ name: "AbortError" });
   expect(await readFile(join(client, "Druhe", "M001", "zmluva.txt"), "utf8")).toBe("SYN zmluva");
   expect(await readdir(client)).not.toContain("Druhe-presun");
+});
+
+/** A share that stores names in NFC (SMB, NAS): the copy `cp` makes there has the same files under NFC names. */
+const copyToNfcShare = async (source: string, target: string) => {
+  await mkdir(target);
+  for (const name of await readdir(source)) await writeFile(join(target, name.normalize("NFC")), await readFile(join(source, name)));
+};
+
+// Zvyšok #221 (a): poradie mien v porovnaní stromu je podľa NFC, nie podľa bajtov mena.
+test("a folder with NFD names (APFS) moved to a share that stores NFC names matches its copy (#221)", async () => {
+  const { config, client } = await office();
+  const folder = join(client, "Spis");
+  await mkdir(folder);
+  // „á“ v NFD sa radí pred „b“, v NFC za neho.
+  await writeFile(join(folder, "á.txt"), "SYN NFD");
+  await writeFile(join(folder, "b.txt"), "SYN b");
+  const copy = spyOn(fsp, "cp").mockImplementation((source, target) => copyToNfcShare(String(source), String(target)));
+  try {
+    const step = { operation: "move" as const, kind: "folder" as const, from: "Spis", to: "Na-NAS", source: folder, target: join(client, "Na-NAS"), sourceRoot: client };
+    expect(await moveAcrossVolumes(config, step)).toMatch(new RegExp(`^${LAWOSS_TRASH_FOLDER}/`));
+  } finally { copy.mockRestore(); }
+  expect((await readdir(join(client, "Na-NAS"))).sort()).toEqual(["b.txt", "á.txt"]);
+  expect(await readdir(client)).not.toContain("Spis");
+});
+
+// Zvyšok #221 (b): keď sa nepodarená kópia nedá odstrániť, hlásenie ostane pôvodnou chybou a pridá zvyšok kópie.
+test("a copy that differs and cannot be removed keeps the original error and says the copy is left (#221)", async () => {
+  const { config, client } = await office();
+  const step = { operation: "move" as const, kind: "folder" as const, from: "Pripady", to: "Na-NAS", source: join(client, "Pripady"), target: join(client, "Na-NAS"), sourceRoot: client };
+  const realCp = fsp.cp;
+  const copy = spyOn(fsp, "cp").mockImplementation(async (source, target, options) => {
+    await realCp(source, target, options);
+    await writeFile(join(String(target), "M001", "zmluva.txt"), "SYN poskodena kopia");
+  });
+  const removal = spyOn(fsp, "rm").mockImplementation(async () => { throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" }); });
+  const error = await moveAcrossVolumes(config, step).then(() => null, (failure: unknown) => failure);
+  copy.mockRestore(); removal.mockRestore();
+  expect(error).toBeInstanceOf(Error);
+  const failure = error instanceof Error ? error : new Error();
+  expect(failure.message).toStartWith("The copy on the other drive differs from the original.");
+  expect(failure.message).toContain("Na-NAS could not be removed");
+  expect(failure.cause).toBeInstanceOf(Error);
+  expect(failure.cause instanceof Error ? failure.cause.message : "").toStartWith("The copy on the other drive differs from the original.");
+  expect(await readFile(join(client, "Pripady", "M001", "zmluva.txt"), "utf8")).toBe("SYN zmluva");
+  expect(await readdir(client)).not.toContain(LAWOSS_TRASH_FOLDER);
+});
+
+// Zvyšok #221 (c): Windows, súbor otvorený vo Worde – pôvodné meno sa nedá odstrániť (EBUSY).
+const busy = () => Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" });
+test("a file held open keeps its old name and loses the new one; the error says it is open (#221)", async () => {
+  const { config, client } = await office();
+  const step: PlannedFileOperation = { operation: "move", kind: "file", from: "poznamky.txt", to: "Archiv/poznamky.txt", source: join(client, "poznamky.txt"), target: join(client, "Archiv", "poznamky.txt"), sourceRoot: client };
+  const realUnlink = fsp.unlink;
+  const removal = spyOn(fsp, "unlink").mockImplementation(async (location) => { if (String(location) === step.source) throw busy(); await realUnlink(location); });
+  const error = await executePlannedFileOperation(config, step).then(() => null, (failure: unknown) => failure);
+  removal.mockRestore();
+  expect(error).toBeInstanceOf(Error);
+  expect(error instanceof Error ? error.message : "").toContain("poznamky.txt is open in another program");
+  expect(error instanceof Error ? error.message : "").toContain("Nothing was moved");
+  expect(error instanceof Error ? error.cause : undefined).toMatchObject({ code: "EBUSY" });
+  expect(await readFile(join(client, "poznamky.txt"), "utf8")).toBe("SYN poznamky");
+  expect(await readdir(join(client, "Archiv"))).toEqual([]);
+  expect((await stat(join(client, "poznamky.txt"))).nlink).toBe(1);
+});
+
+test("when neither name of a file held open can be removed, the error says it now has both names (#221)", async () => {
+  const { config, client } = await office();
+  const step: PlannedFileOperation = { operation: "move", kind: "file", from: "poznamky.txt", to: "Archiv/poznamky.txt", source: join(client, "poznamky.txt"), target: join(client, "Archiv", "poznamky.txt"), sourceRoot: client };
+  const removal = spyOn(fsp, "unlink").mockImplementation(async () => { throw busy(); });
+  const error = await executePlannedFileOperation(config, step).then(() => null, (failure: unknown) => failure);
+  removal.mockRestore();
+  expect(error).toBeInstanceOf(Error);
+  const message = error instanceof Error ? error.message : "";
+  expect(message).toContain("poznamky.txt is open in another program");
+  expect(message).toContain("both names, poznamky.txt and Archiv/poznamky.txt");
+  expect(error instanceof Error ? error.cause : undefined).toMatchObject({ code: "EBUSY" });
+  expect(await readFile(join(client, "poznamky.txt"), "utf8")).toBe("SYN poznamky");
+  expect(await readFile(join(client, "Archiv", "poznamky.txt"), "utf8")).toBe("SYN poznamky");
 });
 
 test("a cancelled request runs no further step (#223)", async () => {
