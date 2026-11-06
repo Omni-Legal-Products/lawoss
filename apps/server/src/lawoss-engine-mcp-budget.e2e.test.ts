@@ -37,12 +37,21 @@ async function fixture() {
   process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
   const requests: EngineRequest[] = [];
   const busy = new Set<string>();
+  // Poradie prichádzajúcich a dobehnutých volaní (registrácia MCP a uvoľnenie inštancie).
+  const trace: string[] = [];
+  const holds = { mcpPost: null as Promise<void> | null };
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
     const header = request.headers.get("x-opencode-directory");
     const directory = url.searchParams.get("directory") ?? (header ? decodeURIComponent(header) : null);
     const body = request.method === "POST" ? await request.json().catch(() => null) as { name?: string } | null : null;
     requests.push({ method: request.method, pathname: url.pathname, directory, name: body?.name });
+    if (request.method === "POST" && url.pathname === "/mcp" && holds.mcpPost) {
+      trace.push("mcp:start");
+      await holds.mcpPost;
+      trace.push("mcp:end");
+    }
+    if (url.pathname === "/instance/dispose") trace.push("dispose");
     if (url.pathname === "/session/status") return Response.json(directory && busy.has(directory) ? { ses_1: { type: "busy" } } : {});
     if (url.pathname === "/session" || url.pathname === "/command") return Response.json([]);
     return Response.json({});
@@ -72,7 +81,7 @@ async function fixture() {
     await response.arrayBuffer();
     return response.status;
   };
-  return { config, paths, requests, busy, get, post, mcpTouches, disposals };
+  return { config, base, paths, requests, busy, trace, holds, get, post, mcpTouches, disposals };
 }
 
 test("výpis chatov všetkých klientov ani štart nespustia v engine žiadne MCP", async () => {
@@ -137,4 +146,38 @@ test("explicitný reload klienta (nastavenia, poskytovateľ) ho otvorí s pripra
   expect(f.requests.some((entry) => entry.method === "GET" && entry.pathname === "/mcp" && entry.directory === a)).toBe(true);
   expect(f.requests.some((entry) => entry.method === "POST" && entry.pathname === "/mcp" && entry.name === "klientA" && entry.directory === a)).toBe(true);
   expect(f.disposals()).toContain(f.paths[1]);
+});
+
+test("reload po hromadnej zmene neregistruje znova MCP, ktoré nová inštancia má zo súboru", async () => {
+  // N4 (test alfa10): POST by spustil druhý proces toho istého MCP popri tom zo súboru.
+  const f = await fixture();
+  const [a] = f.paths as [string];
+  expect(await f.get("/workspace/ws_a/opencode/command")).toBe(200);
+  f.requests.length = 0;
+  // Zmena nastavení prepíše súbor konfigurácie a na pozadí obnoví inštancie.
+  expect((await fetch(`${f.base}/systemone/providers/neexistuje`, { method: "DELETE", headers: { Authorization: "Bearer client" } })).status).toBeLessThan(500);
+  while (!f.requests.some((entry) => entry.method === "GET" && entry.pathname === "/mcp" && entry.directory === a)) await delay(5);
+  await delay(100);
+  expect(f.disposals()).toContain(a);
+  expect(f.requests.filter((entry) => entry.method === "POST" && entry.pathname === "/mcp")).toEqual([]);
+});
+
+test("uvoľnenie inštancie počká, kým dobehne registrácia MCP v tom istom priečinku", async () => {
+  // N4 (test alfa10): dispose počas POST /mcp nechá proces mimo vlastníka v engine až do jeho zastavenia.
+  const f = await fixture();
+  await writeRuntimeOpencodeConfig(f.config, "ws_b", (current) => ({ ...current, mcp: { klientB: REMOTE_MCP } }));
+  let finish = () => {};
+  f.holds.mcpPost = new Promise<void>((resolve) => { finish = resolve; });
+  const first = f.post("/workspace/ws_b/engine/reload");
+  while (!f.trace.includes("mcp:start")) await delay(5);
+  f.trace.length = 0;
+  f.trace.push("mcp:start");
+  const second = f.post("/workspace/ws_b/engine/reload");
+  await delay(150);
+  expect(f.trace).toEqual(["mcp:start"]);
+  finish();
+  f.holds.mcpPost = null;
+  expect(await first).toBe(200);
+  expect(await second).toBe(200);
+  expect(f.trace.slice(0, 3)).toEqual(["mcp:start", "mcp:end", "dispose"]);
 });

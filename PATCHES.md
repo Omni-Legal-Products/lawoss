@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Nálezy testu alfa10: rozpočet MCP a aktivácia klienta (2026-11-06, #367)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/server.ts` | N4: `POST /instance/dispose` a `POST /mcp` v tom istom priečinku idú za sebou (`createEngineDirectoryLanes`, `lawoss/engine-mcp-budget.ts`). Engine 1.18.29 uloží klienta z `POST /mcp` aj do už uvoľnenej inštancie a proces žije do jeho zastavenia. Reload na pozadí (`background`) neregistruje MCP, ktoré nová inštancia má zo súboru (`skipFileProvided`); explicitný reload ostáva ako upstream. |
+
 ## Komentár ukázaný ako odpoveď prežije neskorú aktualizáciu časti (2026-11-06, #348)
 
 | Súbory | Downstream doplnenie a dôvod |

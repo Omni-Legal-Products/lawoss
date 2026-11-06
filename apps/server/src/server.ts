@@ -171,7 +171,7 @@ import { registerOnboardingRoutes, type OnboardingApplyCheckpoint } from "./lawo
 import { LawossOcrManager, registerLawossOcrRoutes } from "./lawoss/ocr-opt-in.js";
 import { registerLawossMarketplaceRoutes } from "./lawoss/marketplace-routes.js";
 // LAWOSS: rozpočet RAM 2 GB – MCP len pre otvorených klientov (lawoss/engine-mcp-budget.ts, issue #367).
-import { createEngineMcpBudget, engineMcpBudgetSettings, initializesEngineMcp, type EngineMcpBudget, type EngineScope } from "./lawoss/engine-mcp-budget.js";
+import { createEngineDirectoryLanes, createEngineMcpBudget, engineMcpBudgetSettings, initializesEngineMcp, type EngineMcpBudget, type EngineScope } from "./lawoss/engine-mcp-budget.js";
 import { startWeeklyMarketplaceCheck } from "./lawoss/marketplace-updates.js";
 import {
   applyGlobalToolPermissions,
@@ -5847,28 +5847,32 @@ async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceIn
   const auth = connection.authHeader ?? null;
   if (auth) headers.Authorization = auth;
 
-  let response: Response | undefined;
-  for (const delayMs of [0, 150, 300, 600]) {
-    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
-    try {
-      response = await fetch(targetUrl, { method: "POST", headers });
-      break;
-    } catch (error) {
-      // A refused connection cannot have reached the engine. Other transport
-      // failures may happen after dispose ran, so repeating the POST could
-      // interrupt a newly started task.
-      const cause = error instanceof Error ? error.cause : undefined;
-      const refused =
-        (error instanceof Error && "code" in error && (error.code === "ECONNREFUSED" || error.code === "ConnectionRefused")) ||
-        (cause instanceof Error && "code" in cause && (cause.code === "ECONNREFUSED" || cause.code === "ConnectionRefused"));
-      if (delayMs === 600 || !refused) {
-        throw new ApiError(503, "opencode_unavailable", "OpenCode engine is not ready", {
-          reason: error instanceof Error ? error.message : String(error),
-        });
+  // LAWOSS: uvoľnenie nesmie prísť počas POST /mcp v tom istom priečinku (engine-mcp-budget.ts).
+  const response = await inEngineDirectoryLane({ baseUrl, directory: directory ?? "" }, async () => {
+    let answer: Response | undefined;
+    for (const delayMs of [0, 150, 300, 600]) {
+      if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+      try {
+        answer = await fetch(targetUrl, { method: "POST", headers });
+        break;
+      } catch (error) {
+        // A refused connection cannot have reached the engine. Other transport
+        // failures may happen after dispose ran, so repeating the POST could
+        // interrupt a newly started task.
+        const cause = error instanceof Error ? error.cause : undefined;
+        const refused =
+          (error instanceof Error && "code" in error && (error.code === "ECONNREFUSED" || error.code === "ConnectionRefused")) ||
+          (cause instanceof Error && "code" in cause && (cause.code === "ECONNREFUSED" || cause.code === "ConnectionRefused"));
+        if (delayMs === 600 || !refused) {
+          throw new ApiError(503, "opencode_unavailable", "OpenCode engine is not ready", {
+            reason: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
     }
-  }
-  if (!response) throw new ApiError(503, "opencode_unavailable", "OpenCode engine is not ready");
+    if (!answer) throw new ApiError(503, "opencode_unavailable", "OpenCode engine is not ready");
+    return answer;
+  });
   if (!response.ok) {
     const body = parseOpencodeErrorBody(await response.text());
     throw new ApiError(502, "opencode_reload_failed", "OpenCode reload failed", {
@@ -5886,7 +5890,9 @@ async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceIn
   // primary workspace), but other workspaces' runtime MCPs only reach the
   // engine through this dynamic push.
   await awaitEngineInstance(baseUrl, auth, directory);
-  await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
+  // LAWOSS: po hromadnej zmene (doplnok, nastavenia) má nová inštancia MCP zo súboru; POST by ich
+  // spustil druhýkrát a počas pomalého štartu sa prekrýval s ďalšou zmenou (N4, issue #367).
+  await syncRuntimeMcpToOpencodeEngine(config, workspace, undefined, { skipFileProvided: options.background }).catch(() => undefined);
 }
 
 // Reload the engine instance of every other local workspace, one at a time and
@@ -5996,6 +6002,7 @@ async function workspaceEngineBusy(config: ServerConfig, workspace: WorkspaceInf
 // pri prvom dotyku MCP stavu. Tieto funkcie ich držia len pre otvorených
 // klientov (lawoss/engine-mcp-budget.ts); hromadné zmeny neaktívnych len uvoľnia.
 const engineMcpBudgets = new WeakMap<ServerConfig, EngineMcpBudget>();
+const inEngineDirectoryLane = createEngineDirectoryLanes();
 
 function engineMcpBudgetFor(config: ServerConfig): EngineMcpBudget | null {
   return engineMcpBudgets.get(config) ?? null;
@@ -6036,9 +6043,11 @@ async function engineDirectoryBusy(scope: EngineScope): Promise<boolean> {
 async function disposeEngineDirectory(scope: EngineScope): Promise<void> {
   const headers: Record<string, string> = {};
   if (scope.authHeader) headers.Authorization = scope.authHeader;
-  const response = await fetch(buildOpencodeReloadUrl(scope.baseUrl, scope.directory), { method: "POST", headers, signal: AbortSignal.timeout(30_000) });
-  await response.arrayBuffer().catch(() => undefined);
-  if (!response.ok) throw new ApiError(502, "opencode_reload_failed", "OpenCode dispose failed", { status: response.status });
+  await inEngineDirectoryLane(scope, async () => {
+    const response = await fetch(buildOpencodeReloadUrl(scope.baseUrl, scope.directory), { method: "POST", headers, signal: AbortSignal.timeout(30_000) });
+    await response.arrayBuffer().catch(() => undefined);
+    if (!response.ok) throw new ApiError(502, "opencode_reload_failed", "OpenCode dispose failed", { status: response.status });
+  });
 }
 
 function installEngineMcpBudget(config: ServerConfig): () => void {
@@ -6162,10 +6171,12 @@ async function syncRuntimeMcpToOpencodeEngine(
   // block re-registration of every entry after it (e.g. legalwork-ui) on
   // each engine reload.
   const failures: EngineMcpSyncFailure[] = [];
-  for (const [name, mcpConfig] of entries) {
-    const failure = await postMcpEntryWithRetry(url, headers, name, mcpConfig);
-    if (failure) failures.push(failure);
-  }
+  await inEngineDirectoryLane({ baseUrl, directory: directory ?? "" }, async () => {
+    for (const [name, mcpConfig] of entries) {
+      const failure = await postMcpEntryWithRetry(url, headers, name, mcpConfig);
+      if (failure) failures.push(failure);
+    }
+  });
 
   recordEngineMcpSyncResult(workspace.id, {
     syncedNames: entries.map(([name]) => name),

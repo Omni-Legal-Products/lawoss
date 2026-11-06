@@ -75,6 +75,24 @@ export function scopeKey(scope: Pick<EngineScope, "baseUrl" | "directory">): str
   return JSON.stringify([scope.baseUrl.replace(/\/+$/, ""), scope.directory]);
 }
 
+/**
+ * Poradie zmien MCP stavu v jednom priečinku. Engine 1.18.29 uloží klienta z `POST /mcp` aj do už
+ * uvoľnenej inštancie a jej koniec ho nezavrie: proces žije až do zastavenia enginu. Uvoľnenie preto
+ * čaká na rozbehnutú registráciu a registrácia na rozbehnuté uvoľnenie.
+ */
+export function createEngineDirectoryLanes() {
+  const lanes = new Map<string, Promise<void>>();
+  return <T>(scope: Pick<EngineScope, "baseUrl" | "directory">, run: () => Promise<T>): Promise<T> => {
+    const key = scopeKey(scope);
+    const result = (lanes.get(key) ?? Promise.resolve()).then(run);
+    const tail = result.then(() => undefined, () => undefined).then(() => {
+      if (lanes.get(key) === tail) lanes.delete(key);
+    });
+    lanes.set(key, tail);
+    return result;
+  };
+}
+
 function positiveInteger(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim() === "") return fallback;
   const parsed = Number(value);
