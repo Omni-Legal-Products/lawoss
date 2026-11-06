@@ -1,3 +1,5 @@
+import type { UIMessage } from "ai";
+
 /**
  * LAWOSS: priebežný komentár modelu nie je odpoveď (N-A5-2, test 25. 10. 2026). Modely OpenAI (Responses API, napr.
  * GPT-6 Luna) posielajú pred nástrojmi text vo fáze `commentary` („We have memory links relative to project root…“);
@@ -31,4 +33,20 @@ const endsTurn = (info: AssistantTurnInfo): boolean => typeof info.time?.complet
 export function commentaryIsAnswer(parts: readonly { type: string }[], info: AssistantTurnInfo): boolean {
   return endsTurn(info) && !parts.some((part) => part.type === "text" && !isModelCommentary(part)
     && !Reflect.get(part, "synthetic") && !Reflect.get(part, "ignored"));
+}
+
+/** Príznak na časti uvažovania, ktorá vznikla z komentára modelu: hotová správa ju ešte môže ukázať ako odpoveď. */
+export const commentaryTag = (part: { type: string }): { commentary?: true } => isModelCommentary(part) ? { commentary: true } : {};
+
+const isCommentaryReasoning = (part: UIMessage["parts"][number]): boolean => part.type === "reasoning"
+  && Reflect.get(part.providerMetadata?.opencode ?? {}, "commentary") === true;
+
+/**
+ * To isté pravidlo ako `commentaryIsAnswer`, nad časťami pre UI (#269 P3). Živý prenos ukazuje komentár ako
+ * uvažovanie; keď engine správu uzavrie ako koniec ťahu bez inej odpovede, prepne ho na text. Inak by advokát naživo
+ * nevidel nič a po znovuotvorení chatu komentár. Bez zmeny vráti tú istú správu.
+ */
+export function withCommentaryAnswer(message: UIMessage, info: AssistantTurnInfo): UIMessage {
+  if (!endsTurn(info) || message.parts.some((part) => part.type === "text") || !message.parts.some(isCommentaryReasoning)) return message;
+  return { ...message, parts: message.parts.map((part) => part.type === "reasoning" && isCommentaryReasoning(part) ? { ...part, type: "text" as const } : part) };
 }

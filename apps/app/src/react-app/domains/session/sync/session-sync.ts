@@ -34,7 +34,7 @@ import {
   resolveInteractionLineage, refreshWorkspaceInteractions, createInteractionSnapshot,
   interactionRequestKey, interactionSessionIds, interactionSessionsKey, noteInteractionFolder, type InteractionSessions, type InteractionSnapshot,
 } from "./interaction-state";
-import { isModelCommentary } from "@/lawoss/chat/commentary";
+import { commentaryTag, isModelCommentary, withCommentaryAnswer } from "@/lawoss/chat/commentary";
 export { permissionKey, questionKey, seedPermissionState, seedQuestionState } from "./interaction-state";
 
 type SyncOptions = {
@@ -533,7 +533,7 @@ function toUIPart(part: Part): UIMessage["parts"][number] | null {
       type: isModelCommentary(part) ? "reasoning" : "text",
       text: part.text,
       state: "done",
-      providerMetadata: { opencode: { partId: part.id } },
+      providerMetadata: { opencode: { partId: part.id, ...commentaryTag(part) } },
     };
   }
   if (part.type === "reasoning") {
@@ -1079,8 +1079,9 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), ...(info.summary ? { summary: true } : {}) } },
       parts: [],
     } satisfies UIMessage;
+    // 🟡 LAWOSS: koniec ťahu hneď po komentári ukáže komentár ako odpoveď aj naživo, ako v načítanom chate (#269).
     queryClient.setQueryData<UIMessage[]>(transcriptKey(workspaceId, info.sessionID), (current = []) =>
-      upsertMessage(current, next),
+      upsertMessage(current, next).map((message) => message.id === info.id ? withCommentaryAnswer(message, info) : message),
     );
     return;
   }

@@ -15,7 +15,7 @@ import {
 import { t } from "@/i18n";
 import { subscriptionModelErrorKey } from "@/lawoss/providers/subscription-models";
 import { eigenweltUsageLimitFromError, isAnthropicUsageLimitError, providerUsageLimitErrorText } from "@/app/lib/provider-usage-limit";
-import { commentaryIsAnswer, isModelCommentary } from "@/lawoss/chat/commentary";
+import { commentaryIsAnswer, commentaryTag, isModelCommentary } from "@/lawoss/chat/commentary";
 
 function recordValue(value: unknown, key: string) {
   if (!value || typeof value !== "object") return undefined;
@@ -235,7 +235,7 @@ export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMess
             type: isModelCommentary(part) && !commentaryAnswer ? "reasoning" : "text",
             text: getTextPartValue(part),
             state: "done" as const,
-            providerMetadata: { opencode: { partId: part.id } },
+            providerMetadata: { opencode: { partId: part.id, ...commentaryTag(part) } },
           }];
         }
         if (part.type === "reasoning") {
