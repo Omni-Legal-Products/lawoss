@@ -3,6 +3,7 @@ import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, Integra
 import { useEffect, useState } from "react";
 import { connectorDefinitions } from "@legalwork/types/connectors";
 import { useLegalworkSource } from "@/lawoss/domains/integrations/use-legalwork-source";
+import { ALPHA_STORAGE_CONNECTIONS_DISABLED, alphaStorageCard } from "@/lawoss/domains/integrations/alpha-storage";
 import { ConnectorConfig } from "../connector-config";
 import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
 import { resolveBrandIconSrc } from "../../../design-system/extension-icon-src";
@@ -103,9 +104,9 @@ export function FileStorageView({
   const query = search.trim().toLowerCase();
   const matchingConnections = visibleConnections.filter(connection => !query || `${connection.name} ${storageProviderName(connection)}`.toLowerCase().includes(query));
   const providerQuery = providerSearch.trim().toLowerCase();
-  // 🟡 LAWOSS: natívne úložiská upstreamu (Google Drive, OneDrive, SharePoint, #272) len so zapnutým zdrojom LegalWork.
+  // 🟡 LAWOSS: natívne úložiská upstreamu (Google Drive, OneDrive, SharePoint, #272) len so zapnutým zdrojom LegalWork; v alfe vyblednuté vždy.
   const legalworkSource = useLegalworkSource();
-  const matchingNativeProviders = legalworkSource ? connectorDefinitions.filter(provider => provider.kind === "files" && (!providerQuery || provider.name.toLowerCase().includes(providerQuery))) : [];
+  const matchingNativeProviders = legalworkSource || ALPHA_STORAGE_CONNECTIONS_DISABLED ? connectorDefinitions.filter(provider => provider.kind === "files" && (!providerQuery || provider.name.toLowerCase().includes(providerQuery))) : [];
   const matchingProviders = (providers.data?.providers ?? []).filter(provider => !providerQuery || provider.name.toLowerCase().includes(providerQuery));
   const matchingKinds = storageKinds.filter(kind => !providerQuery || `${storageLabel(kind)} ${storageDescription(kind)}`.toLowerCase().includes(providerQuery));
   // The firm may allow no connections of the member's own.
@@ -241,18 +242,19 @@ export function FileStorageView({
           <div className="min-h-0 overflow-y-auto">
             {providers.error ? <p role="alert" className="mb-4 text-sm text-destructive">{providers.error.message}</p> : null}
             {providers.isLoading ? <p role="status" className="mb-4 text-sm text-muted-foreground">{t("storage.loading")}</p> : null}
+            {ALPHA_STORAGE_CONNECTIONS_DISABLED ? <p className="mb-4 text-sm text-muted-foreground" data-lawoss-alpha-storage="">{t("lawoss.integrations.storage.alpha_note")}</p> : null}
             <div className="grid gap-2 sm:grid-cols-2">
               {matchingNativeProviders.map(provider => {
                 const icon = resolveBrandIconSrc(undefined, provider.icon);
                 const account = allConnections.find(connection => connection.id.startsWith(`connector:${provider.id}:`));
-                return <button key={provider.id} type="button" onClick={() => openNativeAccount(provider.id)} className="flex items-start gap-3 rounded-xl border border-border p-4 text-start transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                return <button key={provider.id} type="button" onClick={() => openNativeAccount(provider.id)} {...alphaStorageCard("flex items-start gap-3 rounded-xl border border-border p-4 text-start transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}>
                   {icon && <img src={icon} alt="" className="mt-0.5 size-5 shrink-0 object-contain" />}<span><span className="block text-sm font-medium">{provider.name}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{t(account ? "connectors.connected" : "storage.oauth_description")}</span></span>
                 </button>;
               })}
-              {matchingProviders.map(provider => <button key={provider.id} type="button" onClick={() => void openNewEditor({ kind: "oauth", provider })} className="flex items-start gap-3 rounded-xl border border-border p-4 text-start transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              {matchingProviders.map(provider => <button key={provider.id} type="button" onClick={() => void openNewEditor({ kind: "oauth", provider })} {...alphaStorageCard("flex items-start gap-3 rounded-xl border border-border p-4 text-start transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}>
                 <ArrowUpRight className="mt-0.5 size-5 shrink-0 text-muted-foreground" /><span><span className="block text-sm font-medium">{provider.name}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{t("storage.oauth_description")}</span></span>
               </button>)}
-              {matchingKinds.map(kind => { const Icon = storageIcons[kind]; return <button key={kind} type="button" onClick={() => void openNewEditor({ kind })} className="flex items-start gap-3 rounded-xl border border-border p-4 text-start transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              {matchingKinds.map(kind => { const Icon = storageIcons[kind]; return <button key={kind} type="button" onClick={() => void openNewEditor({ kind })} {...alphaStorageCard("flex items-start gap-3 rounded-xl border border-border p-4 text-start transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}>
                 <Icon className="mt-0.5 size-5 shrink-0 text-muted-foreground" /><span><span className="block text-sm font-medium">{storageLabel(kind)}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{storageDescription(kind)}</span></span>
               </button>; })}
             </div>

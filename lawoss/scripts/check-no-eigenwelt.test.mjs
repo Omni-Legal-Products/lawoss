@@ -164,7 +164,8 @@ describe("LAWOSS stráž Eigenweltu a analytiky", () => {
     // Zdroj LegalWork predvolene zapnutý alebo voľba so sieťou.
     const source = "apps/app/src/lawoss/domains/integrations/legalwork-source.ts";
     assert.ok(fails(source, (text) => text.replace("} catch {\n    return false;\n  }\n}\n\nlet enabled", "} catch {\n    return true;\n  }\n}\n\nlet enabled")));
-    assert.ok(fails(source, (text) => text.replace("let enabled = read();", "let enabled = true;")));
+    assert.ok(fails(source, (text) => text.replace("let enabled = LEGALWORK_SOURCE_OFFERED && read();", "let enabled = true;")));
+    assert.ok(fails(source, (text) => text.replace("LEGALWORK_SOURCE_OFFERED = false;", "LEGALWORK_SOURCE_OFFERED = true;")));
     assert.ok(fails(source, (text) => `${text}\nvoid fetch("https://example.test");\n`));
     assert.ok(fails("apps/app/src/lawoss/domains/integrations/legalwork-source-sync.ts", (text) => `${text}\nvoid connectMcp;\n`));
     // LegalQuants sa vykreslí (a skenuje GitHub) aj bez zdroja.
