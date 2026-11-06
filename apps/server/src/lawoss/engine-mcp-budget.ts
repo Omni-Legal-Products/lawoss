@@ -36,6 +36,8 @@ export type EngineMcpBudgetOptions = {
 type Entry = {
   scope: EngineScope;
   lastUsed: number;
+  /** Poradie posledného otvorenia MCP. Koniec dlhej požiadavky (beh chatu) ho na rozdiel od `lastUsed` neposunie. */
+  opened: number;
   inflight: number;
   ready: Promise<void>;
 };
@@ -93,6 +95,7 @@ export function engineMcpBudgetSettings(env: Record<string, string | undefined> 
 export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMcpBudget {
   const now = options.now ?? Date.now;
   const active = new Map<string, Entry>();
+  let openings = 0;
   // Prijímanie a uvoľňovanie ide postupne, aby dva súbežné prvé dotyky
   // nepostavili dve inštancie nad limit.
   let lane: Promise<void> = Promise.resolve();
@@ -129,10 +132,11 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
     }
   };
 
-  // Uvoľňuje najdlhšie nepoužité, kým ostane najviac `keep` aktívnych.
-  const makeRoom = async (keep: number) => {
+  // Uvoľňuje najdlhšie neotvorené, kým ostane najviac `keep` aktívnych. `sparing` nechá
+  // najnovšie otvorených: práve otvorený klient ostáva, aj keď je starší nad limitom zaneprázdnený.
+  const makeRoom = async (keep: number, sparing = 0) => {
     if (options.limit === 0) return;
-    const candidates = [...active.entries()].sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+    const candidates = [...active.entries()].sort((a, b) => a[1].opened - b[1].opened).slice(0, sparing ? -sparing : undefined);
     for (const [key, entry] of candidates) {
       if (active.size <= keep) return;
       await disposeEntry(key, entry, "limit");
@@ -150,6 +154,7 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
       if (existing) {
         existing.inflight += 1;
         existing.lastUsed = now();
+        existing.opened = ++openings;
         await existing.ready.catch(() => undefined);
         return release(existing);
       }
@@ -158,10 +163,11 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
         if (current) {
           current.inflight += 1;
           current.lastUsed = now();
+          current.opened = ++openings;
           return release(current);
         }
         await makeRoom(options.limit - 1);
-        const entry: Entry = { scope, lastUsed: now(), inflight: 1, ready: Promise.resolve() };
+        const entry: Entry = { scope, lastUsed: now(), opened: ++openings, inflight: 1, ready: Promise.resolve() };
         active.set(key, entry);
         if (active.size > options.limit && options.limit > 0) {
           options.log?.("Engine instance budget exceeded by busy instances", { "engine.active": active.size, "engine.limit": options.limit });
@@ -175,9 +181,9 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
       const key = scopeKey(scope);
       return serialized(async () => {
         const current = active.get(key);
-        if (current) { current.lastUsed = now(); return; }
+        if (current) { current.lastUsed = now(); current.opened = ++openings; return; }
         await makeRoom(options.limit - 1);
-        active.set(key, { scope, lastUsed: now(), inflight: 0, ready: Promise.resolve() });
+        active.set(key, { scope, lastUsed: now(), opened: ++openings, inflight: 0, ready: Promise.resolve() });
       });
     },
     touch(scope) {
@@ -195,7 +201,7 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
           if (entry.lastUsed <= cutoff) await disposeEntry(key, entry, "idle");
         }
         // Nad limitom (napr. všetci boli zaneprázdnení) skús znova.
-        if (options.limit > 0 && active.size > options.limit) await makeRoom(options.limit);
+        if (options.limit > 0 && active.size > options.limit) await makeRoom(options.limit, options.limit);
       });
     },
     activeDirectories() {

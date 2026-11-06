@@ -64,6 +64,35 @@ test("rozpracovaný chat ani prebiehajúca požiadavka sa neuvoľnia", async () 
   expect(budget.activeDirectories()).toEqual(["/c"]);
 });
 
+test("kontrola nad limitom neuvoľní práve otvoreného klienta, kým beží chat v predošlom", async () => {
+  // N5 (test alfa10): A beží, B sa otvoril; kontrola po chvíli uvoľnila B, nie A, a B dostal MCP až ďalším dotazom.
+  const { budget, disposed, busy, advance } = fixture({ limit: 1 });
+  (await budget.admit(scope("/a")))();
+  busy.add("/a");
+  advance(10);
+  (await budget.admit(scope("/b")))();
+  await budget.sweep();
+  expect(disposed).toEqual([]);
+  expect(budget.activeDirectories().sort()).toEqual(["/a", "/b"]);
+  busy.delete("/a");
+  await budget.sweep();
+  expect(disposed).toEqual(["/a"]);
+  expect(budget.activeDirectories()).toEqual(["/b"]);
+});
+
+test("koniec behu v A neurobí z A práve otvoreného klienta", async () => {
+  // N5 na skutočnom engine: front drží požiadavku celý beh, jej koniec posunul A pred B a kontrola uvoľnila B.
+  const { budget, disposed, advance } = fixture({ limit: 1 });
+  const releaseA = await budget.admit(scope("/a"));
+  advance(10);
+  (await budget.admit(scope("/b")))();
+  advance(10);
+  releaseA();
+  await budget.sweep();
+  expect(disposed).toEqual(["/a"]);
+  expect(budget.activeDirectories()).toEqual(["/b"]);
+});
+
 test("nečinnosť nad idleMs uvoľní inštanciu, použitie ju predĺži", async () => {
   const { budget, disposed, advance } = fixture({ limit: 2, idleMs: 1_000 });
   (await budget.admit(scope("/a")))();
