@@ -7,6 +7,8 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { opencodeEngineSelection } from "@legalwork/opencode-release/selection";
+const opencodeRelease = createRequire(import.meta.url)("@legalwork/opencode-release/release.json");
 const regression = fileURLToPath(new URL("./packaged-startup-regression.mjs", import.meta.url));
 
 // Od upstream v0.2.9 (#287) skript najprv overí importy servera v app.asar vedľa spustiteľného
@@ -21,11 +23,12 @@ async function packagedArchiveFor(target) {
   const libRequire = createRequire(createRequire(require.resolve("electron-builder")).resolve("app-builder-lib"));
   await libRequire("@electron/asar").createPackage(source, path.join(resources, "app.asar"));
   await rm(source, { recursive: true, force: true });
-  // Od upstream v0.2.11 skript overí aj pribalené OpenCode SDK (packaged-opencode-sdk.cjs).
-  const plugin = path.join(resources, "opencode-sdk", "node_modules", "@opencode-ai", "plugin");
-  await mkdir(plugin, { recursive: true });
-  await writeFile(path.join(resources, "opencode-sdk", "package.json"), JSON.stringify({ dependencies: { "@opencode-ai/plugin": "0.0.0-test" } }));
-  await writeFile(path.join(plugin, "package.json"), JSON.stringify({ name: "@opencode-ai/plugin", version: "0.0.0-test" }));
+  // Skript overí aj pribalené OpenCode SDK (packaged-opencode-sdk.cjs). Engine v2 (upstream v0.3.0) dodáva
+  // @opencode/plugin a effect sám; balík má len vyhlásenie hostiteľského runtime a žiadne node_modules.
+  await mkdir(path.join(resources, "opencode-sdk"), { recursive: true });
+  await writeFile(path.join(resources, "opencode-sdk", "package.json"), JSON.stringify({
+    opencode: { version: opencodeRelease.version, runtime: "released-cli", providedModules: ["@opencode/plugin", "effect"] },
+  }));
 }
 
 function killIfRunning(pid) {
@@ -74,8 +77,10 @@ process.exit(42);
     assert.doesNotMatch(output, /unsettled top-level await/);
     if (process.platform !== "win32") {
       assert.match(output, /synthetic early exit/);
+      // Upstream v0.3.0 ponechá profil neúspešného štartu na kontrolu; test ho zmaže vo finally.
       const userData = await readFile(profileFile, "utf8");
-      await assert.rejects(stat(path.dirname(userData)), { code: "ENOENT" });
+      assert.ok(output.includes(`Preserved failed startup profile: ${path.dirname(userData)}`), output);
+      assert.equal((await stat(path.dirname(userData))).isDirectory(), true);
     }
   } finally {
     clearTimeout(deadline);
@@ -105,13 +110,21 @@ import path from "node:path";
 assert.equal(process.argv.includes("--use-mock-keychain"), ${process.platform === "darwin"}, "isolated macOS package tests must not enter the host keychain");
 const orphan = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);'], { stdio: ["ignore", "inherit", "inherit"] });
 writeFileSync(process.env.CLEANUP_TEST_PID_FILE, String(orphan.pid));
-const server = http.createServer((_request, response) => {
+// Upstream v0.3.0 overí aj server a engine zabalenej appky; fixture odpovedá syntetickými trasami.
+const workspace = process.env.LEGALWORK_WORKSPACES;
+const key = path.resolve(workspace).replace(/\\\\/g, "/").toLowerCase();
+const server = http.createServer((request, response) => {
   response.setHeader("content-type", "application/json");
+  if (request.url === "/workspaces") return response.end(JSON.stringify({ items: [{ id: "package-test", path: workspace }] }));
+  if (request.url === "/workspace/package-test/opencode/api/info") return response.end(JSON.stringify({ version: ${JSON.stringify(opencodeEngineSelection.version)} }));
   response.end(JSON.stringify({ ok: true, actions: [] }));
 });
 server.listen(0, "127.0.0.1", () => {
-  writeFileSync(path.join(process.env.LEGALWORK_ELECTRON_USERDATA, "legalwork-ui-control.json"), JSON.stringify({ baseUrl: "http://127.0.0.1:" + server.address().port, token: "fixture-token" }));
-  chmodSync(path.join(process.env.LEGALWORK_ELECTRON_USERDATA, "legalwork-ui-control.json"), 0o600);
+  const userData = process.env.LEGALWORK_ELECTRON_USERDATA, port = server.address().port;
+  writeFileSync(path.join(userData, "legalwork-server-state.json"), JSON.stringify({ workspacePorts: { [key]: port } }));
+  writeFileSync(path.join(userData, "legalwork-server-tokens.json"), JSON.stringify({ workspaces: { [key]: { clientToken: "fixture-client" } } }));
+  writeFileSync(path.join(userData, "legalwork-ui-control.json"), JSON.stringify({ baseUrl: "http://127.0.0.1:" + port, token: "fixture-token" }));
+  chmodSync(path.join(userData, "legalwork-ui-control.json"), 0o600);
 });
 `);
   await chmod(fixture, 0o755);
@@ -135,7 +148,7 @@ server.listen(0, "127.0.0.1", () => {
     ]);
     assert.equal(result.timedOut, undefined, `Cleanup must finish after PASS instead of retaining descendant pipes.\n${output}`);
     assert.equal(result.code, 0, output);
-    assert.match(output, /PASS: packaged app and renderer/);
+    assert.match(output, /PASS: packaged app, renderer and actual .* engine start/);
   } finally {
     clearTimeout(deadline);
     killIfRunning(-runner.pid);
