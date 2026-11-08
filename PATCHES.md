@@ -1,5 +1,9 @@
 # LAWOSS downstream patches
 
+## Sync upstream v0.2.16 (2026-11-08, ADR 0016)
+
+Bez konfliktov (cloudový prepis v nahrávaní klienta a v titulnom pruhu, skutočný limit útraty pred obnovou skúšobného nákupu). Bez novej odchýlky; SK/CS `stealth.recording_locally` zosúladené s novým anglickým textom („Nahráva sa“, „Nahrává se“).
+
 ## Sync upstream v0.2.15 (2026-11-08, ADR 0016)
 
 Upstream zaviedol tri kanály aktualizácií (Release, Pre-release, Alpha) s výberom verzie z GitHub releasov `eigenweltlabs/legalwork` a automatické alfy po každom merge do dev. LAWOSS to **neprevzal** (pravidlo: aktualizácie len z feedov forku); ostávajú dva kanály a ručné alfy s vlastným pointrom.

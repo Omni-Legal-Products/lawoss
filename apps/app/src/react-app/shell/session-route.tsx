@@ -52,6 +52,7 @@ import {
 import { requestRecordingTranscript, useAutoOpenRecordingTranscript } from "../domains/recorder/recording-transcript-tabs";
 import { PremiumUpsellHost } from "../domains/recorder/premium-upsell-context";
 import {
+  isTranscriptionReady,
   registerRecorderCopilotContext,
   useRecorderStore,
 } from "../domains/recorder/recorder-store";
@@ -2947,9 +2948,10 @@ export function SessionRoute() {
           return;
         }
         void recorder.init().then(async () => {
+          await useRecorderStore.getState().refreshBootstrap();
           const ready = useRecorderStore.getState();
-          if (!ready.bootstrap?.models.some((model) => model.id === ready.modelId && model.state === "installed")) {
-            toast.info(t("recorder.install_model_first"), { action: setupAction });
+          if (!isTranscriptionReady(ready)) {
+            toast.info(t(ready.transcriptionSource === "cloud" ? "recorder.transcription_not_ready" : "recorder.install_model_first"), { action: setupAction });
             return;
           }
           await ready.startRecording(undefined, { projectId: project.id });

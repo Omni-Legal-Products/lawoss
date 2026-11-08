@@ -2275,7 +2275,7 @@ export default {
   "recorder.overlay_no_transcript": "Čaká sa na rozhovor…",
   "recorder.overlay_close": "Zavrieť",
   "recorder.overlay_hidden_note": "Neviditeľné pri zdieľaní obrazovky",
-  "stealth.recording_locally": "Nahráva sa lokálne",
+  "stealth.recording_locally": "Nahráva sa",
   "recorder.settings_tab_label": "Záznamník",
   "recorder.settings_tab_description": "Diktovanie v celom systéme, lokálne modely a predvolené nastavenia",
   "recorder.defaults_title": "Predvolené nastavenia prepisu",
