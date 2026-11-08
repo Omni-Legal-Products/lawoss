@@ -28,8 +28,7 @@ import type { Actor, Capabilities, ServerConfig, WorkspaceInfo } from "../types.
 import { addRoute, type Route } from "./registry.js";
 import { connectorSettings } from "../connectors/settings.js";
 import { registerConnectorRoutes } from "./connectors.js";
-import { isConnectorExtension, connectorActionWrites } from "../connectors/index.js";
-import { hasConnectorRuntimeCapability, hasConnectorHostAuthorization } from "../connectors/capability.js";
+import { hasConnectorRuntimeCapability } from "../connectors/capability.js";
 
 type JsonResponse = (data: unknown, status?: number) => Response;
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
@@ -287,11 +286,9 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
       throw new ApiError(403, "forbidden", "Viewer tokens cannot call extension actions");
     }
     const body = await readJsonBody(ctx.request);
-    if (typeof body.extensionId === "string" && isConnectorExtension(body.extensionId)) {
-      if (ctx.actor?.scope === "collaborator" && !hasConnectorRuntimeCapability(config, ctx.request) && !hasConnectorHostAuthorization(config, ctx.request)) throw new ApiError(403, "forbidden", "Only the LegalWork server owner or their managed agent can use personal email connections.");
-      if (config.readOnly && typeof body.action === "string" && connectorActionWrites(body.extensionId, body.action)) throw new ApiError(403, "read_only", "This server is read-only.");
-    }
-    return jsonResponse(await callExperimentalExtensionAction(config, env, body));
+    return jsonResponse(await callExperimentalExtensionAction(config, env, body, {
+      personalConnections: ctx.actor?.scope === "owner" || hasConnectorRuntimeCapability(config, ctx.request),
+    }));
   });
 
   addRoute(routes, "GET", "/experimental/google-workspace/status", "client", async () => {

@@ -110,6 +110,11 @@ export function resolveRequestTimeoutMs(input: RequestInfo | URL, fallbackMs: nu
   if (/\/mcp\/.*auth\b/.test(url)) {
     return Math.max(fallbackMs, MCP_AUTH_OPENCODE_REQUEST_TIMEOUT_MS);
   }
+  // Adding a connector performs remote discovery and an initial handshake
+  // before returning needs_auth. Cutting it short prevents sign-in opening.
+  if (input instanceof Request && input.method === "POST" && /\/mcp(?:[?#]|$)/.test(url)) {
+    return Math.max(fallbackMs, MCP_AUTH_OPENCODE_REQUEST_TIMEOUT_MS);
+  }
   return fallbackMs;
 }
 

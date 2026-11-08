@@ -76,6 +76,7 @@ import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, existingMcpScope, listMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled, type McpScope } from "./mcp.js";
 import { probeMcpServer, registerMcpClient } from "./mcp-probe.js";
 import { abortable, cachedEngineResponse, sharedEngineResponse } from "./engine-warmup-gate.js";
+import { McpRecovery } from "./mcp-recovery.js";
 import { deleteSkill, listSkills, resolveHubSkillKind, skillPathForScope, upsertSkill, type SkippedSkill } from "./skills.js";
 import {
   deleteSkillResource,
@@ -1467,6 +1468,40 @@ function createDirectoryOpencodeClient(config: ServerConfig, workspace: Workspac
   });
 }
 
+const mcpRecoveryByServer = new WeakMap<ServerConfig, McpRecovery>();
+const mcpRecoveryStatuses = z.record(z.string(), z.object({ status: z.string() }));
+
+function mcpRecovery(config: ServerConfig): McpRecovery {
+  const recovery = mcpRecoveryByServer.get(config) ?? new McpRecovery();
+  mcpRecoveryByServer.set(config, recovery);
+  return recovery;
+}
+
+async function recoverWorkspaceMcp(config: ServerConfig, workspace: WorkspaceInfo, directory: string, snapshot?: unknown): Promise<void> {
+  try {
+    const client = createDirectoryOpencodeClient(config, workspace, directory);
+    const readStatuses = async () => {
+      const result = await client.mcp.status({ directory }, { signal: AbortSignal.timeout(5000), throwOnError: true });
+      return mcpRecoveryStatuses.parse(result.data);
+    };
+    const statuses = snapshot === undefined ? await readStatuses() : mcpRecoveryStatuses.parse(snapshot);
+    await mcpRecovery(config).recover({
+      engine: resolveWorkspaceOpencodeConnection(config, workspace).baseUrl ?? "",
+      directory, statuses, readStatuses,
+      connectors: async () => {
+        const items = await listMcp(config, workspace.id, directory);
+        const allowed = await allowedMemberConnectors(config, Object.fromEntries(items.map(item => [item.name, item.config])));
+        return items.filter(item => Object.hasOwn(allowed, item.name));
+      },
+      // Fetch cancellation does not cancel the engine's handshake. Keep the
+      // lock until it actually settles; the engine enforces its MCP timeout.
+      connect: name => client.mcp.connect({ directory, name }, { throwOnError: true }),
+    });
+  } catch {
+    // Engine unavailability must not erase connector state or block other work.
+  }
+}
+
 function unwrapOpencodeResult<T, E>(result: OpencodeClientResult<T, E>, path: string): NonNullable<T> {
   if (result.data != null) {
     return result.data;
@@ -1496,6 +1531,33 @@ async function proxyOpencodeRequest(input: {
   actor?: Actor;
 }) {
   const path = normalizeOpencodeProxyPath(input.proxyPath ?? input.url.pathname);
+  const method = input.request.method.toUpperCase();
+  const mcp = path.match(/^\/mcp\/([^/]+)\/(connect|disconnect|auth(?:\/(?:callback|authenticate))?)$/);
+  const added = method === "POST" && path === "/mcp"
+    ? z.object({ name: z.string() }).safeParse(await input.request.clone().json().catch(() => null)) : null;
+  const name = mcp && (method === "POST" || method === "DELETE") ? decodeURIComponent(mcp[1]) : added?.success ? added.data.name : null;
+  if (name) {
+    const recovery = mcpRecovery(input.config);
+    return recovery.mutate(name, async () => {
+      const startAuth = method === "POST" && mcp?.[2] === "auth";
+      if (startAuth) recovery.beginAuth(name);
+      else if (mcp?.[2] !== "auth/callback") recovery.endAuth(name);
+      try {
+        const response = await forwardOpencodeRequest(input);
+        if (startAuth) {
+          const result = z.object({ authorizationUrl: z.string().optional() }).safeParse(await response.clone().json().catch(() => null));
+          if (response.ok && result.success && result.data.authorizationUrl) recovery.beginAuth(name);
+          else recovery.endAuth(name);
+        }
+        return response;
+      } catch (error) {
+        if (startAuth) recovery.endAuth(name);
+        throw error;
+      } finally {
+        if (mcp?.[2] === "auth/callback") recovery.endAuth(name);
+      }
+    });
+  }
   const session = path.match(/^\/session\/([^/]+)\/(?:message|prompt_async|command|fork|shell|summarize)$/);
   return input.request.method === "POST" && session
     ? withSessionExecution(input.config, decodeURIComponent(session[1]), () => forwardOpencodeRequest(input))
@@ -1593,6 +1655,19 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
   if (input.config.agentSandboxEnabled) body = sandboxSessionBody(proxyPath, body);
   // The sandbox may change the body; let fetch calculate its current length.
   headers.delete("content-length");
+  if (workspace && sessionDirectory && input.actor?.scope && input.actor.scope !== "viewer" && method === "POST" && /^\/session\/[^/]+\/(?:message|prompt_async|command)$/.test(normalizedPath)) {
+    // Let a healthy network restore tools before the next turn. An unreachable
+    // connector continues in the background instead of holding the chat open.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        recoverWorkspaceMcp(input.config, workspace, sessionDirectory),
+        new Promise<void>(resolve => { timer = setTimeout(resolve, 2000); }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
   if (isSessionCommandProxyRequest(method, proxyPath)) {
     if (protectedExecution) {
       if (!workspace || !body) throw new ApiError(400, "invalid_command", "A workspace command is required.");
@@ -1649,7 +1724,13 @@ async function dispatchOpencodeProxyRequest(input: Parameters<typeof proxyOpenco
   // beside it. A 20s client poll does not abort the install.
   if (method === "GET" && scopedProxyPath === "/mcp") {
     const cached = await abortable(sharedEngineResponse(targetUrl, (signal) => engineFetch(targetUrl, { method, headers, signal })), input.request.signal);
-    return sanitizeProxyResponse(cachedEngineResponse(cached));
+    const shared = cachedEngineResponse(cached);
+    // Upstream v0.2.10: the desktop already polls this endpoint. Repair only failed remote
+    // transports without delaying the status response or reloading the engine.
+    if (workspace && sessionDirectory && input.actor?.scope && input.actor.scope !== "viewer" && shared.ok) {
+      void shared.clone().json().then(statuses => recoverWorkspaceMcp(input.config, workspace, sessionDirectory, statuses)).catch(() => undefined);
+    }
+    return sanitizeProxyResponse(shared);
   }
   const response = await engineFetch(targetUrl, {
     method,
@@ -5295,15 +5376,17 @@ function createRoutes(
 
     // Best-effort disconnect so any active connection is torn down.
     try {
-      const opencode = createWorkspaceOpencodeClient(config, workspace);
-      unwrapOpencodeResult(await opencode.mcp.disconnect({ name }), `/mcp/${encodeURIComponent(name)}/disconnect`);
+      await disconnectMcpFromOpencodeEngine(config, workspace, name);
     } catch {
       // ignore
     }
 
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
-      unwrapOpencodeResult(await opencode.mcp.auth.remove({ name }), `/mcp/${encodeURIComponent(name)}/auth`);
+      await mcpRecovery(config).mutate(name, async () => {
+        mcpRecovery(config).endAuth(name);
+        unwrapOpencodeResult(await opencode.mcp.auth.remove({ name }), `/mcp/${encodeURIComponent(name)}/auth`);
+      });
     } catch (error) {
       // Treat missing credentials as a successful logout (idempotent).
       if (
@@ -6307,7 +6390,7 @@ async function syncRuntimeMcpToOpencodeEngine(
   const failures: EngineMcpSyncFailure[] = [];
   await inEngineDirectoryLane({ baseUrl, directory: directory ?? "" }, async () => {
     for (const [name, mcpConfig] of entries) {
-      const failure = await postMcpEntryWithRetry(url, headers, name, mcpConfig);
+      const failure = await mcpRecovery(config).mutate(name, () => postMcpEntryWithRetry(url, headers, name, mcpConfig));
       if (failure) failures.push(failure);
     }
   });
@@ -6360,7 +6443,8 @@ async function postMcpEntryWithRetry(
         method: "POST",
         headers,
         body: JSON.stringify({ name, config: mcpConfig }),
-        signal: AbortSignal.timeout(15_000),
+        // Releasing the connector lock on an HTTP timeout leaves the engine's
+        // handshake running, able to overwrite a later disable or disconnect.
       });
       if (response.ok) return null;
       failure = { name, status: response.status, body: parseOpencodeErrorBody(await response.text()) };
@@ -6500,14 +6584,17 @@ async function disconnectMcpFromOpencodeEngine(
   const headers: Record<string, string> = {};
   if (connection.authHeader) headers.Authorization = connection.authHeader;
 
-  const response = await fetch(url, { method: "POST", headers, signal: AbortSignal.timeout(15_000) });
-  if (!response.ok && response.status !== 404) {
-    const body = parseOpencodeErrorBody(await response.text());
-    throw new ApiError(502, "opencode_mcp_disconnect_failed", `Failed to disconnect MCP ${name} from the engine`, {
-      status: response.status,
-      body,
-    });
-  }
+  await mcpRecovery(config).mutate(name, async () => {
+    mcpRecovery(config).endAuth(name);
+    const response = await fetch(url, { method: "POST", headers });
+    if (!response.ok && response.status !== 404) {
+      const body = parseOpencodeErrorBody(await response.text());
+      throw new ApiError(502, "opencode_mcp_disconnect_failed", `Failed to disconnect MCP ${name} from the engine`, {
+        status: response.status,
+        body,
+      });
+    }
+  });
 }
 
 async function writeLegalworkConfig(workspaceRoot: string, payload: Record<string, unknown>, merge: boolean): Promise<void> {

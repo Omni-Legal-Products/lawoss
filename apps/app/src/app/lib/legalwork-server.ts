@@ -1736,6 +1736,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     sessionList: 90_000,
     status: 6_000,
     config: 10_000,
+    // Connector creation waits for OAuth discovery and engine registration
+    // across local workspaces before it is safe to open sign-in.
+    mcpSetup: 90_000,
     workspaceExport: 30_000,
     // A dragged folder is many downloads behind one call.
     legalMemoryFolderExport: 300_000,
@@ -3301,6 +3304,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         method: "POST",
         body: payload,
+        timeoutMs: timeouts.mcpSetup,
       }),
     registerMcpClient: (workspaceId: string, payload: { url: string; headers?: Record<string, string> }) =>
       requestJson<LegalworkMcpRegisterClientResult>(baseUrl, `/workspace/${workspaceId}/mcp/register-client`, {
@@ -3308,6 +3312,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         method: "POST",
         body: payload,
+        timeoutMs: timeouts.mcpSetup,
       }),
     // Connectors are shared by every workspace the server hosts unless a
     // caller asks for one workspace's own entry.
@@ -3320,6 +3325,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         method: "POST",
         body: payload,
+        timeoutMs: timeouts.mcpSetup,
       }),
     removeMcp: (workspaceId: string, name: string) =>
       requestJson<{ items: LegalworkMcpItem[] }>(baseUrl, `/workspace/${workspaceId}/mcp/${encodeURIComponent(name)}`, {

@@ -119,7 +119,7 @@ test("makes direct Gmail requests and refreshes a rejected token once", async ()
       ? new Response(null, { status: 401 }) : Response.json({ emailAddress: "alice@example.com" });
     return previous(url, init);
   };
-  expect((await callExperimentalExtensionAction(config, new EnvService({ path: join(root, "env.json") }), { extensionId: "gmail", action: "test_connection" })).ok).toBe(true);
+  expect((await callExperimentalExtensionAction(config, new EnvService({ path: join(root, "env.json") }), { extensionId: "gmail", action: "test_connection" }, { personalConnections: true })).ok).toBe(true);
   const direct = requests.filter((entry) => entry.url.hostname === "gmail.googleapis.com");
   expect(direct).toHaveLength(2);
   expect(new Headers(direct[1].init?.headers).get("Authorization")).toBe("Bearer refreshed-mail-token");
@@ -495,7 +495,7 @@ test("read-only servers block draft writes before obtaining a credential", async
   config.readOnly = true;
   await expect(callExperimentalExtensionAction(config, new EnvService({ path: join(root, "env.json") }), {
     extensionId: "gmail", action: "create_draft", args: { to: ["a@example.com"], subject: "Review", body: "Private draft" },
-  })).rejects.toMatchObject({ code: "read_only" });
+  }, { personalConnections: true })).rejects.toMatchObject({ code: "read_only" });
   expect(requests).toHaveLength(0);
 });
 
@@ -574,7 +574,7 @@ test("Outlook listing accepts unsent drafts with no sender", async () => {
   expect(result.messages[0].subject).toBe("");
 });
 
-test("HTTP routes and tool calls deny personal email access to collaborators and viewers", async () => {
+test("HTTP routes and tool calls deny personal account access to collaborators and viewers", async () => {
   const server = await startServer(config);
   stops.push(() => server.stop());
   const base = `http://127.0.0.1:${server.port}`;
@@ -582,17 +582,71 @@ test("HTTP routes and tool calls deny personal email access to collaborators and
   for (const scope of ["collaborator", "viewer"]) {
     const issued = await nativeFetch(`${base}/tokens`, { method: "POST", headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" }, body: JSON.stringify({ scope }) });
     const token = z.object({ token: z.string() }).parse(await issued.json()).token;
-    const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+    const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json",
+      "x-legalwork-connector-token": scope === "viewer" ? connectorRuntimeCapability(config) : "invalid-grant" };
     expect((await nativeFetch(`${base}/connectors`, { headers })).status).toBe(401);
     expect((await nativeFetch(`${base}/connectors/outlook-calendar/activation`, { method: "PUT", headers, body: JSON.stringify({ connectionId: connection.id, active: true }) })).status).toBe(401);
-    expect((await nativeFetch(`${base}/experimental/extensions/call`, { method: "POST", headers, body: JSON.stringify({ extensionId: "gmail", action: "test_connection" }) })).status).toBe(403);
+    requests.length = 0;
+    for (const definition of connectorDefinitions) {
+      for (const extensionId of [definition.id, ` \t${definition.id}\n`]) {
+        const denied = await nativeFetch(`${base}/experimental/extensions/call`, { method: "POST", headers,
+          body: JSON.stringify({ extensionId, action: " status ", access: { personalConnections: true } }) });
+        expect(denied.status).toBe(403);
+        expect(await denied.json()).toMatchObject({ code: "forbidden" });
+      }
+    }
+    expect(requests).toHaveLength(0);
   }
   expect((await nativeFetch(`${base}/connectors`, { headers: { "x-legalwork-host-token": config.hostToken } })).status).toBe(200);
+  const owner = await nativeFetch(`${base}/tokens`, { method: "POST", headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" }, body: JSON.stringify({ scope: "owner" }) });
+  const ownerToken = z.object({ token: z.string() }).parse(await owner.json()).token;
   const runtimeHeaders = { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json", "x-legalwork-connector-token": connectorRuntimeCapability(config) };
-  expect((await nativeFetch(`${base}/experimental/extensions/call`, { method: "POST", headers: runtimeHeaders, body: JSON.stringify({ extensionId: "gmail", action: "test_connection" }) })).status).toBe(200);
+  const clientHeaders = { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" };
+  const extensionCall = { extensionId: " gmail ", action: "test_connection" };
+  expect((await nativeFetch(`${base}/experimental/extensions/call`, { method: "POST", headers: clientHeaders, body: JSON.stringify(extensionCall) })).status).toBe(403);
+  const authorizedHeaders: Record<string, string>[] = [runtimeHeaders,
+    { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" },
+    { Authorization: `Bearer ${ownerToken}`, "Content-Type": "application/json" }];
+  for (const headers of authorizedHeaders) {
+    for (const extensionId of ["gmail", " \tgmail\n"]) {
+      expect((await nativeFetch(`${base}/experimental/extensions/call`, { method: "POST", headers,
+        body: JSON.stringify({ extensionId, action: " test_connection " }) })).status).toBe(200);
+    }
+  }
   // The narrow engine grant cannot manage connections or obtain host privileges.
   expect((await nativeFetch(`${base}/connectors`, { headers: runtimeHeaders })).status).toBe(401);
   expect((await nativeFetch(`${base}/connectors/outlook-calendar/activation`, { method: "PUT", headers: runtimeHeaders, body: JSON.stringify({ connectionId: connection.id, active: true }) })).status).toBe(401);
+});
+
+test("extension dispatch denies personal connectors without an explicit grant", async () => {
+  const env = new EnvService({ path: join(root, "env.json") });
+  for (const definition of connectorDefinitions) {
+    for (const extensionId of [definition.id, ` \t${definition.id}\n`]) {
+      await expect(callExperimentalExtensionAction(config, env, {
+        extensionId, action: "status", access: { personalConnections: true },
+      })).rejects.toMatchObject({ status: 403, code: "forbidden" });
+    }
+  }
+  expect(requests).toHaveLength(0);
+});
+
+test("authorized HTTP extension calls retain write restrictions after normalization", async () => {
+  const server = await startServer(config);
+  stops.push(() => server.stop());
+  requests.length = 0;
+  const base = `http://127.0.0.1:${server.port}`;
+  const headers = { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json", "x-legalwork-connector-token": connectorRuntimeCapability(config) };
+  const call = () => nativeFetch(`${base}/experimental/extensions/call`, { method: "POST", headers,
+    body: JSON.stringify({ extensionId: " \tgmail\n", action: " create_draft ", args: { to: ["a@example.com"], subject: "Review", body: "Private draft" } }) });
+  const disabled = await call();
+  expect(disabled.status).toBe(403);
+  expect(await disabled.json()).toMatchObject({ code: "connector_writes_disabled" });
+  await saveConnectorWriteSetting(config, "gmail", { writeAccess: true });
+  config.readOnly = true;
+  const readOnly = await call();
+  expect(readOnly.status).toBe(403);
+  expect(await readOnly.json()).toMatchObject({ code: "read_only" });
+  expect(requests.filter(({ url }) => url.hostname !== "broker.test" || url.pathname.startsWith("/api/connectors"))).toHaveLength(0);
 });
 
 test("Nango capabilities are encrypted and absent from public status and broker URLs", async () => {
