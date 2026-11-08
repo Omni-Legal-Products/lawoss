@@ -129,6 +129,7 @@ import {
 import { currentLocale, t } from "@/i18n";
 import { conversationWorkspaceId, isLawossHomeWorkspace, recorderCopilotClient, withoutLawossHome } from "@/lawoss/home-workspace";
 import { allowChatGptSubscription, isCommercialSurfaceHidden, isHiddenSettingsTab } from "@/lawoss/feature-flags";
+import { sessionOnboardingStep } from "@/lawoss/domains/onboarding/session-steps";
 import {
   type RouteWorkspace,
   type RouteSession,
@@ -2726,6 +2727,7 @@ export function SessionRoute() {
       // First in-session step, so there is nothing to go back to.
       <OfficeStep
         autoAdvance={!onboardingWentBack.current}
+        stepDots={sessionOnboardingStep("office", isDesktopRuntime())}
         onDone={(result) => {
           captureAnalyticsEvent("onboarding_office_done", { result });
           setOnboardingStage("audio");
@@ -2750,7 +2752,9 @@ export function SessionRoute() {
     {onboardingStage === "permissions" ? (
       // The Settings -> Tool Permissions panel, with Continue as the action.
       <PermissionsStep
-        totalSteps={isDesktopRuntime() ? 6 : 3}
+        // 🟡 LAWOSS: the dots count the steps LAWOSS shows (session-steps.ts).
+        step={sessionOnboardingStep("permissions", isDesktopRuntime()).step}
+        totalSteps={sessionOnboardingStep("permissions", isDesktopRuntime()).total}
         legalworkClient={selectedWorkspaceEndpoint?.client ?? client}
         runtimeWorkspaceId={selectedWorkspaceEndpoint?.workspaceId || null}
         onConfigUpdated={() => {
@@ -2788,7 +2792,7 @@ export function SessionRoute() {
     {aiPlansScreenVisible ? (
       // Connect a model, then load firm policy before the permissions step.
       <AiPlansOverlay
-        totalSteps={isDesktopRuntime() ? 6 : 3}
+        totalSteps={isDesktopRuntime() ? 6 : 3} // Plans are hidden in LAWOSS (ai-plans), so this count is never shown.
         mode={onboardingStage === "ai" ? "onboarding" : "gate"}
         variant={aiPlansVariant ?? "new"}
         account={aiPlansAccount}

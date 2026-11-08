@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Počítadlo krokov onboardingu podľa zobrazených krokov (2026-11-08, MČ)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/lawoss/domains/onboarding/session-steps.ts` (nový) | Kroky po uvítaní, ktoré LAWOSS naozaj ukáže: desktop „office“ a „permissions“ (záznamník aj plány AI sú skryté), web žiadny. Uvítací sprievodca LAWOSS má vlastné počítadlo, preto sa číslujú od 1. |
+| `apps/app/src/react-app/shell/session-route.tsx`, `domains/onboarding/{office-step,permissions-step}.tsx` | `OfficeStep` dostane `stepDots`, `PermissionsStep` `step`; namiesto pevných 2/6 a 6/6 je 1/2 a 2/2. |
+| `apps/app/tests/lawoss-onboarding-step-count.test.tsx` | Test poradia a vykreslených bodiek. |
+
 ## Cloudový prepis Gemini skrytý v UI (2026-11-08, MČ)
 
 | Súbor | Zmena |

@@ -19,6 +19,8 @@ import { CoverBackButton, OnboardingCover, StepDots } from "./onboarding-cover";
 
 export type PermissionsStepProps = {
   totalSteps?: number;
+  /** 🟡 LAWOSS: position among the visible steps (lawoss/domains/onboarding/session-steps.ts). */
+  step?: number;
   legalworkClient: LegalworkServerClient | null;
   /** Server-side workspace id — the transport for the shared config. */
   runtimeWorkspaceId: string | null;
@@ -50,7 +52,7 @@ export function PermissionsStep(props: PermissionsStepProps) {
     >
       <div className="flex w-full max-w-md flex-col gap-7">
         <div>
-          <StepDots step={props.totalSteps ?? 6} total={props.totalSteps ?? 6} />
+          <StepDots step={props.step ?? props.totalSteps ?? 6} total={props.totalSteps ?? 6} />
           <h1 className="text-[32px] font-medium leading-[1.15] tracking-[-0.04em] text-foreground">
             {t("onboarding_permissions.title")}
           </h1>
