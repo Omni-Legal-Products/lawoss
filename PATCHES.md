@@ -7,6 +7,7 @@ Retest alfa10 (N9): po inštalácii balíka „SK základ“ bol engine krátko 
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
 | `apps/server/src/server.ts` | Hromadné reloady na pozadí (Marketplace, SystemOne, Eigenwelt, politika firmy) volajú `deferDormantReload`: neotvorený klient sa len označí (`markStale`), otvorený sa obnoví ako doteraz. Zmeny Marketplace, ktoré prídu počas čakajúceho prechodu, sa zlúčia do neho. Zastaraná inštancia sa uvoľní pred ďalším prijatím MCP alebo pred požiadavkou, ktorá číta konfiguráciu (`readsEngineConfig`: poskytovatelia, konfigurácia, agenti, skilly); zoznam chatov a udalosti ju nepotrebujú. Kontrola bežiaceho chatu pre zastaraný priečinok je krátka (`engineDirectoryClearlyBusy`, 2 s): inštancia, ktorá ešte štartuje, otvorenie nezdrží; neotvorený priečinok nemôže mať chat spustený cez LAWOSS. |
+| `apps/server/src/server.ts` | Štyri reťazce reloadov na pozadí čakajú na predošlý cez `previousReload.catch(() => undefined)`, aby jedno zlyhanie nezablokovalo ďalšie. Zlyhaný prechod Marketplace vynuluje `marketplaceReloadQueued`. |
 | `apps/server/src/eigenwelt-workspace-reload.test.ts` | Neotvorené pracovné priestory sa uvoľnia pri ďalšej požiadavke na zoznam poskytovateľov, nie v prechode na pozadí; priestor s bežiacou úlohou sa neuvoľní. |
 
 Rozšírený LAWOSS súbor: `apps/server/src/lawoss/engine-mcp-budget.ts` (`markStale`, `refreshIfStale`, `staleBusy`, `readsEngineConfig`) + testy.

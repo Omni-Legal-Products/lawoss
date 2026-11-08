@@ -2076,7 +2076,7 @@ function createRoutes(
       await writeLegalworkRuntimeConfigFile(config, primary.id);
       const previousReload = idleWorkspaceReloads;
       idleWorkspaceReloads = withRuntimeDb(config, async () => {
-        await previousReload;
+        await previousReload.catch(() => undefined);
         for (const workspace of config.workspaces) {
           if (workspace.workspaceType === "remote") continue;
           if (deferDormantReload(config, workspace)) continue;
@@ -2219,7 +2219,7 @@ function createRoutes(
     marketplaceReloadQueued = true;
     const previousReload = idleWorkspaceReloads;
       idleWorkspaceReloads = withRuntimeDb(config, async () => {
-        await previousReload;
+        await previousReload.catch(() => undefined);
       marketplaceReloadQueued = false;
       const local = config.workspaces.filter((item) => item.workspaceType !== "remote");
       for (const workspace of local) {
@@ -2230,6 +2230,9 @@ function createRoutes(
           emitReloadEvent(ctx.reloadEvents, workspace, "skills", { type: "skill", name: "LAWOSS Marketplace", action: "updated" });
         } catch { /* Best-effort: zastavený engine si pri štarte prečíta aktuálny stav. */ }
       }
+    }).catch(() => {
+      // Zlyhanie celého prechodu (napr. databáza sa zatvára) nesmie nechať príznak nastavený: ďalšie zmeny by sa ignorovali.
+      marketplaceReloadQueued = false;
     });
   } });
 
@@ -5970,7 +5973,7 @@ let idleWorkspaceReloads: Promise<void> = Promise.resolve();
 function reloadIdleWorkspaceEngines(config: ServerConfig, origin: WorkspaceInfo): void {
   const previousReload = idleWorkspaceReloads;
   idleWorkspaceReloads = withRuntimeDb(config, async () => {
-    await previousReload;
+    await previousReload.catch(() => undefined);
     for (const workspace of otherLocalWorkspaces(config, origin)) {
       if (deferDormantReload(config, workspace)) continue;
       try {
@@ -6016,7 +6019,7 @@ function applyOrgPolicyToEngines(config: ServerConfig): void {
     state.timer = null;
     const previousReload = idleWorkspaceReloads;
     idleWorkspaceReloads = withRuntimeDb(config, async () => {
-      await previousReload;
+      await previousReload.catch(() => undefined);
       if (primary) await writeLegalworkRuntimeConfigFile(config, primary).catch(() => undefined);
       let reloaded = false;
       for (const id of [...state.pending]) {
