@@ -32,6 +32,11 @@ export const ocrEn = {
   "lawoss.ocr.disabled_link": "Turn it on in Settings → AI Providers",
   "lawoss.ocr.downloading": "LAWOSS is downloading the text recognition model for scanned pages, once: about {size} MB from huggingface.co (PaddlePaddle). Scanned pages are then read on this computer. The review continues on its own.",
   "lawoss.ocr.download_failed": "The text recognition model could not be downloaded from huggingface.co. Check the internet connection and free disk space, then run the review again. Scanned pages were not read; the documents themselves are unchanged.",
+  "lawoss.ocr.layout_action": "Also process page layout",
+  "lawoss.ocr.layout_hint": "Recognizes tables, columns and text blocks in this document. It needs more memory and takes longer; this document's answers are prepared again.",
+  "lawoss.ocr.layout_running": "Processing the page layout…",
+  "lawoss.ocr.layout_wait": "Available once the review has finished.",
+  "lawoss.ocr.layout_failed": "The page layout could not be processed. Try again later.",
 };
 
 export const ocrSk = {
@@ -61,6 +66,11 @@ export const ocrSk = {
   "lawoss.ocr.disabled_link": "Zapnúť v Nastaveniach → Poskytovatelia AI",
   "lawoss.ocr.downloading": "LAWOSS jednorazovo sťahuje model na rozpoznávanie textu naskenovaných strán: asi {size} MB z huggingface.co (PaddlePaddle). Potom sa naskenované strany čítajú priamo na tomto počítači. Kontrola pokračuje sama.",
   "lawoss.ocr.download_failed": "Model na rozpoznávanie textu sa nepodarilo stiahnuť z huggingface.co. Skontrolujte pripojenie na internet a voľné miesto na disku a spustite kontrolu znova. Naskenované strany sa neprečítali, samotné dokumenty ostali nezmenené.",
+  "lawoss.ocr.layout_action": "Spracovať aj rozloženie strany",
+  "lawoss.ocr.layout_hint": "Rozpozná tabuľky, stĺpce a bloky textu v tomto dokumente. Potrebuje viac pamäte a trvá dlhšie; odpovede k tomuto dokumentu sa pripravia znova.",
+  "lawoss.ocr.layout_running": "Spracúva sa rozloženie strany…",
+  "lawoss.ocr.layout_wait": "Dostupné po dokončení kontroly.",
+  "lawoss.ocr.layout_failed": "Rozloženie strany sa nepodarilo spracovať. Skúste to neskôr znova.",
 } satisfies Record<keyof typeof ocrEn, string>;
 
 export const ocrCs = {
@@ -90,6 +100,11 @@ export const ocrCs = {
   "lawoss.ocr.disabled_link": "Zapnout v Nastavení → Poskytovatelé AI",
   "lawoss.ocr.downloading": "LAWOSS jednorázově stahuje model pro rozpoznávání textu naskenovaných stran: asi {size} MB z huggingface.co (PaddlePaddle). Naskenované strany se pak čtou přímo na tomto počítači. Kontrola pokračuje sama.",
   "lawoss.ocr.download_failed": "Model pro rozpoznávání textu se nepodařilo stáhnout z huggingface.co. Zkontrolujte připojení k internetu a volné místo na disku a spusťte kontrolu znovu. Naskenované strany se nepřečetly, samotné dokumenty zůstaly beze změny.",
+  "lawoss.ocr.layout_action": "Zpracovat i rozvržení stránky",
+  "lawoss.ocr.layout_hint": "Rozpozná tabulky, sloupce a bloky textu v tomto dokumentu. Potřebuje více paměti a trvá déle; odpovědi k tomuto dokumentu se připraví znovu.",
+  "lawoss.ocr.layout_running": "Zpracovává se rozvržení stránky…",
+  "lawoss.ocr.layout_wait": "Dostupné po dokončení kontroly.",
+  "lawoss.ocr.layout_failed": "Rozvržení stránky se nepodařilo zpracovat. Zkuste to později znovu.",
 } satisfies Record<keyof typeof ocrEn, string>;
 
 export const ocrDe = {
@@ -119,4 +134,9 @@ export const ocrDe = {
   "lawoss.ocr.disabled_link": "In Einstellungen → KI-Provider einschalten",
   "lawoss.ocr.downloading": "LAWOSS lädt einmalig das Texterkennungsmodell für gescannte Seiten herunter: etwa {size} MB von huggingface.co (PaddlePaddle). Gescannte Seiten werden danach direkt auf diesem Computer gelesen. Die Prüfung läuft von selbst weiter.",
   "lawoss.ocr.download_failed": "Das Texterkennungsmodell konnte nicht von huggingface.co heruntergeladen werden. Prüfen Sie die Internetverbindung und den freien Speicherplatz und starten Sie die Prüfung erneut. Gescannte Seiten wurden nicht gelesen, die Dokumente selbst sind unverändert.",
+  "lawoss.ocr.layout_action": "Auch Seitenaufbau verarbeiten",
+  "lawoss.ocr.layout_hint": "Erkennt Tabellen, Spalten und Textblöcke in diesem Dokument. Das braucht mehr Arbeitsspeicher und dauert länger; die Antworten zu diesem Dokument werden neu erstellt.",
+  "lawoss.ocr.layout_running": "Seitenaufbau wird verarbeitet…",
+  "lawoss.ocr.layout_wait": "Verfügbar, sobald die Prüfung abgeschlossen ist.",
+  "lawoss.ocr.layout_failed": "Der Seitenaufbau konnte nicht verarbeitet werden. Versuchen Sie es später erneut.",
 } satisfies Record<keyof typeof ocrEn, string>;

@@ -109,7 +109,7 @@ async function shutdownNavigationFixture(t,{publish=publishNativeQuitAcceptance,
   const context=vm.createContext({app:productionApp,mainWindow:{isDestroyed:()=>false,show(){},webContents:{loadURL:url=>{shutdownUrl=url;events.push('shutdown-navigation');socket.message({id:evaluationId,error:{code:-32000,message:'Inspected target navigated or closed'}});}}},
     nativeCopy,uiLocales:createNativeLocaleState(()=>locale),DISPLAY_NAME:'LAWOSS',
     runtimeDisposedForQuit:false,runtimeDisposeInProgress:false,appIsQuitting:false,
-    recorderServiceInstance:noop,appAudioTap:noop,callOverlay:noop,systemDictation:noop,dictationHud:noop,appTray:noop,powerSessions:noop,
+    recorderServiceInstance:noop,chevron7Signing:noop,appAudioTap:noop,callOverlay:noop,systemDictation:noop,dictationHud:noop,appTray:noop,powerSessions:noop,
     disposeRuntimeBeforeQuit:async()=>{disposed=true;events.push('leader-exit');child.exitCode=0;child.emit('exit',0);},uiControlServer:{stop:async()=>{}},
   });
   vm.runInContext(`${screenUrl}\n${screen}\n${before}`,context);

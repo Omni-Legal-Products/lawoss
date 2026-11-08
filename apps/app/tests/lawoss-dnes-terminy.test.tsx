@@ -170,4 +170,11 @@ describe("#251: termín úlohy s inou evidovanou lehotou", () => {
     // 26. 10. termín s časom (úloha), 27. 10. jedna bodka lehoty bez druhej bodky úlohy.
     expect(busy.map((cell) => [cell.match(/<i /g)?.length, cell.includes('data-kind="task"')])).toEqual([[1, true], [1, false]]);
   });
+  test("#264: Domov klienta ukáže priečinky iného klienta namiesto tichého vynechania", () => {
+    const out = html(<ClientOverviewView workspaceId="c" locale="sk" todayIso={TODAY} matters={[]} deadlines={[]} soon={0}
+      foreignFolders={["C099 SYN Vnoreny", "C003 Alfa s.r.o."]} />);
+    expect(out).toContain("data-lawoss-client-overview-foreign");
+    expect(out).toContain("Priečinky iného klienta, nie sú v prehľade: C099 SYN Vnoreny, C003 Alfa s.r.o.");
+    expect(html(<ClientOverviewView workspaceId="c" locale="sk" todayIso={TODAY} matters={[]} deadlines={[]} soon={0} />)).not.toContain("data-lawoss-client-overview-foreign");
+  });
 });

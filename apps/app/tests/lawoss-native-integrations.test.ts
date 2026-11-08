@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { MARKETPLACE_CATALOG } from "../src/lawoss/domains/marketplace/catalog";
+import { MARKETPLACE_CATALOG, MARKETPLACE_SNAPSHOT } from "../src/lawoss/domains/marketplace/catalog";
 import { catalogPluginId, catalogPluginUrl, installCatalogEntry, nativeIntegrationRoute, refreshIntegrationState } from "../src/lawoss/domains/marketplace/native-actions";
 
 const plugin = MARKETPLACE_CATALOG.find((entry) => entry.id === "orsr")!;
@@ -21,7 +21,7 @@ describe("native integrations catalog", () => {
   test("installation uses immutable catalog URL and native refresh", async () => {
     const context = actions();
     expect(await installCatalogEntry(plugin, context)).toEqual({ ok: true, message: "installed" });
-    expect(context.calls).toEqual(["https://github.com/Omni-Legal-Products/lawoss-marketplace/tree/cd70ece43d370b20584ee0aa18bde602407bcea8/plugins/orsr", "refresh"]);
+    expect(context.calls).toEqual([`https://github.com/Omni-Legal-Products/lawoss-marketplace/tree/${MARKETPLACE_SNAPSHOT.ref}/plugins/orsr`, "refresh"]);
     expect(catalogPluginId(plugin)).toBe("github:Omni-Legal-Products/lawoss-marketplace#plugins/orsr");
   });
   test("readonly, missing workspace and non-workspace scopes cannot mutate", async () => {

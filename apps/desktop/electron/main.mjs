@@ -58,7 +58,7 @@ import { resolveBrowserProject } from "./browser-project.mjs";
 import { requireBrowserNetwork } from "./browser-network-policy.mjs";
 import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
 import { createSafeOpen } from "./safe-open.mjs";
-import { findChevron7App } from "./lawoss-chevron7.mjs";
+import { createChevron7Signing } from "./lawoss-chevron7-signing.mjs";
 import { getApplicationsForFile } from "./file-applications.mjs";
 import { composeAppleMailDraft, composeOutlookDraft } from "./mail-draft.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
@@ -142,6 +142,8 @@ const APP_START_URL = process.env.LEGALWORK_ELECTRON_START_URL?.trim() || proces
 const APP_ROOT = app.isPackaged ? path.join(process.resourcesPath, "app-dist") : path.resolve(__dirname, "../../app/dist");
 const isAppUrl = createAppUrlMatcher({ devServerUrl: APP_START_URL, appRoot: APP_ROOT });
 const uiLocales = createNativeLocaleState(() => preferredSystemLocale(systemLanguageList(app)));
+const chevron7Signing = createChevron7Signing({ platform: process.platform, roots: ["/Applications", path.join(os.homedir(), "Applications")] });
+app.on("will-quit", () => chevron7Signing.dispose());
 
 // Only LegalWork's own pages may use the desktop bridge. Browser tabs send
 // menu-overlay:dismiss so a click in a web page closes an open menu.
@@ -2740,12 +2742,23 @@ const desktopCommandHandlers = {
   "__setApplicationMenuVisible": async (event, ...args) => {
       return applicationMenu.setVisible(args[0]);
   },
-  // LAWOSS: presence check for Chevron7 by bundle id (lawoss-chevron7.mjs).
-  // Read-only: no launch, no open, no call to the app.
-  "chevron7Status": async () => {
-      return findChevron7App({
-        platform: process.platform,
-        roots: ["/Applications", path.join(os.homedir(), "Applications")],
+  "chevron7Status": async () => chevron7Signing.status(),
+  "chevron7SignPdf": async (event) => {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (!window || window.isDestroyed() || !(window === mainWindow || secondaryWindows.has(window))
+          || event.senderFrame !== event.sender.mainFrame || !isAppUrl(event.senderFrame?.url)) return { status: "unavailable" };
+      const copy = nativeCopy(uiLocales.forWindow(window));
+      return chevron7Signing.sign({
+        chooseFile: async () => {
+          const result = await dialog.showOpenDialog(window, { title: copy.chevron7Choose, properties: ["openFile"], filters: [{ name: "PDF", extensions: ["pdf"] }] });
+          return result.canceled || window.isDestroyed() ? null : result.filePaths[0];
+        },
+        confirmFile: async (name) => {
+          if (window.isDestroyed()) return false;
+          const result = await dialog.showMessageBox(window, { type: "question", title: "Chevron7", message: copy.chevron7Confirm,
+            detail: `${name}\n\n${copy.chevron7Detail}`, buttons: [copy.close, copy.chevron7Continue], defaultId: 0, cancelId: 0, noLink: true });
+          return result.response === 1 && !window.isDestroyed();
+        },
       });
   },
   // LAWOSS: Autogram (github.com/originalmagneto/autogram-macOS) is a separate
@@ -3066,6 +3079,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", (event) => {
     // Lets the window 'close' handler distinguish quit from close-to-hide.
     appIsQuitting = true;
+    chevron7Signing.dispose();
     if (runtimeDisposedForQuit) return;
     event.preventDefault();
     if (runtimeDisposeInProgress) return;

@@ -12,6 +12,19 @@ test("the agent catalog example parses with the exact runtime component schemas"
   expect(parsed.queryStatements).toHaveLength(1);
   expect(parsed.mutationStatements).toEqual([]);
 });
+// LAWOSS (akceptácia 8. 11. 2026): lang-core 0.4.1 nepozná `meno=hodnota`; katalóg ho preto nesmie radiť.
+test("catalog signatures are positional and the documented forms parse without errors", () => {
+  for (const [name, signature] of Object.entries(OPENUI_CATALOG.components)) {
+    expect(`${name}: ${signature.split(":")[0]}`).not.toMatch(/\w=\w/);
+  }
+  const parser = createParser(openUILibrary.toJSONSchema());
+  const q = 'matters = Query("data", {name:"matters"}, {rows:[],total:0})\n';
+  const positional = parser.parse(q + 'root = Stack([Heading("Veci", 1), Table(matters.rows, [{field:"case",label:"Prípad"},{field:"status",label:"Stav"},{field:"due",label:"Termín"}], true), Badge("Aktívna", "info"), Callout("Pozor", "Text", "warning")], 1)');
+  expect(positional.meta.errors).toEqual([]);
+  // Tvar, ktorý model poslal podľa starého katalógu: Table sa zahodí s chybou excess-args.
+  const keyword = parser.parse(q + 'root = Stack([Table(matters.rows, [{field:"case",label:"Prípad"}], searchable=true)])');
+  expect(keyword.meta.errors.map((error: { code: string }) => error.code)).toContain("excess-args");
+});
 test("streaming surfaces an unfinished string, then completes without losing its prefix", () => {
   const parser = createStreamingParser(openUILibrary.toJSONSchema());
   const partial = parser.push('root = Text("Client');

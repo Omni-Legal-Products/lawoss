@@ -45,7 +45,8 @@ test("internal review preparation API enforces workspace authorization, pins the
     const modelId = engines.engines.find(engine => engine.kind === "chat-completions")!.id;
     expect((await fetch(`${base}/ocr/default`, { headers: host, method: "PUT", body: JSON.stringify({ engineId: modelId }) })).status).toBe(200);
     process.env.LEGALWORK_SERVER_URL = base; process.env.LEGALWORK_SERVER_TOKEN = "token";
-    const response = await fetch(endpoint, { headers: client, method: "POST", body: JSON.stringify({ files: ["contract.pdf"] }) });
+    // LAWOSS: page layout runs only on an explicit request (lawoss/layout-on-demand.ts).
+    const response = await fetch(endpoint, { headers: client, method: "POST", body: JSON.stringify({ files: ["contract.pdf"], layout: true }) });
     expect(response.status).toBe(200);
     const run = statusSchema.parse(await response.json());
     await first;

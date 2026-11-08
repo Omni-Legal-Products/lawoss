@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, ScanText, X } from "lucide-react";
 import type { ReviewRecognitionPage } from "@legalwork/types/reviews";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -11,6 +11,7 @@ import { ImagePreview, PreviewLoading } from "../session/artifacts/preview";
 import type { ArtifactPanelTab } from "../session/panel/panel-tab-store";
 import { ReviewError } from "./review-ui";
 import { orderedRegions, regionKindLabel, TableCells } from "./review-source-panel";
+import { LayoutOnDemandAction } from "@/lawoss/domains/reviews/layout-on-demand";
 
 const statusLabels: Record<ReviewRecognitionPage["pages"][number]["status"], string> = {
   complete: "review.page_recognized", "needs-review": "review.needs_review", error: "review.page_unreadable", missing: "review.page_not_prepared",
@@ -41,6 +42,9 @@ export function ReviewRecognitionPanel({ client, workspaceId, reference, name, o
   const selected = data?.structure?.regions.find(region => region.id === selectedRegionId);
   const table = data?.structure?.tables.find(item => item.regionId === selectedRegionId);
   const go = (next: number) => { setPage(next); setSelectedRegionId(undefined); };
+  // LAWOSS: page layout only on request; after it the recognized pages are read again (lawoss/domains/reviews/layout-on-demand.tsx).
+  const queryClient = useQueryClient();
+  const reloadPages = useCallback(() => { void queryClient.invalidateQueries({ queryKey: ["review-recognition-page", workspaceId, reference.reviewId, reference.documentId] }); }, [queryClient, workspaceId, reference.reviewId, reference.documentId]);
   return <ArtifactFrame title={name} icon={<ScanText className="size-4" />} expandable meta={data?.engine} actions={<Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("review.close")}><X className="size-4" /></Button>}>
     {query.isPending ? <PreviewLoading /> : query.error ? <div className="p-4"><ReviewError error={query.error} /></div> : data && current && <>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2">
@@ -50,6 +54,7 @@ export function ReviewRecognitionPanel({ client, workspaceId, reference, name, o
         <span className={cn("text-xs", current.status === "complete" ? "text-muted-foreground" : "text-warning")}>{t(statusLabels[current.status])}</span>
         {nextFlagged && <Button variant="outline" size="sm" className="ml-auto" disabled={query.isFetching} onClick={() => go(nextFlagged.page)}>{t("review.next_flagged", { count: flagged.length })}</Button>}
       </div>
+      {data.textSource === "ocr" && current.status !== "error" && (!data.structure || data.structure.status === "unavailable") && <LayoutOnDemandAction client={client} workspaceId={workspaceId} reviewId={reference.reviewId} documentId={reference.documentId} onPrepared={reloadPages} />}
       {(current.reasons.length > 0 || data.error) && <ul className="shrink-0 list-disc space-y-1 border-b py-2 pl-9 pr-5 text-xs text-warning">
         {data.error && <li>{data.error}</li>}
         {current.reasons.map(reason => <li key={reason}>{reasonLabels[reason] ? t(reasonLabels[reason]) : t("review.reason_other", { reason })}</li>)}

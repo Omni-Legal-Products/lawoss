@@ -1,5 +1,27 @@
 # LAWOSS downstream patches
 
+## OpenUI: pozičné argumenty v katalógu a tolerantný obal view_* (2026-11-08)
+
+Akceptácia testovacej alfy 8. 11. 2026 (N-A11-24). `@openuidev/lang-core` 0.4.1 nepozná pomenované argumenty; katalóg pritom radil `Table(rows, cols, searchable=true)` a model ho poslúchol, takže Table sa zahodil s chybou `excess-args`. Upstream má rovnaký katalóg aj verziu knižnice; vhodné na nahlásenie.
+
+| Súbor | Zmena |
+|---|---|
+| `packages/openui/src/catalog.ts` | Signatúry Stack, Heading, Table, Badge a Callout pozične (`columns?`, `level?`, `searchable?`, `tone?` s predvolenou hodnotou v texte) a pravidlo „Arguments are positional only“. Test v `catalog.test.tsx`. |
+
+LAWOSS súbor `apps/server/src/opencode-plugins/lawoss-view-tools.ts`: polia pohľadu mimo `input` presunie dovnútra, pri `wiki_invalid_data` vráti pole a dôvod a `asOf` v sekundách prepočíta na milisekundy. Pred odovzdaním skontroluje program: zdroj dát Table/Board/grafov musí byť deklarovaný, Query musí čítať existujúci dataset alebo dotaz a argumenty sú pozičné; inak vráti `view_program_invalid` s chybami namiesto náhľadu, ktorý sa nedá vykresliť.
+
+## Tichá obnova prehľadov nesťahuje nezmenené súbory (2026-11-07, #367)
+
+Retest: pri 24 klientoch appka aj pri nečinnosti čítala ~14 súborov za sekundu (165 tisíc `files/content` za beh). Výpis priečinka sa pri obnove robí ďalej a nesie veľkosť a čas zmeny, obsah sa stiahne len pri zmene. Nový `apps/app/src/lawoss/okf/file-content-cache.ts` má strop 16 MiB a súbor nad 1 MiB ani práve zmenený súbor neukladá.
+
+## Retest alfa10: výpadok siete, čakanie po onboardingu, hľadanie v katalógu (2026-11-07)
+
+Nálezy N7, N8 a N12 z retestu zostavy `829b9b952`. Sieťový výpadok pri inštalácii doplnku sa ukazoval ako anglické „Unexpected server error“, obrazovka Pripravené nič nehovorila počas dlhého prechodu a katalóg „Všetky balíky“ nešlo prehľadávať.
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/claude-plugin-bundle.ts` | `fetchGithubJson` a `fetchGithubText` volajú `fetchPluginSource` z nového `lawoss/plugin-source-fetch.ts` (jedno opakovanie, potom 503 `plugin_source_unreachable`). |
+
 ## OCR workery bez CPU arény ONNX Runtime, kratšia nečinnosť (2026-11-08)
 
 Rozpočet RAM 2 GB, #367 (ADR 0017). Meranie na strane syntetického skenu (1654×2339, PP-DocLayoutV3 + PP-OCRv6 small, súbežne ako v príprave dokumentu): špička oboch workerov **2,0 GB**, po strane layout 1,2 GB + OCR 0,5 GB až do ukončenia (120 s). Arena ONNX Runtime drží najväčší alokovaný blok. Bez nej: špička **1,34 GB**, po strane 0,63 + 0,35 GB, rýchlosť bez zmeny (3,1 s/strana), výstup totožný. Menej vlákien šetrí málo a OCR spomalí 2–3×.
@@ -10,6 +32,18 @@ Rozpočet RAM 2 GB, #367 (ADR 0017). Meranie na strane syntetického skenu (1654
 | `apps/server/src/ocr/worker-process.ts` | Predvolená nečinnosť workera 30 s namiesto 120 s; model sa znova načíta za ~1–2 s. |
 
 Zostáva: samotný layout model má špičku ~1 GB, takže príprava skenu s rozložením sa k zvyšku appky (~1,4 GB) do 2 GB nezmestí. Rozhodnutie o režime pre slabé stroje (napr. OCR bez rozloženia) patrí do ADR.
+
+## Hromadná zmena konfigurácie neotvorených klientov bez studených štartov (2026-11-08, #367 N9)
+
+Retest alfa10 (N9): po inštalácii balíka „SK základ“ bol engine krátko 1,2–1,4 GB a celá appka nad 2 GB. Každý plugin balíka spustil reload všetkých inštancií; neotvorený klient sa uvoľnil a bočný panel ho hneď postavil znova (10 klientov: 77 inštancií vytvorených a 66 uvoľnených za 40 s).
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/server.ts` | Hromadné reloady na pozadí (Marketplace, SystemOne, Eigenwelt, politika firmy) volajú `deferDormantReload`: neotvorený klient sa len označí (`markStale`), otvorený sa obnoví ako doteraz. Zmeny Marketplace, ktoré prídu počas čakajúceho prechodu, sa zlúčia do neho. Zastaraná inštancia sa uvoľní pred ďalším prijatím MCP alebo pred požiadavkou, ktorá číta konfiguráciu (`readsEngineConfig`: poskytovatelia, konfigurácia, agenti, skilly); zoznam chatov a udalosti ju nepotrebujú. Kontrola bežiaceho chatu pre zastaraný priečinok je krátka (`engineDirectoryClearlyBusy`, 2 s): inštancia, ktorá ešte štartuje, otvorenie nezdrží; neotvorený priečinok nemôže mať chat spustený cez LAWOSS. |
+| `apps/server/src/server.ts` | Štyri reťazce reloadov na pozadí čakajú na predošlý cez `previousReload.catch(() => undefined)`, aby jedno zlyhanie nezablokovalo ďalšie. Zlyhaný prechod Marketplace vynuluje `marketplaceReloadQueued`. |
+| `apps/server/src/eigenwelt-workspace-reload.test.ts` | Neotvorené pracovné priestory sa uvoľnia pri ďalšej požiadavke na zoznam poskytovateľov, nie v prechode na pozadí; priestor s bežiacou úlohou sa neuvoľní. |
+
+Rozšírený LAWOSS súbor: `apps/server/src/lawoss/engine-mcp-budget.ts` (`markStale`, `refreshIfStale`, `staleBusy`, `readsEngineConfig`) + testy.
 
 ## Runner macos-14 nahradený macos-15 (2026-11-06)
 
@@ -1868,3 +1902,28 @@ Po aktualizácii doplnku ostávala predchádzajúca verzia runtime v `.opencode/
 |---|---|
 | `apps/server/src/cloud-plugins.ts` | +1 import, nová funkcia `pruneUnusedPluginResources` (prečíta záznamy a MCP dotknutých riadkov, cestu overí cez `resolveWorkspaceInstallPath` a `assertPluginDestination`), volanie na konci `installCloudPlugin` po `writeInstalledCloudPlugins` a na konci `removeCloudPlugin` pre namespace z jeho súborov (+2 riadky). Neúspešná inštalácia sa k upratovaniu nedostane, doterajší runtime ostáva. |
 | `apps/server/src/cloud-plugin-resources.test.ts` | Posledný assert testu „failed resource update…“ tvrdil, že po úspešnej aktualizácii v1 runtime ostáva; teraz očakáva `ENOENT`. Assert po neúspešnej aktualizácii (v1 nedotknutý) ostáva. |
+
+## OpenUI, ovládanie a Chevron7 (2026-11-07, lokálna pracovná zmena)
+
+- `apps/server/src/legalwork-runtime-config.ts`, `legalwork-extensions-plugin-path.ts`, `apps/server/package.json`: pribalený samostatný `lawoss-view-tools` sprístupňuje päť nástrojov OpenUI pre klienta. Znovu nezapína wiki ani ich prístupové hooky; zachováva upstream preview, stream a výslovné uloženie používateľom. `lawoss/hidden-upstream-tools.ts` už neblokuje `view_*`, ostatné zákazy zachované.
+- `apps/app/src/react-app/domains/views/view-renderer.tsx`, `views.css` a štyri základné locale súbory: lazy renderer, bez pollingu statických snapshotov a definície uloženého view, kratšia retencia cache, sekvenčné živé dotazy; preložené stavy, prístupnejšie ovládanie a zalamovanie chýb. Živé wiki dáta upstreamu ostávajú obnovované.
+- `apps/desktop/electron/main.mjs`, `native-locale.mjs`, `packages/types/src/desktop-ipc.ts`, desktop test command: lokálny mostík Chevron7. Stav je len čítanie; podpisovanie vyžaduje hlavné okno aplikácie, natívny výber jedného PDF a potvrdenie. Modul `lawoss-chevron7-signing.mjs` overí nainštalovaný bundle a volá jeho Quick Action bez zachytávania PIN či výstupu. Žiadne stále bežiace MCP. Výstup `returned` nie je dôkazom podpisu. Podporované rozhranie verzie 1.18.0, nie prísľub podporovať neexistujúce HTTP/MCP API.
+- `lawoss/theme/lawoss-components.css`: composer používa rovnaký gold gradient ako spoločné primárne tlačidlo. Vlastné LAWOSS komponenty Integrácií: vyhľadávanie katalógu, scope oneskorených odpovedí, karta Chevron7 s reálnou dostupnosťou.
+
+Lokálna integrácia pre nasadenie 7. 11.: zahrnuté dokončené commity kolegu `cafb81510` a `060921020`, nie diagnostický `3caa7c881`. Jediné vyhľadávanie katalógu používa `catalog-search.ts`, spoločný Input a zjednotené preklady; filter navyše podporuje id a jurisdikciu. Zachovaná ochrana pred oneskorenými odpoveďami Marketplace.
+
+Pred nasadením doplnená regresia a oprava cache OKF: cache vlastní konkrétne API pripojenie (WeakMap), aby rovnaké workspace id a metadáta na inom serveri nevrátili predchádzajúci obsah. Okrem 16 MiB je limit 2048 položiek vrátane prázdnych súborov. Prerušenie čítania sa overuje aj pred vrátením obsahu z cache. Dva nové testy najprv zlyhali a po oprave prešli.
+
+### Rozloženie strany len na požiadanie (2026-11-08, fix/ocr-rozlozenie-na-poziadanie)
+
+Rozhodnutie MČ 8. 11. 2026: model rozloženia strany (PP-DocLayoutV3, špička asi 1 GB RAM) sa spúšťa len na výslovnú žiadosť pre konkrétny dokument; rozpoznávanie textu (PP-OCR, asi 0,36 GB) beží ako doteraz. Dôvod: limit RAM 2 GB pre celú appku (#367, ADR 0017), rozloženie spolu so zvyškom appky sa doň nezmestí. Logika je v nových súboroch `apps/server/src/lawoss/layout-on-demand.ts` (kedy je strana hotová, dôvody kontroly strany bez rozloženia) a `apps/app/src/lawoss/domains/reviews/layout-on-demand.tsx` (tlačidlo „Spracovať aj rozloženie strany“ s upozornením na pamäť a čas), texty v `apps/app/src/lawoss/i18n/ocr.ts` (EN, SK, CS, DE). Strana bez rozloženia nemá pole `structure` (ako strana s vlastným textom); kľúč a formát prípravy sa nemenia, takže dodatočné rozloženie použije rozpoznaný text a OCR neopakuje. Sťahovanie modelov ostáva bez zmeny. Testy: `apps/server/src/lawoss/layout-on-demand.test.ts`, `apps/app/tests/lawoss-layout-on-demand.test.tsx`.
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/server/src/document-preparation/service.ts` | `prepareInput` má `layout: z.boolean().default(false)`; `this.layout.detect` sa volá len pri `input.layout`; bez neho strana nesie OCR text bez `structure` a stav z `textOnlyReviewReasons`; obe kontroly hotovej strany (celý dokument z cache a zoznam čakajúcich strán) idú cez `pagePrepared(page, input.layout)` (+1 import, komentáre `// LAWOSS:`). |
+| `packages/types/src/reviews.ts` | `RunReviewSchema` má voliteľné `layout` (+1 pole s komentárom); typ `RunReview` ostáva spätne kompatibilný. |
+| `apps/server/src/reviews/service.ts` | `layout` v behu kontroly zaradí bunky vybraných dokumentov znova ako `rerun` a do `preparation.start` pošle `layout` (bez `force`, OCR sa neopakuje); `retryFailed` s `layout` sa odmietne ako s `rerun`. |
+| `apps/server/src/reviews/source-page.ts` | Dôvody kontroly pri strane s OCR bez `structure` počíta `textOnlyReviewReasons` (+1 import, 1 riadok), aby panel rozpoznaných strán ukázal, prečo strana čaká na kontrolu. |
+| `apps/app/src/react-app/domains/reviews/review-recognition-panel.tsx` | +1 import, `reloadPages` (obnoví rozpoznané strany po dokončení) a jeden riadok s `LayoutOnDemandAction`, keď strana prečítaná cez OCR nemá rozloženie. |
+| `apps/server/src/document-preparation/service.test.ts`, `apps/server/src/document-preparation/routes.test.ts` | Testy, ktoré overujú rozloženie, posielajú `layout: true` (route test cez HTTP telo); dva nové testy: automatická príprava `detect` nevolá, výslovná žiadosť doplní rozloženie do toho istého súboru bez ďalšieho OCR. |
+| `apps/server/src/content-search.test.ts` | Test „missing layout … incomplete evidence“ prepísaný: bez žiadosti o rozloženie chýbajúci model rozloženia dôkaz neznehodnotí. |

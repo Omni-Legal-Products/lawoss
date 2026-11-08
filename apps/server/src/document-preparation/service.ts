@@ -16,6 +16,7 @@ import { linkDocumentStructure } from "./relations.js";
 import { openDocument, type RenderedDocument } from "./render.js";
 import { firstUseFailure, firstUseOcrDownload, OCR_DOWNLOADING_CODE, type FirstUseDownload } from "../lawoss/ocr-on-demand.js";
 import { OCR_DISABLED, ocrEnabled, textLayerSnapshot } from "../lawoss/ocr-opt-in.js";
+import { pagePrepared, textOnlyReviewReasons } from "../lawoss/layout-on-demand.js";
 
 import { pageSchema, preparedSchema, type PreparedDocument } from "./schema.js";
 export { preparedSchema, type PreparedDocument } from "./schema.js";
@@ -29,6 +30,8 @@ export const prepareInput = z.strictObject({
   force: z.boolean().default(false),
   /** `missing-text` reads a PDF page with OCR only when it has no text of its own. */
   ocr: ReviewOcrSchema.default("always"),
+  /** LAWOSS: page layout runs only when the request asks for it for these documents (lawoss/layout-on-demand.ts). */
+  layout: z.boolean().default(false),
 });
 /** Own text that carries the page, not just a page number, stamp or header. */
 const hasOwnText = (text: string) => (text.match(/[\p{L}\p{N}]/gu)?.length ?? 0) >= 100;
@@ -133,7 +136,7 @@ export class DocumentPreparation {
         const prior = input.force ? undefined : await this.cached(target, key);
         const doc: PreparedDocument = prior ?? { version: VERSION, key, file: source.file, fileAbs: source.path, sourceSha256, engine, layoutFingerprint: this.layout.fingerprint, relations: [], pageCount: 0, pages: [], status: "needs-review" };
         entry.preparationPath = relative(root, target).split(sep).join("/");
-        if (prior && prior.pages.length === prior.pageCount && prior.pages.every(page => page.status !== "error" && page.structure?.status !== "unavailable")) {
+        if (prior && prior.pages.length === prior.pageCount && prior.pages.every(page => pagePrepared(page, input.layout))) { // LAWOSS: lawoss/layout-on-demand.ts
           entry.completedPages = prior.pageCount; entry.pageCount = prior.pageCount; entry.status = prior.status; continue;
         }
         let rendered: RenderedDocument | undefined;
@@ -170,7 +173,8 @@ export class DocumentPreparation {
                 // Layout comes first: the quality model reads each detected block so its text keeps coordinates.
                 let detected: LayoutDetection | undefined;
                 try {
-                  if (!layoutUnavailable) detected = await this.layout.detect(renderedPage.image, signal);
+                  // LAWOSS: the layout model loads only on an explicit request (lawoss/layout-on-demand.ts).
+                  if (input.layout && !layoutUnavailable) detected = await this.layout.detect(renderedPage.image, signal);
                 } catch (error) {
                   if (signal.aborted) throw error;
                   if (error instanceof OcrError && error.code === "runtime-unavailable") layoutUnavailable = true;
@@ -190,9 +194,14 @@ export class DocumentPreparation {
                   throw new ApiError(400, "document_size", "Extracted evidence exceeds 64 MiB. Split this document into smaller files and retry.");
                 doc.pages = [...doc.pages.filter(item => item.page !== page), staged].sort((a, b) => a.page - b.page);
                 await save();
-                const structure: PageStructure = detected ? assemblePageStructure(page, ocr, detected) : unavailableStructure();
-                result = { page, nativeText, width, height, structure, ocr: { text: ocr.text, regions: ocr.regions, truncated: ocr.truncated },
-                  status: pageReviewReasons({ nativeText, ocr, structure }).length ? "needs-review" : "complete" };
+                // LAWOSS: without a layout request the page keeps its OCR text and no structure (lawoss/layout-on-demand.ts).
+                if (!input.layout) result = { page, nativeText, width, height, ocr: { text: ocr.text, regions: ocr.regions, truncated: ocr.truncated },
+                  status: textOnlyReviewReasons({ nativeText, ocr }).length ? "needs-review" : "complete" };
+                else {
+                  const structure: PageStructure = detected ? assemblePageStructure(page, ocr, detected) : unavailableStructure();
+                  result = { page, nativeText, width, height, structure, ocr: { text: ocr.text, regions: ocr.regions, truncated: ocr.truncated },
+                    status: pageReviewReasons({ nativeText, ocr, structure }).length ? "needs-review" : "complete" };
+                }
               }
             } catch (error) {
               if (signal.aborted) throw error;
@@ -208,7 +217,7 @@ export class DocumentPreparation {
           const pending: number[] = [];
           for (let page = 1; page <= doc.pageCount; page++) {
             const existing = doc.pages.find(item => item.page === page);
-            if (existing && existing.status !== "error" && existing.structure?.status !== "unavailable") entry.completedPages++;
+            if (existing && pagePrepared(existing, input.layout)) entry.completedPages++; // LAWOSS: lawoss/layout-on-demand.ts
             else pending.push(page);
           }
           // One page more than the engine reads at once is rendered and laid out ahead, so the model does not wait for it.

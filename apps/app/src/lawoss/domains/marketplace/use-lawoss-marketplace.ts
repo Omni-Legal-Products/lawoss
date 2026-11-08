@@ -3,7 +3,7 @@
  * Čítanie stavu nejde na sieť; sieť ide len pri `check` (otvorenie Marketplace, tlačidlo)
  * a pri inštalácii, aktualizácii a presune, teda po akcii advokáta.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connection";
@@ -11,6 +11,8 @@ import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connecti
 import { catalogPluginId, catalogPluginUrl, type BasePackResult } from "./native-actions";
 import type { MarketplaceEntry } from "./catalog";
 import type { LawossMarketplaceApi, MarketplaceView } from "./marketplace-api";
+import { t } from "@/i18n";
+import { LegalworkServerError } from "@/app/lib/legalwork-server";
 
 /** Klient lokálneho servera s host tokenom (routes sú host auth ako `/lawoss/ocr`). */
 export async function loadMarketplaceApi(): Promise<LawossMarketplaceApi | null> {
@@ -33,53 +35,75 @@ export function pluginDisplayName(pluginId: string, fallback: string, catalog: r
 /** Odporúčané balíky pre všetkých klientov: po jednom, zlyhanie jedného nezastaví ostatné. */
 export async function installGlobalEntries(api: LawossMarketplaceApi, entries: readonly MarketplaceEntry[]): Promise<BasePackResult> {
   const result: BasePackResult = { installed: [], failed: [] };
+  let unreachable: string | null = null;
   for (const entry of entries) {
+    // Po výpadku zdroja by každý ďalší doplnok čakal na sieť znova; zvyšok balíka dostane tú istú radu hneď.
+    if (unreachable) { result.failed.push({ id: entry.id, message: unreachable }); continue; }
     try {
       await api.install(catalogPluginUrl(entry));
       result.installed.push(entry.id);
     } catch (error) {
-      result.failed.push({ id: entry.id, message: error instanceof Error ? error.message : String(error) });
+      const message = installFailureMessage(error);
+      if (isSourceUnreachable(error)) unreachable = message;
+      result.failed.push({ id: entry.id, message });
     }
   }
   return result;
 }
 
+const isSourceUnreachable = (error: unknown) => error instanceof LegalworkServerError && error.code === "plugin_source_unreachable";
+
+/** N7: výpadok siete pri sťahovaní doplnku je po slovensky a s radou, ostatné chyby ostávajú pôvodné. */
+export function installFailureMessage(error: unknown): string {
+  if (isSourceUnreachable(error)) return t("lawoss.integrations.base.source_unreachable");
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function useLawossMarketplace(options: { api?: LawossMarketplaceApi | null; workspaceId?: string | null; checkOnOpen?: boolean } = {}) {
-  const [api, setApi] = useState<LawossMarketplaceApi | null>(options.api ?? null);
-  const [view, setView] = useState<MarketplaceView | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [checking, setChecking] = useState(false);
+  const [loadedApi, setApi] = useState<LawossMarketplaceApi | null>(null);
+  const api = options.api === undefined ? loadedApi : options.api;
   const workspaceId = options.workspaceId ?? null;
+  const scope = useMemo(() => ({ active: true, request: 0, checks: 0 }), [api, workspaceId]);
+  const [result, setResult] = useState<{ scope: typeof scope; view: MarketplaceView | null; error: string | null } | null>(null);
+  const [checkingScope, setCheckingScope] = useState<typeof scope | null>(null);
+  useEffect(() => {
+    scope.active = true;
+    return () => { scope.active = false; scope.request++; };
+  }, [scope]);
 
   useEffect(() => {
-    if (options.api !== undefined) { setApi(options.api); return; }
+    if (options.api !== undefined) return;
     let cancelled = false;
     void loadMarketplaceApi().then((loaded) => { if (!cancelled) setApi(loaded); }, () => undefined);
     return () => { cancelled = true; };
   }, [options.api]);
 
   const refresh = useCallback(async () => {
-    if (!api) return;
+    if (!api || !scope.active) return;
+    const request = ++scope.request;
     try {
-      setView(await api.view(workspaceId));
-      setError(null);
+      const view = await api.view(workspaceId);
+      if (scope.active && scope.request === request) setResult({ scope, view, error: null });
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      if (scope.active && scope.request === request) setResult({ scope, view: null, error: failure instanceof Error ? failure.message : String(failure) });
     }
-  }, [api, workspaceId]);
+  }, [api, workspaceId, scope]);
 
   const check = useCallback(async (reason: "open" | "manual") => {
-    if (!api) return;
-    setChecking(true);
+    if (!api || !scope.active || scope.checks) return;
+    const request = ++scope.request;
+    scope.checks++;
+    setCheckingScope(scope);
     try {
-      setView(await api.check(reason, workspaceId));
-      setError(null);
+      const view = await api.check(reason, workspaceId);
+      if (scope.active && scope.request === request) setResult({ scope, view, error: null });
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      if (scope.active && scope.request === request) setResult({ scope, view: null, error: failure instanceof Error ? failure.message : String(failure) });
     } finally {
-      setChecking(false);
+      scope.checks--;
+      if (scope.active) setCheckingScope(current => current === scope ? null : current);
     }
-  }, [api, workspaceId]);
+  }, [api, workspaceId, scope]);
 
   useEffect(() => {
     if (!api) return;
@@ -94,7 +118,8 @@ export function useLawossMarketplace(options: { api?: LawossMarketplaceApi | nul
     await refresh();
   }, [api, refresh]);
 
-  return { api, view, error, checking, refresh, check, setWeeklyCheck };
+  return { api, view: result?.scope === scope ? result.view : null, error: result?.scope === scope ? result.error : null,
+    checking: checkingScope === scope, refresh, check, setWeeklyCheck };
 }
 
 export type LawossMarketplaceState = ReturnType<typeof useLawossMarketplace>;

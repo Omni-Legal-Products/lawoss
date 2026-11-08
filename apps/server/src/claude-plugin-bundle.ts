@@ -13,6 +13,7 @@
 import { ApiError } from "./errors.js";
 import { parseFrontmatter } from "./frontmatter.js";
 import type { CloudPluginResolved } from "./cloud-plugins.js";
+import { fetchPluginSource } from "./lawoss/plugin-source-fetch.js";
 
 export type ClaudePluginSource = {
   owner: string;
@@ -97,9 +98,8 @@ export function parseClaudePluginSource(input: string): ClaudePluginSource {
 }
 
 async function fetchGithubJson(url: string): Promise<unknown> {
-  const response = await fetch(url, {
+  const response = await fetchPluginSource(url, {
     headers: { Accept: "application/vnd.github+json", "User-Agent": "legalwork-server" },
-    signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -109,9 +109,8 @@ async function fetchGithubJson(url: string): Promise<unknown> {
 }
 
 async function fetchGithubText(url: string): Promise<string> {
-  const response = await fetch(url, {
+  const response = await fetchPluginSource(url, {
     headers: { Accept: "text/plain", "User-Agent": "legalwork-server" },
-    signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createEngineMcpBudget, engineMcpBudgetSettings, engineSessionAction, initializesEngineMcp, settleWithin, type EngineScope } from "./engine-mcp-budget.js";
+import { readsEngineConfig, createEngineMcpBudget, engineMcpBudgetSettings, engineSessionAction, initializesEngineMcp, settleWithin, type EngineScope } from "./engine-mcp-budget.js";
 
 const scope = (directory: string): EngineScope => ({ baseUrl: "http://127.0.0.1:1", authHeader: null, directory });
 
@@ -191,6 +191,30 @@ test("settleWithin: skorý výsledok vráti hneď, neskorá chyba ide do záznam
   fail(failure);
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(late).toEqual([failure]);
+});
+
+test("zastaraný neotvorený priečinok sa uvoľní pred prijatím, aktívny ani adoptovaný nie", async () => {
+  const { budget, disposed, initialized } = fixture({ limit: 1 });
+  budget.markStale(scope("/a"));
+  (await budget.admit(scope("/a")))();
+  expect(disposed).toEqual(["/a"]);
+  expect(initialized).toEqual(["/a"]);
+  budget.markStale(scope("/a"));
+  (await budget.admit(scope("/a")))();
+  expect(disposed).toEqual(["/a"]);
+  budget.markStale(scope("/b"));
+  await budget.adopt(scope("/b"));
+  expect(disposed).toEqual(["/a", "/a"]);
+});
+
+test("cesty, pri ktorých záleží na konfigurácii inštancie", () => {
+  expect(readsEngineConfig("/provider")).toBe(true);
+  expect(readsEngineConfig("/config/providers")).toBe(true);
+  expect(readsEngineConfig("/agent")).toBe(true);
+  expect(readsEngineConfig("/skill")).toBe(true);
+  expect(readsEngineConfig("/session")).toBe(false);
+  expect(readsEngineConfig("/event")).toBe(false);
+  expect(readsEngineConfig("/session/ses_1/message")).toBe(false);
 });
 
 test("nastavenia z prostredia", () => {
