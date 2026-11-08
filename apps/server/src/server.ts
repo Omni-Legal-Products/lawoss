@@ -5675,7 +5675,8 @@ function resolveWorkspaceMetadata(config: ServerConfig, id: string): WorkspaceIn
     throw new ApiError(404, "workspace_not_found", "Workspace not found");
   }
   const path = resolve(workspace.path);
-  if (!config.authorizedRoots.some(root => path === resolve(root) || path.startsWith(resolve(root) + sep))) {
+  // 🟡 LAWOSS: an authorized drive or share root (`/`, `D:\`, `\\nas\share\`) ends in a separator; a `root + sep` prefix never matched.
+  if (!config.authorizedRoots.some(root => isPathWithin(resolve(root), path))) {
     throw new ApiError(403, "workspace_unauthorized", "Workspace is not authorized");
   }
   return { ...workspace, path };

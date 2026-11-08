@@ -17,11 +17,13 @@ afterEach(async () => { for (const stop of stops.splice(0)) await stop(); for (c
 async function fixture() {
   const base = await realpath(await mkdtemp(join(tmpdir(), "lawoss-status-"))); roots.push(base);
   const root = join(base, "matter"), vault = join(base, "vault"); await mkdir(root); await mkdir(vault); await mkdir(join(root, ".lawoss"));
+  // LAWOSS: a linked folder may not lie in app data, which includes the server config folder (lawoss/linked-folders.ts).
+  await mkdir(join(base, "private"));
   process.env.LEGALWORK_DATA_DIR = join(base, "data"); process.env.LEGALWORK_TOKEN_STORE = join(base, "tokens.json");
   await writeFile(join(vault, "memory.md"), "SYNTHETIC-ANCHOR SECRET-SOURCE-BODY");
   await writeFile(join(root, ".lawoss/memory-profile.json"), JSON.stringify({ version: 1, matterId: "synthetic", roots: [{ id: "vault", path: vault }], sources: [{ id: "memory", root: "vault", path: "memory.md", role: "case_memory", required: true, writable: false, anchors: ["SYNTHETIC-ANCHOR"] }] }));
   await writeFile(join(root, "opencode.json"), JSON.stringify({ permission: { external_directory: { [`${vault}/*`]: "allow" } } }));
-  const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(base, "server.json"), token: "synthetic-client", hostToken: "synthetic-host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "synthetic", name: "Synthetic", preset: "starter", path: root, workspaceType: "local" }], authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(base, "private", "server.json"), token: "synthetic-client", hostToken: "synthetic-host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "synthetic", name: "Synthetic", preset: "starter", path: root, workspaceType: "local" }], authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   const server = await startServer(config); stops.push(() => server.stop());
   const url = `http://127.0.0.1:${server.port}/workspace/synthetic`, headers = { authorization: "Bearer synthetic-client", "content-type": "application/json" };
   const status = async (): Promise<WorkspaceMemoryStatus> => { const response = await fetch(`${url}/lawoss/memory`, { headers }); expect(response.status).toBe(200); const text = await response.text(); expect(text).not.toContain("SECRET-SOURCE-BODY"); expect(text).not.toContain("SYNTHETIC-ANCHOR"); expect(text).not.toContain('"content"'); return JSON.parse(text); };
@@ -32,7 +34,9 @@ test("authenticated status ignores file grants; native grant and revocation affe
   for (const path of ["/lawoss/memory", "/lawoss/memory/grants"]) expect((await fetch(f.url + path)).status).toBe(401);
   expect((await fetch(f.url.replace("synthetic", "unknown") + "/lawoss/memory", { headers: f.headers })).status).toBe(404);
   expect((await f.status()).complete).toBe(false);
-  const untrusted = await (await fetch(`${f.url}/authorized-folders`, { headers: f.headers })).json(); expect(untrusted.folders).toEqual([f.vault.replaceAll(sep, "/")]);
+  // LAWOSS v2: the server reads the project config only through the engine (`config.get`); without an engine the
+  // client's own `opencode.json` grant is not a folder at all, and memory grants never come from it anyway.
+  const untrusted = await (await fetch(`${f.url}/authorized-folders`, { headers: f.headers })).json(); expect(untrusted.folders).toEqual([]);
   const grants = await (await fetch(`${f.url}/lawoss/memory/grants`, { headers: f.headers })).json(); expect(grants.folders).toEqual([]); expect(grants.authority).toBe("runtime");
   expect((await fetch(`${f.url}/authorized-folders`, { method: "PUT", headers: f.headers, body: JSON.stringify({ folders: [f.vault] }) })).status).toBe(200);
   const loaded = await f.status(); expect(loaded.complete).toBe(true); expect(loaded.sources[0]?.status).toBe("loaded"); expect(loaded.sources[0]?.sha256).toMatch(/^[a-f0-9]{64}$/);
@@ -105,7 +109,7 @@ test("production plugin resolves real HTTP grants on each hook and preserves rev
     await import("./opencode-plugins/lawoss-okf-handoff.js"); const { LawossOkfHandoff } = await import("../../../lawoss/okf-handoff/plugin.mjs");
     const hooks = await LawossOkfHandoff({ directory: f.root }, { mode: "native" });
     const first = { system: [] as string[] }; await hooks["experimental.chat.system.transform"]!({ sessionID: "host_live" }, first); expect(first.system[0]).toContain("FAILED");
-    await fetch(`${f.url}/authorized-folders`, { method: "PUT", headers: f.headers, body: JSON.stringify({ folders: [f.vault] }) });
+    expect((await fetch(`${f.url}/authorized-folders`, { method: "PUT", headers: f.headers, body: JSON.stringify({ folders: [f.vault] }) })).status).toBe(200);
     const second = { system: [] as string[] }; await hooks["experimental.chat.system.transform"]!({ sessionID: "host_live" }, second); expect(second.system[0]).not.toContain("FAILED");
     const { readFile } = await import("node:fs/promises"); const checkpoint = join(f.root, ".lawoss/handoff/host_live.md"); const good = await readFile(checkpoint, "utf8"); expect(good).toContain("SECRET-SOURCE-BODY");
     await fetch(`${f.url}/authorized-folders`, { method: "PUT", headers: f.headers, body: JSON.stringify({ folders: [] }) });
