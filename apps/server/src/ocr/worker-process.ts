@@ -19,7 +19,8 @@ export class WorkerProcess {
   private idle?: ReturnType<typeof setTimeout>;
   private next = 0;
 
-  constructor(private readonly command: Command, private readonly idleMs = 120_000) {}
+  // LAWOSS (RAM 2 GB, #367): nečinný model sa uvoľní po 30 s namiesto 120 s; načítanie trvá ~1–2 s.
+  constructor(private readonly command: Command, private readonly idleMs = 30_000) {}
 
   request(payload: object, signal: AbortSignal): Promise<unknown> {
     const run = this.queue.then(() => this.send(payload, signal));
