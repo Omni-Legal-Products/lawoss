@@ -20,7 +20,7 @@ async function harness(options: { manualReady?: boolean; drain?: Promise<void>; 
   const sandbox: ProtectedVmSandbox = { run: async (input) => {
     runSignal = input.signal;
     startedResolve();
-    if (!options.manualReady) await send("/rpc/ready", { version: 1 });
+    if (!options.manualReady) await send("/rpc/ready", { version: 2 });
     await new Promise<void>((resolve) => {
       input.signal.addEventListener("abort", () => { stopped = true; resolve(); }, { once: true });
       if (input.signal.aborted) { stopped = true; resolve(); }
@@ -45,7 +45,7 @@ function decoded(response: OutboundResponse): unknown { return JSON.parse(Buffer
 async function holdReads(engine: ProtectedVmEngine, h: Awaited<ReturnType<typeof harness>>, count = 12) {
   const reads: Array<Promise<Response>> = [], commands: Array<{id:string}> = [];
   for (let i = 0; i < count; i++) {
-    const reading = engine.fetch(new Request(`http://private-engine/session/ses_fixture/message?offset=${i}`));
+    const reading = engine.fetch(new Request(`http://private-engine/api/session/ses_fixture/message?offset=${i}`));
     void reading.catch(() => {}); reads.push(reading);
     commands.push(decoded(await h.send("/rpc/next")) as {id:string});
   }
@@ -103,7 +103,7 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
       clock.advance(239_999); expect(h.stopped()).toBe(false);
       clock.advance(1); await Promise.resolve();
       expect(h.stopped()).toBe(true);
-      await expect(h.send("/rpc/ready", { version: 1 })).rejects.toThrow("startup");
+      await expect(h.send("/rpc/ready", { version: 2 })).rejects.toThrow("startup");
       expect(settled).toBe(false);
       drain();
       expect(await result).toMatchObject({ name: "TimeoutError" });
@@ -114,13 +114,14 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
     const clock = startupClock(), h = await harness({ manualReady: true, startupClock: clock });
     try {
       await h.started;
-      await expect(h.send("/rpc/ready", { version: 2 })).rejects.toThrow();
-      await h.send("/rpc/ready", { version: 1 });
+      // A launcher of the engine v1 protocol cannot publish readiness to the v2 host.
+      await expect(h.send("/rpc/ready", { version: 1 })).rejects.toThrow();
+      await h.send("/rpc/ready", { version: 2 });
       const engine = await h.opening;
       expect(clock.pending()).toBe(0);
       clock.advance(240_000); expect(h.stopped()).toBe(false);
-      expect(decoded(await h.send("/rpc/ready", { version: 1 }))).toEqual({ ok: true });
-      const fetching = engine.fetch(new Request("http://private-engine/session"));
+      expect(decoded(await h.send("/rpc/ready", { version: 2 }))).toEqual({ ok: true });
+      const fetching = engine.fetch(new Request("http://private-engine/api/session/active"));
       const command = decoded(await h.send("/rpc/next")) as { id: string };
       await h.send("/rpc/result", { kind: "head", id: command.id, status: 200, headers: {} });
       const response = await fetching; const body = response.text();
@@ -133,7 +134,7 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
     const clock = startupClock(), h = await harness({ manualReady: true, startupClock: clock });
     try {
       await h.started; clock.advance(240_000, false);
-      await expect(h.send("/rpc/ready", { version: 1 })).rejects.toThrow("startup");
+      await expect(h.send("/rpc/ready", { version: 2 })).rejects.toThrow("startup");
       await expect(h.opening).rejects.toMatchObject({ name: "TimeoutError" });
       expect(h.stopped()).toBe(true);
     } finally { await h.close().catch(() => {}); }
@@ -143,9 +144,9 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
     const h = await harness();
     const engine = await h.opening;
     try {
-      const fetching = engine.fetch(new Request("http://private-engine/session", { method: "POST", body: '{"title":"Synthetic"}' }));
+      const fetching = engine.fetch(new Request("http://private-engine/api/session", { method: "POST", body: '{"title":"Synthetic"}' }));
       const command = decoded(await h.send("/rpc/next"));
-      expect(command).toMatchObject({ kind: "request", method: "POST", path: "/session" });
+      expect(command).toMatchObject({ kind: "request", method: "POST", path: "/api/session" });
       if (!command || typeof command !== "object" || !("id" in command) || typeof command.id !== "string") throw new Error("Missing request ID");
       await h.send("/rpc/result", { kind: "head", id: command.id, status: 201, headers: { "content-type": "application/json" } });
       const response = await fetching;
@@ -166,6 +167,12 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
       await expect(h.send("/tools", { name: "shell", arguments: {} })).rejects.toThrow("tool");
       await expect(h.send("/rpc/result", { kind: "head", id: "guessed", status: 200, headers: {} })).rejects.toThrow();
       await expect(engine.fetch(new Request("http://private-engine/config", { method: "PATCH", body: "{}" }))).rejects.toThrow("route");
+      // Engine v2: no config, credential, provider, plugin RPC, filesystem, PTY, shell or v1 route.
+      for (const [method, path] of [["PATCH", "/api/experimental/config"], ["POST", "/api/credential"], ["POST", "/api/rpc/lawoss.protected-documents/schema"],
+        ["GET", "/api/fs/read/x"], ["POST", "/api/pty"], ["POST", "/api/session/ses_fixture/shell"], ["POST", "/api/session/ses_fixture/command"],
+        ["POST", "/api/session/ses_fixture/synthetic"], ["PATCH", "/api/session/ses_fixture"], ["GET", "/api/session"], ["GET", "/api/provider"],
+        ["POST", "/api/session/ses_fixture/interrupt?resume=true"], ["POST", "/session/ses_fixture/message"], ["GET", "/global/health"], ["GET", "/api/session/ses_a%2Fb"]])
+        await expect(engine.fetch(new Request(`http://private-engine${path}`, { method, ...(method === "GET" ? {} : { body: "{}" }) }))).rejects.toThrow("route");
       expect(decoded(await h.send("/tools", { name: "lawoss_documents_list", arguments: {} }))).toEqual({ name: "lawoss_documents_list" });
     } finally { await h.close(); }
   });
@@ -176,14 +183,14 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
     let consumed = 0, promptError: unknown;
     try {
       for (let i = 0; i < 12; i++) {
-        const reading = engine.fetch(new Request(`http://private-engine/session/ses_fixture/message?offset=${i}`));
+        const reading = engine.fetch(new Request(`http://private-engine/api/session/ses_fixture/message?offset=${i}`));
         void reading.catch(() => {}); reads.push(reading);
         commands.push(decoded(await h.send("/rpc/next")) as {id: string});
       }
       const body = new ReadableStream<Uint8Array>({ pull(controller) {
         consumed++; controller.enqueue(new TextEncoder().encode('{"messageID":"msg_original","parts":[]}')); controller.close();
       } }, { highWaterMark: 0 });
-      const prompt = engine.fetch(new Request("http://private-engine/session/ses_fixture/prompt_async", { method: "POST", body }));
+      const prompt = engine.fetch(new Request("http://private-engine/api/session/ses_fixture/prompt", { method: "POST", body }));
       void prompt.catch(error => { promptError = error; });
       await new Promise<void>(resolve => { queueMicrotask(resolve); });
       expect(promptError).toBeUndefined(); expect(consumed).toBe(0);
@@ -197,16 +204,16 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
       expect(consumed).toBe(0); // EOF is not proof that guest task cleanup finished.
       await h.send("/rpc/result", { kind: "retired", id: first.id });
       const command = decoded(await h.send("/rpc/next"));
-      expect(command).toMatchObject({ kind: "request", method: "POST", path: "/session/ses_fixture/prompt_async", bodyBase64: Buffer.from('{"messageID":"msg_original","parts":[]}').toString("base64") });
+      expect(command).toMatchObject({ kind: "request", method: "POST", path: "/api/session/ses_fixture/prompt", bodyBase64: Buffer.from('{"messageID":"msg_original","parts":[]}').toString("base64") });
       expect(consumed).toBe(1);
       if (!command || typeof command !== "object" || !("id" in command) || typeof command.id !== "string") throw new Error("Missing original prompt command");
       await h.send("/rpc/result", { kind: "head", id: command.id, status: 204, headers: {} });
       await h.send("/rpc/result", { kind: "end", id: command.id });
       expect((await prompt).status).toBe(204); expect(promptError).toBeUndefined();
       await h.send("/rpc/result", { kind: "retired", id: command.id });
-      const probe = engine.fetch(new Request("http://private-engine/session/ses_fixture/todo"));void probe.catch(()=>{});
+      const probe = engine.fetch(new Request("http://private-engine/api/session/ses_fixture/context"));void probe.catch(()=>{});
       const next = decoded(await h.send("/rpc/next")) as {id:string};
-      expect(next).toMatchObject({kind:"request",method:"GET",path:"/session/ses_fixture/todo"});
+      expect(next).toMatchObject({kind:"request",method:"GET",path:"/api/session/ses_fixture/context"});
       await h.send("/rpc/result",{kind:"head",id:next.id,status:204,headers:{}});await h.send("/rpc/result",{kind:"end",id:next.id});await probe;
     } finally { await h.close(); await Promise.allSettled(reads); }
   });
@@ -214,7 +221,7 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
   test("retirement cannot release an active response and completed duplicate frames remain refused", async () => {
     const h = await harness(), engine = await h.opening;
     try {
-      const reading = engine.fetch(new Request("http://private-engine/session"));
+      const reading = engine.fetch(new Request("http://private-engine/api/session/active"));
       const command = decoded(await h.send("/rpc/next")) as {id:string};
       await expect(h.send("/rpc/result", {kind:"retired",id:command.id})).rejects.toThrow("retirement");
       await h.send("/rpc/result", {kind:"head",id:command.id,status:200,headers:{}});
@@ -235,29 +242,29 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
       const controllers = Array.from({length:64}, () => new AbortController());
       for (const [i,controller] of controllers.entries()) {
         const body = new ReadableStream<Uint8Array>({pull(stream) {consumed++;stream.enqueue(new TextEncoder().encode(String(i)));stream.close();}}, {highWaterMark:0});
-        const work = engine.fetch(new Request(`http://private-engine/session/ses_fixture/prompt_async?offset=${i}`, {method:"POST",body,signal:controller.signal}));
+        const work = engine.fetch(new Request(`http://private-engine/api/session/ses_fixture/prompt?offset=${i}`, {method:"POST",body,signal:controller.signal}));
         void work.catch(() => {}); waiting.push(work);
       }
       await expect(engine.fetch(new Request("http://private-engine/config",{method:"PATCH",body:"{}"}))).rejects.toThrow("route");
-      await expect(engine.fetch(new Request("http://private-engine/session",{method:"POST",headers:{"content-length":"4194305"}}))).rejects.toThrow("too large");
-      await expect(engine.fetch(new Request("http://private-engine/session"))).rejects.toThrow("admission queue is full");
+      await expect(engine.fetch(new Request("http://private-engine/api/session",{method:"POST",headers:{"content-length":"4194305"}}))).rejects.toThrow("too large");
+      await expect(engine.fetch(new Request("http://private-engine/api/session/active"))).rejects.toThrow("admission queue is full");
       expect(consumed).toBe(0);
       const cancelled = new Error("Cancel the first waiting caller only");controllers[0].abort(cancelled);
       await expect(waiting[0]).rejects.toBe(cancelled);
-      const replacement = engine.fetch(new Request("http://private-engine/session/ses_fixture/todo"));void replacement.catch(()=>{});waiting.push(replacement);
+      const replacement = engine.fetch(new Request("http://private-engine/api/session/ses_fixture/context"));void replacement.catch(()=>{});waiting.push(replacement);
       const id = held.commands[0].id;
       await h.send("/rpc/result",{kind:"error",id,message:"Controlled metadata failure"});
       await expect(held.reads[0]).rejects.toThrow("Controlled metadata failure");
       expect(consumed).toBe(0);
       await h.send("/rpc/result",{kind:"retired",id});
       const first = decoded(await h.send("/rpc/next")) as {id:string};
-      expect(first).toMatchObject({method:"POST",path:"/session/ses_fixture/prompt_async?offset=1",bodyBase64:Buffer.from("1").toString("base64")});
+      expect(first).toMatchObject({method:"POST",path:"/api/session/ses_fixture/prompt?offset=1",bodyBase64:Buffer.from("1").toString("base64")});
       expect(consumed).toBe(1);
       await h.send("/rpc/result",{kind:"head",id:first.id,status:204,headers:{}});
       await h.send("/rpc/result",{kind:"end",id:first.id});expect((await waiting[1]).status).toBe(204);
       expect(consumed).toBe(1);
       await h.send("/rpc/result",{kind:"retired",id:first.id});
-      expect(decoded(await h.send("/rpc/next"))).toMatchObject({path:"/session/ses_fixture/prompt_async?offset=2"});
+      expect(decoded(await h.send("/rpc/next"))).toMatchObject({path:"/api/session/ses_fixture/prompt?offset=2"});
       expect(consumed).toBe(2);
     } finally { await engine.stop(); await Promise.allSettled([...held.reads,...waiting]);await h.close(); }
   });
@@ -279,19 +286,19 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
       let cancelledId = id;
       let controlled: Promise<Response> | undefined;
       if (mode === "caller") {
-        controlled = engine.fetch(new Request("http://private-engine/session/ses_fixture/todo",{signal:controller.signal}));void controlled.catch(()=>{});
+        controlled = engine.fetch(new Request("http://private-engine/api/session/ses_fixture/context",{signal:controller.signal}));void controlled.catch(()=>{});
         cancelledId = (decoded(await h.send("/rpc/next")) as {id:string}).id;
         controller.abort(new Error("Caller disconnected"));await expect(controlled).rejects.toThrow("Caller disconnected");
       }
       expect(decoded(await h.send("/rpc/next"))).toMatchObject({kind:"cancel",id:cancelledId});
       const body = new ReadableStream<Uint8Array>({pull(stream){consumed++;stream.enqueue(new Uint8Array());stream.close();}},{highWaterMark:0});
-      const queued = engine.fetch(new Request("http://private-engine/session/ses_fixture/prompt_async",{method:"POST",body}));void queued.catch(()=>{});
+      const queued = engine.fetch(new Request("http://private-engine/api/session/ses_fixture/prompt",{method:"POST",body}));void queued.catch(()=>{});
       await h.send("/rpc/result",{kind:"head",id:cancelledId,status:200,headers:{}});
       await h.send("/rpc/result",{kind:"chunk",id:cancelledId,data:Buffer.from("discarded").toString("base64")});
       await h.send("/rpc/result",{kind:"end",id:cancelledId});
       expect(consumed).toBe(0);
       await h.send("/rpc/result",{kind:"retired",id:cancelledId});
-      const command = decoded(await h.send("/rpc/next")) as {id:string};expect(command).toMatchObject({method:"POST",path:"/session/ses_fixture/prompt_async"});expect(consumed).toBe(1);
+      const command = decoded(await h.send("/rpc/next")) as {id:string};expect(command).toMatchObject({method:"POST",path:"/api/session/ses_fixture/prompt"});expect(consumed).toBe(1);
       await h.send("/rpc/result",{kind:"head",id:command.id,status:204,headers:{}});await h.send("/rpc/result",{kind:"end",id:command.id});expect((await queued).status).toBe(204);
     } finally {await engine.stop();await Promise.allSettled(held.reads);await h.close();}
   });
@@ -301,18 +308,18 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
     let releaseCancel!:()=>void, enteredCancel!:()=>void, consumed = 0, previousLocked: boolean | undefined;
     const cancelEntered = new Promise<void>(resolve=>{enteredCancel=resolve;});
     const cancellation = new Promise<void>(resolve=>{releaseCancel=resolve;});
-    const request = new Request("http://private-engine/session",{method:"POST",signal:controller.signal,
+    const request = new Request("http://private-engine/api/session",{method:"POST",signal:controller.signal,
       body:new ReadableStream<Uint8Array>({cancel(){enteredCancel();return cancellation;}},{highWaterMark:0})});
     const reading = engine.fetch(request);void reading.catch(()=>{});
     const held = await holdReads(engine,h,11);
     const body = new ReadableStream<Uint8Array>({pull(stream){consumed++;previousLocked=request.body!.locked;stream.close();}},{highWaterMark:0});
-    const queued = engine.fetch(new Request("http://private-engine/session/ses_fixture/prompt_async",{method:"POST",body}));void queued.catch(()=>{});
+    const queued = engine.fetch(new Request("http://private-engine/api/session/ses_fixture/prompt",{method:"POST",body}));void queued.catch(()=>{});
     try {
       const reason = new Error("Cancel before private dispatch");controller.abort(reason);await cancelEntered;
       await new Promise<void>(resolve=>{setImmediate(resolve);});expect(consumed).toBe(0);
       releaseCancel();await expect(reading).rejects.toBe(reason);
       const command = decoded(await h.send("/rpc/next")) as {id:string};
-      expect(command).toMatchObject({method:"POST",path:"/session/ses_fixture/prompt_async"});expect(consumed).toBe(1);expect(previousLocked).toBe(false);
+      expect(command).toMatchObject({method:"POST",path:"/api/session/ses_fixture/prompt"});expect(consumed).toBe(1);expect(previousLocked).toBe(false);
       await h.send("/rpc/result",{kind:"head",id:command.id,status:204,headers:{}});await h.send("/rpc/result",{kind:"end",id:command.id});expect((await queued).status).toBe(204);
     } finally {releaseCancel();await engine.stop();await Promise.allSettled([reading,queued,...held.reads]);await h.close();}
   });
@@ -323,11 +330,11 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
     const cancelEntered = new Promise<void>(resolve=>{enteredCancel=resolve;});
     const cancellation = new Promise<void>(resolve=>{releaseCancel=resolve;});
     const body = new ReadableStream<Uint8Array>({cancel(){enteredCancel();return cancellation;}},{highWaterMark:0});
-    const reading = engine.fetch(new Request("http://private-engine/session",{method:"POST",body}));void reading.catch(()=>{});
+    const reading = engine.fetch(new Request("http://private-engine/api/session",{method:"POST",body}));void reading.catch(()=>{});
     const held = await holdReads(engine,h,11);
     let consumed = 0, stopped = false;
     const queuedBody = new ReadableStream<Uint8Array>({pull(stream){consumed++;stream.close();}},{highWaterMark:0});
-    const queued = engine.fetch(new Request("http://private-engine/session",{method:"POST",body:queuedBody}));void queued.catch(()=>{});
+    const queued = engine.fetch(new Request("http://private-engine/api/session",{method:"POST",body:queuedBody}));void queued.catch(()=>{});
     if (mode === "engine-abort") h.cancel();
     const stopping = engine.stop().then(()=>{stopped=true;});
     try {
@@ -343,7 +350,7 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
   test("caller cancellation reaches the guest and stop rejects owned requests before returning", async () => {
     const h = await harness(); const engine = await h.opening;
     const controller = new AbortController();
-    const fetching = engine.fetch(new Request("http://private-engine/event", { signal: controller.signal }));
+    const fetching = engine.fetch(new Request("http://private-engine/api/event", { signal: controller.signal }));
     const rejected = fetching.then(() => null, (error: unknown) => error);
     const request = decoded(await h.send("/rpc/next"));
     controller.abort(new Error("Caller disconnected"));
@@ -351,7 +358,7 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
     expect(decoded(await h.send("/rpc/next"))).toMatchObject({ kind: "cancel", id: request && typeof request === "object" && "id" in request ? request.id : null });
     await engine.stop();
     expect(h.stopped()).toBe(true);
-    await expect(engine.fetch(new Request("http://private-engine/session"))).rejects.toThrow();
+    await expect(engine.fetch(new Request("http://private-engine/api/session/active"))).rejects.toThrow();
     await h.close();
   });
 
@@ -360,7 +367,7 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
     let cancelled = 0;
     let bodyController!: ReadableStreamDefaultController<Uint8Array>;
     const body = new ReadableStream<Uint8Array>({ start(controller) { bodyController = controller; }, cancel() { cancelled++; } });
-    const fetching = engine.fetch(new Request("http://private-engine/session", { method: "POST", body }));
+    const fetching = engine.fetch(new Request("http://private-engine/api/session", { method: "POST", body }));
     const settled = fetching.then(() => null, (error: unknown) => error);
     await Promise.resolve();
     try {

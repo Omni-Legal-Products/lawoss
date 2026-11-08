@@ -16,6 +16,7 @@ import type { ProtectedVmOpen } from "./vm-engine.js";
 import { compareAndSetGovernanceProfile } from "../ai-governance-store.js";
 import { protectedAiTarget } from "./transport.js";
 import { nativeRow } from "../test-support/native-config.js";
+import { GUEST_DIRECTORY, fakeProtectedGuest } from "../test-support/protected-guest.js";
 
 test("corrupt private history remains an explicit cached error and prevents new protected execution", async () => {
   const { config, root } = await syntheticHostConfig();
@@ -91,25 +92,18 @@ test("protocol-only VM seam preserves session identity, rewrites only owned dire
   const ocr = new OcrManager(join(root, "ocr")), preparation = new DocumentPreparation(ocr), documents = new LawossDocuments(config, preparation);
   const approvals = new ApprovalService({ mode: "auto", timeoutMs: 1000 }, async () => "allow");
   const measurement = { engineSha256: "a".repeat(64), runtimeManifestSha256: "b".repeat(64), pluginSha256: "c".repeat(64), configSha256: "d".repeat(64), launcherSha256: "e".repeat(64) };
-  const calls: Array<{ path: string; body: string }> = [];
-  let events: ReadableStreamDefaultController<Uint8Array> | undefined;
   let disposed = 0, stopped = 0;
   const database = new Database(join(root, "protocol-only.sqlite")); database.exec("CREATE TABLE protocol_fixture(id TEXT)"); database.close();
   const checkpoint = await readFile(join(root, "protocol-only.sqlite"));
+  // This is a protocol-only test. It does not establish VM isolation or a real
+  // pinned-engine answer; those require the independent native VM acceptance.
+  const guest = fakeProtectedGuest({ sessionId: "ses_fixture", title: "Owned synthetic operation", onStop: () => { stopped++; },
+    checkpoint: { bytes: checkpoint, sha256: createHash("sha256").update(checkpoint).digest("hex") } });
+  const calls = guest.calls;
   let vmInput: ProtectedVmOpen | undefined;
   const runtime = new ProtectedDocumentRuntime({ config, approvals, documents,
     getGuestBundle: async () => ({ directory: root, emptyDirectory: root, measurements: measurement, currentBinding: async () => measurement, dispose: async () => { disposed++; } }),
-    // This is a protocol-only test. It does not establish VM isolation or a real
-    // pinned-engine answer; those require the independent native VM acceptance.
-    openEngine: async input => { vmInput = input; return { stop: async () => { stopped++; events?.close(); }, fetch: async request => {
-      const url = new URL(request.url); calls.push({ path: url.pathname + url.search, body: await request.text() });
-      if (url.pathname === "/event") return new Response(new ReadableStream<Uint8Array>({ start(controller) { events = controller; } }));
-      if (url.pathname === "/_protected/checkpoint") return new Response(checkpoint, { headers: { "content-type": "application/octet-stream", "x-protected-sha256": createHash("sha256").update(checkpoint).digest("hex") } });
-      if (url.pathname === "/session/status") return Response.json({});
-      if (request.method === "GET" && /\/(message|children|todo)$/.test(url.pathname)) return Response.json([]);
-      if (url.pathname === "/session" || url.pathname === "/session/ses_fixture") return Response.json({ id: "ses_fixture", directory: "/tmp/home/protected-engine/workspace", title: "Owned synthetic operation" });
-      return new Response(null, { status: 204 });
-    } }; } });
+    openEngine: async input => { vmInput = input; return guest.engine; } });
   try {
     await mkdir(join(root, "case"));
     await writeFile(join(root, "case", "selected.txt"), "SELECTED-CASE-CANARY");
@@ -123,87 +117,108 @@ test("protocol-only VM seam preserves session identity, rewrites only owned dire
     for (const source of [foreign, foreignAlias]) await expect(runtime.open({ ...input, sources: [{ id: source.id, hash: source.hash }] }, AbortSignal.timeout(3000))).rejects.toMatchObject({ status: 403, code: "protected_source_denied" });
     expect(calls).toEqual([]);
     const opened = await runtime.open(input, AbortSignal.timeout(3000));
-    expect(opened.session.id).toBe("ses_fixture"); expect(opened.session.directory).toBe(await realpath(join(root, "case"))); expect(opened.legalApproval).toBe(false);
-    expect(opened.directoryMapping.guestDirectory).toBe("/tmp/home/protected-engine/workspace");
+    const caseDirectory = await realpath(join(root, "case"));
+    expect(opened.session.id).toBe("ses_fixture"); expect(opened.session.location.directory).toBe(caseDirectory); expect(opened.legalApproval).toBe(false);
+    expect(opened.directoryMapping.guestDirectory).toBe(GUEST_DIRECTORY);
+    // Engine v2 create: the fixed agent, the guest's single provider and its private scratch location.
+    expect(JSON.parse(calls.find(call => call.method === "POST" && call.path === "/api/session")?.body ?? "null"))
+      .toEqual({ title: "Protected document operation", agent: "legalwork", model: { providerID: "protected-documents", id: "fixture" }, location: { directory: GUEST_DIRECTORY } });
     const eventAbort = new AbortController(), reader = runtime.events(workspace.id, eventAbort.signal).body?.getReader();
-    events?.enqueue(new TextEncoder().encode('data: {"type":"actual-protocol'));
-    events?.enqueue(new TextEncoder().encode('-event"}\n\n'));
-    expect(new TextDecoder().decode((await reader?.read())?.value)).toBe('data: {"type":"actual-protocol-event"}\n\n');
-    const guest = "/tmp/home/protected-engine/workspace";
-    const event = { directory: guest, payload: { type: "session.updated", properties: { info: { id: opened.session.id, directory: guest } } } };
-    const sessionFrame = `data: ${JSON.stringify(event)}\n\n`;
-    events?.enqueue(new TextEncoder().encode(sessionFrame.slice(0, 24))); events?.enqueue(new TextEncoder().encode(sessionFrame.slice(24)));
+    // Private guest notices and foreign-session frames never leave the confined stream.
+    guest.emit({ id: "evt_connected", type: "server.connected", data: {} });
+    guest.emit({ id: "evt_foreign", type: "session.updated", location: { directory: GUEST_DIRECTORY }, data: { sessionID: "ses_other" } });
+    const sessionFrame = `data: ${JSON.stringify({ id: "evt_1", type: "session.updated", location: { directory: GUEST_DIRECTORY }, data: { sessionID: opened.session.id, location: { directory: GUEST_DIRECTORY } } })}\n\n`;
+    guest.raw(sessionFrame.slice(0, 24)); guest.raw(sessionFrame.slice(24));
     const mapped = new TextDecoder().decode((await reader?.read())?.value);
-    expect(JSON.parse(mapped.slice(6).trim())).toEqual({ ...event, directory: opened.session.directory, payload: { ...event.payload, properties: { info: { id: opened.session.id, directory: opened.session.directory } } } });
-    const textFrame = `data: ${JSON.stringify({ type: "message.part.updated", properties: { part: { type: "text", sessionID: opened.session.id, text: `User text must retain ${guest}` } } })}\n\n`;
-    events?.enqueue(new TextEncoder().encode(textFrame));
-    expect(new TextDecoder().decode((await reader?.read())?.value)).toBe(textFrame);
+    expect(JSON.parse(mapped.slice(6).trim())).toEqual({ id: "evt_1", type: "session.updated", location: { directory: caseDirectory }, data: { sessionID: opened.session.id, location: { directory: caseDirectory } } });
+    const textEvent = { id: "evt_2", type: "session.text.delta", location: { directory: GUEST_DIRECTORY }, data: { sessionID: opened.session.id, text: `User text must retain ${GUEST_DIRECTORY}` } };
+    guest.emit(textEvent);
+    expect(JSON.parse(new TextDecoder().decode((await reader?.read())?.value).slice(6).trim())).toEqual({ ...textEvent, location: { directory: caseDirectory } });
     eventAbort.abort(); await reader?.cancel(); reader?.releaseLock();
     if (!vmInput) throw new Error("Protocol engine did not start");
     await expect(vmInput.handleTool({ name: "lawoss_documents_list", arguments: {}, sessionId: "foreign" }, new AbortController().signal)).rejects.toMatchObject({ code: "protected_session_missing" });
-    const update = (value: unknown) => runtime.proxy({ workspaceId: workspace.id, sessionId: opened.session.id,
-      request: new Request("http://host/session/ses_fixture", { method: "PATCH", body: JSON.stringify(value) }) });
-    expect((await update({ time: { archived: 0 } })).status).toBe(200);
+    const sdk = (path: string, init: RequestInit = {}) => runtime.proxy({ workspaceId: workspace.id, sessionId: opened.session.id, request: new Request(`http://host${path}`, init) });
+    const update = (value: unknown) => sdk("/session/ses_fixture", { method: "PATCH", body: JSON.stringify(value) });
+    expect((await update({ archived: false })).status).toBe(204);
     await expect(update({ title: "arbitrary metadata" })).rejects.toMatchObject({ code: "protected_route_denied" });
-    const prompt = { model: { providerID: "fixture", modelID: "fixture" }, agent: "legalwork", variant: "high", parts: [{ type: "text", text: "SYNTHETIC-PROMPT" }] };
-    const proxy = (value = prompt, directory = join(root, "case")) => runtime.proxy({ workspaceId: workspace.id, sessionId: opened.session.id,
-      request: new Request(`http://host/session/ses_fixture/prompt_async?directory=${encodeURIComponent(directory)}`, { method: "POST", body: JSON.stringify(value) }) });
-    await expect(proxy(prompt, root)).rejects.toMatchObject({ code: "protected_source_scope" });
-    await expect(proxy({ ...prompt, model: { providerID: "fixture", modelID: "foreign" } })).rejects.toMatchObject({ code: "protected_prompt_invalid" });
-    expect((await proxy()).status).toBe(204);
+    // MČ 8. 11.: protected chats are delivered only through their queue.
+    await expect(sdk("/session/ses_fixture/prompt", { method: "POST", body: JSON.stringify({ text: "SYNTHETIC-PROMPT" }) })).rejects.toMatchObject({ status: 409, code: "protected_session_dispatch" });
+    await expect(sdk(`/session/ses_fixture/interrupt?location%5Bdirectory%5D=${encodeURIComponent(root)}`, { method: "POST" })).rejects.toMatchObject({ code: "protected_source_scope" });
+    await expect(sdk("/session/ses_fixture/interrupt?resume=true", { method: "POST" })).rejects.toMatchObject({ code: "protected_route_denied" });
+    await expect(sdk("/session/ses_fixture/shell", { method: "POST", body: "{}" })).rejects.toMatchObject({ code: "protected_route_denied" });
+    const read = () => sdk(`/session/ses_fixture?location%5Bdirectory%5D=${encodeURIComponent(join(root, "case"))}`);
+    expect(await (await read()).json()).toMatchObject({ data: { id: "ses_fixture", location: { directory: caseDirectory }, title: "Owned synthetic operation" } });
     const attachmentFolder = join(root, ".legalwork", "attachments", "aa25dc4e-b59b-4386-9062-05cc522a0918");
     await mkdir(attachmentFolder, { recursive: true });
     const attachment = join(attachmentFolder, "selected-copy.txt");
     await writeFile(attachment, "SELECTED-CASE-CANARY");
-    const queued = { kind: "prompt", ...prompt, parts: [...prompt.parts, { type: "file", mime: "text/plain", url: pathToFileURL(attachment).href, filename: "selected-copy.txt" }] };
+    const prompt = { kind: "prompt", text: "SYNTHETIC-PROMPT", model: { providerID: "fixture", id: "fixture", variant: "high" }, agent: "legalwork" };
+    const queued = { ...prompt, files: [{ uri: pathToFileURL(attachment).href, name: "selected-copy.txt" }] };
+    await expect(runtime.preflightQueued({ workspaceId: workspace.id, sessionId: opened.session.id, execution: { ...prompt, model: { providerID: "fixture", id: "foreign" } } })).rejects.toMatchObject({ code: "protected_prompt_invalid" });
+    await expect(runtime.preflightQueued({ workspaceId: workspace.id, sessionId: opened.session.id, execution: { ...prompt, metadata: { legalworkPrompt: { visibleText: "SYNTHETIC-PROMPT", reminders: ["AMBIENT-CONTEXT"] } } } })).rejects.toMatchObject({ code: "protected_prompt_invalid" });
+    await expect(runtime.preflightQueued({ workspaceId: workspace.id, sessionId: opened.session.id, execution: { ...prompt, agents: [{ name: "build" }] } })).rejects.toMatchObject({ code: "protected_prompt_invalid" });
     const beforeReadmission = await documents.evidence(workspace, selected.id);
     const [readmitted] = await documents.prepare(workspace, ["case/selected.txt"]);
     expect(readmitted.id).toBe(selected.id);
     expect(readmitted.admittedAt!).toBeGreaterThan(beforeReadmission.admittedAt!);
     expect(readmitted.updatedAt).toBe(beforeReadmission.updatedAt);
     const normalized = await runtime.preflightQueued({ workspaceId: workspace.id, sessionId: opened.session.id, execution: queued });
-    expect(normalized.parts.every(part => part.type === "text")).toBe(true);
-    expect(JSON.stringify(normalized)).toContain("SELECTED-CASE-CANARY");
+    expect(Object.keys(normalized).sort()).toEqual(["text", "variant"]);
+    expect(normalized.text).toContain("SELECTED-CASE-CANARY");
     expect(JSON.stringify(normalized)).not.toContain("file://");
     const continued = await runtime.submitQueued({ workspaceId: workspace.id, sessionId: opened.session.id, id: "5668c42e-65e9-438b-9384-ea9940398ab5", execution: queued });
-    expect(continued.status).toBe(204); await continued.arrayBuffer();
-    const beforeInvalid = calls.filter(call => call.path.startsWith("/session/ses_fixture/message")).length;
+    expect(continued).toMatchObject({ messageID: "msg_5668c42e65e9438b9384ea9940398ab5", outcome: "succeeded", assistant: { type: "assistant", finish: "stop" } });
+    // The original selected provider account is host-only: the guest model is the fixed relay provider.
+    expect(JSON.parse(calls.find(call => call.path === "/api/session/ses_fixture/model")?.body ?? "null")).toEqual({ model: { providerID: "protected-documents", id: "fixture", variant: "high" } });
+    expect(guest.prompts).toHaveLength(1);
+    expect(guest.prompts[0]).toMatchObject({ id: "msg_5668c42e65e9438b9384ea9940398ab5", text: normalized.text });
+    const beforeInvalid = guest.prompts.length;
     await writeFile(attachment, "NOT-SELECTED-PRIVATE-CANARY");
     await expect(runtime.submitQueued({ workspaceId: workspace.id, sessionId: opened.session.id, id: "114edff9-437d-45f1-85f0-66edab760a53", execution: queued })).rejects.toMatchObject({ code: "protected_attachment_unselected" });
-    expect(calls.filter(call => call.path.startsWith("/session/ses_fixture/message")).length).toBe(beforeInvalid);
+    expect(guest.prompts).toHaveLength(beforeInvalid);
     config.readOnly = true;
-    await expect(proxy()).rejects.toMatchObject({ code: "read_only" });
+    await expect(read()).rejects.toMatchObject({ code: "read_only" });
     config.readOnly = false;
-    const submitted = calls.find(call => call.path.startsWith("/session/ses_fixture/prompt_async"));
-    expect(submitted?.path).toContain(encodeURIComponent("/tmp/home/protected-engine/workspace"));
-    expect(JSON.parse(submitted?.body ?? "null")).toEqual({ ...prompt, model: { providerID: "protected-documents", modelID: "fixture" } });
     const beforeRevalidation = calls.length;
     await writeFile(join(root, "same-bytes-foreign.txt"), "SELECTED-CASE-CANARY");
     await rename(join(root, "case", "selected.txt"), join(root, "case", "selected-original.txt"));
     await symlink(join(root, "same-bytes-foreign.txt"), join(root, "case", "selected.txt"));
-    await expect(proxy()).rejects.toMatchObject({ status: 403, code: "protected_source_denied" });
+    await expect(read()).rejects.toMatchObject({ status: 403, code: "protected_source_denied" });
     expect(calls).toHaveLength(beforeRevalidation);
     await rm(join(root, "case", "selected.txt"));
     await rename(join(root, "case", "selected-original.txt"), join(root, "case", "selected.txt"));
     await rename(join(root, "case"), join(root, "original-case"));
     await mkdir(join(root, "case")); await writeFile(join(root, "case", "selected.txt"), "SELECTED-CASE-CANARY");
-    await expect(proxy()).rejects.toMatchObject({ status: 409, code: "protected_source_stale" });
+    await expect(read()).rejects.toMatchObject({ status: 409, code: "protected_source_stale" });
     expect(calls).toHaveLength(beforeRevalidation);
     await rm(join(root, "case"), { recursive: true }); await rename(join(root, "original-case"), join(root, "case"));
     await expect(vmInput.handleTool({ name: "lawoss_documents_export", sessionId: opened.session.id, arguments: { path: "foreign-output.md", kind: "summary", outputLanguage: "cs", documentIds: [selected.id], entries: [{ documentId: selected.id, summary: "Selected-case summary" }] } }, new AbortController().signal)).rejects.toMatchObject({ status: 403, code: "protected_output_denied" });
     await expect(readFile(join(root, "foreign-output.md"))).rejects.toMatchObject({ code: "ENOENT" });
     await writeFile(join(root, "case", "selected.txt"), "CHANGED-AFTER-APPROVAL");
-    await expect(proxy()).rejects.toBeDefined();
-    await runtime.close(); expect(stopped).toBe(1); expect(disposed).toBe(1);
+    await expect(read()).rejects.toBeDefined();
     await writeFile(join(root, "case", "selected.txt"), "SELECTED-CASE-CANARY");
+    await runtime.close(); expect(stopped).toBe(1); expect(disposed).toBe(1);
+    expect(calls.some(call => call.path === "/api/session/ses_fixture/interrupt")).toBe(true);
     const history = new ProtectedDocumentRuntime({ config, approvals, documents, getGuestBundle: async () => { throw new Error("Read-only captured history must not start a VM"); } });
     const callsBeforeHistory = calls.length;
     try {
       await history.initialize(); expect(history.ownsSession(workspace.id, opened.session.id)).toBe(true);
-      const restored = await history.proxy({ workspaceId: workspace.id, sessionId: opened.session.id, request: new Request(`http://host/session/${opened.session.id}?directory=${encodeURIComponent(root)}`, { headers: { "x-opencode-directory": encodeURIComponent(join(root, "case")) } }) });
-      expect(await restored.json()).toMatchObject({ id: opened.session.id, directory: await realpath(join(root, "case")), title: "Owned synthetic operation" });
-      const mapping = await history.proxy({ workspaceId: workspace.id, sessionId: opened.session.id, request: new Request(`http://host/session/${opened.session.id}/protected-transport`) });
-      expect(await mapping.json()).toMatchObject({ transport: "protected-documents-v1", directoryMapping: { guestDirectory: guest, hostDirectory: await realpath(join(root, "case")) } });
+      const view = (path: string, init: RequestInit = {}) => history.proxy({ workspaceId: workspace.id, sessionId: opened.session.id, request: new Request(`http://host${path}`, init) });
+      const restored = await view(`/session/${opened.session.id}?location%5Bdirectory%5D=${encodeURIComponent(root)}`, { headers: { "x-opencode-directory": encodeURIComponent(join(root, "case")) } });
+      expect(await restored.json()).toMatchObject({ data: { id: opened.session.id, location: { directory: caseDirectory }, title: "Owned synthetic operation" } });
+      const mapping = await view(`/session/${opened.session.id}/protected-transport`);
+      expect(await mapping.json()).toMatchObject({ transport: "protected-documents-v1", runtimeState: "captured", directoryMapping: { guestDirectory: GUEST_DIRECTORY, hostDirectory: caseDirectory } });
+      // Engine v2 message paging over the actual captured IDs.
+      const newest = await (await view(`/session/${opened.session.id}/message?limit=1`)).json();
+      expect(newest.data.map((message: { type: string }) => message.type)).toEqual(["idle"]);
+      const older = await (await view(`/session/${opened.session.id}/message?cursor=${encodeURIComponent(newest.cursor.next)}&limit=10`)).json();
+      expect(older.data.map((message: { type: string }) => message.type)).toEqual(["assistant", "user"]);
+      expect(older.data[1].id).toBe("msg_5668c42e65e9438b9384ea9940398ab5");
+      const message = await (await view(`/session/${opened.session.id}/message/msg_5668c42e65e9438b9384ea9940398ab5`)).json();
+      expect(message).toMatchObject({ data: { id: "msg_5668c42e65e9438b9384ea9940398ab5", type: "user" } });
+      // Restoring history grants no egress: stop is a no-op and a new turn needs the queue.
+      expect(await (await view(`/session/${opened.session.id}/interrupt`, { method: "POST" })).json()).toEqual({ interrupted: false });
+      await expect(view(`/session/${opened.session.id}/prompt`, { method: "POST", body: JSON.stringify({ text: "x" }) })).rejects.toMatchObject({ code: "protected_session_dispatch" });
       expect(calls.length).toBe(callsBeforeHistory);
     } finally { await history.close(); }
   } finally {

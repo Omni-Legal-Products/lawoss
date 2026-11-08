@@ -45,13 +45,20 @@ type RuntimeOptions = { config: ServerConfig; approvals: ApprovalService; docume
   /** Constructor-only protocol test seam, never supplied through HTTP or settings. */
   openEngine?: (input: ProtectedVmOpen) => Promise<Engine> };
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
-const sessionSchema = z.object({ id: z.string().min(1).max(256), directory: z.string().min(1) }).passthrough();
+// Engine v2 public session record; the guest location is its fixed private scratch directory.
+const sessionSchema = z.object({ id: z.string().regex(/^ses_[A-Za-z0-9]{1,128}$/), location: z.object({ directory: z.string().min(1) }).passthrough() }).passthrough();
+const sessionEnvelope = z.object({ data: sessionSchema }).passthrough();
+type GuestSession = z.infer<typeof sessionSchema>;
 const GUEST_DIRECTORY = "/tmp/home/protected-engine/workspace";
-const promptSchema = z.strictObject({
-  parts: z.array(z.strictObject({ type: z.literal("text"), text: z.string().min(1).max(512_000), id: z.string().min(1).max(128).optional() })).min(1).max(8),
-  model: z.strictObject({ providerID: z.string().min(1).max(128), modelID: z.string().min(1).max(200) }),
-  agent: z.literal("legalwork").optional(), variant: z.literal("high").optional(), messageID: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/).optional(),
-});
+const GUEST_PROVIDER = "protected-documents";
+/** The normalized host-to-guest turn: text only, with an optional fixed variant. */
+const promptSchema = z.strictObject({ text: z.string().min(1).max(2 * 1024 * 1024), variant: z.literal("high").optional() });
+type GuestPrompt = z.infer<typeof promptSchema>;
+const messageRecordSchema = z.object({ id: z.string().regex(/^msg_[A-Za-z0-9]{1,128}$/), type: z.string() }).passthrough();
+const messagesEnvelope = z.object({ data: z.array(messageRecordSchema), cursor: z.object({ next: z.string().max(4096).optional() }).passthrough() }).passthrough();
+const activeEnvelope = z.object({ data: z.record(z.string(), z.unknown()) }).passthrough();
+/** The terminal receipt of one delivered queued turn, read from the guest's own history. */
+export type ProtectedTurnResult = { messageID: string; outcome: "succeeded" | "failed" | "interrupted"; assistant: Record<string, unknown> | null };
 type Entry = { workspaceId: string; sessionId: string; directory: string; hostDirectory: string; operationId: string;
   workspaceRoot: string; sources: Array<{ id: string; hash: string }>;
   turnUploads: Map<string, string>; submitting?: boolean; busy?: boolean; evicting?: boolean; activityRevision: number; worker: WorkerSlot;
@@ -60,12 +67,15 @@ type Entry = { workspaceId: string; sessionId: string; directory: string; hostDi
   engine: Engine; bundle: ProtectedGuestBundle; controller: AbortController; timer: ReturnType<typeof setTimeout>;
   assertCurrent: () => Promise<void>; tools: Set<Promise<unknown>>; events?: Promise<void>; closing?: Promise<void> };
 type Subscriber = { controller: ReadableStreamDefaultController<Uint8Array>; close: () => void };
-const queueExecutionSchema = z.strictObject({ kind: z.literal("prompt"), model: promptSchema.shape.model,
-  agent: z.literal("legalwork").optional(), variant: z.literal("high").optional(),
-  parts: z.array(z.discriminatedUnion("type", [
-    z.strictObject({ type: z.literal("text"), text: z.string().max(512_000), synthetic: z.boolean().optional() }),
-    z.strictObject({ type: z.literal("file"), url: z.string().max(8192), mime: z.string().max(256), filename: z.string().max(4096).optional() }),
-  ])).min(1).max(24) });
+// Native v2 queued intent (legacy v1 queue files are decoded into this shape by
+// @legalwork/types). Text and copies of selected originals only: no agents, skills,
+// reminders or other ambient context, and only the selected model.
+const queueExecutionSchema = z.strictObject({ kind: z.literal("prompt"), id: z.string().max(256).optional(), text: z.string().max(512_000),
+  files: z.array(z.strictObject({ uri: z.string().max(8192), name: z.string().max(4096).optional() })).max(16).optional(),
+  agents: z.array(z.unknown()).max(0).optional(), skills: z.array(z.unknown()).max(0).optional(),
+  metadata: z.strictObject({ legalworkPrompt: z.strictObject({ visibleText: z.string().max(512_000), reminders: z.array(z.string()).max(0) }) }).optional(),
+  model: z.strictObject({ providerID: z.string().min(1).max(128), id: z.string().min(1).max(200), variant: z.literal("high").optional() }),
+  agent: z.literal("legalwork").optional() });
 type QueuedInput = { workspaceId: string; sessionId: string; execution: unknown };
 type QueuedContext = Pick<Entry, "workspaceId" | "workspaceRoot" | "sources" | "providerId" | "modelId" | "assertCurrent">;
 function decodeDirectory(value: string | null) { if (!value) return null; try { return decodeURIComponent(value); } catch { return value; } }
@@ -96,31 +106,28 @@ async function uploadedCopyHash(workspaceRoot: string, url: string): Promise<{ p
   } finally { await file.close(); }
 }
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
-function projectEventFrame(frame: string, entry: Entry): string {
-  const lines = frame.split(/\r?\n/), data = lines.filter(line => line.startsWith("data:")).map(line => line.slice(5).replace(/^ /, "")).join("\n");
-  let value: unknown; try { value = JSON.parse(data); } catch { return frame; }
-  if (!record(value)) return frame;
-  const wrapped = record(value.payload), payload = wrapped && record(value.payload) ? value.payload : value;
-  if (!record(payload.properties)) return frame;
-  const properties = payload.properties, info = properties.info;
-  let projected: Record<string, unknown> | undefined;
-  if (["session.created", "session.updated"].includes(String(payload.type)) && record(info) && info.id === entry.sessionId && info.directory === entry.directory) {
-    projected = { ...payload, properties: { ...properties, info: { ...info, directory: entry.hostDirectory } } };
-  } else if (payload.type === "message.updated" && record(info) && info.role === "assistant" && info.sessionID === entry.sessionId && record(info.path)) {
-    const path = info.path;
-    if (path.cwd === entry.directory || path.root === entry.directory) projected = { ...payload, properties: { ...properties, info: { ...info,
-      path: { ...path, ...(path.cwd === entry.directory ? { cwd: entry.hostDirectory } : {}), ...(path.root === entry.directory ? { root: entry.hostDirectory } : {}) } } } };
-  }
-  const part = properties.part;
-  const owned = properties.sessionID === entry.sessionId || (record(info) && info.sessionID === entry.sessionId) || (record(part) && part.sessionID === entry.sessionId)
-    || (["session.created", "session.updated"].includes(String(payload.type)) && record(info) && info.id === entry.sessionId && info.directory === entry.directory);
-  if (!projected && !(wrapped && owned && value.directory === entry.directory)) return frame;
-  // Only host-owned technical metadata is projected. Text/tool payloads and
-  // arbitrary model strings are never searched or substituted.
-  const result = wrapped ? { ...value, ...(owned && value.directory === entry.directory ? { directory: entry.hostDirectory } : {}), payload: projected ?? payload } : projected;
-  let inserted = false;
-  return lines.flatMap(line => { if (!line.startsWith("data:")) return [line]; if (inserted) return []; inserted = true; return [`data: ${JSON.stringify(result)}`]; }).join("\n");
+/** Engine v2 frame `{id, type, location?: {directory}, data: {sessionID, ...}}`. Only frames of
+ * this session pass, and only host-owned technical location metadata is projected; text, tool
+ * payloads and arbitrary model strings are never searched or substituted. Connection notices
+ * and heartbeats of the private guest stream stay private. */
+function guestEvent(frame: string): Record<string, unknown> | undefined {
+  const data = frame.split(/\r?\n/).filter(line => line.startsWith("data:")).map(line => line.slice(5).replace(/^ /, "")).join("\n");
+  if (!data) return undefined;
+  try { const value: unknown = JSON.parse(data); return record(value) ? value : undefined; } catch { return undefined; }
 }
+const ownedEvent = (event: Record<string, unknown>, entry: Pick<Entry, "sessionId" | "directory">) =>
+  record(event.data) && event.data.sessionID === entry.sessionId && (event.location === undefined || (record(event.location) && event.location.directory === entry.directory));
+function projectEventFrame(event: Record<string, unknown>, entry: Entry): string | undefined {
+  if (!ownedEvent(event, entry)) return undefined;
+  const location = record(event.location) ? { location: { ...event.location, directory: entry.hostDirectory } } : {};
+  const data = record(event.data) && record(event.data.location) && event.data.location.directory === entry.directory
+    ? { data: { ...event.data, location: { ...event.data.location, directory: entry.hostDirectory } } } : {};
+  return `data: ${JSON.stringify({ ...event, ...location, ...data })}\n\n`;
+}
+const TERMINAL_EVENTS = new Set(["session.idle", "session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"]);
+const terminalEvent = (event: Record<string, unknown>, entry: Pick<Entry, "sessionId" | "directory">) => ownedEvent(event, entry)
+  && (TERMINAL_EVENTS.has(String(event.type)) || (event.type === "session.status" && record(event.data) && record(event.data.status) && event.data.status.type === "idle"));
+const hostSession = (session: GuestSession, hostDirectory: string) => ({ ...session, location: { ...session.location, directory: hostDirectory } });
 const inside = (root: string, path: string) => { const suffix = relative(root, path); return !isAbsolute(suffix) && suffix !== ".." && !suffix.startsWith("../") && !suffix.startsWith("..\\"); };
 async function boundedBody(request: Request, maximum: number, ownerSignal: AbortSignal): Promise<string> {
   const reader = request.body?.getReader(); if (!reader) return "";
@@ -133,6 +140,23 @@ async function boundedBody(request: Request, maximum: number, ownerSignal: Abort
       count += next.value.byteLength; if (count > maximum) throw new ApiError(413, "protected_prompt_too_large", "Narrow the protected prompt."); chunks.push(next.value); }
     return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks));
   } finally { signal.removeEventListener("abort", cancel); try { await reader.cancel(); } finally { reader.releaseLock(); } }
+}
+
+const pageCursor = z.strictObject({ offset: z.number().int().min(0).max(10000), order: z.enum(["asc", "desc"]) });
+/** Engine v2 message-list paging over captured history (oldest first), with an opaque cursor. */
+function historicalPage(messages: Array<Record<string, unknown>>, query: URLSearchParams) {
+  const encode = (value: z.infer<typeof pageCursor>) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  let cursor: z.infer<typeof pageCursor> | undefined;
+  const raw = query.get("cursor");
+  if (raw) { try { cursor = pageCursor.parse(JSON.parse(Buffer.from(raw, "base64url").toString("utf8"))); } catch { throw new ApiError(400, "protected_cursor_invalid", "The captured history cursor is invalid."); } }
+  const order = cursor?.order ?? z.enum(["asc", "desc"]).default("desc").parse(query.get("order") ?? undefined);
+  const limit = z.coerce.number().int().min(1).max(10000).parse(query.get("limit") ?? 10000);
+  const type = query.get("type");
+  const ordered = (order === "asc" ? messages : [...messages].reverse()).filter(message => !type || message.type === type);
+  const offset = Math.min(cursor?.offset ?? 0, ordered.length);
+  const data = ordered.slice(offset, offset + limit);
+  return { data, cursor: { ...(offset > 0 ? { previous: encode({ offset: Math.max(0, offset - limit), order }) } : {}),
+    ...(offset + limit < ordered.length ? { next: encode({ offset: offset + limit, order }) } : {}) } };
 }
 
 /** One owner for a selected source set, host decision, confined engine and tools.
@@ -202,15 +226,15 @@ export class ProtectedDocumentRuntime {
     const blocked = () => entry.closing || entry.submitting || entry.busy || entry.tools.size || entry.activityRevision !== revision;
     if (blocked()) return false;
     const read = (async () => {
-      const response = await entry.engine.fetch(new Request("http://protected/session/status", { signal: budget }));
+      const response = await entry.engine.fetch(new Request("http://protected/api/session/active", { signal: budget }));
       if (!response.ok) { await response.body?.cancel(); return undefined; }
-      return z.record(z.string(), z.unknown()).parse(await response.json());
+      return activeEnvelope.parse(await response.json()).data;
     })();
     entry.tools.add(read);
-    let statuses: Awaited<typeof read>; try { statuses = await read; } finally { entry.tools.delete(read); }
-    if (!statuses) return false;
-    const status = statuses[entry.sessionId];
-    if ((status !== undefined && (!record(status) || status.type !== "idle")) || blocked()) return false;
+    let active: Awaited<typeof read>; try { active = await read; } finally { entry.tools.delete(read); }
+    if (!active) return false;
+    // Engine v2 lists only active sessions: idle means absent.
+    if (Object.hasOwn(active, entry.sessionId) || blocked()) return false;
     budget.throwIfAborted();
     retiring = true;
     await this.closeEntry(entry.sessionId); return true;
@@ -343,22 +367,24 @@ export class ProtectedDocumentRuntime {
           return tools.invoke(request.name, request.arguments, AbortSignal.any([active, controller.signal, egress.signal]));
         })()) });
       await assertCurrent();
-      const response = await engine.fetch(recovery ? new Request(`http://protected/session/${recovery.sessionId}`, { signal: controller.signal }) : new Request("http://protected/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Protected document operation" }), signal: controller.signal }));
+      const response = await engine.fetch(recovery ? new Request(`http://protected/api/session/${recovery.sessionId}`, { signal: controller.signal })
+        : new Request("http://protected/api/session", { method: "POST", headers: { "content-type": "application/json" }, signal: controller.signal,
+          body: JSON.stringify({ title: "Protected document operation", agent: "legalwork", model: { providerID: GUEST_PROVIDER, id: input.modelId }, location: { directory: GUEST_DIRECTORY } }) }));
       if (!response.ok) throw new ApiError(502, "protected_session_failed", "The confined engine could not create a session.");
-      const session = sessionSchema.parse(await response.json());
+      const session = sessionEnvelope.parse(await response.json()).data;
       if (recovery && session.id !== recovery.sessionId) throw new ApiError(409, "protected_session_identity", "The restored database did not retain the actual session identity.");
-      if (session.directory !== GUEST_DIRECTORY) throw new ApiError(409, "protected_session_stale", "The confined engine did not use its private scratch directory.");
+      if (session.location.directory !== GUEST_DIRECTORY) throw new ApiError(409, "protected_session_stale", "The confined engine did not use its private scratch directory.");
       if (this.closed) throw new ApiError(409, "protected_runtime_closed", "The protected runtime is stopping.");
       if (this.entries.has(session.id)) throw new ApiError(409, "protected_session_identity", "The confined session identity is already owned.");
       if (!recovery) { this.claim(workspace.id, session.id); createdSessionId = session.id; }
       issuedSessionId = session.id;
       const timer = setTimeout(() => { void this.closeEntry(session.id).catch(() => {}); }, 600_000); timer.unref?.();
-      const entry: Entry = { workspaceId: workspace.id, sessionId: session.id, directory: session.directory, hostDirectory, workspaceRoot: rootDirectory, sources: input.sources, turnUploads, providerId: input.providerId, modelId: input.modelId, operationId, engine, bundle, controller, egress, timer, assertCurrent, tools: pendingTools, input, initialSourceSetSha256: initial.sourceSetSha256, rootIdentity: initial.rootIdentity, activityRevision: 0, worker };
+      const entry: Entry = { workspaceId: workspace.id, sessionId: session.id, directory: session.location.directory, hostDirectory, workspaceRoot: rootDirectory, sources: input.sources, turnUploads, providerId: input.providerId, modelId: input.modelId, operationId, engine, bundle, controller, egress, timer, assertCurrent, tools: pendingTools, input, initialSourceSetSha256: initial.sourceSetSha256, rootIdentity: initial.rootIdentity, activityRevision: 0, worker };
       worker.entry = entry;
       this.entries.set(session.id, entry);
       entry.events = this.pumpEvents(entry);
       void entry.events.catch(() => {});
-      return { session: { ...session, directory: hostDirectory }, directoryMapping: { guestDirectory: session.directory, hostDirectory, rootIdentity: initial.rootIdentity }, operationId, legalApproval: false as const };
+      return { session: hostSession(session, hostDirectory), directoryMapping: { guestDirectory: session.location.directory, hostDirectory, rootIdentity: initial.rootIdentity }, operationId, legalApproval: false as const };
     } catch (error) {
       controller.abort(error);
       try { try { await engine?.stop(); } finally { await bundle.dispose?.(); } }
@@ -379,11 +405,11 @@ export class ProtectedDocumentRuntime {
   }
 
   /** Validate a durable intent on the host; this grants no model transfer or VM. */
-  admitQueued(input: QueuedInput): Promise<z.infer<typeof promptSchema>> {
+  admitQueued(input: QueuedInput): Promise<GuestPrompt> {
     const work = this.admitQueuedOwned(input); this.opening.add(work);
     void work.finally(() => this.opening.delete(work)).catch(() => {}); return work;
   }
-  private async admitQueuedOwned(input: QueuedInput): Promise<z.infer<typeof promptSchema>> {
+  private async admitQueuedOwned(input: QueuedInput): Promise<GuestPrompt> {
     if (this.closed) throw new ApiError(409, "protected_runtime_closed", "The protected runtime is stopping.");
     if (this.options.config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
     await this.initialize();
@@ -420,23 +446,23 @@ export class ProtectedDocumentRuntime {
   }
 
   /** Background delivery alone reauthorizes and provisions a captured worker. */
-  async preflightQueued(input: QueuedInput): Promise<z.infer<typeof promptSchema>> {
+  async preflightQueued(input: QueuedInput): Promise<GuestPrompt> {
     await this.reactivate(input.workspaceId, input.sessionId, AbortSignal.timeout(600_000));
     const entry = this.entry(input.workspaceId, input.sessionId);
     const work = this.normalizeQueued(entry, input.execution); entry.tools.add(work);
     try { return (await work).payload; } finally { entry.tools.delete(work); }
   }
-  private async normalizeQueued(entry: QueuedContext, execution: unknown): Promise<{ payload: z.infer<typeof promptSchema>; uploads: Array<{ path: string; sha256: string }> }> {
+  private async normalizeQueued(entry: QueuedContext, execution: unknown): Promise<{ payload: GuestPrompt; uploads: Array<{ path: string; sha256: string }> }> {
     await entry.assertCurrent();
     const parsed = queueExecutionSchema.safeParse(execution);
-    if (!parsed.success || parsed.data.model.providerID !== entry.providerId || parsed.data.model.modelID !== entry.modelId) throw new ApiError(403, "protected_prompt_invalid", "This document session accepts only the selected model, text and copies of its selected originals.");
+    if (!parsed.success || parsed.data.model.providerID !== entry.providerId || parsed.data.model.id !== entry.modelId
+      || (parsed.data.metadata && parsed.data.metadata.legalworkPrompt.visibleText !== parsed.data.text)) throw new ApiError(403, "protected_prompt_invalid", "This document session accepts only the selected model, text and copies of its selected originals.");
     const workspace = this.options.config.workspaces.find(item => item.id === entry.workspaceId);
     if (!workspace) throw new ApiError(404, "protected_workspace_missing", "The selected project no longer exists.");
-    const parts: Array<{ type: "text"; text: string }> = [];
+    const blocks: string[] = parsed.data.text ? [parsed.data.text] : [];
     const uploads: Array<{ path: string; sha256: string }> = [];
-    for (const part of parsed.data.parts) {
-      if (part.type === "text") { if (part.text) parts.push({ type: "text", text: part.text }); continue; }
-      const uploaded = await uploadedCopyHash(entry.workspaceRoot, part.url);
+    for (const file of parsed.data.files ?? []) {
+      const uploaded = await uploadedCopyHash(entry.workspaceRoot, file.uri);
       uploads.push(uploaded);
       const selected = [];
       for (const source of entry.sources) {
@@ -451,34 +477,79 @@ export class ProtectedDocumentRuntime {
         const read = await this.options.documents.read(workspace, original.id, offset, 16000); text += read.text; offset = read.nextOffset;
         if (Buffer.byteLength(text) > 512_000) throw new ApiError(413, "protected_attachment_too_large", "Narrow this selected document before attaching it.");
       }
-      parts.push({ type: "text", text: JSON.stringify({ untrustedSelectedDocument: true, documentId: original.id, originalPath: original.provenance.sourcePath, sha256: original.hash, uploadedCopyPath: uploaded.path, text }) });
+      blocks.push(JSON.stringify({ untrustedSelectedDocument: true, documentId: original.id, originalPath: original.provenance.sourcePath, sha256: original.hash, uploadedCopyPath: uploaded.path, text }));
     }
-    const normalized = promptSchema.parse({ model: parsed.data.model, agent: "legalwork", ...(parsed.data.variant ? { variant: parsed.data.variant } : {}), parts });
+    if (!blocks.length) throw new ApiError(403, "protected_prompt_invalid", "This document session accepts only the selected model, text and copies of its selected originals.");
+    const normalized = promptSchema.parse({ text: blocks.join("\n\n"), ...(parsed.data.model.variant ? { variant: parsed.data.model.variant } : {}) });
     if (Buffer.byteLength(JSON.stringify(normalized)) > 2 * 1024 * 1024) throw new ApiError(413, "protected_prompt_too_large", "Narrow the protected queued message.");
     await entry.assertCurrent(); return { payload: normalized, uploads };
   }
-  async submitQueued(input: QueuedInput & { id: string }, signal: AbortSignal = AbortSignal.timeout(600_000)): Promise<Response> {
+  /** Deliver one normalized turn to the actual guest session and return its terminal receipt.
+   * Engine v2 admits asynchronously; the turn is terminal only once the guest's own history
+   * records an idle outcome after this exact user message. */
+  async submitQueued(input: QueuedInput & { id: string }, signal: AbortSignal = AbortSignal.timeout(600_000)): Promise<ProtectedTurnResult> {
     const id = z.string().uuid().parse(input.id);
     await this.reactivate(input.workspaceId, input.sessionId, signal);
     const entry = this.entry(input.workspaceId, input.sessionId);
     if (entry.submitting) throw new ApiError(409, "protected_session_busy", "The protected queued turn is still being delivered.");
     entry.submitting = true;
     try {
-    const work = this.normalizeQueued(entry, input.execution); entry.tools.add(work);
-    let normalized: Awaited<typeof work>; try { normalized = await work; } finally { entry.tools.delete(work); }
-    entry.turnUploads.clear(); for (const uploaded of normalized.uploads) entry.turnUploads.set(uploaded.path, uploaded.sha256);
-    // Revalidation occurs here as well as admission: a persisted queue is never
-    // a portable transfer grant, and a copied upload cannot select new content.
-    const response = await this.proxy({ workspaceId: input.workspaceId, sessionId: input.sessionId, request: new Request(`http://protected/session/${input.sessionId}/message`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...normalized.payload, messageID: `msg_${id.replaceAll("-", "")}` }), signal }) });
-    if (!response.body) { entry.submitting = false; return response; }
-    const reader = response.body.getReader();
-    const finish = () => { entry.submitting = false; reader.releaseLock(); };
-    return new Response(new ReadableStream<Uint8Array>({ async pull(controller) {
-      try { const next = await reader.read(); if (next.done) { controller.close(); finish(); } else controller.enqueue(next.value); }
-      catch (error) { controller.error(error); finish(); }
-    }, async cancel(reason) { try { await reader.cancel(reason); } finally { finish(); } } }), { status: response.status, headers: response.headers });
-    } catch (error) { entry.submitting = false; throw error; }
+      const work = this.normalizeQueued(entry, input.execution); entry.tools.add(work);
+      let normalized: Awaited<typeof work>; try { normalized = await work; } finally { entry.tools.delete(work); }
+      entry.turnUploads.clear(); for (const uploaded of normalized.uploads) entry.turnUploads.set(uploaded.path, uploaded.sha256);
+      // Revalidation occurs here as well as admission: a persisted queue is never
+      // a portable transfer grant, and a copied upload cannot select new content.
+      const delivery = this.deliver(entry, normalized.payload, `msg_${id.replaceAll("-", "")}`, signal); entry.tools.add(delivery);
+      try { return await delivery; } finally { entry.tools.delete(delivery); }
+    } finally { entry.submitting = false; }
+  }
+  private async deliver(entry: Entry, payload: GuestPrompt, messageID: string, caller: AbortSignal): Promise<ProtectedTurnResult> {
+    await entry.snapshotting;
+    await entry.assertCurrent();
+    const signal = AbortSignal.any([caller, entry.controller.signal, entry.egress.signal]);
+    const guest = async (path: string, init: { method?: string; body?: unknown } = {}) => {
+      const response = await entry.engine.fetch(new Request(`http://protected/api${path}`, { method: init.method ?? "GET", signal,
+        ...(init.body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(init.body) }) }));
+      if (!response.ok) { await response.body?.cancel(); throw new ApiError(502, "protected_queue_delivery", "The confined engine refused this protected turn."); }
+      return response;
+    };
+    const session = `/session/${entry.sessionId}`;
+    // The original selected provider account is host-only. The guest sees one fixed
+    // provider with no credential and no arbitrary destination.
+    await (await guest(`${session}/model`, { method: "POST", body: { model: { providerID: GUEST_PROVIDER, id: entry.modelId, ...(payload.variant ? { variant: payload.variant } : {}) } } })).body?.cancel();
+    entry.busy = true; entry.activityRevision++;
+    const admitted = z.object({ data: z.object({ id: z.string() }).passthrough() }).safeParse(await (await guest(`${session}/prompt`, { method: "POST", body: { id: messageID, text: payload.text, delivery: "queue" } })).json());
+    if (!admitted.success || admitted.data.data.id !== messageID) throw new ApiError(502, "protected_queue_delivery", "The protected engine admitted a different message.");
+    await (await guest(`/experimental${session}/wait`, { method: "POST" })).body?.cancel();
+    const history = await this.readMessages(entry.engine, entry.sessionId, signal);
+    const start = history.findIndex(message => message.id === messageID && message.type === "user");
+    const turn = start < 0 ? [] : history.slice(start + 1);
+    const end = turn.findIndex(message => message.type === "user");
+    const own = end < 0 ? turn : turn.slice(0, end);
+    const idle = own.find(message => message.type === "idle");
+    const outcome = idle && ["succeeded", "failed", "interrupted"].includes(String(idle.outcome)) ? idle.outcome as ProtectedTurnResult["outcome"] : undefined;
+    const assistant = [...own].reverse().find(message => message.type === "assistant") ?? null;
+    if (!outcome) throw new ApiError(502, "protected_queue_delivery", "The protected engine did not record this chat's terminal result.");
+    if (outcome === "succeeded" && (!assistant || assistant.finish === "tool-calls" || !record(assistant.time) || typeof assistant.time.completed !== "number"))
+      throw new ApiError(502, "protected_queue_delivery", "The protected assistant response is not terminal.");
+    return { messageID, outcome, assistant };
+  }
+  /** Every page of the actual guest history, oldest first, within the bridge bounds. */
+  private async readMessages(engine: Engine, sessionId: string, signal: AbortSignal): Promise<Array<z.infer<typeof messageRecordSchema>>> {
+    const messages: Array<z.infer<typeof messageRecordSchema>> = []; const seen = new Set<string>();
+    let query = "order=asc&limit=200";
+    for (let page = 0; page < 50; page++) {
+      const response = await engine.fetch(new Request(`http://protected/api/session/${sessionId}/message?${query}`, { signal }));
+      if (!response.ok) { await response.body?.cancel(); throw new ApiError(502, "protected_checkpoint_failed", "The actual protected engine history could not be read."); }
+      const parsed = messagesEnvelope.parse(await response.json());
+      messages.push(...parsed.data);
+      if (messages.length > 10000) throw new ApiError(413, "protected_checkpoint_too_large", "The protected history exceeds its bound.");
+      const next = parsed.cursor.next;
+      if (!next || !parsed.data.length) return messages;
+      if (seen.has(next)) throw new ApiError(502, "protected_checkpoint_failed", "The protected engine repeated a history cursor.");
+      seen.add(next); query = `cursor=${encodeURIComponent(next)}&limit=200`;
+    }
+    throw new ApiError(413, "protected_checkpoint_too_large", "The protected history exceeds its bound.");
   }
 
   proxy(input: { workspaceId: string; sessionId: string; request: Request }): Promise<Response> {
@@ -495,63 +566,67 @@ export class ProtectedDocumentRuntime {
     const currentOwner = activeProtectedRuntime(this.options.config, workspaceId, sessionId);
     if (currentOwner && currentOwner !== this) return currentOwner.proxy({ workspaceId, sessionId, request });
     if (!this.entries.has(sessionId) && saved?.workspaceId === workspaceId) {
-      if (request.method === "GET" || request.method === "PATCH") {
-        const work = this.historicalResponse(saved, request); this.opening.add(work);
-        try { return await work; } finally { this.opening.delete(work); }
-      }
-      await this.reactivate(workspaceId, sessionId, request.signal);
+      // A captured history grants no execution: only its queue may reauthorize and restore it.
+      const work = this.historicalResponse(saved, request); this.opening.add(work);
+      try { return await work; } finally { this.opening.delete(work); }
     }
     const entry = this.entry(workspaceId, sessionId);
     const work = this.proxyOwned(entry, sessionId, request); entry.tools.add(work);
     try { return await work; } finally { entry.tools.delete(work); }
   }
-  private async proxyOwned(entry: Entry, sessionId: string, request: Request): Promise<Response> {
-    if (request.method === "POST" && /\/(?:message|prompt_async)$/.test(new URL(request.url).pathname)) await entry.snapshotting;
-    await entry.assertCurrent();
-    const url = new URL(request.url), path = url.pathname;
-    const suffix = path.slice(path.indexOf("/session/"));
-    if (!suffix.startsWith(`/session/${sessionId}`) || !/^(?:|\/message(?:\/[A-Za-z0-9_-]{1,128})?|\/prompt_async|\/abort|\/todo|\/children|\/protected-transport)$/.test(suffix.slice(`/session/${sessionId}`.length)))
+  /** Validate an SDK request's suffix, query and location against this session. Engine v2
+   * session routes need no location; a supplied one must name the selected case directory
+   * (reads may also name the registered project root). */
+  private async sdkRoute(request: Request, sessionId: string, mapping: { hostDirectory: string; workspaceRoot: string }) {
+    const url = new URL(request.url), path = url.pathname.replace(/^\/api(?=\/)/, "");
+    if (!path.startsWith(`/session/${sessionId}`)) throw new ApiError(403, "protected_route_denied", "This route is outside the selected document operation.");
+    const suffix = path.slice(`/session/${sessionId}`.length);
+    if (!/^(?:|\/message(?:\/msg_[A-Za-z0-9]{1,128})?|\/context|\/inbox|\/permission|\/form|\/interrupt|\/prompt|\/protected-transport)$/.test(suffix))
       throw new ApiError(403, "protected_route_denied", "This route is outside the selected document operation.");
-    for (const [key] of url.searchParams) if (!["directory", "limit", "before", "offset"].includes(key)) throw new ApiError(403, "protected_route_denied", "Unsupported protected engine query.");
-    for (const directory of [url.searchParams.get("directory"), decodeDirectory(request.headers.get("x-opencode-directory"))]) {
+    for (const [key] of url.searchParams) if (!["location[directory]", "directory", "limit", "order", "cursor", "type"].includes(key)) throw new ApiError(403, "protected_route_denied", "Unsupported protected engine query.");
+    for (const directory of [...url.searchParams.getAll("location[directory]"), ...url.searchParams.getAll("directory"), decodeDirectory(request.headers.get("x-opencode-directory"))]) {
       if (!directory) continue;
       const physical = await realpath(directory).catch(() => "");
-      if (physical !== entry.hostDirectory && !(request.method === "GET" && physical === entry.workspaceRoot)) throw new ApiError(403, "protected_source_scope", "The SDK request does not belong to the selected case directory.");
+      if (physical !== mapping.hostDirectory && !(request.method === "GET" && physical === mapping.workspaceRoot)) throw new ApiError(403, "protected_source_scope", "The SDK request does not belong to the selected case directory.");
     }
-    url.pathname = suffix;
-    url.searchParams.set("directory", entry.directory);
-    if (request.method === "GET" && suffix.endsWith("/protected-transport")) return Response.json({ sessionId: entry.sessionId, operationId: entry.operationId, directoryMapping: { guestDirectory: entry.directory, hostDirectory: entry.hostDirectory, rootIdentity: entry.rootIdentity }, runtimeState: "ready", transport: "protected-documents-v1", legalApproval: false });
-    let body: string | undefined;
-    if (request.method === "PATCH" && suffix === `/session/${sessionId}`) {
+    const query = new URLSearchParams();
+    for (const key of ["limit", "order", "cursor", "type"]) { const value = url.searchParams.get(key); if (value !== null) query.set(key, value); }
+    return { suffix, query };
+  }
+  private async proxyOwned(entry: Entry, sessionId: string, request: Request): Promise<Response> {
+    await entry.assertCurrent();
+    const { suffix, query } = await this.sdkRoute(request, sessionId, entry);
+    if (request.method === "GET" && suffix === "/protected-transport") return Response.json({ sessionId: entry.sessionId, operationId: entry.operationId, directoryMapping: { guestDirectory: entry.directory, hostDirectory: entry.hostDirectory, rootIdentity: entry.rootIdentity }, runtimeState: "ready", transport: "protected-documents-v1", legalApproval: false });
+    // Pending permission and form requests cannot exist: the guest rules only allow or deny.
+    if (request.method === "GET" && (suffix === "/permission" || suffix === "/form")) return Response.json({ data: [] });
+    const signal = AbortSignal.any([request.signal, entry.controller.signal, entry.egress.signal]);
+    if (request.method === "POST" && suffix === "/interrupt") {
+      // A plain stop only: `resume` would continue pending work outside a queued delivery.
+      if (new URL(request.url).searchParams.has("resume")) throw new ApiError(403, "protected_route_denied", "Only stopping this protected operation is available.");
+      await boundedBody(request, 1024, AbortSignal.any([entry.controller.signal, entry.egress.signal]));
+      return entry.engine.fetch(new Request(`http://protected/api/session/${sessionId}/interrupt`, { method: "POST", signal }));
+    }
+    if (request.method === "PATCH" && suffix === "") {
       let value: unknown; try { value = JSON.parse(await boundedBody(request, 1024, AbortSignal.any([entry.controller.signal, entry.egress.signal]))); } catch (error) { if (error instanceof ApiError) throw error; throw new ApiError(400, "protected_prompt_invalid", "Provide valid bounded metadata JSON."); }
-      const update = z.strictObject({ time: z.strictObject({ archived: z.literal(0) }) }).safeParse(value);
-      if (!update.success) throw new ApiError(403, "protected_route_denied", "Only the SDK's exact unarchive metadata update is available.");
-      body = JSON.stringify(update.data);
-    } else if (request.method === "POST" && ["/message", "/prompt_async"].some(end => suffix.endsWith(end))) {
-      let value: unknown; try { value = JSON.parse(await boundedBody(request, 2 * 1024 * 1024, AbortSignal.any([entry.controller.signal, entry.egress.signal]))); } catch (error) { if (error instanceof ApiError) throw error; throw new ApiError(400, "protected_prompt_invalid", "Provide valid bounded UTF-8 JSON."); }
-      const parsed = promptSchema.safeParse(value);
-      if (!parsed.success) throw new ApiError(400, "protected_prompt_invalid", "Provide text, the selected model and the document agent only.");
-      if (![entry.providerId, "protected-documents"].includes(parsed.data.model.providerID) || parsed.data.model.modelID !== entry.modelId) throw new ApiError(403, "protected_prompt_invalid", "The selected model changed.");
-      // The original selected provider account is host-only. The guest sees one
-      // fixed provider with no credential and no arbitrary destination.
-      body = JSON.stringify({ ...parsed.data, model: { providerID: "protected-documents", modelID: parsed.data.model.modelID }, agent: "legalwork" });
-    } else if (request.method === "POST" && suffix.endsWith("/abort")) {
-      await boundedBody(request, 0, AbortSignal.any([entry.controller.signal, entry.egress.signal]));
-    } else if (request.method !== "GET") throw new ApiError(403, "protected_route_denied", "Unsupported protected engine method.");
-    if (request.method === "POST" && /\/(?:message|prompt_async)$/.test(suffix)) entry.busy = true;
-    const response = await entry.engine.fetch(new Request(url, { method: request.method, headers: { accept: request.headers.get("accept") ?? "application/json", ...(body ? { "content-type": "application/json" } : {}) }, body, signal: AbortSignal.any([request.signal, entry.controller.signal, entry.egress.signal]) }));
-    if (request.method === "GET" && suffix === `/session/${sessionId}` && response.ok) {
-      const session = sessionSchema.parse(await response.json());
-      if (session.id !== sessionId || session.directory !== entry.directory) throw new ApiError(409, "protected_session_stale", "The confined session directory changed.");
-      return Response.json({ ...session, directory: entry.hostDirectory });
+      // The SDK unarchives before a prompt; this live session is never archived.
+      if (!z.strictObject({ archived: z.literal(false) }).safeParse(value).success) throw new ApiError(403, "protected_route_denied", "Only the SDK's exact unarchive metadata update is available.");
+      return new Response(null, { status: 204 });
     }
-    if (request.method === "GET") {
-      // SDK reads are finite JSON under the VM bridge's existing 16 MiB bound.
-      // Keep ownership through EOF so eviction cannot abort an accepted body.
-      const bytes = await response.arrayBuffer();
-      return new Response([204, 205, 304].includes(response.status) ? null : bytes, { status: response.status, headers: response.headers });
+    if (request.method === "POST" && suffix === "/prompt")
+      throw new ApiError(409, "protected_session_dispatch", "Send messages in this protected document chat through its message queue.");
+    if (request.method !== "GET" || suffix === "/interrupt") throw new ApiError(403, "protected_route_denied", "Unsupported protected engine method.");
+    const target = new URL(`http://protected/api/session/${sessionId}${suffix}`);
+    if (suffix === "/message") target.search = query.toString();
+    const response = await entry.engine.fetch(new Request(target, { headers: { accept: request.headers.get("accept") ?? "application/json" }, signal }));
+    if (suffix === "" && response.ok) {
+      const session = sessionEnvelope.parse(await response.json()).data;
+      if (session.id !== sessionId || session.location.directory !== entry.directory) throw new ApiError(409, "protected_session_stale", "The confined session directory changed.");
+      return Response.json({ data: hostSession(session, entry.hostDirectory) });
     }
-    return response;
+    // SDK reads are finite JSON under the VM bridge's existing 16 MiB bound.
+    // Keep ownership through EOF so eviction cannot abort an accepted body.
+    const bytes = await response.arrayBuffer();
+    return new Response([204, 205, 304].includes(response.status) ? null : bytes, { status: response.status, headers: response.headers });
   }
 
   workspaceStatus(workspaceId: string, request: Request): Promise<Response> {
@@ -559,23 +634,25 @@ export class ProtectedDocumentRuntime {
     const work = this.readWorkspaceStatus(workspaceId, request); this.opening.add(work);
     void work.finally(() => this.opening.delete(work)).catch(() => {}); return work;
   }
+  /** Engine v2 `session.active` shape: only active protected sessions are listed. */
   private async readWorkspaceStatus(workspaceId: string, request: Request): Promise<Response> {
     const statuses: Record<string, unknown> = {};
     for (const id of this.sessionIds(workspaceId)) {
       const history = this.entries.has(id) ? undefined : await this.currentHistory(workspaceId, id);
       if (activeProtectedRuntime(this.options.config, workspaceId, id) && activeProtectedRuntime(this.options.config, workspaceId, id) !== this) continue;
-      if (!this.entries.has(id) && history) { await this.validateHistorical(history); if (Object.hasOwn(history.statuses, id)) statuses[id] = history.statuses[id]; continue; }
+      // A captured history is idle by construction: it was checkpointed only while idle.
+      if (!this.entries.has(id) && history) { await this.validateHistorical(history); continue; }
       const entry = this.entry(workspaceId, id);
       const work = (async () => {
         await entry.assertCurrent();
-        const response = await entry.engine.fetch(new Request("http://protected/session/status", { signal: AbortSignal.any([request.signal, entry.controller.signal, entry.egress.signal]) }));
+        const response = await entry.engine.fetch(new Request("http://protected/api/session/active", { signal: AbortSignal.any([request.signal, entry.controller.signal, entry.egress.signal]) }));
         if (!response.ok) throw new ApiError(502, "protected_status_unavailable", "The confined engine status is unavailable.");
-        const value: unknown = await response.json();
-        if (value && typeof value === "object" && Object.hasOwn(value, id)) statuses[id] = Reflect.get(value, id);
+        const active = activeEnvelope.parse(await response.json()).data;
+        if (Object.hasOwn(active, id)) statuses[id] = active[id];
       })();
       entry.tools.add(work); try { await work; } finally { entry.tools.delete(work); }
     }
-    return Response.json(statuses);
+    return Response.json({ data: statuses });
   }
 
   events(workspaceId: string, signal: AbortSignal): Response {
@@ -590,7 +667,7 @@ export class ProtectedDocumentRuntime {
   }
   private async pumpEvents(entry: Entry) {
     try {
-      const response = await entry.engine.fetch(new Request("http://protected/event", { signal: entry.controller.signal }));
+      const response = await entry.engine.fetch(new Request(`http://protected/api/event?location%5Bdirectory%5D=${encodeURIComponent(entry.directory)}`, { signal: entry.controller.signal }));
       if (!response.ok || !response.body) throw new Error("Protected engine events unavailable");
       const decoder = new TextDecoder("utf-8", { fatal: true }), encoder = new TextEncoder(); let buffered = "";
       for await (const chunk of response.body) {
@@ -598,20 +675,20 @@ export class ProtectedDocumentRuntime {
         if (Buffer.byteLength(buffered) > 4 * 1024 * 1024) throw new Error("Protected engine event frame is too large");
         for (;;) {
           const boundary = /\r?\n\r?\n/.exec(buffered); if (!boundary) break;
-          const end = boundary.index + boundary[0].length, frame = encoder.encode(projectEventFrame(buffered.slice(0, end), entry)); buffered = buffered.slice(end);
-          // Multiplex complete real frames: byte chunks from separate workers
-          // must never interleave halfway through another session's JSON.
-          for (const subscriber of this.subscribers.get(entry.workspaceId) ?? []) {
-            if ((subscriber.controller.desiredSize ?? 0) < frame.byteLength) subscriber.close(); else subscriber.controller.enqueue(frame);
+          const end = boundary.index + boundary[0].length, event = guestEvent(buffered.slice(0, end)); buffered = buffered.slice(end);
+          if (!event) continue;
+          const projected = projectEventFrame(event, entry);
+          if (projected) {
+            // Multiplex complete real frames: byte chunks from separate workers
+            // must never interleave halfway through another session's JSON.
+            const frame = encoder.encode(projected);
+            for (const subscriber of this.subscribers.get(entry.workspaceId) ?? []) {
+              if ((subscriber.controller.desiredSize ?? 0) < frame.byteLength) subscriber.close(); else subscriber.controller.enqueue(frame);
+            }
           }
-          if (!entry.closing) {
-            const text = new TextDecoder().decode(frame), match = /^data: (.+)$/m.exec(text);
-            if (match) { try {
-              const value: unknown = JSON.parse(match[1]);
-              const event = record(value) && record(value.payload) ? value.payload : value;
-              if (record(event) && record(event.properties) && event.properties.sessionID === entry.sessionId && (event.type === "session.idle" || (event.type === "session.status" && record(event.properties.status) && event.properties.status.type === "idle"))) { entry.busy = false; void this.persistEntry(entry).catch(() => {}); }
-            } catch {} }
-          }
+          // Only this session's own terminal event clears its busy latch; eviction
+          // independently rechecks actual idle status before closing anything.
+          if (!entry.closing && terminalEvent(event, entry)) { entry.busy = false; void this.persistEntry(entry).catch(() => {}); }
         }
       }
       if (!entry.controller.signal.aborted) throw new Error("Protected engine event stream ended");
@@ -632,30 +709,27 @@ export class ProtectedDocumentRuntime {
   }
 
   private async historicalResponse(saved: StoredProtectedSession, request: Request): Promise<Response> {
-    const mapping = await this.validateHistorical(saved), url = new URL(request.url), suffix = url.pathname.slice(url.pathname.indexOf(`/session/${saved.sessionId}`) + `/session/${saved.sessionId}`.length);
-    for (const directory of [url.searchParams.get("directory"), decodeDirectory(request.headers.get("x-opencode-directory"))]) {
-      if (!directory) continue; const path = await realpath(directory).catch(() => "");
-      if (path !== mapping.hostDirectory && !(request.method === "GET" && path === mapping.workspaceRoot)) throw new ApiError(403, "protected_source_scope", "This historical SDK read belongs to another directory.");
-    }
+    const mapping = await this.validateHistorical(saved);
+    const { suffix, query } = await this.sdkRoute(request, saved.sessionId, mapping);
+    const session = sessionSchema.parse(saved.session);
     if (request.method === "PATCH" && suffix === "") {
       const body: unknown = JSON.parse(await boundedBody(request, 1024, this.shutdown.signal));
-      if (!z.strictObject({ time: z.strictObject({ archived: z.literal(0) }) }).safeParse(body).success || (record(saved.session.time) && Boolean(saved.session.time.archived))) throw new ApiError(403, "protected_route_denied", "Reauthorize this historical operation before changing it.");
-      return Response.json({ ...saved.session, directory: mapping.hostDirectory });
+      if (!z.strictObject({ archived: z.literal(false) }).safeParse(body).success || (record(saved.session.time) && Boolean(saved.session.time.archived))) throw new ApiError(403, "protected_route_denied", "Reauthorize this historical operation before changing it.");
+      return new Response(null, { status: 204 });
     }
+    // Captured sessions were checkpointed only while idle: there is nothing to stop.
+    if (request.method === "POST" && suffix === "/interrupt" && !new URL(request.url).searchParams.has("resume")) return Response.json({ interrupted: false });
+    if (request.method === "POST" && suffix === "/prompt") throw new ApiError(409, "protected_session_dispatch", "Send messages in this protected document chat through its message queue.");
     if (request.method !== "GET") throw new ApiError(403, "protected_route_denied", "Historical data grants no new model operation.");
-    if (suffix === "") return Response.json({ ...saved.session, directory: mapping.hostDirectory });
+    if (suffix === "") return Response.json({ data: hostSession(session, mapping.hostDirectory) });
     if (suffix === "/protected-transport") return Response.json({ sessionId: saved.sessionId, operationId: saved.operationId, directoryMapping: { guestDirectory: saved.guestDirectory, hostDirectory: mapping.hostDirectory, rootIdentity: mapping.rootIdentity }, runtimeState: this.restoring.has(saved.sessionId) ? "restoring" : "captured", transport: "protected-documents-v1", legalApproval: false });
-    if (suffix === "/children") return Response.json(saved.children);
-    if (suffix === "/todo") return Response.json(saved.todo);
-    if (suffix === "/message") {
-      const limit = z.coerce.number().int().min(1).max(10000).parse(url.searchParams.get("limit") ?? 10000);
-      let messages = saved.messages;
-      const before = url.searchParams.get("before"); if (before) { const index = messages.findIndex(message => record(message.info) && message.info.id === before); if (index < 0) throw new ApiError(404, "protected_message_missing", "The captured message is unavailable."); messages = messages.slice(0, index); }
-      return Response.json(messages.slice(-limit));
-    }
-    const messageId = /^\/message\/([A-Za-z0-9_-]{1,128})$/.exec(suffix)?.[1];
-    const message = messageId && saved.messages.find(item => record(item.info) && item.info.id === messageId);
-    if (message) return Response.json(message);
+    if (suffix === "/permission" || suffix === "/form" || suffix === "/inbox") return Response.json({ data: [] });
+    // Captured history holds no compaction (the guest disables it): the context is every message.
+    if (suffix === "/context") return Response.json({ data: saved.messages });
+    if (suffix === "/message") return Response.json(historicalPage(saved.messages, query));
+    const messageId = /^\/message\/(msg_[A-Za-z0-9]{1,128})$/.exec(suffix)?.[1];
+    const message = messageId && saved.messages.find(item => item.id === messageId);
+    if (message) return Response.json({ data: message });
     throw new ApiError(404, "protected_route_denied", "The requested captured engine resource is unavailable.");
   }
 
@@ -702,9 +776,9 @@ export class ProtectedDocumentRuntime {
         if (!response.ok) { await response.body?.cancel(); throw new ApiError(502, "protected_checkpoint_failed", "The actual protected engine state could not be captured."); }
         return response;
       };
-      const statuses = z.record(z.string(), z.unknown()).parse(await (await read("/session/status")).json());
-      const status = statuses[entry.sessionId];
-      if (record(status) && status.type !== "idle") throw new ApiError(409, "protected_checkpoint_busy", "Only an actual idle session may be captured.");
+      // Engine v2 lists only active sessions: the captured one must be absent.
+      const active = activeEnvelope.parse(await (await read("/api/session/active")).json()).data;
+      if (Object.hasOwn(active, entry.sessionId)) throw new ApiError(409, "protected_checkpoint_busy", "Only an actual idle session may be captured.");
       const checkpoint = await read("/_protected/checkpoint"), expected = checkpoint.headers.get("x-protected-sha256");
       const chunks: Uint8Array[] = []; let bytes = 0;
       if (!checkpoint.body) throw new ApiError(502, "protected_checkpoint_failed", "The actual engine checkpoint is empty.");
@@ -714,13 +788,13 @@ export class ProtectedDocumentRuntime {
       } finally { try { await reader.cancel(); } finally { reader.releaseLock(); } }
       const database = Buffer.concat(chunks);
       if (!expected || createHash("sha256").update(database).digest("hex") !== expected) throw new ApiError(409, "protected_checkpoint_invalid", "The actual engine checkpoint hash does not match.");
-      const session = sessionSchema.parse(await (await read(`/session/${entry.sessionId}`)).json());
-      const messages = z.array(z.record(z.string(), z.unknown())).parse(await (await read(`/session/${entry.sessionId}/message`)).json());
-      const children = z.array(z.unknown()).parse(await (await read(`/session/${entry.sessionId}/children`)).json());
-      const todo = z.array(z.unknown()).parse(await (await read(`/session/${entry.sessionId}/todo`)).json());
-      const saved = await this.store.save({ version: 1, workspaceId: entry.workspaceId, sessionId: entry.sessionId, operationId: entry.operationId, input: entry.input, rootIdentity: entry.rootIdentity,
+      const session = sessionEnvelope.parse(await (await read(`/api/session/${entry.sessionId}`)).json()).data;
+      if (session.id !== entry.sessionId || session.location.directory !== GUEST_DIRECTORY) throw new ApiError(409, "protected_session_stale", "The confined session directory changed.");
+      const messages = await this.readMessages(entry.engine, entry.sessionId, signal);
+      // Engine v2 has no children/todo endpoints; actual IDs stay in the guest history.
+      const saved = await this.store.save({ version: 2, workspaceId: entry.workspaceId, sessionId: entry.sessionId, operationId: entry.operationId, input: entry.input, rootIdentity: entry.rootIdentity,
         sourceSetSha256: entry.initialSourceSetSha256, hostDirectory: entry.hostDirectory, workspaceRoot: entry.workspaceRoot, guestDirectory: GUEST_DIRECTORY,
-        capturedAt: new Date().toISOString(), session, messages, children, todo, statuses }, database);
+        capturedAt: new Date().toISOString(), session, messages, children: [], todo: [], statuses: {} }, database);
       this.remember(saved);
     })().finally(() => { entry.snapshotting = undefined; });
     return entry.snapshotting;
@@ -732,7 +806,7 @@ export class ProtectedDocumentRuntime {
       clearTimeout(entry.timer); entry.egress.abort(reason);
       let primary: unknown;
       try {
-        const stopped = await entry.engine.fetch(new Request(`http://protected/session/${entry.sessionId}/abort`, { method: "POST", signal: AbortSignal.timeout(15000) })); await stopped.body?.cancel();
+        const stopped = await entry.engine.fetch(new Request(`http://protected/api/session/${entry.sessionId}/interrupt`, { method: "POST", signal: AbortSignal.timeout(15000) })); await stopped.body?.cancel();
       } catch (error) { primary = error; }
       // Losing the engine must never skip accepted host writes or validation
       // readers. Their stores stay owned until every retained callback settles.

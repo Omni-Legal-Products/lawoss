@@ -135,8 +135,9 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       if (config.readOnly) return false;
       const protectedRuntime = protectedRuntimeForSession(config, workspaceId, sessionId);
       if (protectedRuntime) {
-        const statuses = await (await protectedRuntime.workspaceStatus(workspaceId, new Request("http://protected/session/status"))).json();
-        return !statuses[sessionId] || statuses[sessionId].type === "idle";
+        // Engine v2 `session.active` shape: an idle protected session is absent.
+        const statuses: unknown = await (await protectedRuntime.workspaceStatus(workspaceId, new Request("http://protected/api/session/active"))).json();
+        return isRecord(statuses) && isRecord(statuses.data) && !Object.hasOwn(statuses.data, sessionId);
       }
       return nativeQueue.idle(workspaceId, sessionId);
     },
@@ -152,17 +153,12 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
         // policy decisions or unverified uploaded bytes into a later turn.
         try {await protectedRuntime.preflightQueued({workspaceId, sessionId: sessionID, execution: entry.execution});}
         catch (error) {throw new QueuePreparationError(error instanceof Error ? error.message : "Protected message preparation failed.");}
-        const response = await protectedRuntime.submitQueued({workspaceId, sessionId: sessionID, id: entry.id, execution: entry.execution});
-        if (!response.ok) throw new ApiError(502, "protected_queue_delivery", "Protected message delivery was not confirmed.");
-        const result: unknown = await response.json();
-        if (!isRecord(result) || !isRecord(result.info) || result.info.role !== "assistant" || result.info.sessionID !== sessionID || result.info.parentID !== `msg_${entry.id.replaceAll("-", "")}`)
+        // Engine v2 admits asynchronously; the runtime returns only this turn's own terminal
+        // receipt from the guest history (lawoss/protected-ai/runtime.ts).
+        const result = await protectedRuntime.submitQueued({workspaceId, sessionId: sessionID, id: entry.id, execution: entry.execution});
+        if (result.messageID !== `msg_${entry.id.replaceAll("-", "")}`)
           throw new ApiError(502, "protected_queue_delivery", "The protected engine did not return this chat's terminal assistant result.");
-        const error = result.info.error;
-        const terminalError = isRecord(error) && typeof error.name === "string";
-        const terminalFinish = typeof result.info.finish === "string" && result.info.finish !== "tool-calls"
-          && isRecord(result.info.time) && typeof result.info.time.completed === "number" && Number.isFinite(result.info.time.completed);
-        if (!terminalError && !terminalFinish) throw new ApiError(502, "protected_queue_delivery", "The protected assistant response is not terminal.");
-        return {pause: Boolean(error), reason: isRecord(error) && error.name === "MessageAbortedError" ? "stop" as const : "error" as const};
+        return {pause: result.outcome !== "succeeded", reason: result.outcome === "interrupted" ? "stop" as const : "error" as const};
       });
     },
   });
@@ -212,7 +208,9 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   });
   addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/queue", "client", async ctx => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    await queueClient(workspace, ctx.params.sessionId,true);
+    // LAWOSS: a protected document chat lives in its runtime, not in the ordinary engine;
+    // the host registry (lawoss/protected-ai/dispatch.ts) is its ownership check.
+    if (!protectedRuntimeForSession(config, workspace.id, ctx.params.sessionId)) await queueClient(workspace, ctx.params.sessionId,true);
     return jsonResponse(await messageQueue.readIfChanged(workspace.id, ctx.params.sessionId, new URL(ctx.request.url).searchParams.get("revision")));
   });
   addRoute(routes, "POST", "/workspace/:id/sessions/:sessionId/queue", "client", async ctx => {

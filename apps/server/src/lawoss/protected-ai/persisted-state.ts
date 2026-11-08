@@ -9,12 +9,19 @@ const MAX_HISTORY_JSON = 16 * 1024 * 1024;
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const recordSchema = z.record(z.string(), z.unknown());
 const inputSchema = z.strictObject({ workspaceId: z.string().min(1).max(256), caseDirectory: z.string().max(4096), providerId: z.string().min(1).max(128), modelId: z.string().min(1).max(200), profileId: z.string().min(1).max(128).optional(), sources: z.array(z.strictObject({ id: z.string().uuid(), hash: z.string().regex(/^[a-f0-9]{64}$/) })).min(1).max(500) });
-const captureSchema = z.strictObject({ version: z.literal(1), workspaceId: z.string().min(1).max(256), sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,256}$/), operationId: z.string().uuid(), input: inputSchema,
+// LAWOSS v2: version 2 holds an engine v2 guest database; a version 1 (engine 1.18.29) capture
+// cannot be restored into the v2 guest and therefore requires explicit recovery.
+const captureSchema = z.strictObject({ version: z.literal(2), workspaceId: z.string().min(1).max(256), sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,256}$/), operationId: z.string().uuid(), input: inputSchema,
   rootIdentity: z.string().min(1), sourceSetSha256: z.string().regex(/^[a-f0-9]{64}$/), hostDirectory: z.string().min(1).max(4096), workspaceRoot: z.string().min(1).max(4096), guestDirectory: z.literal("/tmp/home/protected-engine/workspace"), capturedAt: z.iso.datetime(),
   session: recordSchema, messages: z.array(recordSchema).max(10000), children: z.array(z.unknown()).max(1000), todo: z.array(z.unknown()).max(10000), statuses: recordSchema });
 const savedSchema = captureSchema.extend({ checkpoint: z.strictObject({ file: z.string().regex(/^[a-f0-9]{64}-[a-f0-9-]{36}\.sqlite$/), sha256: z.string().regex(/^[a-f0-9]{64}$/), size: z.number().int().positive().max(MAX_PROTECTED_CHECKPOINT) }) });
 export type ProtectedSessionCapture = z.infer<typeof captureSchema>;
 export type StoredProtectedSession = ProtectedSessionCapture & { checkpoint: { path: string; sha256: string; size: number } };
+/** Engine v2 session record: its location is the guest's fixed private scratch directory. */
+const sessionInGuest = (session: Record<string, unknown>, guest: string) => {
+  const location = session.location;
+  return location !== null && typeof location === "object" && !Array.isArray(location) && Reflect.get(location, "directory") === guest;
+};
 const invalid = () => new ApiError(409, "protected_history_invalid", "The private protected-session history requires explicit recovery; no model transfer was authorized.");
 async function boundedFile(path: string, maximum: number): Promise<Buffer> {
   const info = await lstat(path);
@@ -38,7 +45,7 @@ export class ProtectedSessionStore {
   }
   private async saveOwned(key: string, input: ProtectedSessionCapture, bytes: Uint8Array): Promise<StoredProtectedSession> {
     const capture = captureSchema.parse(input); sqlite(bytes);
-    if (capture.workspaceId !== capture.input.workspaceId || capture.session.id !== capture.sessionId || capture.session.directory !== capture.guestDirectory) throw invalid();
+    if (capture.workspaceId !== capture.input.workspaceId || capture.session.id !== capture.sessionId || !sessionInGuest(capture.session, capture.guestDirectory)) throw invalid();
     await this.ensureDirectory();
     const file = `${key}-${randomUUID()}.sqlite`, target = join(this.directory, `${key}.json`), temporary = join(this.directory, `.${key}-${randomUUID()}.tmp`);
     const checkpoint = { file, sha256: digest(bytes), size: bytes.byteLength };
@@ -70,7 +77,7 @@ export class ProtectedSessionStore {
   private async readOwned(name: string): Promise<StoredProtectedSession> {
     try {
         const value = savedSchema.parse(JSON.parse((await boundedFile(join(this.directory, name), MAX_HISTORY_JSON)).toString("utf8")));
-        if (name !== `${digest(Buffer.from(JSON.stringify([value.workspaceId, value.sessionId])))}.json` || value.input.workspaceId !== value.workspaceId || value.session.id !== value.sessionId || value.session.directory !== value.guestDirectory || !value.checkpoint.file.startsWith(name.slice(0, -5) + "-")) throw invalid();
+        if (name !== `${digest(Buffer.from(JSON.stringify([value.workspaceId, value.sessionId])))}.json` || value.input.workspaceId !== value.workspaceId || value.session.id !== value.sessionId || !sessionInGuest(value.session, value.guestDirectory) || !value.checkpoint.file.startsWith(name.slice(0, -5) + "-")) throw invalid();
         const checkpoint = await boundedFile(join(this.directory, value.checkpoint.file), MAX_PROTECTED_CHECKPOINT); sqlite(checkpoint);
         if (checkpoint.length !== value.checkpoint.size || digest(checkpoint) !== value.checkpoint.sha256) throw invalid();
         return { ...value, checkpoint: { path: join(this.directory, value.checkpoint.file), sha256: value.checkpoint.sha256, size: value.checkpoint.size } };

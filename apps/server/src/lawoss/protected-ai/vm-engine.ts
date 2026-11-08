@@ -64,11 +64,15 @@ function enginePath(request: Request): string {
     if (request.method !== "GET" || url.search || url.hash) throw new Error("Unsupported protected checkpoint route.");
     return url.pathname;
   }
-  // Session-only bridge: no provider/auth/config mutation, arbitrary proxy or shell endpoint.
-  if (!/^(?:\/session(?:\/[^/]+(?:\/(?:message(?:\/[^/]+)?|prompt_async|abort|status|children|todo))?)?|\/event|\/global\/(?:event|health)|\/provider|\/agent|\/path|\/project\/current)$/.test(url.pathname) ||
+  // Session-only bridge onto engine v2: no provider/auth/config/plugin/RPC mutation,
+  // filesystem, PTY, shell or arbitrary proxy endpoint. Reads are session scoped or
+  // instance-free; writes are the fixed session lifecycle the host runtime drives.
+  const session = String.raw`/api/session/ses_[A-Za-z0-9]{1,128}`;
+  const reads = new RegExp(String.raw`^(?:/api/event|/api/session/active|${session}(?:/(?:message(?:/msg_[A-Za-z0-9]{1,128})?|context|inbox))?)$`);
+  const writes = new RegExp(String.raw`^(?:/api/session|${session}/(?:prompt|interrupt|model)|/api/experimental/session/ses_[A-Za-z0-9]{1,128}/wait)$`);
+  if (!(request.method === "GET" ? reads : request.method === "POST" ? writes : /^$/).test(url.pathname) ||
       /%2f|%5c|%2e/i.test(url.pathname) || url.pathname.split("/").some((part) => part === "." || part === "..") ||
-      !["GET", "POST", "DELETE", "PATCH"].includes(request.method) ||
-      (request.method !== "GET" && !url.pathname.startsWith("/session"))) throw new Error("Unsupported protected engine route.");
+      (url.pathname.endsWith("/interrupt") && url.search)) throw new Error("Unsupported protected engine route.");
   if (url.search.length > 8192) throw new Error("Protected engine query is too large.");
   return url.pathname + url.search;
 }
@@ -317,7 +321,7 @@ export class ProtectedVmEngine {
       return jsonResponse(await this.input.handleTool(tool.data, signal));
     }
     if (url.pathname === "/rpc/ready" && request.method === "POST") {
-      z.object({ version: z.literal(1) }).strict().parse(parsedBody(request));
+      z.object({ version: z.literal(2) }).strict().parse(parsedBody(request));
       this.confirmReady();
       this.readyResolve(); return jsonResponse({ ok: true });
     }
