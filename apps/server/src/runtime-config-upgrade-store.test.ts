@@ -178,6 +178,6 @@ test("global host rules and project rules remain ordered native rules", async ()
   // LAWOSS: an unset edit rule asks by default (lawoss/tool-permission-defaults.ts).
   expect(global).toEqual([{ action: "edit", resource: "*", effect: "ask" }, { action: "shell", resource: "*", effect: "ask" }]);
   expect(applyGlobalToolPermissions({ permissions: [{ action: "shell", resource: "rm *", effect: "deny" }, { action: "external_directory", resource: "/case/*", effect: "allow" }] }, global).permissions).toEqual([
-    { action: "shell", resource: "*", effect: "ask" }, { action: "shell", resource: "rm *", effect: "deny" }, { action: "external_directory", resource: "/case/*", effect: "allow" },
+    { action: "edit", resource: "*", effect: "ask" }, { action: "shell", resource: "*", effect: "ask" }, { action: "shell", resource: "rm *", effect: "deny" }, { action: "external_directory", resource: "/case/*", effect: "allow" },
   ]);
 }));

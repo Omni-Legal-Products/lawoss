@@ -25,6 +25,8 @@ let stalledPrompts = 0;
 let onStalledPrompt: (() => void) | undefined;
 let engineError = false;
 let malformedResponses = 0, invalidStructures = 0, structuredResponse = false;
+// The fake worker submits into the claims registry of the config whose executor runs.
+let claimsConfig: ServerConfig | undefined;
 const model = { id: "chat", name: "Reviewer", limit: { context: 128000, output: 4096 }, capabilities: { input: ["text"], output: ["text"] } };
 const engine = Bun.serve({ port: 0, async fetch(request) {
   const path = new URL(request.url).pathname.replace(/review-worker-\d+/g, "review-worker"), raw = await request.text(); calls.push({ path, method: request.method, body: raw ? JSON.parse(raw) : undefined });
@@ -54,7 +56,7 @@ const engine = Bun.serve({ port: 0, async fetch(request) {
       } } };
       if (malformedResponses-- > 0) answer = "malformed";
       if (invalidStructures-- > 0) answer = { cells: { wrong: {} } };
-      reviewWorkerClaims(config).submit(workspace, new URL(request.url).pathname.split("/")[3], id, { value: answer, messageID: "msg_answer", toolID: "call_submit" });
+      reviewWorkerClaims(claimsConfig ?? config).submit(workspace, new URL(request.url).pathname.split("/")[3], id, { value: answer, messageID: "msg_answer", toolID: "call_submit" });
     }
     return Response.json({ data: { id: "msg_prompt" } });
   }
@@ -395,8 +397,9 @@ test("with AI boundaries off (alpha default), the production review executor rea
   const open: ServerConfig = {...config, configPath: join(boundaryRoot, "server.json")};
   try {
     structuredResponse = true;
+    claimsConfig = open;
     const production = new ReviewExecutor(open, {settings: async () => structuredClone(settings), infer: async () => {throw new Error("Must not call JEV");}});
     expect((await production.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor)).value).toBe("Yes");
     expect(calls.some(call => call.path.endsWith("/prompt"))).toBe(true);
-  } finally {await closeRuntimeOpencodeConfig(open); await rm(boundaryRoot, {recursive: true});}
+  } finally {claimsConfig = undefined; await closeRuntimeOpencodeConfig(open); await rm(boundaryRoot, {recursive: true});}
 });

@@ -747,10 +747,17 @@ test("configured command approval remains denyable, chat-scoped and revocable wi
   const first = run("approved");
   const [approval] = await waitForWebApproval(f.service);
   expect(approval.action).toBe("sandbox.bash");
-  expect(approval.canRemember).toBe(true);
-  f.service.approvals.respond(approval.id, "always");
+  // LAWOSS (PATCHES.md, agent-sandbox/service.ts): with sandboxing off the one card covers this whole
+  // computer, so it is never remembered; "always" is refused and the same chat gets a new card.
+  expect(approval.canRemember).toBe(false);
+  expect(f.service.approvals.respond(approval.id, "always")).toBeNull();
+  f.service.approvals.respond(approval.id, "allow");
   expect((await first).output).toContain("consent-proof");
-  expect((await run("approved")).output).toContain("consent-proof");
+  const second = run("approved");
+  const [repeat] = await waitForWebApproval(f.service);
+  expect(repeat.sessionID).toBe("approved");
+  f.service.approvals.respond(repeat.id, "allow");
+  expect((await second).output).toContain("consent-proof");
   const other = run("other").catch(error => error);
   const [otherApproval] = await waitForWebApproval(f.service);
   f.service.approvals.respond(otherApproval.id, "deny");

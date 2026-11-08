@@ -16,24 +16,31 @@ afterEach(async () => { while (cleanups.length) await cleanups.pop()?.(); });
 
 type Chat = { id: string; directory: string };
 
+// LAWOSS v2: fake engine 2.1.4 (`/api/...`, `location[directory]`, delivery = POST prompt admission).
 function engine(chats: Chat[]) {
   const state = { idle: false, delivered: [] as string[] };
-  const info = (chat: Chat) => ({ id: chat.id, title: "Stav prípadov", slug: chat.id, directory: chat.directory, time: { created: 100, updated: 200, archived: 0 } });
+  const info = (chat: Chat) => ({ id: chat.id, projectID: "project", title: "Stav prípadov", location: { directory: chat.directory }, time: { created: 100, updated: 200 } });
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
-    const { pathname } = new URL(request.url);
-    if (pathname === "/session/status") return Response.json(Object.fromEntries(chats.map(chat => [chat.id, { type: state.idle ? "idle" : "busy" }])));
-    if (pathname === "/session") return Response.json(chats.filter(chat => chat.directory === decodeURIComponent(request.headers.get("x-opencode-directory") ?? "")).map(info));
-    if (pathname === "/command") return Response.json([]);
-    const message = pathname.match(/^\/session\/([^/]+)\/message$/);
-    if (message && request.method === "POST") {
-      const body = await request.json() as { messageID?: string };
-      state.delivered.push(`${message[1]}:${body.messageID ?? ""}`);
-      return Response.json({ info: { id: "msg_reply", sessionID: message[1], role: "assistant", time: { created: 1, completed: 2 }, finish: "stop" }, parts: [] });
+    const url = new URL(request.url), { pathname } = url;
+    const directory = url.searchParams.get("location[directory]");
+    if (pathname === "/api/session/active") return Response.json({ data: state.idle ? {} : Object.fromEntries(chats.map(chat => [chat.id, { type: "running" }])) });
+    if (pathname === "/api/session") return Response.json({ data: chats.filter(chat => directory === null || chat.directory === directory).map(info), cursor: {} });
+    if (pathname === "/api/command") return Response.json({ data: [] });
+    if (pathname === "/api/plugin") return Response.json({ data: [] });
+    const route = pathname.match(/^\/api\/session\/([^/]+)(?:\/(.*))?$/);
+    const chat = chats.find(item => item.id === route?.[1]);
+    if (!route || !chat) return Response.json({ code: "not_found", message: "Not found" }, { status: 404 });
+    const rest = route[2];
+    if (rest === undefined && request.method === "GET") return Response.json({ data: info(chat) });
+    if (rest === undefined || rest === "model" || rest === "agent") return new Response(null, { status: 204 });
+    if (rest === "inbox") return Response.json({ data: [] });
+    if (rest === "prompt" && request.method === "POST") {
+      const body = await request.json() as { id?: string; text?: string };
+      state.delivered.push(`${chat.id}:${body.id ?? ""}`);
+      return Response.json({ data: { id: body.id, type: "user", text: body.text ?? "", time: { created: 202 } } });
     }
-    if (/^\/session\/[^/]+\/message\//.test(pathname)) return new Response("not found", { status: 404 });
-    const chat = chats.find(item => pathname === `/session/${item.id}`);
-    if (chat) return Response.json(info(chat));
-    return Response.json({});
+    if (rest === "message") return Response.json({ data: [], cursor: {} });
+    return Response.json({ code: "not_found", message: "Not found" }, { status: 404 });
   } });
   cleanups.push(() => server.stop(true));
   return { state, url: `http://127.0.0.1:${server.port}` };

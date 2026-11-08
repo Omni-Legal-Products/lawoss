@@ -248,16 +248,17 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   async function listWorkspaceSessions(workspace: WorkspaceInfo, input: { roots?: boolean; start?: number; search?: string; limit?: number }) {
     const client = createEngineClient(config, workspace);
     const root = workspaceEngineLocation(workspace).directory;
-    const scoped = await listEngineSessions(client, { directory: root,
+    // LAWOSS: validate engine payloads before reading their location (malformed list → 502, not 500).
+    const scoped = buildSessionList(await listEngineSessions(client, { directory: root,
       ...(input.roots ? { parentID: null } : {}), search: input.search,
       ...(input.start === undefined && !sessionOwnershipChecked(workspace) ? { limit: input.limit } : {}),
-    });
+    }));
     // LAWOSS: case chats live in subfolders of their client and a reconnected client keeps its
     // captured chats (lawoss/workspace-history.ts); both are owned by this workspace too.
     // LAWOSS-TODO(session-list): v1 merged historicalWorkspaceSessions (v1 /experimental/session);
     // this reads every engine session instead. Check whether v2 `project`/`subpath` can narrow it.
     const nested = sessionOwnershipChecked(workspace)
-      ? (await listEngineSessions(client, { ...(input.roots ? { parentID: null } : {}), search: input.search }))
+      ? buildSessionList(await listEngineSessions(client, { ...(input.roots ? { parentID: null } : {}), search: input.search }))
         .filter(session => session.location.directory !== root && workspaceOwnsSession(workspace, { id: session.id, directory: session.location.directory }))
       : [];
     const sessions = [...new Map([...scoped, ...nested].map(session => [session.id, session])).values()]

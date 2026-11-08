@@ -116,7 +116,6 @@ beforeAll(async () => {
   process.env.LEGALWORK_SERVER_URL = base;
   // afterAll restores the environment, including the engine credential set here.
   agentContext = (await engineAgentSession(config, { sessionID: "ses_storage", directory: temporary })).context;
-  await engineAgentSession(config, { sessionID: "ses_storage_viewer", directory: temporary, scope: "viewer" });
 });
 afterAll(async () => {
   await server?.stop();
@@ -884,8 +883,9 @@ async function agentRoundTrip(id: string, folder: string) {
       .code,
   ).toBe("storage_read_only");
   await api("PUT", `/${id}`, { ...connection, readOnly: false });
-  // A chat started by a viewer keeps the viewer's scope through the engine credential.
-  const viewer = { ...context, sessionID: "ses_storage_viewer" };
+  // Like upstream's retired viewer token: a chat the server never registered gets no write access.
+  // (Granting a viewer chat here would lower the shared engine credential for every later chat.)
+  const viewer = { ...context, sessionID: "ses_storage_unregistered" };
   expect(
     parseToolJson(await tool.storage_get_capabilities.execute({ connection_id: id }, viewer)).capabilities.write,
   ).toBe(false);

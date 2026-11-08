@@ -74,7 +74,8 @@ export class SessionMessageQueue {
         queue.paused = true;
         queue.pauseReason = "stop";
         // The app tells this pause apart from Stop; "interrupted" survives the engine's confirmation.
-        queue.restartPause = queue.entries.some(entry => entry.status === "uncertain") ? "interrupted" : "waiting";
+        // On engine v2 a running message is "accepted" (admitted by the engine) rather than "sending".
+        queue.restartPause = queue.entries.some(entry => entry.status === "uncertain" || entry.status === "accepted") ? "interrupted" : "waiting";
       }
       queue.revision++;
       await this.persist(queue);
