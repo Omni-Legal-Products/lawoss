@@ -270,6 +270,8 @@ test("bundled Node MCP installs runtime and runs outside plugin cwd", async () =
   const mcps = await mcpResponse.json();
   const config = mcps.items.find((item: { name: string }) => item.name.startsWith("registry")).config;
   expect(config.timeout).toBe(300000);
+  // Upstream v0.2.11: imported declarations stay off until the lawyer finishes setup and enables them.
+  expect(config.enabled).toBe(false);
   const command = config.command;
   const execution = Bun.spawnSync(command, { cwd: tmpdir(), stdout: "pipe", stderr: "pipe" });
   expect(execution.exitCode).toBe(0);
