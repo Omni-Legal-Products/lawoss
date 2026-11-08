@@ -14,12 +14,16 @@ import { withFileEditorHandoff } from "../file-editor-handoff.js";
 const roots: string[] = [];
 let originalFetch: typeof globalThis.fetch | null = null;
 let previousDiscovery: string | undefined;
+// The fixture has no LegalWork server: an address left by an earlier test file must not reach the plugin.
+let previousServerUrl: string | undefined;
 
 afterEach(async () => {
   if (originalFetch) {
     globalThis.fetch = originalFetch;
     if (previousDiscovery === undefined) delete process.env.LEGALWORK_UI_CONTROL_DISCOVERY;
     else process.env.LEGALWORK_UI_CONTROL_DISCOVERY = previousDiscovery;
+    if (previousServerUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
+    else process.env.LEGALWORK_SERVER_URL = previousServerUrl;
   }
   originalFetch = null;
   while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
@@ -43,8 +47,10 @@ async function withBridge(active: object | null) {
   await writeFile(discovery, JSON.stringify({ baseUrl: "http://ui.test", token: "t" }), "utf8");
   if (!originalFetch) {
     previousDiscovery = process.env.LEGALWORK_UI_CONTROL_DISCOVERY;
+    previousServerUrl = process.env.LEGALWORK_SERVER_URL;
     originalFetch = globalThis.fetch;
   }
+  delete process.env.LEGALWORK_SERVER_URL;
   process.env.LEGALWORK_UI_CONTROL_DISCOVERY = discovery;
   const actions: { actionId: string; args: Record<string, unknown>; editorWrite: boolean }[] = [];
   globalThis.fetch = Object.assign(

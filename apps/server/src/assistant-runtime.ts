@@ -149,10 +149,15 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
       return isMainAssistant(workspace) ? prepareAssistantScheduledWork(task, workspace, session, client, delegations) : { model: task.model, prompt: task.prompt };
     },
     async close() {
-      stopMain(); await stopProactivity(); await stopDelegations(); await stopQueue(); await stopPush();
-      // LAWOSS: accepted work has drained above; now release every runtime.sqlite handle (AGENTS.md).
-      for (const store of [push, sessionQueue, delegations, mainAssistant, assistantSessionAccess]) store.close();
-      await releaseProactivityStore();
+      // LAWOSS: one failing producer must not leave the others (queue tick, push) running against a
+      // released runtime.sqlite; every step runs and the first error is kept (AGENTS.md shutdown drain).
+      const errors: unknown[] = [];
+      const attempt = async (step: () => unknown) => { try { await step(); } catch (error) { errors.push(error); } };
+      for (const stop of [stopMain, stopProactivity, stopDelegations, stopQueue, stopPush]) await attempt(stop);
+      // Accepted work has drained above; now release every runtime.sqlite handle.
+      for (const store of [push, sessionQueue, delegations, mainAssistant, assistantSessionAccess]) await attempt(() => store.close());
+      await attempt(releaseProactivityStore);
+      if (errors.length) throw errors[0];
     },
   };
 }
