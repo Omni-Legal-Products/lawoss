@@ -57,6 +57,11 @@ export type OkfReadResult = Overview & {
   inputs: MatterInput[];
   /** Priečinky s kartou klienta (`client.md`/`klient.md`) vrátane klientov bez vecí; názov z karty. */
   clients?: OkfClient[];
+  /**
+   * #264 (MČ 8. 11. 2026): priečinky s kódom alebo kartou iného klienta vo vnútri klienta. Do prehľadu nepatria
+   * (vnorený klient), Domov klienta ich však ukáže, aby dokumenty nezmizli bez signálu.
+   */
+  foreignClientFolders?: string[];
 };
 export type OkfClient = {
   path: string; title?: string;
@@ -178,6 +183,8 @@ export async function readWorkspaceMemory(
     }
   };
   let scanned = 0;
+  const codedChildren = new Set<string>();
+  const foreignClientFolders: string[] = [];
   /**
    * N-A4-4 (test 25. 10. 2026): v praxi bez `Spisy/` je vec priamy podpriečinok klienta s kódom („M004 …“). Priečinok
    * s kódom ďalšieho klienta („C099 SYN Vnoreny“ v „C002 SYN Hron“, `nestedClientCode`) appka do klienta nepustí a vec
@@ -196,9 +203,11 @@ export async function readWorkspaceMemory(
     // zaregistrovaný ešte pred odmietaním ostáva vlastnou skupinou: prax ho číta cez vonkajšieho klienta (`okfScope`).
     const nestedClient = insideClient && !hasMatterCard && entries.some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
     if (nestedClient && !(await isRegistered(path))) {
+      foreignClientFolders.push(path);
       if (registeredBelow(path)) await descendToRegistered(path, depth);
       return;
     }
+    if (codedChildren.has(path) && !hasMatterCard && !nestedClient) foreignClientFolders.push(path);
     if ((directMatter && !nestedClient) || hasMatterCard) {
       paths.push(path);
       return;
@@ -226,7 +235,11 @@ export async function readWorkspaceMemory(
         for (const matter of await dirs(child.path)) await discover(matter, true, depth + 2, clientFolder);
       // Priamy podpriečinok klienta s kartou pomenovaný ako vec (`2025-01 Spor`, spisová značka) je vec aj bez
       // karty; rovnaký vzor ako rozpoznanie a roztriedenie (suggest-patterns.ts), D1 2026-10-09.
-      } else await discover(child.path, hasClientCard && !isWorkDir(child.name) && looksLikeMatterFolder(child.name) && !clientCoded(path, child.name), depth + 1, clientFolder);
+      } else {
+        const coded = hasClientCard && !isWorkDir(child.name) && clientCoded(path, child.name);
+        if (coded) codedChildren.add(child.path);
+        await discover(child.path, hasClientCard && !isWorkDir(child.name) && looksLikeMatterFolder(child.name) && !coded, depth + 1, clientFolder);
+      }
     }
   };
   await discover("");
@@ -486,6 +499,7 @@ export async function readWorkspaceMemory(
   const checkedAt = (options.now ?? Date.now)();
   const valid = !problems.length && !truncated;
   return { ...buildOverview(matters, todayIso), problems, truncated, inputs: matters, clients,
+    ...(foreignClientFolders.length ? { foreignClientFolders: [...foreignClientFolders].sort() } : {}),
     coverage: { scopeKey: JSON.stringify([workspaceId]), status: valid ? "complete" : matters.length || clients.length ? "partial" : "failed", sources: [{ source: "workspace", workspaceId, checkedAt, lastSuccessAt: valid ? checkedAt : null, state: valid ? "fresh" : truncated ? "truncated" : "unavailable" }] } };
 
 }
@@ -709,7 +723,9 @@ export async function readScopeMemory(client: OkfScopeClient, scope: OkfScope, t
   const usable = sources.some(s => s.state === "fresh" || s.state === "stale") || inputs.length > 0 || clients.length > 0;
   const status = !problems.length && !truncated && sources.every(s => s.state === "fresh") ? "complete" : usable ? "partial" : "failed";
   problems.sort((a,b) => a.path.localeCompare(b.path) || a.message.localeCompare(b.message));
-  return { ...buildOverview(inputs,todayIso), inputs, clients, problems, truncated, coverage: { scopeKey: key, status, sources }, sourceSnapshots: snapshots };
+  const foreignClientFolders = parts.flatMap((part,i) => (part.foreignClientFolders ?? []).map(path => joinPath(scope.members[i].prefix,path))).sort();
+  return { ...buildOverview(inputs,todayIso), inputs, clients, problems, truncated, ...(foreignClientFolders.length ? { foreignClientFolders } : {}),
+    coverage: { scopeKey: key, status, sources }, sourceSnapshots: snapshots };
 }
 
 /** Jedno čítanie koreňa praxe pre `usePracticeRoot` aj `useOkfScope` (rovnaký kľúč = jedna cache). */

@@ -593,3 +593,24 @@ test("mimo klienta s kartou sa priečinok s dátumom za vec nepovažuje", async 
   const out = await readWorkspaceMemory(fakeClient({ "2025-01 Projekt/readme.txt": "" }), "ws", TODAY);
   expect(out.matters).toEqual([]);
 });
+
+test("#264: priečinok s kódom iného klienta nie je vec ani nezmizne bez signálu", async () => {
+  const out = await readWorkspaceMemory(fakeClient({
+    "C002 SYN Hron/client.md": "---\ntitle: Hron\n---\n",
+    "C002 SYN Hron/M001 Spor/matter.md": "---\ntitle: Spor\nmatter_kind: advisory\n---\n",
+    "C002 SYN Hron/C099 SYN Vnoreny/d.pdf": "pdf",
+    "C002 SYN Hron/C003 Alfa s.r.o./client.md": "---\ntitle: Alfa\n---\n",
+  }), "ws", TODAY);
+  expect(out.inputs.map((input) => input.path)).toEqual(["C002 SYN Hron/M001 Spor"]);
+  expect(out.foreignClientFolders).toEqual(["C002 SYN Hron/C003 Alfa s.r.o.", "C002 SYN Hron/C099 SYN Vnoreny"]);
+  expect(out.problems).toEqual([]);
+});
+
+test("#264: vec s kartou a kódom iného klienta ostáva vecou, nie cudzím priečinkom", async () => {
+  const out = await readWorkspaceMemory(fakeClient({
+    "C002 SYN Hron/client.md": "---\ntitle: Hron\n---\n",
+    "C002 SYN Hron/C099 SYN Vec/matter.md": "---\ntitle: Vec\nmatter_kind: advisory\n---\n",
+  }), "ws", TODAY);
+  expect(out.inputs.map((input) => input.path)).toEqual(["C002 SYN Hron/C099 SYN Vec"]);
+  expect(out.foreignClientFolders).toBeUndefined();
+});
