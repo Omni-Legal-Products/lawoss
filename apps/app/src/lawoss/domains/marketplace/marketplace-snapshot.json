@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "name": "LAWOSS Marketplace",
   "repository": "Omni-Legal-Products/lawoss-marketplace",
-  "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
-  "metadataRef": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+  "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
+  "metadataRef": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
   "categories": [
     {
       "id": "sk",
@@ -51,9 +51,9 @@
   "plugins": [
     {
       "name": "slovlex",
-      "version": "1.1.3",
+      "version": "1.1.4",
       "path": "plugins/slovlex",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -74,9 +74,9 @@
     },
     {
       "name": "orsr",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "path": "plugins/orsr",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -97,9 +97,9 @@
     },
     {
       "name": "judikaty",
-      "version": "1.2.5",
+      "version": "1.2.6",
       "path": "plugins/judikaty",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -120,9 +120,9 @@
     },
     {
       "name": "kalkulacky",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "path": "plugins/kalkulacky",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -143,9 +143,9 @@
     },
     {
       "name": "ruz",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "path": "plugins/ruz",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -166,9 +166,9 @@
     },
     {
       "name": "rpo",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "path": "plugins/rpo",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -189,9 +189,9 @@
     },
     {
       "name": "crz",
-      "version": "1.5.0",
+      "version": "1.5.1",
       "path": "plugins/crz",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -212,9 +212,9 @@
     },
     {
       "name": "ov",
-      "version": "1.2.2",
+      "version": "1.2.3",
       "path": "plugins/ov",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -235,9 +235,9 @@
     },
     {
       "name": "rpvs",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "path": "plugins/rpvs",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -258,9 +258,9 @@
     },
     {
       "name": "ru",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "path": "plugins/ru",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -281,9 +281,9 @@
     },
     {
       "name": "disq",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "path": "plugins/disq",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -304,9 +304,9 @@
     },
     {
       "name": "fs-opendata-mcp",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "path": "plugins/fs-opendata-mcp",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -327,9 +327,9 @@
     },
     {
       "name": "uvo",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "path": "plugins/uvo",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -350,9 +350,9 @@
     },
     {
       "name": "cz-agents",
-      "version": "1.1.2",
+      "version": "1.1.3",
       "path": "plugins/cz-agents",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "mcp-skill-cli",
       "category": "cz",
       "jurisdictions": [
@@ -373,9 +373,9 @@
     },
     {
       "name": "eurlex-celex",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "path": "plugins/eurlex-celex",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "mcp-skill-cli",
       "category": "general",
       "jurisdictions": [
@@ -398,7 +398,7 @@
       "name": "zrsr",
       "version": "0.1.0",
       "path": "plugins/zrsr",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "skill-only",
       "category": "sk",
       "jurisdictions": [
@@ -421,7 +421,7 @@
       "name": "google-workspace-gog",
       "version": "0.1.0",
       "path": "plugins/google-workspace-gog",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "skill-only",
       "category": "general",
       "jurisdictions": [],
@@ -442,7 +442,7 @@
       "name": "esbirka",
       "version": "0.1.0",
       "path": "plugins/esbirka",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "skill-only",
       "category": "cz",
       "jurisdictions": [
@@ -465,7 +465,7 @@
       "name": "judikatura-cz",
       "version": "0.1.0",
       "path": "plugins/judikatura-cz",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "skill-only",
       "category": "cz",
       "jurisdictions": [
@@ -488,7 +488,7 @@
       "name": "lhuty-kalkulacky-cz",
       "version": "0.1.0",
       "path": "plugins/lhuty-kalkulacky-cz",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "skill-only",
       "category": "cz",
       "jurisdictions": [
@@ -511,7 +511,7 @@
       "name": "katastr-cz",
       "version": "0.1.0",
       "path": "plugins/katastr-cz",
-      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "ref": "b4bb8a86d24d82cbf6fcc2ef0462e22540a44586",
       "kind": "skill-only",
       "category": "cz",
       "jurisdictions": [
