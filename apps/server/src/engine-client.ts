@@ -8,6 +8,10 @@ import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { assertEngineProjectReady } from "./engine-project.js";
 import { recoverSessionMcp } from "./workspace-mcp-recovery.js";
 import { ensureLegacySessionPermissions } from "./session-history-permissions.js";
+import { workspaceOwnsChat } from "./lawoss/session-ownership.js";
+
+// LAWOSS: the server config of each client this module made, for the chat ownership check below.
+const engineClientConfigs = new WeakMap<OpenCodeClient, ServerConfig>();
 
 /** The native v2 client returns domain values directly and throws on failure.
  * Location is explicit on location-scoped operations; a session routes through
@@ -61,6 +65,7 @@ export function createEngineClient(config: ServerConfig, workspace: WorkspaceInf
       throw nativeResponseError(status, detail);
     }, { preconnect: fetch.preconnect }),
   });
+  engineClientConfigs.set(client, config);
   return client;
 }
 
@@ -71,6 +76,13 @@ export function workspaceEngineLocation(workspace: WorkspaceInfo): { directory: 
 /** A session ID alone is never proof that a caller can access its project. */
 export async function getWorkspaceEngineSession(client: OpenCodeClient, workspace: WorkspaceInfo, sessionID: string): Promise<SessionInfo> {
   const session = await client.session.get({ sessionID }).catch(error => { throw findApiError(error) ?? error; });
+  // LAWOSS: a case chat in a case subfolder belongs to its client; a chat of a client nested in
+  // this one does not (lawoss/session-ownership.ts). A client without a known config keeps the exact match.
+  const config = engineClientConfigs.get(client);
+  if (config) {
+    if (!await workspaceOwnsChat(config, workspace, { id: session.id, directory: session.location.directory })) throw new ApiError(404, "session_not_found", "This chat does not belong to the project.");
+    return session;
+  }
   const [expected, actual] = await Promise.all([
     canonicalFilePath(workspaceEngineLocation(workspace).directory),
     canonicalFilePath(session.location.directory),

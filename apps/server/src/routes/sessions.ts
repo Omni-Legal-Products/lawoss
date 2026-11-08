@@ -1,7 +1,6 @@
 import { protectedRuntimeForSession } from "../lawoss/protected-ai/dispatch.js";
 import { requireGovernedEngineDispatch } from "../lawoss/ai-governance-engine.js";
-import { workspaceOwnsSession } from "../lawoss/workspace-history.js";
-import { joinSessionFolder, sessionFolder, sessionOwnershipChecked } from "../lawoss/session-ownership.js";
+import { joinSessionFolder, sessionFolder, sessionOwnershipChecked, workspaceChatOwnership } from "../lawoss/session-ownership.js";
 import { applySessionProviderFailures, deleteSessionProviderFailures, providerFailureWitnessSchema, recordSessionProviderFailure } from "../session-provider-failures.js";
 import { authenticateWikiAgentRequest } from "../wiki/agent-access.js";
 import { QueuePreparationError } from "../session-message-queue.js";
@@ -245,6 +244,10 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   });
 
 
+  async function filterAsync<T>(items: readonly T[], keep: (item: T) => Promise<boolean>): Promise<T[]> {
+    const kept = await Promise.all(items.map(keep));
+    return items.filter((_, index) => kept[index]);
+  }
   async function listWorkspaceSessions(workspace: WorkspaceInfo, input: { roots?: boolean; start?: number; search?: string; limit?: number }) {
     const client = createEngineClient(config, workspace);
     const root = workspaceEngineLocation(workspace).directory;
@@ -253,12 +256,13 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       ...(input.start === undefined && !sessionOwnershipChecked(workspace) ? { limit: input.limit } : {}),
     });
     // LAWOSS: case chats live in subfolders of their client and a reconnected client keeps its
-    // captured chats (lawoss/workspace-history.ts); both are owned by this workspace too.
-    // LAWOSS-TODO(session-list): v1 merged historicalWorkspaceSessions (v1 /experimental/session);
-    // this reads every engine session instead. Check whether v2 `project`/`subpath` can narrow it.
-    const nested = sessionOwnershipChecked(workspace)
-      ? (await listEngineSessions(client, { ...(input.roots ? { parentID: null } : {}), search: input.search }))
-        .filter(session => session.location.directory !== root && workspaceOwnsSession(workspace, { id: session.id, directory: session.location.directory }))
+    // captured chats (lawoss/workspace-history.ts); both are owned by this workspace too. Engine v2
+    // matches `directory` and `subpath` exactly, so the subfolders come from the whole list, filtered by
+    // ownership (canonical containment, not a client nested in this one, #264).
+    const owns = sessionOwnershipChecked(workspace) ? await workspaceChatOwnership(config, workspace) : null;
+    const nested = owns
+      ? await filterAsync(await listEngineSessions(client, { ...(input.roots ? { parentID: null } : {}), search: input.search }),
+        async session => session.location.directory !== root && await owns({ id: session.id, directory: session.location.directory }))
       : [];
     const sessions = [...new Map([...scoped, ...nested].map(session => [session.id, session])).values()]
       .sort((a, b) => b.time.updated - a.time.updated);

@@ -1,9 +1,11 @@
 import { realpath } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
-import { isPathWithin } from "./path-within.js";
-import type { WorkspaceInfo } from "../types.js";
+import { foldedPath, isPathWithin } from "./path-within.js";
+import type { ServerConfig, WorkspaceInfo } from "../types.js";
+import { nestedClientRoots } from "./linked-folders.js";
+import { canonicalPath } from "./linked-folders-rules.js";
 import { workspaceListsSession } from "./session-list-scope.js";
-import { workspaceOwnsSession } from "./workspace-history.js";
+import { workspaceOwnsSession, workspaceOwnsSessionDirectory } from "./workspace-history.js";
 
 /**
  * LAWOSS: engine 1.18.29 serves `/session/:id/...` (and `/api/session/:id/...`) for any session
@@ -53,6 +55,44 @@ export function sessionFolderRoot(workspace: WorkspaceInfo): string {
 /** The absolute folder of a chat: `folder` joined to `sessionFolderRoot`; a root chat keeps `rootSpelling` as before. */
 export function joinSessionFolder(workspace: WorkspaceInfo, folder: readonly string[], rootSpelling: string): string {
   return folder.length ? join(sessionFolderRoot(workspace), ...folder) : rootSpelling;
+}
+
+export type ChatOwnership = (session: { id: string; directory?: string | null }) => Promise<boolean>;
+
+/**
+ * LAWOSS (engine v2): which chats a client workspace owns. Engine 2.1.4 reads, drives and lists
+ * any session ID for any caller; the server decides ownership from the session's own location.
+ *
+ * - The chat folder lies in the client root (or is the root), compared after `realpath` in NFC,
+ *   path segment by segment (`Klient_A` never owns `Klient-A`, a symlink out of the root is not inside).
+ *   A case chat in a case subfolder therefore belongs to its client.
+ * - A chat inside another client registered within this root (a nested client, #264) belongs to that
+ *   client alone: the nested client stays visible as a folder, but its chats are not the parent's.
+ * - A chat captured before a reconnect keeps its old folder (`workspace-history.ts`).
+ *
+ * The nested roots are read once per call of this factory; reuse the returned check for a list.
+ */
+export async function workspaceChatOwnership(config: ServerConfig, workspace: WorkspaceInfo): Promise<ChatOwnership> {
+  const root = sessionFolderRoot(workspace);
+  const [canonicalRoot, nested] = await Promise.all([canonicalPath(root), nestedClientRoots(config, workspace)]);
+  const foldedNested = nested.map((other) => foldedPath(other));
+  // Chats of a list share few folders: one canonical lookup per folder.
+  const canonical = new Map<string, Promise<string>>();
+  return async (session) => {
+    if (!session.directory) return false;
+    let pending = canonical.get(session.directory);
+    if (!pending) { pending = canonicalPath(withoutExtendedPrefix(session.directory)); canonical.set(session.directory, pending); }
+    const directory = await pending;
+    // Folding (case, NFC) only widens what counts as the nested client, so it only refuses more.
+    if (foldedNested.some((other) => isPathWithin(other, foldedPath(directory)))) return false;
+    if (isPathWithin(canonicalRoot, directory)) return true;
+    return !!workspace.previousSessionIds?.includes(session.id) && workspaceOwnsSessionDirectory({ ...workspace, path: root }, session.directory);
+  };
+}
+
+/** One chat; for a list use `workspaceChatOwnership` once. */
+export async function workspaceOwnsChat(config: ServerConfig, workspace: WorkspaceInfo, session: { id: string; directory?: string | null }): Promise<boolean> {
+  return (await workspaceChatOwnership(config, workspace))(session);
 }
 
 /** Electron can persist Windows folders as `\\?\C:\...`; the engine stores `C:\...`. */
