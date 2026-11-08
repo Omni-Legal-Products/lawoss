@@ -164,11 +164,41 @@ test('recovered native turn requests a fresh read instead of reusing an earlier 
 test('native export protocol validates advertised JSON schema then sends empty registry and missing summary hashes',async()=>{
  const {createRequire}=await import('node:module');
  const {z}=createRequire(new URL('../../../../apps/server/package.json',import.meta.url))('zod');
- const {LegalWorkProjectTools}=await import('../../../../apps/server/dist/opencode-plugins/legalwork-project-tools.js');
- const plugin=await LegalWorkProjectTools();
- const base={path:'synthetic.csv',kind:'registry',outputLanguage:'cs',documentIds:[source.id],entries:[]};
- for(const expectedHash of [null,' ','invalid','A'.repeat(64)])assert.throws(()=>plugin.tool.lawoss_documents_export.execute({...base,expectedHash},{directory:'/synthetic'}),'Built registered execute must reject invalid input before HTTP');
- const advertised=tools.map(tool=>tool.function.name==='lawoss_documents_export'?{...tool,function:{...tool.function,parameters:z.toJSONSchema(z.object(plugin.tool.lawoss_documents_export.args))}}:tool);
+ // LAWOSS v2: engine plugins are built as `<name>/index.js` exporting Plugin.define({id,setup}); tools are
+ // registered through ctx.tool.transform as native Tool.Info ({name,input JSON schema,execute(raw,call)}).
+ const {default:projectTools}=await import('../../../../apps/server/dist/opencode-plugins/legalwork-project-tools/index.js');
+ const engineAccess=[];const registered=new Map();const subscriptions=new Set();
+ const unexpected=name=>new Proxy({}, {get(_target,property){engineAccess.push(`${name}.${String(property)}`);return async()=>{throw new Error(`Unexpected engine access ${name}.${String(property)}`);};}});
+ const hookable=name=>new Proxy({}, {get(_target,property){
+  if(property==='hook')return async()=>({dispose:async()=>{}});
+  if(name==='tool'&&property==='transform')return async edit=>{edit({add:info=>registered.set(info.name,info)});return {dispose:async()=>{}};};
+  if(name==='event'&&property==='subscribe')return ({signal})=>new ReadableStream({start(controller){const close=()=>{subscriptions.delete(controller);controller.close();};subscriptions.add(controller);signal.addEventListener('abort',close,{once:true});}});
+  return unexpected(name)[property];
+ }});
+ const ctx=new Proxy({}, {get(_target,property){
+  if(property==='location')return {directory:'/synthetic'};
+  if(property==='session'||property==='tool'||property==='event')return hookable(property);
+  return unexpected(String(property));
+ }});
+ const cleanup=await projectTools.setup(ctx);
+ const exportTool=registered.get('lawoss_documents_export');
+ assert.equal(typeof exportTool?.execute,'function','Built native plugin must register the export tool');
+ const setupAccess=engineAccess.length;
+ const originalFetch=globalThis.fetch;const httpRequests=[];
+ globalThis.fetch=async(...args)=>{httpRequests.push(args[0]);throw new Error('Unexpected HTTP from invalid export input');};
+ try{
+  const base={path:'synthetic.csv',kind:'registry',outputLanguage:'cs',documentIds:[source.id],entries:[]};
+  const call={sessionID:'ses_synthetic',agent:'legalwork',messageID:'msg_synthetic',id:'call_synthetic',signal:new AbortController().signal,progress:async()=>{}};
+  // The native executor is async: its authoritative schema parse rejects before session/permission lookups or HTTP.
+  // zod is bundled into the plugin, so identify its error by name and issue path rather than instanceof.
+  for(const expectedHash of [null,' ','invalid','A'.repeat(64)])await assert.rejects(exportTool.execute({...base,expectedHash},call),error=>error?.name==='ZodError'&&error.issues?.some(issue=>issue.path?.[0]==='expectedHash'),'Built registered execute must reject invalid input before HTTP');
+  assert.equal(engineAccess.length,setupAccess,'Invalid export input must not reach the engine context');
+  assert.deepEqual(httpRequests,[]);
+ }finally{globalThis.fetch=originalFetch;await cleanup?.();for(const controller of subscriptions)controller.close();}
+ // The engine advertises the registered native input JSON schema to the provider.
+ const exportInput=exportTool.input;
+ const withExpectedHash=hash=>{const parameters=structuredClone(exportInput);parameters.properties.expectedHash=z.toJSONSchema(z.object({expectedHash:hash}),{io:'input'}).properties.expectedHash;return parameters;};
+ const advertised=tools.map(tool=>tool.function.name==='lawoss_documents_export'?{...tool,function:{...tool.function,parameters:structuredClone(exportInput)}}:tool);
  const list={id:'list',type:'function',function:{name:'lawoss_documents_list',arguments:'{"limit":50}'}};
  const read={id:'read',type:'function',function:{name:'lawoss_documents_read',arguments:JSON.stringify({id:source.id,limit:16000})}};
  const messages=[{role:'user',content:prompt},{role:'assistant',tool_calls:[list]},{role:'tool',tool_call_id:'list',content:'{"documents":[],"nextOffset":null}'},{role:'assistant',tool_calls:[read]},{role:'tool',tool_call_id:'read',content:JSON.stringify({id:source.id,hash:source.hash,offset:0,text:'Synthetic evidence',nextOffset:null})}];
@@ -180,11 +210,11 @@ test('native export protocol validates advertised JSON schema then sends empty r
   const summary=await complete(provider,messages,advertised);assert.equal(JSON.parse(summary.function.arguments).kind,'summary');assert.equal(Object.hasOwn(JSON.parse(summary.function.arguments),'expectedHash'),false);
   assert.equal(provider.receipts.at(-1).exportSchemaVerified,true);
   const broad=structuredClone(advertised),broadExport=broad.find(t=>t.function.name==='lawoss_documents_export');
-  broadExport.function.parameters=z.toJSONSchema(z.object({...plugin.tool.lawoss_documents_export.args,expectedHash:z.union([z.string(),z.literal('')]).optional()}));
+  broadExport.function.parameters=withExpectedHash(z.union([z.string(),z.literal('')]).optional());
   const broadCall=await complete(provider,messages,broad);assert.equal(JSON.parse(broadCall.function.arguments).kind,'summary');
   assert.deepEqual(provider.receipts.at(-1).exportWireAcceptance,{missing:true,empty:true,valid:true,null:false,whitespace:true,invalid:true,uppercase:true});
   const strict=structuredClone(advertised);const exported=strict.find(t=>t.function.name==='lawoss_documents_export');
-  exported.function.parameters=z.toJSONSchema(z.object({...plugin.tool.lawoss_documents_export.args,expectedHash:z.string().regex(/^[a-f0-9]{64}$/).optional()}));
+  exported.function.parameters=withExpectedHash(z.string().regex(/^[a-f0-9]{64}$/).optional());
   const rejected=await fetch(`${provider.url}/chat/completions`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model:'synthetic',stream:true,messages,tools:strict})});
   assert.equal(rejected.status,500,'Fixture must reject a real advertised schema that rejects literal empty');
   const diagnostic=(await rejected.json()).error.message;
