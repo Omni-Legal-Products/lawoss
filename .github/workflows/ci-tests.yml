@@ -1,8 +1,9 @@
 name: LegalWork Tests
 
 on:
-  # Include stacked feature PRs as well as dev.
+  # Include stacked feature PRs as well as dev (predvolené typy, bez filtra vetiev a ciest).
   pull_request:
+    types: [opened, synchronize, reopened]
   push:
     branches:
       - dev
@@ -567,3 +568,16 @@ jobs:
         run: |
           pnpm --filter legalwork-server build
           LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts --timeout 180000 apps/server/src/agent-sandbox/engine.integration.test.ts apps/server/src/opencode-plugins/legalwork-skill-resources.integration.test.ts
+
+  # Upstream v0.3.0 súhrnný job; LAWOSS pridáva len orchestrator-tests do needs. Povinné kontroly rulesetu sa nemenia.
+  ci-result:
+    name: Selected checks passed
+    if: always()
+    needs: [changes, documentation, opencode-derivative, legalwork-tests, orchestrator-tests, windows-meetings, windows-drafts, sandbox-runtime, sandbox-engine, signing-inputs, unit-inputs, windows-archive-inputs, windows-archive-acceptance, windows-protected-runtime, windows-desktop-acceptance, mac-signing-acceptance, engine-source-build, desktop-packaging]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every selected check to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node -e 'const jobs = JSON.parse(process.env.RESULTS); const failed = Object.entries(jobs).filter(([, job]) => !["success", "skipped"].includes(job.result)); if (failed.length) { console.error(failed); process.exit(1); }'
