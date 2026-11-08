@@ -7,7 +7,7 @@ description: Answer how-to questions about LAWOSS using its bundled Slovak and C
 
 <!-- 🟡 LAWOSS: the bundled manual is lawoss/user-guide (sk/ and cs/), see PATCHES.md. -->
 
-For an ordinary how-to question, read the matching page with `legalwork_skill_read`, then answer. This skill and that page are normally sufficient. Use the exact package reference, for example `name="legalwork-help", path="references/sk/integracie.md"`. Do not read the index, screen map or localization page first when the topic is already clear.
+For an ordinary how-to question, register this package in the chat once with `legalwork_skill_load` (`name="legalwork-help"`), read the matching page with `legalwork_skill_read`, then answer. `legalwork_skill_read` fails for a package that was not registered with `legalwork_skill_load` in this chat. This skill and that page are normally sufficient. Use the exact package reference, for example `name="legalwork-help", path="references/sk/integracie.md"`. Do not read the index, screen map or localization page first when the topic is already clear.
 
 ## Language
 
