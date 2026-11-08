@@ -1,5 +1,9 @@
 # LAWOSS downstream patches
 
+## Tichá obnova prehľadov nesťahuje nezmenené súbory (2026-11-07, #367)
+
+Retest: pri 24 klientoch appka aj pri nečinnosti čítala ~14 súborov za sekundu (165 tisíc `files/content` za beh). Výpis priečinka sa pri obnove robí ďalej a nesie veľkosť a čas zmeny, obsah sa stiahne len pri zmene. Nový `apps/app/src/lawoss/okf/file-content-cache.ts` má strop 16 MiB a súbor nad 1 MiB ani práve zmenený súbor neukladá.
+
 ## Retest alfa10: výpadok siete, čakanie po onboardingu, hľadanie v katalógu (2026-11-07)
 
 Nálezy N7, N8 a N12 z retestu zostavy `829b9b952`. Sieťový výpadok pri inštalácii doplnku sa ukazoval ako anglické „Unexpected server error“, obrazovka Pripravené nič nehovorila počas dlhého prechodu a katalóg „Všetky balíky“ nešlo prehľadávať.
@@ -1888,3 +1892,14 @@ Po aktualizácii doplnku ostávala predchádzajúca verzia runtime v `.opencode/
 |---|---|
 | `apps/server/src/cloud-plugins.ts` | +1 import, nová funkcia `pruneUnusedPluginResources` (prečíta záznamy a MCP dotknutých riadkov, cestu overí cez `resolveWorkspaceInstallPath` a `assertPluginDestination`), volanie na konci `installCloudPlugin` po `writeInstalledCloudPlugins` a na konci `removeCloudPlugin` pre namespace z jeho súborov (+2 riadky). Neúspešná inštalácia sa k upratovaniu nedostane, doterajší runtime ostáva. |
 | `apps/server/src/cloud-plugin-resources.test.ts` | Posledný assert testu „failed resource update…“ tvrdil, že po úspešnej aktualizácii v1 runtime ostáva; teraz očakáva `ENOENT`. Assert po neúspešnej aktualizácii (v1 nedotknutý) ostáva. |
+
+## OpenUI, ovládanie a Chevron7 (2026-11-07, lokálna pracovná zmena)
+
+- `apps/server/src/legalwork-runtime-config.ts`, `legalwork-extensions-plugin-path.ts`, `apps/server/package.json`: pribalený samostatný `lawoss-view-tools` sprístupňuje päť nástrojov OpenUI pre klienta. Znovu nezapína wiki ani ich prístupové hooky; zachováva upstream preview, stream a výslovné uloženie používateľom. `lawoss/hidden-upstream-tools.ts` už neblokuje `view_*`, ostatné zákazy zachované.
+- `apps/app/src/react-app/domains/views/view-renderer.tsx`, `views.css` a štyri základné locale súbory: lazy renderer, bez pollingu statických snapshotov a definície uloženého view, kratšia retencia cache, sekvenčné živé dotazy; preložené stavy, prístupnejšie ovládanie a zalamovanie chýb. Živé wiki dáta upstreamu ostávajú obnovované.
+- `apps/desktop/electron/main.mjs`, `native-locale.mjs`, `packages/types/src/desktop-ipc.ts`, desktop test command: lokálny mostík Chevron7. Stav je len čítanie; podpisovanie vyžaduje hlavné okno aplikácie, natívny výber jedného PDF a potvrdenie. Modul `lawoss-chevron7-signing.mjs` overí nainštalovaný bundle a volá jeho Quick Action bez zachytávania PIN či výstupu. Žiadne stále bežiace MCP. Výstup `returned` nie je dôkazom podpisu. Podporované rozhranie verzie 1.18.0, nie prísľub podporovať neexistujúce HTTP/MCP API.
+- `lawoss/theme/lawoss-components.css`: composer používa rovnaký gold gradient ako spoločné primárne tlačidlo. Vlastné LAWOSS komponenty Integrácií: vyhľadávanie katalógu, scope oneskorených odpovedí, karta Chevron7 s reálnou dostupnosťou.
+
+Lokálna integrácia pre nasadenie 7. 11.: zahrnuté dokončené commity kolegu `cafb81510` a `060921020`, nie diagnostický `3caa7c881`. Jediné vyhľadávanie katalógu používa `catalog-search.ts`, spoločný Input a zjednotené preklady; filter navyše podporuje id a jurisdikciu. Zachovaná ochrana pred oneskorenými odpoveďami Marketplace.
+
+Pred nasadením doplnená regresia a oprava cache OKF: cache vlastní konkrétne API pripojenie (WeakMap), aby rovnaké workspace id a metadáta na inom serveri nevrátili predchádzajúci obsah. Okrem 16 MiB je limit 2048 položiek vrátane prázdnych súborov. Prerušenie čítania sa overuje aj pred vrátením obsahu z cache. Dva nové testy najprv zlyhali a po oprave prešli.

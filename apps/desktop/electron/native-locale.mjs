@@ -1,6 +1,10 @@
 /** Main-owned presentation copy. No renderer-provided labels or policy authority. */
 export const NATIVE_STRINGS = {
   "en": {
+    "chevron7Choose": "Choose a PDF to sign",
+    "chevron7Confirm": "Continue in Chevron7?",
+    "chevron7Detail": "Chevron7 creates a signed copy beside the original and contacts its timestamp service. Choose the certificate and enter the PIN in Chevron7. LAWOSS does not verify the signature.",
+    "chevron7Continue": "Continue",
     "file": "File",
     "edit": "Edit",
     "view": "View",
@@ -65,6 +69,10 @@ export const NATIVE_STRINGS = {
     "chooseFolder": "Select folder"
   },
   "cs": {
+    "chevron7Choose": "Vybrat PDF k podpisu",
+    "chevron7Confirm": "Pokračovat v Chevron7?",
+    "chevron7Detail": "Chevron7 vytvoří podepsanou kopii vedle originálu a kontaktuje službu časového razítka. Certifikát a PIN zadáte v Chevron7. LAWOSS podpis neověřuje.",
+    "chevron7Continue": "Pokračovat",
     "file": "Soubor",
     "edit": "Úpravy",
     "view": "Zobrazení",
@@ -129,6 +137,10 @@ export const NATIVE_STRINGS = {
     "chooseFolder": "Vybrat složku"
   },
   "sk": {
+    "chevron7Choose": "Vybrať PDF na podpis",
+    "chevron7Confirm": "Pokračovať v Chevron7?",
+    "chevron7Detail": "Chevron7 vytvorí podpísanú kópiu vedľa originálu a kontaktuje službu časovej pečiatky. Certifikát a PIN zadáte v Chevron7. LAWOSS podpis neoveruje.",
+    "chevron7Continue": "Pokračovať",
     "file": "Súbor",
     "edit": "Úpravy",
     "view": "Zobrazenie",
@@ -193,6 +205,10 @@ export const NATIVE_STRINGS = {
     "chooseFolder": "Vybrať priečinok"
   },
   "de": {
+    "chevron7Choose": "PDF zum Signieren wählen",
+    "chevron7Confirm": "In Chevron7 fortfahren?",
+    "chevron7Detail": "Chevron7 erstellt eine signierte Kopie neben dem Original und kontaktiert seinen Zeitstempeldienst. Zertifikat und PIN werden in Chevron7 eingegeben. LAWOSS prüft die Signatur nicht.",
+    "chevron7Continue": "Fortfahren",
     "file": "Datei",
     "edit": "Bearbeiten",
     "view": "Ansicht",

@@ -426,12 +426,13 @@ export type AutogramOpenResult = {
   error?: string;
 };
 
-// LAWOSS: Chevron7 (github.com/originalmagneto/chevron7) presence check by
-// bundle id `app.slovensko.chevron7`, only to show "installed" on the
-// Integrations card. LAWOSS does not launch, open or call Chevron7.
+// Installed Chevron7 owns interactive signing; IPC never accepts a path or PIN.
 export type Chevron7Status = {
   installed: boolean;
+  version?: string;
+  signingAvailable?: boolean;
 };
+export type Chevron7SignResult = { status: "returned" | "cancelled" | "busy" | "unavailable" | "invalid-file" | "failed" | "interrupted" };
 
 // ---------------------------------------------------------------------------
 // The command map
@@ -590,6 +591,7 @@ export type DesktopCommandMap = {
   autogramOpen: { args: []; result: AutogramOpenResult };
   // LAWOSS: Chevron7 card (Integrations settings), presence check only.
   chevron7Status: { args: []; result: Chevron7Status };
+  chevron7SignPdf: { args: []; result: Chevron7SignResult };
 
   // Dialogs
   pickDirectory: {

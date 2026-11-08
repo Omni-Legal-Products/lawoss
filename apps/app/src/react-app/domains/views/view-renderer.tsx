@@ -1,10 +1,9 @@
 import { ViewSaveDialog } from "./view-save-dialog";
 import { viewInput } from "./view-save";
 import { t } from "@/i18n";
-import { Component, useCallback, useEffect, useState, useSyncExternalStore, type ComponentProps, type ReactNode } from "react";
+import { Component, lazy, Suspense, useCallback, useEffect, useState, useSyncExternalStore, type ComponentProps, type ReactNode } from "react";
 import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { OpenUIView as OpenUIRenderer } from "@legalwork/openui";
 import "@legalwork/openui/styles.css";
 import type { ViewOwner, ViewPreview, ViewRecord, WikiDataResult } from "@legalwork/types/views";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -19,14 +18,17 @@ import { wikiDraftHasChanges } from "../wiki/wiki-drafts";
 import type { ViewReference } from "./view-reference";
 import "./views.css";
 
+// Charts and the component-language runtime are loaded only when a view is opened.
+const OpenUIRenderer = lazy(() => import("@legalwork/openui").then(module => ({ default: module.OpenUIView })));
+
 function OpenUIView(props: Omit<ComponentProps<typeof OpenUIRenderer>, "dark">) {
   const theme = useSyncExternalStore(subscribeToTheme, getResolvedThemeMode, getResolvedThemeMode);
-  return <OpenUIRenderer {...props} dark={theme === "dark"} />;
+  return <Suspense fallback={<div role="status" className="lw-saved-view-loading">{t("views.loading")}</div>}><OpenUIRenderer {...props} dark={theme === "dark"} /></Suspense>;
 }
 class ViewBoundary extends Component<{ children: ReactNode; fallback?: string }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
-  render() { return this.state.failed ? <div role="alert" className="lw-saved-view-error">This view could not be displayed.{this.props.fallback && <pre>{this.props.fallback}</pre>}</div> : this.props.children; }
+  render() { return this.state.failed ? <div role="alert" className="lw-saved-view-error">{t("views.display_failed")}{this.props.fallback && <pre>{this.props.fallback}</pre>}</div> : this.props.children; }
 }
 function ResolvedView({ client, view, refreshKey, openSource, readOnly }: { client: LegalworkServerClient; view: ViewRecord; refreshKey: number; readOnly?: boolean; openSource?: (path: string) => void }) {
   const queryClient = useQueryClient();
@@ -40,10 +42,13 @@ function ResolvedView({ client, view, refreshKey, openSource, readOnly }: { clie
     queryFn: async (): Promise<Record<string, WikiDataResult>> => {
       if (view.mode === "report" || !Object.keys(view.queries).length) return view.datasets ?? {};
       if (view.owner.kind !== "wiki") throw new Error("This view has no wiki data source");
-      const entries = await Promise.all(Object.entries(view.queries).map(async ([name, query]) => [name, await client.queryWiki(view.owner.id, query)]));
-      return { ...view.datasets, ...Object.fromEntries(entries) };
+      const datasets = { ...view.datasets };
+      for (const [name, query] of Object.entries(view.queries)) datasets[name] = await client.queryWiki(view.owner.id, query);
+      return datasets;
     },
-    refetchInterval: view.mode === "dashboard" ? 15_000 : false,
+    refetchInterval: view.mode === "dashboard" && view.owner.kind === "wiki" && Object.keys(view.queries).length > 0 ? 15_000 : false,
+    staleTime: 15_000,
+    gcTime: 30_000,
   });
   const query = useCallback(async (name: string): Promise<WikiDataResult> => {
     if (!results.data || !Object.hasOwn(results.data, name)) throw new Error(`Unknown data binding: ${name}`);
@@ -53,8 +58,8 @@ function ResolvedView({ client, view, refreshKey, openSource, readOnly }: { clie
   const canMove = (row: Record<string, unknown>, field: string) => Boolean(writable && results.data && viewBoardSource(view, results.data, row, field));
   const move = async (row: Record<string, unknown>, field: string, value: string) => {
     const source = writable && results.data && viewBoardSource(view, results.data, row, field);
-    if (!source) throw new Error("This card cannot be changed from this view.");
-    if (wikiDraftHasChanges(client.baseUrl, source.wikiId, source.path)) throw new Error("Save the page's pending edits before moving this card.");
+    if (!source) throw new Error(t("views.card_read_only"));
+    if (wikiDraftHasChanges(client.baseUrl, source.wikiId, source.path)) throw new Error(t("views.save_pending_edits"));
     await client.updateWikiProperties(source.wikiId, { path: source.path, baseRevision: source.baseRevision, patch: { set: { [source.property]: value } } });
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["view-data", client.baseUrl, "wiki", source.wikiId] }),
@@ -70,7 +75,7 @@ function ResolvedView({ client, view, refreshKey, openSource, readOnly }: { clie
     if (openSource && sourceOwner.kind === view.owner.kind && sourceOwner.id === view.owner.id) return openSource(path);
     if (sourceOwner.kind === "workspace") {
       const source = projectFiles?.identify(client, sourceOwner.id, { name: path.split("/").at(-1) ?? path, path });
-      if (!source) { setError("The source workspace is not connected."); return; }
+      if (!source) { setError(t("views.source_disconnected")); return; }
       requestTab(projectFileTab(source));
       return;
     }
@@ -79,23 +84,23 @@ function ResolvedView({ client, view, refreshKey, openSource, readOnly }: { clie
   const datasets: WikiDataResult[] = Object.values(results.data ?? {});
   return <>
     {results.isPending ? <div className="lw-saved-view-loading" role="status"><Loader2 className="size-4 animate-spin" />{t("views.loading_data")}</div> : results.error ? <div role="alert" className="lw-saved-view-error">{results.error.message}<Button variant="ghost" size="sm" onClick={() => void results.refetch()}>{t("wiki.retry")}</Button></div> : <ViewBoundary key={view.revision} fallback={view.fallbackMarkdown}><OpenUIView key={`${view.revision}:${datasets.map(data => data.revision).join(":")}` } program={view.program} query={query} openSource={navigate} boardActions={writable ? { canMove, move } : undefined} onError={setError} /></ViewBoundary>}
-    {error && <details className="lw-saved-view-error"><summary>This view has an error</summary><pre>{error}</pre>{view.fallbackMarkdown && <pre>{view.fallbackMarkdown}</pre>}</details>}
-    {datasets.some(data => data.truncated) && <p className="lw-view-data-note">Showing a limited set of records. Charts and local filters use the displayed data.</p>}
-    {datasets.length > 0 && <details className="lw-view-provenance"><summary>{view.mode === "report" ? "Snapshot" : "Data"} · {new Date(Math.max(...datasets.map(data => data.asOf))).toLocaleString()}</summary>{datasets.flatMap(data => (data.sources ?? []).map(source => ({ ...source, owner: data.sourceOwner ?? view.owner }))).slice(0, 50).map((source, i) => <button key={`${source.path}:${i}`} onClick={() => navigate(source.path, source.owner)}>{source.path}</button>)}</details>}
+    {error && <details className="lw-saved-view-error"><summary>{t("views.display_failed")}</summary><pre>{error}</pre>{view.fallbackMarkdown && <pre>{view.fallbackMarkdown}</pre>}</details>}
+    {datasets.some(data => data.truncated) && <p className="lw-view-data-note">{t("views.limited_data")}</p>}
+    {datasets.length > 0 && <details className="lw-view-provenance"><summary>{t(view.mode === "report" ? "views.snapshot_sources" : "views.data_sources")} · {new Date(Math.max(...datasets.map(data => data.asOf))).toLocaleString()}</summary>{datasets.flatMap(data => (data.sources ?? []).map(source => ({ ...source, owner: data.sourceOwner ?? view.owner }))).slice(0, 50).map((source, i) => <button key={`${source.path}:${i}`} onClick={() => navigate(source.path, source.owner)}>{source.path}</button>)}</details>}
   </>;
 }
 export function SavedView({ client, reference, inline = false, onTitle, openSource, readOnly }: { client: LegalworkServerClient | null; reference: ViewReference; inline?: boolean; readOnly?: boolean; onTitle?: (title: string) => void; openSource?: (path: string) => void }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [saving, setSaving] = useState(false);
-  const view = useQuery({ queryKey: ["ui-view", client?.baseUrl, reference.owner.kind, reference.owner.id, reference.viewId], queryFn: () => { if (!client) throw new Error("Connect to view this report"); return client.readView(reference.owner, reference.viewId); }, enabled: Boolean(client), refetchInterval: 15_000 });
+  const view = useQuery({ queryKey: ["ui-view", client?.baseUrl, reference.owner.kind, reference.owner.id, reference.viewId], queryFn: () => { if (!client) throw new Error(t("views.connect_required")); return client.readView(reference.owner, reference.viewId); }, enabled: Boolean(client), staleTime: 15_000, gcTime: 30_000 });
   useEffect(() => { if (view.data) onTitle?.(view.data.title); }, [view.data?.title, onTitle]);
-  if (!client) return <p className="lw-saved-view-error">Connect to view this report.</p>;
+  if (!client) return <p className="lw-saved-view-error">{t("views.connect_required")}</p>;
   return <div className={`lw-saved-view${inline ? " lw-saved-view-inline" : ""}`}>
     {view.data && <div className="lw-saved-view-toolbar">
       {!inline && <span>{t(view.data.mode === "report" ? "views.report_snapshot" : Object.keys(view.data.queries).length ? "views.live_dashboard" : "views.dashboard")}</span>}
       <div className="ml-auto flex items-center gap-1">
         {!readOnly && <Button size="sm" variant="ghost" onClick={() => setSaving(true)}>{t("views.save_copy")}</Button>}
-        <Button size="icon-xs" variant="ghost" aria-label={t("views.refresh")} title={t("views.refresh")} onClick={() => { void view.refetch(); setRefreshKey(value => value + 1); }}><RefreshCw className={view.isFetching ? "animate-spin" : ""} /></Button>
+        <Button size="icon-sm" variant="ghost" disabled={view.isFetching} aria-label={t("views.refresh")} title={t("views.refresh")} onClick={() => { void view.refetch(); setRefreshKey(value => value + 1); }}><RefreshCw className={view.isFetching ? "animate-spin motion-reduce:animate-none" : ""} /></Button>
       </div>
     </div>}
     {saving && view.data && <SavedViewCopy client={client} view={view.data} onClose={() => setSaving(false)} />}

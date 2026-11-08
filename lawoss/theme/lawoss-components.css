@@ -12,7 +12,8 @@
 [data-slot="button"]:is([data-variant="default"], [data-variant="outline"], [data-variant="secondary"], [data-variant="destructive"]):is([data-size="default"], [data-size="sm"], [data-size="lg"], [data-size="xs"]) {
   border-radius: 999px;
 }
-[data-slot="button"][data-variant="default"] {
+[data-slot="button"][data-variant="default"],
+.lw-composer-send:not(:disabled) {
   border-color: transparent;
   background: var(--lw-metal);
   background-size: 180% 100%;
@@ -21,7 +22,8 @@
   box-shadow: var(--lw-gold-glow);
   transition: background-position 600ms var(--lw-ease-expo), transform 200ms var(--lw-ease-expo), box-shadow 300ms var(--lw-ease-expo), opacity 140ms;
 }
-[data-slot="button"][data-variant="default"]:hover:not(:disabled) {
+[data-slot="button"][data-variant="default"]:hover:not(:disabled),
+.lw-composer-send:hover:not(:disabled) {
   background-position: 100% 0;
   box-shadow: var(--lw-gold-glow-hover);
 }
@@ -53,9 +55,13 @@
   border-color: color-mix(in srgb, var(--lw-gold) 50%, transparent);
   background: color-mix(in srgb, var(--lw-gold) 8%, transparent);
 }
-[data-slot="button"]:focus-visible {
+[data-slot="button"]:focus-visible,
+.lw-composer-send:focus-visible {
   outline: 2px solid var(--lw-gold);
   outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="button"], .lw-composer-send { transition: none; }
 }
 
 /* ── plochy ───────────────────────────────────────────────────────────────

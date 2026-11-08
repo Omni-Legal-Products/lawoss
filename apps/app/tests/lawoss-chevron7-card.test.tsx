@@ -26,12 +26,12 @@ describe("LAWOSS Chevron7 karta: viditeľnosť", () => {
 });
 
 describe("LAWOSS Chevron7 karta: obsah", () => {
-  test("v slovenčine ukáže názov, štítok Pripravujeme a odkaz na web Chevron7", () => {
+  test("v slovenčine ukáže názov, podpisovanie PDF a odkaz na web Chevron7", () => {
     const html = renderToStaticMarkup(<Chevron7CardContent locale="sk" />);
     expect(html).toContain(">Chevron7</h4>");
-    expect(html).toContain('data-lawoss-badge="chevron7-coming-soon"');
-    expect(html).toContain("Pripravujeme");
-    expect(html).toContain("podpis vždy potvrdíte v Chevron7");
+    expect(html).toContain('data-lawoss-badge="chevron7-signing"');
+    expect(html).toContain("Podpisovanie PDF");
+    expect(html).toContain("PIN vyberáte priamo v Chevron7");
     expect(html).toContain(`href="${CHEVRON7_WEB_URL}"`);
     expect(html).toContain("Viac o Chevron7");
     expect(CHEVRON7_WEB_URL).toBe("https://chevron7.slovensko.app");
@@ -48,7 +48,7 @@ describe("LAWOSS Chevron7 karta: obsah", () => {
 
   test("štítok a odkaz majú preklad vo všetkých štyroch jazykoch", () => {
     const badges = languages.map(locale => t("lawoss.integrations.chevron7.badge", locale));
-    expect(badges).toEqual(["Pripravujeme", "Připravujeme", "Coming soon", "In Vorbereitung"]);
+    expect(badges).toEqual(["Podpisovanie PDF", "Podpisování PDF", "PDF signing", "PDF signieren"]);
     for (const locale of languages) {
       const html = renderToStaticMarkup(<Chevron7CardContent locale={locale} />);
       expect(html).toContain(t("lawoss.integrations.chevron7.link", locale));
@@ -58,6 +58,12 @@ describe("LAWOSS Chevron7 karta: obsah", () => {
 });
 
 describe("LAWOSS Chevron7 karta: stav nainštalované", () => {
+  test("podporovaný helper sprístupní podpisovanie a verziu", () => {
+    const html = renderToStaticMarkup(<Chevron7CardContent locale="sk" installed available version="1.18.0" />);
+    expect(html).toContain("Vybrať PDF na podpis");
+    expect(html).toContain("1.18.0");
+    expect(html).not.toContain("Pre toto prepojenie nainštalujte");
+  });
   test("kontrola beží len v desktop appke na macOS", () => {
     expect(shouldCheckChevron7Installed({ desktopRuntime: true, isMac: true })).toBe(true);
     expect(shouldCheckChevron7Installed({ desktopRuntime: false, isMac: true })).toBe(false);
