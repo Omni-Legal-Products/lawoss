@@ -16,8 +16,13 @@ import { LAWOSS_PLUGIN_NAMES } from "./engine-plugin-names.js";
 const BEFORE_MERGE_ENTRIES = ["lawoss-okf-handoff", "lawoss-linked-folders", "lawoss-file-operations", "lawoss-memory-tools", "lawoss-view-tools"];
 /** Pomocníci bez vlastného vstupu, ktoré sa zbalia do pluginov, čo ich importujú. */
 const BEFORE_MERGE_HELPERS = ["lawoss-editor-approval", "lawoss-file-paths", "lawoss-file-operations-text"];
-/** Balík npm, ktorý LAWOSS registruje navyše (rozhodnutie MČ: prihlásenie Anthropic ostáva). */
+/** Balík npm v1, ktorý LAWOSS registroval navyše (rozhodnutie MČ: prihlásenie Anthropic ostáva). Engine v2 ho
+ * nenačíta a cieľ bez absolútnej cesty by pri štarte inštaloval z npm (`core/src/plugin/module.ts`, `npm.add`);
+ * nahrádza ho pribalený port `lawoss-anthropic-auth`. */
 const NPM_PLUGIN = "opencode-anthropic-auth";
+/** Pluginy LAWOSS pridané pri porte na v2 (nemali vstup v builde pred mergom). */
+const V2_ENTRIES = ["lawoss-anthropic-auth"];
+const ENTRIES = [...BEFORE_MERGE_ENTRIES, ...V2_ENTRIES];
 
 const cleanup: Array<() => Promise<unknown>> = [];
 const previousDb = process.env.LEGALWORK_RUNTIME_DB;
@@ -26,11 +31,11 @@ afterEach(async () => {
   if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previousDb;
 });
 
-test("každý plugin LAWOSS spred mergu ostáva vstupom buildu", () => {
-  expect([...LAWOSS_PLUGIN_NAMES].map(String).sort()).toEqual([...BEFORE_MERGE_ENTRIES].sort());
+test("každý plugin LAWOSS spred mergu ostáva vstupom buildu, port prihlásenia Anthropic pribudol", () => {
+  expect([...LAWOSS_PLUGIN_NAMES].map(String).sort()).toEqual([...ENTRIES].sort());
 });
 
-test.each(BEFORE_MERGE_ENTRIES)("zostavený balík obsahuje %s ako natívny plugin v2 (Plugin.define)", async name => {
+test.each(ENTRIES)("zostavený balík obsahuje %s ako natívny plugin v2 (Plugin.define)", async name => {
   const entry = legalworkPluginPath(name);
   expect(entry.endsWith(join("dist", "opencode-plugins", name, "index.js"))).toBe(true);
   expect((await stat(entry)).isFile()).toBe(true);
@@ -47,7 +52,7 @@ test.each(BEFORE_MERGE_ENTRIES)("zostavený balík obsahuje %s ako natívny plug
   expect(("setup" in definition && typeof definition.setup === "function") || ("effect" in definition && typeof definition.effect === "function")).toBe(true);
 });
 
-test("konfigurácia enginu zaregistruje každý plugin LAWOSS a prihlásenie Anthropic", async () => {
+test("konfigurácia enginu zaregistruje každý plugin LAWOSS a prihlásenie Anthropic bez npm", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "lawoss-plugin-inventory-")));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
@@ -61,9 +66,11 @@ test("konfigurácia enginu zaregistruje každý plugin LAWOSS a prihlásenie Ant
   const plugins = Array.isArray(built.plugins) ? built.plugins : [];
   const targets = plugins.map((plugin: unknown) => typeof plugin === "string" ? plugin
     : plugin !== null && typeof plugin === "object" && "package" in plugin && typeof plugin.package === "string" ? plugin.package : "");
-  expect(targets).toContain(NPM_PLUGIN);
-  const bundled = await Promise.all(targets.filter(isAbsolute).map(async target => readFile(join(target, "index.js"), "utf8")));
-  for (const name of BEFORE_MERGE_ENTRIES) {
+  // Každý cieľ je pribalený priečinok: engine pri štarte nič nesťahuje z npm.
+  expect(targets).not.toContain(NPM_PLUGIN);
+  expect(targets.filter(target => !isAbsolute(target))).toEqual([]);
+  const bundled = await Promise.all(targets.map(async target => readFile(join(target, "index.js"), "utf8")));
+  for (const name of ENTRIES) {
     const original = await readFile(legalworkPluginPath(name), "utf8");
     expect([name, bundled.includes(original)]).toEqual([name, true]);
   }

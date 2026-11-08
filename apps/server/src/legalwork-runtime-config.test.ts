@@ -357,10 +357,12 @@ describe("legalwork runtime config files", () => {
     expect(projection).toContain("{file:");
     expect(projection).not.toContain("https://mcp.posthog.com/mcp");
     expect(projection).not.toContain("start-tabular-review");
-    // LAWOSS: "Sign in with Anthropic" stays wired (MČ decision), and every LAWOSS engine plugin is bundled.
-    // A package plugin belongs to the project layer; the common layer holds bundled directories only.
-    expect(pluginTargets(parsed.plugins)).toContain("opencode-anthropic-auth");
-    for (const name of ["lawoss-okf-handoff", "lawoss-linked-folders", "lawoss-file-operations", "lawoss-memory-tools", "lawoss-view-tools"]) await expectBundle(sources, name);
+    // LAWOSS: "Sign in with Anthropic" stays wired (MČ decision) as the bundled v2 port, and every LAWOSS engine
+    // plugin is bundled. No layer names an npm package: the engine would install it at startup (plugin/module.ts).
+    expect(pluginTargets(parsed.plugins)).not.toContain("opencode-anthropic-auth");
+    expect(projection).not.toContain("opencode-anthropic-auth");
+    for (const target of [...pluginTargets(parsed.plugins), ...pluginTargets(mandatory.plugins)].filter(target => !target.startsWith("-"))) expect([target, isAbsolute(target)]).toEqual([target, true]);
+    for (const name of ["lawoss-okf-handoff", "lawoss-linked-folders", "lawoss-file-operations", "lawoss-memory-tools", "lawoss-view-tools", "lawoss-anthropic-auth"]) await expectBundle(sources, name);
   });
 
   test("bundled plugins use host-resolved directory entrypoints on every platform", async () => {

@@ -494,7 +494,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       const id = provider.integrationID ?? provider.id;
       if (methods[id]) methods[provider.id] = methods[id];
     }
-    // LAWOSS: Anthropic keeps its OAuth sign-in methods (opencode-anthropic-auth, MČ decision); no upstream API-key-only restriction.
+    // LAWOSS: Anthropic keeps its OAuth sign-in methods (bundled engine plugin lawoss-anthropic-auth, MČ decision); no upstream API-key-only restriction.
     return methods;
   };
 

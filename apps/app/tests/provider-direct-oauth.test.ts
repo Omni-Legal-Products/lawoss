@@ -71,14 +71,14 @@ describe("native subscription OAuth", () => {
     expect(store.getSnapshot().providerAuthModalOpen).toBe(false);
   });
 });
-// LAWOSS: prihlásenie Anthropic cez plugin `opencode-anthropic-auth` (Claude Pro/Max aj
-// „Create an API Key“) ostáva; je vstupnou podmienkou alfy (rozhodnutie MČ). Upstream ho zrušil
-// a Anthropic obmedzil na ručný API kľúč; LAWOSS ponúka metódy, ktoré engine zverejní.
+// LAWOSS: prihlásenie Anthropic (Claude Pro/Max aj „Create an API Key“) ostáva; je vstupnou podmienkou alfy
+// (rozhodnutie MČ). Upstream ho zrušil a Anthropic obmedzil na ručný API kľúč; LAWOSS ponúka metódy, ktoré engine
+// zverejní. Na engine v2 ich dodá pribalený plugin `lawoss-anthropic-auth` (id metód `oauth` a `create-api-key`).
 describe("LAWOSS: Anthropic keeps its OAuth methods next to the manual API key", () => {
   const advertiseAnthropicOAuth = (fixture: ReturnType<typeof providerStore>) => {
     const anthropic = fixture.integrations.find(integration => integration.id === "anthropic");
     if (!anthropic) throw new Error("Anthropic fixture missing");
-    anthropic.methods = [{ type: "key", label: "API key" }, { type: "oauth", id: "claude-max", label: "Claude Pro/Max" }, { type: "oauth", id: "create-key", label: "Create an API Key" }];
+    anthropic.methods = [{ type: "key", label: "API key" }, { type: "oauth", id: "oauth", label: "Claude Pro/Max" }, { type: "oauth", id: "create-api-key", label: "Create an API Key" }];
   };
   test("offers the engine's Anthropic OAuth methods and routes the selected method", async () => {
     const fixture = providerStore();
@@ -88,7 +88,7 @@ describe("LAWOSS: Anthropic keeps its OAuth methods next to the manual API key",
     const methods = fixture.store.getSnapshot().providerAuthMethods.anthropic ?? [];
     expect(methods.filter(method => method.type === "oauth").map(method => method.label)).toEqual(["Claude Pro/Max", "Create an API Key"]);
     await fixture.store.startProviderAuth("anthropic", 2);
-    expect(fixture.calls.find(call => call.path.endsWith("/anthropic/connect/oauth"))?.body).toMatchObject({ methodID: "create-key" });
+    expect(fixture.calls.find(call => call.path.endsWith("/anthropic/connect/oauth"))?.body).toMatchObject({ methodID: "create-api-key" });
   });
   test("stores the manually entered Anthropic key without starting OAuth", async () => {
     const { store, calls } = providerStore();

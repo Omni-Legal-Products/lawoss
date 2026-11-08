@@ -22,8 +22,8 @@ const provider = (id: string, name: string, env: string[]): ProviderListItem => 
 
 /**
  * Vstupná podmienka alfy (call 11. 9. 2026): pripojenie modelov Anthropic
- * funguje. Anthropic prichádza z katalógu enginu (models.dev + plugin
- * `opencode-anthropic-auth`); LAWOSS ho nesmie odfiltrovať ani zrušiť.
+ * funguje. Anthropic prichádza z katalógu enginu (models.dev + pribalený plugin
+ * `lawoss-anthropic-auth`, port balíka v1 `opencode-anthropic-auth`); LAWOSS ho nesmie odfiltrovať ani zrušiť.
  */
 describe("LAWOSS: Anthropic ako poskytovateľ modelov", () => {
   const engineList: ProviderListResponse = {
