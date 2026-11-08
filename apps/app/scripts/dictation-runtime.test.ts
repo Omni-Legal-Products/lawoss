@@ -69,6 +69,10 @@ mock.module("../src/react-app/domains/recorder/capture", () => ({
 }));
 mock.module("../src/react-app/domains/recorder/model-tiers", () => ({ MODEL_TIERS: [], isPremiumEntitled: () => true, isPremiumEntitlementKnown: () => true, tierForModelId: () => null }));
 mock.module("../src/app/lib/opencode", () => ({ unwrap: (value: unknown) => value }));
+// 🟡 LAWOSS: LAWOSS skrýva cloudový prepis (feature-flags.ts, test lawoss-cloud-transcription-hidden).
+// Tieto upstream testy overujú samotný mechanizmus cloudu, preto v nich prepínač ostáva vypnutý.
+const lawossFlags = await import("../src/lawoss/feature-flags");
+mock.module("../src/lawoss/feature-flags", () => ({ ...lawossFlags, isCloudTranscriptionHidden: () => false }));
 mock.module("../src/app/lib/desktop", () => ({
   audioMiniBarSetEnabled: async (enabled: boolean) => {
     if (miniBarError) throw new Error("Could not save preference");

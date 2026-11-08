@@ -29,6 +29,7 @@ Agent pri otázkach na appku (skill `legalwork-help`) číta príručku LAWOSS v
 | `apps/app/src/lawoss/feature-flags.ts` | `isCloudTranscriptionHidden()` = `true`. |
 | `apps/app/src/react-app/domains/recorder/recorder-store.ts` | Bootstrap záznamníka zahodí `cloud` (modely, regióny, modely poznámok), uložená voľba „cloud“ sa číta ako lokálna a `setTranscriptionSource("cloud")` sa odmietne. Všetky ponuky (`CloudModelList`, výber modelu, onboarding, nastavenia záznamníka) tak nemajú čo zobraziť. |
 | `apps/app/tests/lawoss-cloud-transcription-hidden.test.ts`, `apps/app/tests/onboarding-transcription-choice.test.tsx` | Nový test; upstream test voľby cloudu overuje, že voľba ostane lokálna. |
+| `apps/app/scripts/dictation-runtime.test.ts` | Upstream testy cloudového diktovania nastavia `isCloudTranscriptionHidden()` na `false` cez `mock.module`, aby ďalej overovali samotný mechanizmus cloudu. |
 
 ## Sync upstream v0.2.19 (2026-11-08, ADR 0016)
 
@@ -40,6 +41,7 @@ Pribalená používateľská príručka (`docs/user-guide`, skill `legalwork-hel
 | `apps/app/src/react-app/domains/views/view-renderer.tsx` | Upstream ukladanie a export prehľadov + LAWOSS lenivé načítanie OpenUI, preklady (`views.display_failed`, `views.limited_data`) a bez 15 s obnovy otvoreného prehľadu (`staleTime`/`gcTime`, #367). |
 | `apps/desktop/electron/main.mjs`, `apps/desktop/package.json`, `apps/server/package.json`, `package.json` | Lokalizovaný názov okna exportu pre podporu ostáva; upstream technický export, `dashboardFileImporter`, `gen-core-skills` v builde a nové testy popri LAWOSS. |
 | `AGENTS.md`, `README.md` | LAWOSS (upstream pravidlá príručky neprevzaté). |
+| `.github/workflows/ci-windows-portable.yml` | Krok `pnpm docs:generate` po inštalácii: testy importujú ignorovaný `apps/server/src/help-i18n.generated.ts`, ktorý vzniká až generátorom. |
 
 Overené: `meeting-monitor.mjs` má ďalej `detectionDefault` (LAWOSS `false`), akcie LAWOSS v `ci-tests.yml` ostávajú pripnuté na SHA. `sk.ts` a `cs.ts`: 61 nových kľúčov, 2 zrušené odstránené. `opencodeVersion` ostáva 1.18.29.
 
