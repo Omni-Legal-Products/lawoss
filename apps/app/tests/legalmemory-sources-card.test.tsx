@@ -13,7 +13,6 @@ describe("LegalMemorySourcesCard", () => {
     const html = renderToStaticMarkup(
       React.createElement(LegalMemorySourcesCard, {
         documents,
-        matters: {},
         streaming: false,
       }),
     );
@@ -30,11 +29,23 @@ describe("LegalMemorySourcesCard", () => {
     const html = renderToStaticMarkup(
       React.createElement(LegalMemorySourcesCard, {
         documents: [{ documentId: "document-1", title: "Only source" }],
-        matters: {},
         streaming: false,
       }),
     );
 
     expect(html).not.toContain("Sources pagination");
+  });
+
+  test("uses only the source's supplied matter title or id", () => {
+    const html = renderToStaticMarkup(React.createElement(LegalMemorySourcesCard, {
+      documents: [
+        { documentId: "one", title: "First source", matterId: "matter-one", matterTitle: "Synthetic acquisition" },
+        { documentId: "two", title: "Second source", matterId: "matter-two" },
+      ],
+      streaming: false,
+    }));
+    expect(html).toContain("Synthetic acquisition");
+    expect(html).not.toContain("matter-one");
+    expect(html).toContain("matter-two");
   });
 });

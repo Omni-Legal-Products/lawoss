@@ -89,7 +89,7 @@ const money = (cents: number) =>
     style: "currency",
     currency: "EUR",
   }).format(cents / 100);
-type Props = { t: Text; run: Run; busy: boolean; transport: UsageTransport };
+type Props = { t: Text; run: Run; busy: boolean; transport: UsageTransport; trialUsage?: boolean };
 function usePaymentDetails(transport: UsageTransport, refreshSignal?: unknown) {
   const [details, setDetails] = useState<BillingPaymentDetails | null>(null),
     [failed, setFailed] = useState(false);
@@ -109,6 +109,11 @@ function usePaymentDetails(transport: UsageTransport, refreshSignal?: unknown) {
   useEffect(() => {
     void reload();
   }, [reload, refreshSignal]);
+  useEffect(() => {
+    const refresh = () => { void reload(); };
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [reload]);
   return { details, failed, reload };
 }
 function CardLabel({ card, t }: { card: SavedCard; t: Text }) {
@@ -159,6 +164,7 @@ function PaymentState({
 }
 export function CardTopUp(props: Props & {
   triggerSize?: "default" | "sm";
+  triggerVariant?: "default" | "outline";
   hideTrigger?: boolean;
   returnLabel?: UsageTextKey;
   readyHint?: UsageTextKey;
@@ -213,14 +219,14 @@ export function CardTopUp(props: Props & {
         setOpen(value);
       }}
     >
-      {!props.hideTrigger && <DialogTrigger render={<Button size={props.triggerSize} className="self-start" />}>
+      {!props.hideTrigger && <DialogTrigger render={<Button size={props.triggerSize} variant={props.triggerVariant} className="self-start" />}>
         {paidOperationId && waiting ? <CreditCard /> : <Plus />}
         {props.t(paidOperationId && waiting ? "limits.check_credits" : "limits.topup")}
       </DialogTrigger>}
-      <DialogContent>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{props.t(paidOperationId ? waiting ? "limits.topup_paid" : "limits.credits_added" : "limits.topup")}</DialogTitle>
-          <DialogDescription>{props.t(paidOperationId ? "limits.topup_confirmed_hint" : "limits.topup_hint")}</DialogDescription>
+          <DialogDescription>{props.t(paidOperationId ? "limits.topup_confirmed_hint" : props.trialUsage ? "limits.trial_topup_hint" : "limits.topup_hint")}</DialogDescription>
         </DialogHeader>
         {open && (paidOperationId ? <div className="space-y-4">
           <div role="status" className="flex items-start gap-3 rounded-xl border bg-muted/30 p-4">
@@ -237,9 +243,9 @@ export function CardTopUp(props: Props & {
     </Dialog>
   );
 }
-function TopUpForm({ t, run, busy, transport, onPaid }: Props & { onPaid: (operationId: string) => void }) {
+function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { onPaid: (operationId: string) => void }) {
   const { details, failed, reload } = usePaymentDetails(transport);
-  const [value, setValue] = useState("100"),
+  const [value, setValue] = useState(trialUsage ? "20" : "100"),
     [operationId, setOperationId] = useState(() => crypto.randomUUID()),
     [submitted, setSubmitted] = useState(false),
     [error, setError] = useState("");
@@ -438,12 +444,13 @@ function TopUpForm({ t, run, busy, transport, onPaid }: Props & { onPaid: (opera
         if (details.card)
           void execute({
             action: "topUp",
+            enableTrialUsage: trialUsage || undefined,
             operationId,
             amountCents,
             paymentMethodId: details.card.id,
           });
         else
-          void run({ action: "checkout", amountCents }).catch(() =>
+          void run(trialUsage ? { action: "paymentSetup" } : { action: "checkout", amountCents }).catch(() =>
             setError(t("limits.action_error")),
           );
       }}
@@ -493,9 +500,10 @@ function TopUpForm({ t, run, busy, transport, onPaid }: Props & { onPaid: (opera
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">
-          {t("limits.no_card_checkout")}
+          {t(trialUsage ? "limits.trial_card_required" : "limits.no_card_checkout")}
         </p>
       )}
+      {trialUsage && <p className="text-xs leading-relaxed text-muted-foreground">{t("limits.trial_topup_permission")}</p>}
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
@@ -509,11 +517,12 @@ function TopUpForm({ t, run, busy, transport, onPaid }: Props & { onPaid: (opera
         <CreditCard />
         {!details || details.card
           ? t("limits.confirm_topup")
-          : t("limits.continue_checkout")}
+          : t(trialUsage ? "limits.change_card" : "limits.continue_checkout")}
         {(!details || details.card) &&
           ` · ${money(Math.round(Number(value.replace(",", ".")) * 100) || 0)}`}
       </Button>
-      {details?.card && !submitted && (
+      {trialUsage && details && !details.card && <Button type="button" variant="outline" className="w-full" onClick={() => void reload()}>{t("limits.refresh")}</Button>}
+      {details?.card && !submitted && !trialUsage && (
         <Button
           type="button"
           variant="ghost"
@@ -530,7 +539,7 @@ function TopUpForm({ t, run, busy, transport, onPaid }: Props & { onPaid: (opera
               setError(t("limits.invalid_topup"));
               return;
             }
-            void run({ action: "checkout", amountCents }).catch(() =>
+            void run(trialUsage ? { action: "paymentSetup" } : { action: "checkout", amountCents }).catch(() =>
               setError(t("limits.action_error")),
             );
           }}

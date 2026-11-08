@@ -4,10 +4,11 @@ import { createRequire } from "node:module";
 import { copyFile, mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { checkOkfCliWithNode } from "../electron/lawoss-okf-cli-smoke.mjs"; // 🟡 LAWOSS: kontrola bundlov OKF na konci
 import { checkBundledNpm } from "../electron/lawoss-npm-smoke.mjs"; // 🟡 LAWOSS: npm pre balíky LAWOSS Marketplace
+import { assertPackagedOpencodeSdk } from "./packaged-opencode-sdk.cjs";
 const require = createRequire(import.meta.url);
 const builderRequire = createRequire(require.resolve("electron-builder"));
 const libRequire = createRequire(builderRequire.resolve("app-builder-lib"));
@@ -34,6 +35,17 @@ if (node.error) throw node.error;
 assert.equal(node.status, 0, node.stderr);
 assert.deepEqual(JSON.parse(node.stdout), { version: metadata.source.version, electron: null, arch: expectedArch });
 console.log(`PASS: bundled Node ${metadata.source.version} runs with no system Node on PATH`);
+const sdk = assertPackagedOpencodeSdk(resources);
+const sdkImport = spawnSync("node", ["--input-type=module", "-e", `
+  const {tool} = await import(process.argv[1]);
+  const {createOpencodeClient} = await import(process.argv[2]);
+  if (typeof tool !== 'function' || typeof createOpencodeClient !== 'function') process.exit(1);
+`, ...["plugin", "sdk"].map((name) => pathToFileURL(path.join(sdk, "node_modules", "@opencode-ai", name, "dist/index.js")).href)], {
+  env: { ...process.env, PATH: nodeDirectory, NODE_OPTIONS: "", ELECTRON_RUN_AS_NODE: "" }, encoding: "utf8", timeout: 30_000,
+});
+if (sdkImport.error) throw sdkImport.error;
+assert.equal(sdkImport.status, 0, sdkImport.stderr);
+console.log("PASS: packaged OpenCode plugin SDK and client load with bundled Node");
 if (process.platform === "win32") {
   const expectedMachine = expectedArch === "arm64" ? 0xaa64 : 0x8664;
   for (const executable of [appPath, path.join(nodeDirectory, "node.exe"), path.join(resources, "sidecars/opencode.exe")]) {

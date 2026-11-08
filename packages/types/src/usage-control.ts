@@ -57,7 +57,18 @@ export type MemberPlanQuote = {
   billingInterval: "month" | "year";
   paymentMethodRequired?: boolean;
 };
+export type TrialSubscriptionQuote = {
+  recurringAmountCents: number;
+  seatCount: number;
+  quoteId: string;
+  amountCents: number;
+  billingInterval: "month" | "year";
+};
+export type TrialSubscriptionResult = TrialSubscriptionQuote |
+  { status: "paid" | "processing" | "canceled"; quoteId: string } |
+  { status: "requires_payment"; quoteId: string; url: string };
 export type UsageControlView = {
+  trial?: { endsAt: string } | null;
   invitations?: {
     id: string;
     email: string;
@@ -81,12 +92,15 @@ export type UsageControlView = {
   billingInterval: "month" | "year";
 };
 export type UsageControlAction =
+  | { action: "trialSubscription"; preview: boolean; quoteId?: string; expectedAmountCents?: number }
+  | { action: "resumeTrialSubscription" | "cancelTrialSubscription"; quoteId: string }
   | { action: "increaseLimit"; scope: "personal" | "organization"; limitCents: number }
   | { action: "enableExtraUsage" }
   | { action: "paymentDetails" }
   | { action: "paymentSetup" }
   | {
       action: "topUp";
+      enableTrialUsage?: boolean;
       operationId: string;
       amountCents: number;
       paymentMethodId: string;

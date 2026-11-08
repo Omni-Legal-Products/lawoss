@@ -2,7 +2,7 @@ import { marked } from "marked";
 import type { Extension } from "micromark-util-types";
 import { markdownFrontmatter } from "./markdown-block-model";
 
-/** Wikis display HTML-like placeholders literally, without interpreting tags. */
+/** Instruction documents and wikis display HTML-like placeholders literally, without interpreting tags. */
 export const literalHtmlSyntax: Extension = { disable: { null: ["htmlText", "htmlFlow"] } };
 
 /** Compare document content, excluding parser offsets and table editor identity caches. */

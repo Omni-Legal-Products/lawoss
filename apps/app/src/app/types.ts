@@ -403,6 +403,7 @@ export type PendingPermission = Omit<ApiPermissionRequest, "always"> & {
   host?: import("@legalwork/types/desktop-ipc").HostApprovalRequest;
   v2?: Pick<PermissionV2Request, "action" | "resources" | "save">;
   sourceSession?: { id: string; title: string };
+  toolInput?: { status: "loading" | "unavailable" } | { status: "ready"; value: Record<string, unknown> };
 };
 
 export type PendingQuestion = QuestionRequest & {

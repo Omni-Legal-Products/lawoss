@@ -47,6 +47,7 @@ run(nodeCmd, [resolve(repoRoot, "lawoss/engine-dependencies/package-runtime.mjs"
   resolve(desktopRoot, "resources", "engine-dependencies"), runtimeScratch,
   resolve(runtimeScratch, "store"), process.env.LAWOSS_BUILD_PNPM_CLI ?? process.env.npm_execpath ?? "", "online"], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-actaport-mcp.mjs")], desktopRoot);
+run(nodeCmd, [resolve(__dirname, "prepare-opencode-sdk.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-windows-arm64-speech.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], desktopRoot);

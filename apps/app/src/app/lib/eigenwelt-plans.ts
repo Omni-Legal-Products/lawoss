@@ -8,6 +8,8 @@
  */
 
 export type EigenweltPlanId = "sync" | "plus" | "pro";
+/** One tax-inclusive EUR fee per new firm, separate from subscription payments. */
+export const EIGENWELT_TRIAL_FEE_CENTS = 100;
 
 export type EigenweltPlan = {
   id: EigenweltPlanId;

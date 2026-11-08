@@ -13,7 +13,7 @@ import type { ConnectorState } from "./connector-status";
 export type IntegrationLibrarySource = "all" | "personal" | "team";
 export type IntegrationLibraryKind = "connector" | "skill" | "storage";
 export type IntegrationAddRequest = { kind: IntegrationLibraryKind; id: number };
-export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null; leadingActions?: HTMLElement | null; directoryRequest?: number; onRefresh?: () => void; revision?: number; source?: IntegrationLibrarySource; addRequest?: IntegrationAddRequest | null; onAddHandled?: () => void; connectorToOpen?: string | null; onConnectorOpened?: () => void; ownsMoreMenu?: boolean; importedPackages?: readonly ImportedPlugin[]; connectorState?: (name: string) => ConnectorState | undefined } | null>(null);
+export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null; leadingActions?: HTMLElement | null; directoryRequest?: number; directoryActions?: ReactNode; customPluginOpen?: boolean; pluginSearch?: string; onRefresh?: () => void; revision?: number; source?: IntegrationLibrarySource; addRequest?: IntegrationAddRequest | null; onAddHandled?: () => void; connectorToOpen?: string | null; onConnectorOpened?: () => void; ownsMoreMenu?: boolean; importedPackages?: readonly ImportedPlugin[]; connectorState?: (name: string) => ConnectorState | undefined } | null>(null);
 /** Embedded team catalogues follow their library's search. */
 export const IntegrationLibrarySearchContext = createContext({ query: "", hasOtherResults: false });
 
@@ -43,11 +43,11 @@ export function IntegrationLibraryActions({ children }: { children: ReactNode })
 
 export type IntegrationAddAction = { label: string; onClick: () => void | Promise<void>; icon: LucideIcon; disabled?: boolean };
 
-export function IntegrationAddMenu(props: { actions: IntegrationAddAction[]; disabled?: boolean; triggerRef?: RefObject<HTMLButtonElement | null> }) {
+export function IntegrationAddMenu(props: { actions: IntegrationAddAction[]; disabled?: boolean; triggerRef?: RefObject<HTMLButtonElement | null>; label?: string }) {
   const [only] = props.actions;
-  if (props.actions.length === 1 && only) return <Button ref={props.triggerRef} size="sm" disabled={props.disabled || only.disabled} onClick={only.onClick} title={only.label}><Plus className="size-3.5" />{t("common.add")}</Button>;
+  if (props.actions.length === 1 && only) return <Button ref={props.triggerRef} size="sm" disabled={props.disabled || only.disabled} onClick={only.onClick} title={only.label}><Plus className="size-3.5" />{props.label ?? t("common.add")}</Button>;
   return <DropdownMenu>
-    <DropdownMenuTrigger render={<Button ref={props.triggerRef} size="sm" disabled={props.disabled} />}><Plus className="size-3.5" />{t("common.add")}<ChevronDown className="size-3.5" /></DropdownMenuTrigger>
+    <DropdownMenuTrigger render={<Button ref={props.triggerRef} size="sm" disabled={props.disabled} />}><Plus className="size-3.5" />{props.label ?? t("common.add")}<ChevronDown className="size-3.5" /></DropdownMenuTrigger>
     <DropdownMenuContent align="end">{props.actions.map(action => { const Icon = action.icon; return <DropdownMenuItem key={action.label} disabled={action.disabled} onClick={action.onClick}><Icon />{action.label}</DropdownMenuItem>; })}</DropdownMenuContent>
   </DropdownMenu>;
 }

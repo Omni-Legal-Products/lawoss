@@ -231,7 +231,7 @@ test("the import API enforces server-owned review and persists partial-package e
     expect(reviewed.connectors[0].status).toBe("blocked");
     const forged = await fetch(`${base}/install`, { method: "POST", headers, body: JSON.stringify({ ...payload, root: reviewed.root, digest: reviewed.digest, validationId: "forged" }) });
     expect(forged.status).toBe(409);
-    const installed = await fetch(`${base}/install`, { method: "POST", headers, body: JSON.stringify({ ...payload, root: reviewed.root, digest: reviewed.digest, validationId: reviewed.validationId }) });
+    const installed = await fetch(`${base}/install`, { method: "POST", headers, body: JSON.stringify({ ...payload, root: reviewed.root, digest: reviewed.digest, validationId: reviewed.validationId, acknowledgePartial: true }) });
     expect(installed.status).toBe(200);
     const record = await installed.json();
     expect(record.item.files.some((file: { objectType: string }) => file.objectType === "mcp")).toBe(false);
@@ -247,4 +247,29 @@ test("the import API enforces server-owned review and persists partial-package e
     if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previousDb;
     await rm(root, { recursive: true, force: true });
   }
+});
+
+
+test("operator-owned metadata identities validate the exact callback and never trigger DCR", async () => {
+  const remote = provider({ dcr: true, cimd: true });
+  const identity = "https://legalwork.example/oauth/client.json";
+  const redirectUri = "http://127.0.0.1:19876/mcp/oauth/callback";
+  const imported = await plan({ metadata: { url: remote.url } });
+  const options = (callback: string) => ({ clientMetadataUrl: identity, fetch: (input: string | URL | Request, init?: RequestInit) => String(input) === identity ? Promise.resolve(Response.json({ client_id: identity, client_name: "LegalWork", redirect_uris: [callback], token_endpoint_auth_method: "none" })) : fetch(input, init) });
+  const valid = await preparePluginImport(imported, target, options(redirectUri), true);
+  expect(valid.preview.connectors?.[0]).toMatchObject({ status: "setup", code: "sign_in" });
+  expect(remote.registrations()).toBe(0);
+  const invalid = await preparePluginImport(imported, target, options("https://other-app.example/callback"), true);
+  expect(invalid.preview.connectors?.[0]).toMatchObject({ status: "blocked", code: "client_metadata" });
+  expect(remote.registrations()).toBe(0);
+});
+
+
+test("portable HTTP declarations do not silently install an SSE fallback", async () => {
+  const remote = provider({ legacySse: true, dcr: true });
+  const imported = await plan({ remote: { type: "http", url: remote.url } });
+  imported.preview.connectors![0].declaredTransport = "streamable-http";
+  const checked = await preparePluginImport(imported, target);
+  expect(checked.preview.connectors?.[0]).toMatchObject({ status: "blocked", code: "transport_mismatch" });
+  expect(remote.registrations()).toBe(0);
 });

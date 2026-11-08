@@ -2,7 +2,7 @@ import { Minus, Plus } from "lucide-react";
 import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 import legalworkMark from "@/assets/legalwork-mark-dark.svg";
 import { Button } from "@/components/ui/button";
-import { EIGENWELT_PLANS, formatEuroCents, type EigenweltPlanId } from "@/app/lib/eigenwelt-plans";
+import { EIGENWELT_PLANS, EIGENWELT_TRIAL_FEE_CENTS, formatEuroCents, type EigenweltPlanId } from "@/app/lib/eigenwelt-plans";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 
@@ -60,10 +60,15 @@ export function PlanConfirmation({ planId, selection, disabled, offerTrial, onCh
       </div>
     </div>
     <div className="mt-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t border-dls-border pt-4 text-[13px] leading-[18px] text-dls-text">
-      <span className="text-dls-secondary">{t("ai_plans.confirm_total")}</span>
+      {offerTrial ? <>
+        <span className="text-dls-secondary">{t("limits.trial_due_today")}</span>
+        <strong className="font-medium tabular-nums">{formatEuroCents(EIGENWELT_TRIAL_FEE_CENTS, locale)}</strong>
+        <div className="w-full" />
+      </> : null}
+      <span className="text-dls-secondary">{t(offerTrial ? "ai_plans.confirm_after_trial" : "ai_plans.confirm_total")}</span>
       <strong className="font-medium tabular-nums">{formatEuroCents(periodPrice * selection.seats, locale)} / {t(yearly ? "ai_plans.confirm_year" : "ai_plans.confirm_month")}</strong>
     </div>
     <Button size="lg" className="mt-5 h-11 w-full rounded-full text-[14px] roomy:mt-6 roomy:h-12 roomy:text-[15px]" disabled={disabled} onClick={onConfirm}>{t(offerTrial ? "ai_plans.confirm_trial" : "ai_plans.confirm_continue")}</Button>
-    <p className="mt-3 text-center text-[11px] leading-4 text-dls-secondary">{t("ai_plans.confirm_footnote")}</p>
+    <p className="mt-3 text-center text-[11px] leading-4 text-dls-secondary">{t(offerTrial ? "ai_plans.confirm_trial_footnote" : "ai_plans.confirm_footnote")}</p>
   </article>;
 }

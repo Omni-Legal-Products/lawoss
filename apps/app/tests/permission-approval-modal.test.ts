@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { PendingPermission } from "../src/app/types";
+import type { Part, PermissionRequest } from "@opencode-ai/sdk/v2/client";
+import { permissionToolInput, permissionWithReceivedAt } from "../src/react-app/domains/session/sync/interaction-state";
 
 import {
   PermissionApprovalPanel,
@@ -26,6 +28,60 @@ function pendingPermission(overrides: Partial<PendingPermission> = {}): PendingP
 }
 
 describe("permission approval modal helpers", () => {
+  test("shows actual MCP call arguments before approving an engine event with empty metadata", () => {
+    const request = permissionWithReceivedAt({
+      id: "mcp-request", sessionID: "child-session", permission: "legalmemory_search", patterns: ["*"],
+      metadata: {}, always: ["*"], tool: { messageID: "message-one", callID: "call-one" },
+    } satisfies PermissionRequest, 1);
+    const part: Part = {
+      id: "part-one", sessionID: "child-session", messageID: "message-one", type: "tool", callID: "call-one", tool: "legalmemory_search",
+      state: { status: "pending", input: { query: "Synthetic contract <terms>", filter: { matter_id: "matter-one" }, limit: 10 }, raw: "" },
+    };
+    const value = permissionToolInput(request, { info: { id: "message-one", sessionID: "child-session" }, parts: [part] });
+    const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, {
+      permission: { ...request, toolInput: { status: "ready", value } }, respondPermission: () => {},
+    }));
+    const main = html.split("<details")[0];
+    expect(main).toContain("Synthetic contract &lt;terms&gt;");
+    expect(main).toContain("matter-one");
+    expect(main).toContain("limit");
+    expect(main).toContain("10");
+    expect(main).not.toContain("Synthetic contract <terms>");
+  });
+
+  test("does not reuse arguments from another request, session, message, or completed call", () => {
+    const request = permissionWithReceivedAt({
+      id: "request", sessionID: "child", permission: "legalmemory_search", patterns: ["*"], metadata: {}, always: [],
+      tool: { messageID: "message", callID: "call" },
+    } satisfies PermissionRequest, 1);
+    const part: Part = { id: "part", type: "tool", sessionID: "child", messageID: "message", callID: "call", tool: "legalmemory_search",
+      state: { status: "running", input: { query: "Correct query" }, time: { start: 1 } } };
+    const message = { info: { id: "message", sessionID: "child" }, parts: [part] };
+    expect(permissionToolInput(request, message)).toEqual({ query: "Correct query" });
+    expect(() => permissionToolInput(request, { ...message, info: { ...message.info, sessionID: "parent" } })).toThrow();
+    expect(() => permissionToolInput(request, { ...message, info: { ...message.info, id: "previous-message" } })).toThrow();
+    expect(() => permissionToolInput(request, { ...message, parts: [{ ...part, callID: "previous-call" }] })).toThrow();
+    expect(() => permissionToolInput(request, { ...message, parts: [{ ...part, sessionID: "parent" }] })).toThrow();
+    expect(() => permissionToolInput(request, { ...message, parts: [{ ...part, state: {
+      status: "completed", input: { query: "Old query" }, output: "done", title: "Search", metadata: {}, time: { start: 1, end: 2 },
+    } }] })).toThrow();
+  });
+
+  test("keeps denial available but blocks approval while tool arguments are loading or unavailable", () => {
+    for (const status of ["loading", "unavailable"] satisfies Array<"loading" | "unavailable">) {
+      const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, {
+        permission: pendingPermission({ permission: "legalmemory_search", toolInput: { status } }), respondPermission: () => {}, onRetryInput: () => {},
+      }));
+      const buttons = Array.from(html.matchAll(/<button\b[\s\S]*?<\/button>/g), match => match[0]);
+      expect(buttons[0]).toContain("Deny");
+      expect(buttons[0]).not.toMatch(/\sdisabled=/);
+      expect(buttons[1]).toMatch(/\sdisabled=/);
+      expect(buttons[2]).toMatch(/\sdisabled=/);
+      expect(html).toContain(status === "loading" ? "Loading" : "could not be loaded");
+      if (status === "unavailable") expect(html).toContain("Retry details");
+    }
+  });
+
   test("network approval uses the inline chat panel with task, destination and one-time choices", () => {
     const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, {
       permission: pendingPermission({ permission: "webfetch", protocol: "host", host: {

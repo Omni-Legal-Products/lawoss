@@ -17,7 +17,6 @@ import { SubagentToolRows } from "./subagent-tool-row";
 import { ProjectContentsTool } from "./project/project-contents-card";
 
 import * as React from "react"
-import { useQuery } from "@tanstack/react-query"
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -254,7 +253,6 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
   return <Tool toolPart={part} />
 }
 
-const EMPTY_MATTERS: Record<string, string> = {}
 
 const isEmptyMessage = (message: UIMessage): boolean => message.parts.length === 0
 
@@ -938,14 +936,6 @@ function MessageGroup({
     () => filedTasksOf(items.flatMap((item) => item.message.parts)),
     [items],
   )
-  // Matter titles, resolved once and reused. A hit names its matter only by id.
-  const { data: legalMemoryMatters = EMPTY_MATTERS } = useQuery({
-    queryKey: ["legalmemory-matters", workspaceId] as const,
-    enabled: legalMemoryDocuments.length > 0 && Boolean(workspaceId && legalworkClient),
-    staleTime: 5 * 60 * 1000,
-    retry: false,
-    queryFn: async () => (await legalworkClient!.legalMemoryMatters(workspaceId)).matters,
-  })
   // Branch/revert must target a real server-side message id. Synthetic
   // client-side messages (e.g. session errors) don't exist on the server and
   // silently corrupt fork/revert boundaries.
@@ -989,7 +979,6 @@ function MessageGroup({
         />
         <LegalMemorySourcesCard
           documents={legalMemoryDocuments}
-          matters={legalMemoryMatters}
           streaming={isStreaming}
         />
       </div> : null}

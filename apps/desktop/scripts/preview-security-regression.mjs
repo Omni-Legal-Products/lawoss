@@ -5,10 +5,12 @@ import { stripTypeScriptTypes } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
 import { app, BrowserWindow, protocol } from "electron";
 import { guardPreviewNavigation } from "../electron/app-url.mjs";
-import { PDFDocument } from "../../server/resources/core-opencode/skills/pdf-tools/assets/vendor/pdf-lib.mjs";
+import { PDFDocument, PDFName } from "../../server/resources/core-opencode/skills/pdf-tools/assets/vendor/pdf-lib.mjs";
 
 const securitySource = await readFile(new URL("../../app/src/react-app/domains/session/artifacts/html-preview-security.ts", import.meta.url), "utf8");
 const { offlinePreviewDocument } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(securitySource)).toString("base64")}`);
+const pdfUrlSource = await readFile(new URL("../../app/src/react-app/domains/session/artifacts/pdf-preview-url.ts", import.meta.url), "utf8");
+const { pdfPreviewUrl } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(pdfUrlSource)).toString("base64")}`);
 const userData = process.env.LEGALWORK_PREVIEW_TEST_USERDATA;
 if (!userData) throw new Error("Run this test through run-preview-security.mjs");
 app.setPath("userData", userData);
@@ -18,13 +20,21 @@ let exitCode = 0;
 // Match the recording scheme's privileges in main.mjs: it must obey preview CSP.
 protocol.registerSchemesAsPrivileged([{ scheme: "lw-recording", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 const requests = [];
-const server = createServer((request, response) => { requests.push(request.url); response.end("unexpected network request"); });
+const server = createServer((request, response) => {
+  if (request.url === "/viewer") {
+    response.setHeader("Content-Type", "text/html");
+    response.end('<!doctype html><html><body style="margin:0"></body></html>');
+    return;
+  }
+  requests.push(request.url);
+  response.end("unexpected network request");
+});
 app.whenReady().then(async () => {
   try {
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     const origin = `http://127.0.0.1:${server.address().port}`;
     protocol.handle("lw-recording", () => { requests.push("recording"); return new Response("private audio"); });
-    window = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    window = new BrowserWindow({ show: false, width: 1400, height: 900, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, plugins: true } });
     guardPreviewNavigation(window.webContents);
     await window.loadURL("data:text/html,<html><body>Preview security regression</body></html>");
     const document = offlinePreviewDocument(`<html><body><button onclick="document.body.dataset.clicked='yes'">Local interaction</button>
@@ -54,20 +64,58 @@ app.whenReady().then(async () => {
     assert.deepEqual(result, { bridge: "undefined", clicked: "yes", isolated: true });
     assert.deepEqual(requests, [], "previews must not make network requests, including self-navigation");
     console.log("PASS: interactive scripts and blob workers run without desktop access or outbound requests");
+    // A non-opaque parent origin lets PDFium read its persisted viewer settings,
+    // matching the actual app's blob previews.
+    await window.loadURL(`${origin}/viewer`);
     const pdf = await PDFDocument.create();
-    pdf.addPage().drawText("PDF viewer regression");
+    for (let page = 1; page <= 4; page++) pdf.addPage().drawText(`PDF viewer regression, page ${page}`);
+    pdf.catalog.set(PDFName.of("PageMode"), PDFName.of("UseThumbs"));
     const bytes = Buffer.from(await pdf.save()).toString("base64");
-    await window.webContents.executeJavaScript(`{
+    const pdfUrl = await window.webContents.executeJavaScript(`(() => {
       const data = Uint8Array.from(atob(${JSON.stringify(bytes)}), c => c.charCodeAt(0));
-      const frame = document.createElement('iframe');
-      frame.src = URL.createObjectURL(new Blob([data], {type:'application/pdf'}));
-      document.body.append(frame);
-    }`);
-    const pdfStream = () => window.webContents.mainFrame.framesInSubtree.some((frame) =>
-      frame.parent?.url === "chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html" && frame.url.startsWith("blob:"));
-    for (let attempt = 0; attempt < 50 && !pdfStream(); attempt++) await delay(100);
-    assert.ok(pdfStream(), "The built-in PDF viewer must load its internal stream");
-    console.log("PASS: the normal PDF viewer remains functional under the navigation guard");
+      return URL.createObjectURL(new Blob([data], {type:'application/pdf'}));
+    })()`);
+    const openPdf = async (url) => {
+      await window.webContents.executeJavaScript(`{
+        const frame = document.createElement('iframe');
+        frame.style = 'width:100vw;height:100vh;border:0';
+        frame.src = ${JSON.stringify(url)};
+        document.body.replaceChildren(frame);
+      }`);
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const frame = window.webContents.mainFrame.framesInSubtree.find((entry) => entry.url === "chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html");
+        if (frame && await frame.executeJavaScript(`(() => {
+          const viewer = document.querySelector('pdf-viewer');
+          return viewer?.originalUrl === ${JSON.stringify(url)} && viewer.loadState_ === 'success';
+        })()`)) return frame;
+        await delay(100);
+      }
+      throw new Error("PDF viewer did not finish loading");
+    };
+    const sidebarState = (frame) => frame.executeJavaScript(`(async () => {
+      const viewer = document.querySelector('pdf-viewer');
+      await viewer.updateComplete;
+      const toolbar = viewer.shadowRoot.querySelector('viewer-toolbar');
+      await toolbar.updateComplete;
+      return {
+        collapsed: viewer.sidenavCollapsed_,
+        closed: viewer.shadowRoot.querySelector('#sidenav-container').hasAttribute('closed'),
+        toggleExpanded: toolbar.shadowRoot.querySelector('#sidenavToggle').getAttribute('aria-expanded'),
+        page: viewer.pageNo_,
+      };
+    })()`);
+    const previous = await openPdf(`${pdfUrl}#navpanes=1`);
+    assert.equal((await sidebarState(previous)).collapsed, false);
+    await previous.executeJavaScript("localStorage.setItem('sidenavCollapsed', 'false')");
+    const viewer = await openPdf(pdfPreviewUrl(`${pdfUrl}#page=3&navpanes=1`));
+    assert.equal(await viewer.executeJavaScript("localStorage.getItem('sidenavCollapsed')"), "false");
+    assert.deepEqual(await sidebarState(viewer), { collapsed: true, closed: true, toggleExpanded: "false", page: 3 });
+    console.log("PASS: PDF PageMode and remembered-open sidebar state cannot override the closed initial view; citation page preserved");
+    await viewer.executeJavaScript("document.querySelector('pdf-viewer').shadowRoot.querySelector('viewer-toolbar').shadowRoot.querySelector('#sidenavToggle').click()");
+    assert.deepEqual(await sidebarState(viewer), { collapsed: false, closed: false, toggleExpanded: "true", page: 3 });
+    const reopened = await openPdf(pdfPreviewUrl(pdfUrl, 2));
+    assert.deepEqual(await sidebarState(reopened), { collapsed: true, closed: true, toggleExpanded: "false", page: 2 });
+    console.log("PASS: manually opening thumbnails works; reopening and programmatic page navigation start closed again");
   } catch (error) {
     console.error(error);
     exitCode = 1;

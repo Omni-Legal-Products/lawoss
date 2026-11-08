@@ -25,6 +25,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { useDesktopUsageTransport } from "./desktop-transport";
+import { TrialRecovery } from "./trial-recovery";
+import { trialAllowanceExhausted } from "./trial-recovery-state";
 import { CardTopUp } from "./payment-components";
 import { SeatPlanUpgrade, pendingSeatUpgrade } from "./seat-plan-upgrade";
 import { AdminUsageIntent } from "./admin-usage-intent";
@@ -61,6 +63,7 @@ export function ProviderLimitMessage({
   const locale = useLocale();
   const account = useEigenweltEntitlements({ client, workspaceId });
   const [view, setView] = useState<UsageControlView | null>(null);
+  const [trialRecoveryUsed, setTrialRecoveryUsed] = useState(false);
   const [open, setOpen] = useState<"plans" | "admin" | null>(null);
   // Keep the same dialog contents while its closing animation finishes.
   const [dialogKind, setDialogKind] = useState<"plans" | "admin">("plans");
@@ -89,6 +92,10 @@ export function ProviderLimitMessage({
     catch (err) { setRefreshFailed(true); throw err; }
     finally { setRefreshing(false); }
   }, [transport, limit]);
+  const refreshTrial = useCallback(async () => {
+    setTrialRecoveryUsed(true);
+    await refresh();
+  }, [refresh]);
   useEffect(() => {
     if (resolved) return;
     let active = true;
@@ -109,13 +116,13 @@ export function ProviderLimitMessage({
   const options = usageLimitOptions(currentPlan);
   const recovery = topUpRecovery?.status ?? (upgradedPlan ? planChangeRecovery(view, upgradedPlan, limit)
     : settingUpdated ? settingChecking || !view ? "checking" : usageIsAvailable(view, limit) ? "ready" : "blocked"
-    : limit && managed && usageIsAvailable(managed, limit) ? "ready" : null);
+    : (limit || managed?.trial || trialRecoveryUsed) && managed && usageIsAvailable(managed, limit) ? "ready" : null);
   const recovered = resolved || recovery === "ready";
   const topUpReadyHint = providerId === "eigenwelt" ? limit ? "limits.request_ready" : "limits.topup_ready_hint" : "limits.topup_external_hint";
   const recoveryBody = topUpRecovery ? recovery === "ready" ? t(topUpReadyHint)
     : recovery === "blocked" && topUpRecovery.view ? t(limit ? usageRequestMessageKey(requestUsageBlockReason(topUpRecovery.view, limit), topUpRecovery.view.isAdmin) : usageBlockMessageKey(topUpRecovery.view.me.blockedReason, topUpRecovery.view.isAdmin))
       : t(topUpRecovery.refreshFailed ? "limits.topup_refresh_error" : "limits.topup_paid_hint")
-    : recovery === "ready" ? t(limit ? "limits.request_ready" : settingUpdated ? "limits.intent_ready" : "provider_limit.usage_available")
+    : recovery === "ready" ? t(limit || trialRecoveryUsed ? "limits.request_ready" : settingUpdated ? "limits.intent_ready" : "provider_limit.usage_available")
     : recovery === "blocked" && managed
       ? t(limit ? usageRequestMessageKey(requestUsageBlockReason(managed, limit), managed.isAdmin) : usageBlockMessageKey(managed.me.blockedReason, managed.isAdmin))
       : refreshFailed ? t(settingUpdated ? "limits.intent_refresh_error" : "provider_limit.upgrade_refresh_error") : t("provider_limit.refreshing_usage");
@@ -171,6 +178,8 @@ export function ProviderLimitMessage({
       setBusy(false);
     }
   }
+  if (!resolved && trialAllowanceExhausted(managed, providerId, limit) && managed)
+    return <TrialRecovery view={managed} transport={transport} onRefresh={refreshTrial} limit={limit} />;
   return (
     <div
       role="status"

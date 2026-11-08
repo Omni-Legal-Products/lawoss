@@ -32,6 +32,16 @@ extraResources:
     to: NOTICE
   - from: resources/engine-dependencies
     to: engine-dependencies
+  - from: resources/licenses
+    to: licenses
+  - from: resources/opencode-sdk
+    to: opencode-sdk
+    filter:
+      - package.json
+  # FileMatcher always skips a source's root node_modules directory. Copy
+  # its contents as a separate resource so the SDK dependency graph ships.
+  - from: resources/opencode-sdk/node_modules
+    to: opencode-sdk/node_modules
   - from: resources/actaport-mcp
     to: actaport-mcp
     filter:
@@ -68,6 +78,8 @@ extraResources:
     filter:
       - "*.js"
       - "!*.test.js"
+      # Do not ship a retired plugin left by an incremental server build.
+      - "!legalwork-anthropic-auth.js"
   # The runtime dock/window icon, which the .icns baked in below cannot supply:
   # resolveAppIconPath() reads these out of `process.resourcesPath/icons` so the
   # dock can swap to the ink plate when macOS is in dark mode. Without them a

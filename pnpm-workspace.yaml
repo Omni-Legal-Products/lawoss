@@ -35,6 +35,8 @@ allowBuilds:
   # The published runtime is prebuilt; its postinstall only sends telemetry.
   "@openuidev/lang-core": false
   cpu-features: false
+  # Optional msgpackr native accelerator; the bundled SDK uses the JavaScript fallback.
+  msgpackr-extract: false
   ssh2: false
   "@whiskeysockets/baileys": true
   better-sqlite3: true

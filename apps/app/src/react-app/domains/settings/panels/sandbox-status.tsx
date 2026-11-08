@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock, RefreshCw, Shield, ShieldOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 import { changeOrgPolicySetting } from "../../connections/org-policy";
 import { HubTabs } from "../segmented-tabs";
@@ -36,7 +36,10 @@ export function SandboxStatus({ client, canWrite = false, variant = "full" }: { 
   const policyNote = status?.policy ? <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
     <Lock className="size-3.5" aria-hidden />{t(status.policy.locked ? "sandbox.managed" : "sandbox.firm_default", { org: status.policy.orgName || t("org_policy.your_firm") })}
   </p> : null;
-  const errorNotice = error || query.isError ? <p role="alert" className="text-sm text-destructive">{error ?? t("sandbox.status_unavailable")}</p> : null;
+  const errorNotice = error || query.isError ? <div className="space-y-2">
+    <p role="alert" className="text-sm text-destructive">{error ?? (query.error instanceof Error ? query.error.message : t("sandbox.status_unavailable"))}</p>
+    {query.error instanceof LegalworkServerError && query.error.code === "execution_settings_invalid" && canWrite && client.canApprove ? <Button variant="outline" size="sm" disabled={busy} onClick={() => { void save({ enabled: true, networkMode: "block" }); }}>{t("sandbox.on")} · {t("sandbox.network_block")}</Button> : null}
+  </div> : null;
   if (variant === "quick") return <section className="space-y-3" aria-label={t("sandbox.title")}>
     <div className="divide-y divide-subtle rounded-2xl border border-subtle bg-surface shadow-xs">
       <div className="flex items-start justify-between gap-4 px-4 py-3.5">

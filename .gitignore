@@ -78,3 +78,6 @@ apps/server/resources/agent-sandbox/runtime/
 
 # Generated for each target after version stamping.
 apps/desktop/resources/build-info.json
+
+# Locked plugin SDK staged at build time for offline engine startup.
+apps/desktop/resources/opencode-sdk/

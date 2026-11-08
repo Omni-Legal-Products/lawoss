@@ -114,7 +114,7 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     const result = await installGlobalPlugin(config, url(SHA1));
     expect(result.status).toBe("installed");
     expect(await readFile(skillPath(), "utf8")).toContain("Verzia jedna.");
-    expect(result.item.provenance).toEqual({ source: { owner: "Omni-Legal-Products", repo: "lawoss-marketplace", ref: SHA1, dir: "plugins/demo" }, version: "1.0.0" });
+    expect(result.item.lawossProvenance).toEqual({ source: { owner: "Omni-Legal-Products", repo: "lawoss-marketplace", ref: SHA1, dir: "plugins/demo" }, version: "1.0.0" });
     for (const workspaceId of ["ws_a", "ws_b"]) {
       const mcp = await runtimeMcpMapForWorkspace(config, workspaceId);
       // Bez JSON.stringify: ten na Windows zdvojí každé `\` a cesta by sa nikdy nenašla.
@@ -154,7 +154,7 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     expect(kept.status).toBe("updated");
     expect(await readFile(skillPath(), "utf8")).toBe(mine);
     if (kept.status !== "updated") throw new Error("expected update");
-    expect(kept.item.provenance?.version).toBe("1.1.0");
+    expect(kept.item.lawossProvenance?.version).toBe("1.1.0");
     // Úprava ostáva rozpoznaná aj voči novej verzii.
     expect(await pluginFileChanges(globalPluginTarget(), kept.item)).toHaveLength(1);
     expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo?.enabled).toBe(false);
@@ -184,7 +184,7 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     await writeFile(join(root, "config", "opencode", "lawoss-zalohy"), "blokuje");
     await expect(updateGlobalPlugin(config, PLUGIN_ID, state, { ".opencode/skills/demo-plugin/demo/SKILL.md": "backup" })).rejects.toThrow();
     expect(await readFile(skillPath(), "utf8")).toBe("Moja úprava.\n");
-    expect((await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID]?.provenance?.version).toBe("1.0.0");
+    expect((await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID]?.lawossProvenance?.version).toBe("1.0.0");
   });
 
   test("zlyhanie GitHubu pri aktualizácii nič nezmení", async () => {
@@ -194,7 +194,7 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     fake.failures.trees = true;
     await expect(updateGlobalPlugin(config, PLUGIN_ID, state, {})).rejects.toThrow();
     expect(await readFile(skillPath(), "utf8")).toContain("Verzia jedna.");
-    expect((await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID]?.provenance?.version).toBe("1.0.0");
+    expect((await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID]?.lawossProvenance?.version).toBe("1.0.0");
   });
 
   test("presun doterajšej inštalácie z priečinka: úprava sa prenesie, kópia v priečinku zmizne až po rozhodnutí", async () => {

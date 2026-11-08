@@ -20,6 +20,7 @@ import {
 import { globalOpenCodeConfigPath } from "./mcp.js";
 import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
 import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js";
+import { prepareManagedOpencodeDependencies } from "./managed-opencode-dependencies.js";
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import { issueWikiAgentTicket } from "./wiki/agent-access.js";
@@ -91,6 +92,8 @@ const server = await startServer(config, { publicEngineBinary: () => managedOpen
       if (managedDb) process.env.OPENCODE_DB = managedDb.path;
       const engineHome = join(runtimeStorageDir(config), "engine-home");
       await mkdir(engineHome, { recursive: true });
+      const dependencies = await prepareManagedOpencodeDependencies(config);
+      if (!dependencies.seeded) console.warn(`[legalwork-server] Bundled engine dependencies unavailable (${dependencies.reason}); runtime package installation may be required.`);
       managedOpencode = await createManagedOpencodeServer({
         bin: process.env.LEGALWORK_OPENCODE_BIN,
         cwd: managedOpencodeCwd,

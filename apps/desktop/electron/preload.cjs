@@ -117,6 +117,12 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     },
   },
   updater: {
+    getPreferences(legacy) {
+      return ipcRenderer.invoke("legalwork:updater:getPreferences", legacy);
+    },
+    setPreferences(patch) {
+      return ipcRenderer.invoke("legalwork:updater:setPreferences", patch);
+    },
     getChannel() {
       return ipcRenderer.invoke("legalwork:updater:getChannel");
     },

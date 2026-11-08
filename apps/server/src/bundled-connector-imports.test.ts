@@ -34,18 +34,18 @@ test("discovers individual bundled connectors for both providers alongside stand
     const source = join(root, provider === "chatgpt" ? ".codex/plugins/patent" : ".claude/plugins/patent");
     const manifest = { name: "patent", version: "1.10", interface: { displayName: "Patent Studio" }, mcpServers: ["./config/search.json", { search: { url: "https://override.example/mcp", headers: { Secret: "selected-secret" } } }] };
     if (provider === "chatgpt") {
-      await write(join(source, "plugin.json"), { name: "patent", version: "1.10", extensions: { "com.openai": manifest } });
+      await write(join(source, "plugin.json"), { $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "patent", version: "1.10", extensions: { "com.openai": manifest } });
       await write(join(source, ".codex-plugin/plugin.json"), { name: "legacy-overlay", mcpServers: { ignored: { url: "https://ignored.example" } } });
     } else await write(join(source, ".claude-plugin/plugin.json"), manifest);
-    await write(join(source, provider === "chatgpt" ? "mcp.json" : ".mcp.json"), { mcpServers: { search: { url: "https://default.example" }, local: { command: "./bin/server" }, sdk: { type: "sdk" } } });
-    await write(join(source, "config/search.json"), { mcpServers: { second: { url: "https://second.example/mcp", headers: { Secret: "other-secret" } } } });
+    await write(join(source, provider === "chatgpt" ? "mcp.json" : ".mcp.json"), { ...(provider === "chatgpt" ? { $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json" } : {}), mcpServers: { search: { type: "streamable-http", url: "https://default.example" }, local: { type: "stdio", command: "./bin/server" }, sdk: { type: "sdk" } } });
+    await write(join(source, "config/search.json"), { ...(provider === "chatgpt" ? { $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json" } : {}), mcpServers: { second: { type: "streamable-http", url: "https://second.example/mcp", headers: { Secret: "other-secret" } } } });
     // Discovery needs no access to executable assets; preview validates the complete folder.
     await symlink(join(root, "unavailable"), join(source, "linked-asset"));
     if (provider === "chatgpt") await write(join(root, ".codex/config.toml"), '[mcp_servers.search]\nurl = "https://standalone.example/mcp"\n');
     else await write(join(root, ".claude.json"), { mcpServers: { search: { url: "https://standalone.example/mcp" } } });
     const items = await discoverPluginImports(provider, root);
     const connectors = items.filter(item => item.kind === "connector");
-    expect(connectors.filter(item => item.bundledIn).map(item => item.name).sort()).toEqual(["local", "sdk", "search", "second"]);
+    expect(connectors.filter(item => item.bundledIn).map(item => item.name).sort()).toEqual(["local", "search", "second"]);
     expect(connectors.filter(item => item.name === "search")).toHaveLength(2);
     expect(connectors.find(item => item.bundledIn)?.bundledIn).toEqual({ name: "patent", displayName: "Patent Studio" });
     expect(connectors.find(item => item.bundledIn)?.connector?.pluginRoot).toBe("");
@@ -107,9 +107,8 @@ test("local bundled connectors retain executable support files and resolve paths
 }));
 
 test("full plugin, individually selected connectors and version updates have independent install/remove ownership", async () => fixture(async (root, config) => {
-  const source = join(root, "plugin/1.0");
-  const nextSource = join(root, "plugin/2.0");
-  for (const [path, version] of [[source, "1.0"], [nextSource, "2.0"]]) {
+  const source = join(root, "plugin");
+  for (const [path, version] of [[source, "1.0"]]) {
     await write(join(path!, ".claude-plugin/plugin.json"), { name: "patent", version });
     await write(join(path!, ".mcp.json"), { mcpServers: { search: { url: `https://v${version}.example/mcp` }, docket: { url: "https://docket.example/mcp" } } });
   }
@@ -118,7 +117,9 @@ test("full plugin, individually selected connectors and version updates have ind
   const [docket] = await resolvePluginImports(selectedRequest("claude", source, "docket"), root);
   for (const plan of [whole!, search!, docket!]) await installPluginImport(config, "test", root, plan, true);
   expect(new Set([whole!.preview.id, search!.preview.id, docket!.preview.id]).size).toBe(3);
-  const [updated] = await resolvePluginImports(selectedRequest("claude", nextSource, "search"), root);
+  await write(join(source, ".claude-plugin/plugin.json"), { name: "patent", version: "2.0" });
+  await write(join(source, ".mcp.json"), { mcpServers: { search: { url: "https://v2.0.example/mcp" }, docket: { url: "https://docket.example/mcp" } } });
+  const [updated] = await resolvePluginImports(selectedRequest("claude", source, "search"), root);
   expect(updated!.preview.id).toBe(search!.preview.id);
   expect(updated!.preview.digest).not.toBe(search!.preview.digest);
   expect(updated!.preview.components[0]!.installedName).toBe(search!.preview.components[0]!.installedName);
@@ -152,6 +153,6 @@ test("bundled selectors validate roots, missing connectors and links without hid
   await write(join(valid, ".claude-plugin/plugin.json"), { name: "valid", mcpServers: { visible: { url: "https://visible.example/mcp" } } });
   const items = await discoverPluginImports("claude", root);
   expect(items.filter(item => item.kind === "connector").map(item => item.name)).toEqual(["visible"]);
-  expect(items.some(item => item.name === "broken" && item.kind === "plugin")).toBe(true);
+  expect(items.some(item => item.name === "broken" && item.kind === "plugin")).toBe(false);
   await expect(resolvePluginImports(selectedRequest("claude", broken, "hidden"), root)).rejects.toThrow("link");
 }));

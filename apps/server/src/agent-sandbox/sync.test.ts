@@ -1,12 +1,13 @@
 import { expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseEigenweltEntitlements, eigenweltPlatformUrl } from "../eigenwelt-auth.js";
 import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
-import { closeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import { closeRuntimeOpencodeConfig, runtimeStorageDir } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
-import { readSandboxDefault, writeSessionSandbox, effectiveSandbox } from "./settings.js";
+import { SANDBOX_DEFAULT_ID, readSandboxDefault, writeSessionSandbox, effectiveSandbox } from "./settings.js";
 import { saveSandboxDefault, syncSandboxSettings, sandboxSyncStatus } from "./sync.js";
 import { sandboxSettingsSchema } from "./settings-schema.js";
 import { z } from "zod";
@@ -97,6 +98,18 @@ test("application default sync handles devices, offline edits, conflicts, accoun
   expect(sandboxSyncStatus(a)).toBe("synced");
   expect(await readSandboxDefault(a)).toEqual({ enabled: true, networkMode: "block" });
   expect(snapshots.get("Bearer token-member")?.sandbox).toEqual({ enabled: true, networkMode: "block" });
+  // A damaged local row must not be silently replaced by a remote preference.
+  const db = new Database(join(runtimeStorageDir(a), "runtime.sqlite"));
+  try {
+    db.run("UPDATE runtime_opencode_configs SET config_json = ? WHERE workspace_id = ?", ["{", SANDBOX_DEFAULT_ID]);
+    const beforeCorruption = calls;
+    await syncSandboxSettings(a, request);
+    expect(calls).toBe(beforeCorruption);
+    expect(sandboxSyncStatus(a)).toBe("pending");
+    await expect(readSandboxDefault(a)).rejects.toThrow("Commands and web access are blocked");
+    await saveSandboxDefault(a, { enabled: true, networkMode: "block" });
+  } finally { db.close(); }
+
   // A queued old-account edit must never upload to a different account.
   await saveSandboxDefault(b, { enabled: true, networkMode: "allow" });
   const beforeSwitch = writes;

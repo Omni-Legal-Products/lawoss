@@ -1,7 +1,10 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { createServer } from "node:http";
-import { viewStreamHeaders } from "./view-stream-bridge.js";
+import { installViewStreamBridge, viewStreamHeaders } from "./view-stream-bridge.js";
 import type { ViewGenerationChunk } from "../views/generation-stream.js";
+
+const originalFetch = globalThis.fetch;
+afterEach(() => { globalThis.fetch = originalFetch; });
 
 // CI regression (file-order dependent, runs first on purpose): another test installed the bridge over its temporary fetch mock
 // and then restored the original fetch, silently dropping the bridge for the rest of the process.
@@ -60,4 +63,22 @@ test.each([undefined, "text/event-stream"])("the bridge forwards provider bytes 
     const failure = await fetch(url, { headers: viewStreamHeaders(async () => { throw new Error("offline"); }) });
     expect(await failure.text()).toBe(payload);
   } finally { server.closeAllConnections(); server.close(); }
+});
+
+test("the bridge reinstalls when another fetch wrapper replaces it and preserves that wrapper", async () => {
+  installViewStreamBridge();
+  const calls: Headers[] = [];
+  globalThis.fetch = Object.assign(async (_input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    calls.push(new Headers(init?.headers));
+    return new Response("provider response", { headers: { "content-type": "text/plain" } });
+  }, originalFetch);
+  const local = viewStreamHeaders(async () => {});
+  const installed = globalThis.fetch;
+  const response = await fetch("https://provider.example", { headers: { ...local, authorization: "Bearer provider-credential" } });
+  expect(await response.text()).toBe("provider response");
+  expect(calls).toHaveLength(1);
+  expect(calls[0].has("x-legalwork-view-stream")).toBe(false);
+  expect(calls[0].get("authorization")).toBe("Bearer provider-credential");
+  viewStreamHeaders(async () => {});
+  expect(globalThis.fetch).toBe(installed);
 });

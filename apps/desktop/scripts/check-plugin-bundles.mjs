@@ -18,6 +18,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isBuiltin } from "node:module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pluginDir = resolve(__dirname, "..", "server", "dist", "opencode-plugins");
@@ -42,7 +43,7 @@ export function findUnresolvableImports(dir = pluginDir) {
     const bare = new Set();
     for (const match of source.matchAll(IMPORT)) {
       const specifier = match[1] ?? match[2];
-      if (!specifier.startsWith("node:")) bare.add(specifier);
+      if (!isBuiltin(specifier)) bare.add(specifier);
     }
     if (bare.size > 0) offenders.push({ file, imports: [...bare].sort() });
   }

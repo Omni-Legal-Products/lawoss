@@ -152,6 +152,12 @@ describe("decide", () => {
 });
 
 describe("syncProjectFiles", () => {
+  test("a disabled scan does not inspect even a missing project root", async () => {
+    const s = await setup();
+    await rm(s.root, { recursive: true });
+    expect(await run(s, { enabled: false })).toMatchObject({ uploaded: 0, downloaded: 0, pending: 0 });
+  });
+
   test("uploads new local files, downloads new remote ones, and adopts identical ones", async () => {
     const s = await setup();
     await s.write("Schriftsätze/Klage.pdf", "klage");

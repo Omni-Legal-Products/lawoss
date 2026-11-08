@@ -208,7 +208,7 @@ export type EigenweltManifestModel = {
 /** The signed-in seat's included usage for the current window (cents, plus a percentage). */
 export type EigenweltUsage = {
   /** A week on current platforms, a day on platforms from before the weekly allowance. */
-  window: "day" | "week";
+  window: "day" | "week" | "month";
   allowanceCents: number;
   remainingCents: number;
   /** Share of this window's allowance consumed, 0–100 (server-computed). */
@@ -742,6 +742,7 @@ export type LegalworkClaudePluginComponent = {
 };
 
 export type LegalworkClaudePluginPreview = {
+  review?: PluginImportPreview;
   pluginId: string;
   name: string;
   description: string | null;
@@ -1859,6 +1860,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         timeoutMs: timeouts.config,
       }),
     getOcrSettings: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/settings", { token, hostToken, timeoutMs: timeouts.config }),
+    setOcrAutoDownload: (enabled: boolean) => requestJson<OcrSettingsView>(baseUrl, "/ocr/auto-download", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),
     setDefaultOcrEngine: (engineId: string) => requestJson<OcrSettingsView>(baseUrl, "/ocr/default", { token, hostToken, method: "PUT", body: { engineId }, timeoutMs: timeouts.config }),
     saveOcrServer: (input: OcrServerInput, id?: string) => requestJson<OcrSettingsView>(baseUrl, id ? `/ocr/servers/${encodeURIComponent(id)}` : "/ocr/servers", { token, hostToken, method: id ? "PUT" : "POST", body: input, timeoutMs: timeouts.config }),
     setOcrMemberKey: (id: string, apiKey: string | null) => requestJson<OcrSettingsView>(baseUrl, `/ocr/firm-engines/${encodeURIComponent(id)}/key`, { token, hostToken, method: "PUT", body: { apiKey }, timeoutMs: timeouts.config }),
@@ -2531,6 +2533,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         method: "DELETE",
         timeoutMs: timeouts.config,
       }),
+    checkPluginImportUpdate: (workspaceId: string, pluginId: string) => requestJson<{ source: PluginImportRequest["source"]; scope: PluginImportRequest["scope"]; root: string; asWorkflow?: boolean; changed: boolean; preview: PluginImportPreview }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/${encodeURIComponent(pluginId)}/update`, { token, hostToken, timeoutMs: 90_000 }),
+    rollbackPluginImport: (workspaceId: string, pluginId: string) => requestJson<LegalworkCloudPluginInstallResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/${encodeURIComponent(pluginId)}/rollback`, { token, hostToken, method: "POST", body: {} }),
     readPackageComponent: (workspaceId: string, pluginId: string, path: string) =>
       requestJson<{ content: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/cloud-plugins/${encodeURIComponent(pluginId)}/file?path=${encodeURIComponent(path)}`, { token, hostToken, timeoutMs: timeouts.config }),
     pluginCreateOptions: (workspaceId: string) =>
@@ -2538,7 +2542,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     createWorkflowPlugin: (workspaceId: string, payload: PluginCreateRequest) =>
       requestJson<LegalworkCloudPluginInstallResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/workflow-plugins`, { token, hostToken, method: "POST", body: payload, timeoutMs: 120000 }),
     discoverPluginImports: (workspaceId: string, provider: PluginImportProvider) =>
-      requestJson<{ items: PluginImportCandidate[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/discover?provider=${provider}`, { token, hostToken, timeoutMs: timeouts.config }),
+      requestJson<{ items: PluginImportCandidate[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/discover?provider=${provider}`, { token, hostToken, timeoutMs: 30_000 }),
     previewPluginImports: (workspaceId: string, payload: PluginImportRequest) =>
       requestJson<{ items: PluginImportPreview[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/preview`, { token, hostToken, method: "POST", body: payload, timeoutMs: 120000 }),
     installPluginImport: (workspaceId: string, payload: PluginImportRequest) =>
@@ -2551,7 +2555,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         body: { ...payload, dryRun: true },
         timeoutMs: timeouts.config,
       }),
-    installClaudePlugin: (workspaceId: string, payload: { url: string; ref?: string }) =>
+    installClaudePlugin: (workspaceId: string, payload: { url: string; ref?: string; digest?: string; validationId?: string; acknowledgePartial?: boolean }) =>
       requestJson<LegalworkCloudPluginInstallResult & { preview: LegalworkClaudePluginPreview }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/claude-plugins`, {
         token,
         hostToken,
@@ -2715,13 +2719,6 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/hub/share/workflow`,
         { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.workspaceExport },
-      ),
-    /** Matter id to title, so a source row can name its matter. */
-    legalMemoryMatters: (workspaceId: string) =>
-      requestJson<{ ok: boolean; matters: Record<string, string> }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/matters`,
-        { token, hostToken, method: "POST", body: {}, timeoutMs: timeouts.config },
       ),
     storageOAuthProviders: (workspaceId: string) =>
       requestJson<{ providers: StorageOAuthProvider[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/oauth/providers`, { token, hostToken }),

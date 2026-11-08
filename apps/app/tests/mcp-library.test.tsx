@@ -190,3 +190,16 @@ test("plugin connectors appear once in the main library with their owning packag
   expect(html).toContain("Enable to use");
   expect(html).not.toContain("Not installed");
 });
+
+test("unified Plugins search includes standalone connectors and hides components already represented by a package", () => {
+  const plugin: ImportedPlugin = { pluginId: "research", marketplaceId: null, name: "research", description: "Research bundle", updatedAt: null, importedAt: 1, files: [
+    { configObjectId: "attio", versionId: null, objectType: "mcp", title: "Attio", path: "opencode.jsonc#mcp.attio", updatedAt: null },
+  ] };
+  const render = (pluginSearch: string) => renderToStaticMarkup(<IntegrationLibraryLayoutContext.Provider value={{ actions: null, search: null, pluginSearch, importedPackages: [plugin] }}><McpView {...props} /></IntegrationLibraryLayoutContext.Provider>);
+  const all = render("");
+  expect(all).toContain('aria-label="Actions for paused"');
+  expect(all).not.toContain('aria-label="Actions for Attio"');
+  expect(render("paused")).not.toContain("Built-in Browser");
+  expect(render("research")).not.toContain("No matching plugins");
+  expect(render("missing")).toContain("No matching plugins");
+});

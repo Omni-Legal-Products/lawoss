@@ -5,6 +5,7 @@ import {
   Building2,
   CalendarDays,
   ChevronDown,
+  Cloud,
   CloudOff,
   Folder,
   LogOut,
@@ -130,6 +131,7 @@ function errorText(error: unknown): string {
     if (error.code === "project_sync_not_connected") return t("project_sync.sign_in");
     if (error.code === "project_sync_not_owner") return t("project_sync.owner_only_short");
     if (error.code === "project_sync_offer_pending") return t("project_sync.offer_pending");
+    if (error.code === "project_sync_cloud_folder") return t("project_sync.cloud_folder_files_disabled");
     return error.message;
   }
   return t("project_sync.failed");
@@ -482,6 +484,7 @@ function ProjectShareDialog(props: {
   const data = status.data;
   const shared = data?.mode === "synced";
   const isOwner = !shared || data.role === "owner";
+  const documentsDisabled = data?.fileSharingDisabledReason === "cloud_folder";
   const settings = draft ?? data?.settings ?? null;
   const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(data?.settings);
   const everyone = members.data ?? [];
@@ -519,11 +522,14 @@ function ProjectShareDialog(props: {
 
   // With no one else left, saving ends the sharing: the project stays here.
   const save = (next: ProjectSyncSettings) =>
-    run(() => (shared && alone ? props.client.stopProjectSync(props.workspaceId) : props.client.saveProjectSync(props.workspaceId, next)));
+    run(() => (shared && alone ? props.client.stopProjectSync(props.workspaceId) : props.client.saveProjectSync(props.workspaceId,
+      documentsDisabled ? { ...next, scope: { ...next.scope, documents: false } } : next)));
 
   const lastSync = formatTaskDateTime(data?.lastSyncAt);
+  const scopeLabel = (row: typeof SCOPE_ROWS[number]) => row.key === "reviews" && documentsDisabled
+    ? t("project_sync.scope_reviews_without_documents") : row.label();
   const scopeSummary = settings
-    ? SCOPE_ROWS.filter((row) => settings.scope[row.key]).map((row) => row.label()).join(", ") || t("project_sync.scope_none")
+    ? SCOPE_ROWS.filter((row) => settings.scope[row.key] && !(row.key === "documents" && documentsDisabled)).map(scopeLabel).join(", ") || t("project_sync.scope_none")
     : "";
 
   return (
@@ -645,6 +651,12 @@ function ProjectShareDialog(props: {
 
             <section>
               <SectionTitle>{t("project_sync.scope_title")}</SectionTitle>
+              {documentsDisabled ? (
+                <p className="mb-3 flex items-start gap-2 rounded-xl bg-muted px-4 py-3 text-sm text-muted-foreground">
+                  <Cloud className="mt-0.5 size-4 shrink-0" aria-hidden />
+                  {t("project_sync.cloud_folder_files_disabled")}
+                </p>
+              ) : null}
               <Collapsible className="rounded-xl border border-border">
                 <CollapsibleTrigger className="group flex min-h-12 w-full items-center gap-3 rounded-xl px-4 py-2.5 text-start text-sm outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring">
                   <span className="min-w-0 flex-1 text-muted-foreground">{scopeSummary}</span>
@@ -656,11 +668,11 @@ function ProjectShareDialog(props: {
                       <li key={row.key}>
                         <label className="flex min-h-11 items-center gap-3 px-4 py-2 text-sm [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground">
                           {row.icon}
-                          <span className="flex-1">{row.label()}</span>
+                          <span className="flex-1">{scopeLabel(row)}</span>
                           {isOwner ? (
                             <Switch
-                              checked={settings.scope[row.key] !== false}
-                              disabled={!data.connected}
+                              checked={row.key === "documents" && documentsDisabled ? false : settings.scope[row.key] !== false}
+                              disabled={!data.connected || (row.key === "documents" && documentsDisabled)}
                               onCheckedChange={(checked) => update({ scope: { ...settings.scope, [row.key]: checked } })}
                             />
                           ) : (

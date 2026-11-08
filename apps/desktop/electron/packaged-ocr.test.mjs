@@ -73,6 +73,7 @@ async function sidecarFixture(t, platform, arch) {
   await writeFile(path.join(sidecars, "obsolete-sidecar"), "must be pruned");
   const signed = [];
   const pruned = [];
+  const sdkChecks = [];
   const module = { exports: {} };
   vm.runInNewContext(await readFile(new URL("../scripts/electron-after-pack.cjs", import.meta.url), "utf8"), {
     module,
@@ -82,6 +83,8 @@ async function sidecarFixture(t, platform, arch) {
       if (name === "node:path") return path;
       if (name === "electron-builder") return { Arch };
       if (name === "./packaged-ocr.cjs") return { pruneOcrRuntime: (...args) => pruned.push(args) };
+      // Upstream v0.2.11 checks the staged OpenCode SDK; packaged-opencode-sdk.test.mjs covers it.
+      if (name === "./packaged-opencode-sdk.cjs") return { assertPackagedOpencodeSdk: (resources) => sdkChecks.push(resources) };
       if (name === "node:child_process") return { spawnSync: (...args) => { signed.push(args); return { status: 0 }; } };
       throw new Error(`Unexpected hook dependency: ${name}`);
     },

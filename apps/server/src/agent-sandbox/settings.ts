@@ -25,13 +25,13 @@ export async function notifySandboxSettingsChange(config: ServerConfig, id: stri
   await Promise.all([...listeners].map(listener => listener(config, id)));
 }
 export async function readSandboxDefault(config: ServerConfig): Promise<SandboxSettings> {
-  const row = await readRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID);
+  const row = await readRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID, { failOnInvalid: true });
   // Earlier versions saved only a network choice, not consent to enable the sandbox.
   return row.sandbox ?? { ...DEFAULT_SANDBOX_SETTINGS, networkMode: await readSandboxNetworkMode(config) };
 }
 export async function readSandboxNetworkMode(config: ServerConfig): Promise<NetworkMode> {
-  const row = await readRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID);
-  return row.sandbox?.networkMode ?? (await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID)).sandboxNetworkMode ?? DEFAULT_SANDBOX_SETTINGS.networkMode;
+  const row = await readRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID, { failOnInvalid: true });
+  return row.sandbox?.networkMode ?? (await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, { failOnInvalid: true })).sandboxNetworkMode ?? DEFAULT_SANDBOX_SETTINGS.networkMode;
 }
 /** Firm values never overwrite the member's own synced preference. */
 export async function applicationSandbox(config: ServerConfig) {
@@ -54,7 +54,7 @@ export async function writeSandboxNetworkMode(config: ServerConfig, mode: Networ
 export async function writeSessionSandbox(config: ServerConfig, workspace: string, session: string, settings: SandboxSettings | null): Promise<void> {
   if ((await appliedOrgPolicy(config, "sandbox"))?.mode === "enforced") await requireOrgPolicyUnmanaged(config, "sandbox");
   const id = sandboxSessionId(workspace, session);
-  await writeRuntimeOpencodeConfig(config, id, () => settings ? { sandbox: settings } : {});
+  await writeRuntimeOpencodeConfig(config, id, () => ({ ...(settings ? { sandbox: settings } : {}), sandboxEdit: randomUUID() }));
   await notifySandboxSettingsChange(config, id);
 }
 /** Lineage is resolved from the engine by the server, never supplied by the agent. */
@@ -67,7 +67,7 @@ export async function effectiveSandbox(config: ServerConfig, workspace: string, 
   for (const session of lineage) {
     const id = sandboxSessionId(workspace, session);
     dependencies.push(id);
-    const row = await readRuntimeOpencodeConfig(config, id);
+    const row = await readRuntimeOpencodeConfig(config, id, { failOnInvalid: true, settingsScope: "session" });
     if (row.sandbox) return { ...row.sandbox, policy: application.policy, source: session === lineage[0] ? "session" : "parent", dependencies };
   }
   return { ...application, source: "application", dependencies: application.policy ? dependencies : [...dependencies, SANDBOX_DEFAULT_ID] };

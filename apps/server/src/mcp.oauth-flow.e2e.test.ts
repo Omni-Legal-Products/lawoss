@@ -116,7 +116,7 @@ describeMaybe("mcp oauth flow against mock provider", () => {
     );
 
     mockProc = spawnOwnedChild("node", [join(repoRoot, "scripts/mock-oauth-mcp-server.mjs")], {
-      env: { ...process.env, PORT: String(mockPort), AUTO_APPROVE: "1" },
+      env: { ...process.env, PORT: String(mockPort), AUTO_APPROVE: "1", CLIENT_ID: "https://legalwork.example/oauth/client.json", CLIENT_METADATA_DOCUMENT_SUPPORTED: "1" },
       stdio: "ignore",
     });
     await waitFor(
@@ -413,6 +413,35 @@ describeMaybe("mcp oauth flow against mock provider", () => {
       expect((await fetch(authorization)).ok).toBe(true);
       const complete = await engineFetch(`/mcp/${component.installedName}/auth/callback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(await waiting) });
       expect(complete.ok).toBe(true);
+      expect(await complete.json()).toEqual({ status: "connected" });
+      const after = await (await fetch(`${mockUrl()}/requests`)).json();
+      expect(after.requests.filter((request: { path: string }) => request.path === "/register").length).toBe(registrations);
+    } finally { callbacks.cancel(listener.listenerId); }
+  }, 45_000);
+
+  test("LegalWork-owned metadata identity completes engine OAuth without DCR or changing the callback", async () => {
+    const port = await getFreePort();
+    const redirectUri = `http://127.0.0.1:${port}/mcp/oauth/callback`;
+    const identity = "https://legalwork.example/oauth/client.json";
+    const entries = { ".claude-plugin/plugin.json": '{"name":"metadata-identity"}', ".mcp.json": JSON.stringify({ mcpServers: { metadata: { url: `${mockUrl()}/mcp`, oauth: { redirectUri } } } }) };
+    const [plan] = await resolvePluginImports({ source: { provider: "claude", zipBase64: Buffer.from(zipSync(Object.fromEntries(Object.entries(entries).map(([path, value]) => [path, strToU8(value)])))).toString("base64") }, scope: "project" }, workDir);
+    if (!plan) throw new Error("Missing import plan");
+    const before = await (await fetch(`${mockUrl()}/requests`)).json();
+    const registrations = before.requests.filter((request: { path: string }) => request.path === "/register").length;
+    const prepared = await preparePluginImport(plan, { workspace: workDir, scope: "project", current: {} }, { clientMetadataUrl: identity, fetch: (input, init) => String(input) === identity ? Promise.resolve(Response.json({ client_id: identity, client_name: "LegalWork", redirect_uris: [redirectUri], token_endpoint_auth_method: "none" })) : fetch(input, init) });
+    const component = prepared.preview.components[0];
+    const config = prepared.connectorConfigs?.[component.installedName];
+    expect(config?.oauth).toMatchObject({ clientId: identity, redirectUri });
+    const listener = await callbacks.listen({ redirectUri });
+    try {
+      expect((await engineFetch("/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: component.installedName, config: { ...config, enabled: true } }) })).ok).toBe(true);
+      const started = await (await engineFetch(`/mcp/${component.installedName}/auth`, { method: "POST" })).json();
+      const authorization = new URL(started.authorizationUrl);
+      expect(authorization.searchParams.get("client_id")).toBe(identity);
+      expect(authorization.searchParams.get("redirect_uri")).toBe(redirectUri);
+      const waiting = callbacks.wait({ listenerId: listener.listenerId, state: started.oauthState });
+      expect((await fetch(authorization)).ok).toBe(true);
+      const complete = await engineFetch(`/mcp/${component.installedName}/auth/callback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(await waiting) });
       expect(await complete.json()).toEqual({ status: "connected" });
       const after = await (await fetch(`${mockUrl()}/requests`)).json();
       expect(after.requests.filter((request: { path: string }) => request.path === "/register").length).toBe(registrations);

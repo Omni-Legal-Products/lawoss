@@ -67,6 +67,7 @@ test("discovers custom Codex config and current-project TOML alongside existing 
     await write(join(workspace, ".codex/config.toml"), '[mcp_servers.literature]\nurl = "https://literature.example/mcp"\n');
     await write(join(knownProject, ".codex/config.toml"), '[mcp_servers.docket]\nurl = "https://docket.example/mcp"\n');
     await write(join(codex, "plugins/patent/.codex-plugin/plugin.json"), { name: "patent" });
+    await write(join(codex, "plugins/patent/skills/review/SKILL.md"), "---\nname: review\ndescription: Review\n---\nReview.");
     const items = await discoverPluginImports("chatgpt", workspace);
     expect(items.map(item => item.name).sort()).toEqual(["docket", "literature", "patent", "patent_search"]);
     expect(items.filter(item => item.kind === "connector")).toHaveLength(3);
@@ -76,9 +77,65 @@ test("discovers custom Codex config and current-project TOML alongside existing 
   }
 }));
 
+test("identical remote connectors across Claude and Codex projects appear once without project labels", async () => fixture(async home => {
+  const workspace = join(home, "legalwork");
+  const projects = [workspace, join(home, "old/legalwork"), join(home, "yavio"), join(home, "knowledge-index")];
+  const remote = { url: "https://linear.example/mcp", headers: { Region: "eu", Authorization: "Bearer private-token" } };
+  await write(join(home, ".claude.json"), { projects: Object.fromEntries(projects.map(project => [project, { mcpServers: { linear: remote } }])) });
+  await write(join(workspace, ".mcp.json"), { mcpServers: { linear: { headers: { Authorization: "Bearer private-token", Region: "eu" }, url: remote.url } } });
+  const codex = join(home, "codex");
+  await write(join(codex, "config.toml"), projects.map(project => `[projects.${JSON.stringify(project)}]\ntrust_level = "trusted"`).join("\n"));
+  for (const project of projects) await write(join(project, ".codex/config.toml"), '[mcp_servers.linear]\nurl = "https://linear.example/mcp"\nhttp_headers = { Authorization = "Bearer private-token", Region = "eu" }\n');
+  for (const provider of ["claude", "chatgpt"] satisfies Array<"claude" | "chatgpt">) {
+    const items = await discoverConnectorImports(provider, workspace, home, codex, join(home, ".claude"));
+    expect(items).toHaveLength(1);
+    expect(items[0]?.description).toBe(provider === "claude" ? "Claude Code" : "Codex");
+    expect(JSON.stringify(items)).not.toContain("private-token");
+  }
+}));
+
+test("deduplication retains different credentials, endpoints and project-relative programs", async () => fixture(async home => {
+  const workspace = join(home, "project");
+  const other = join(home, "other");
+  const remote = { url: "https://linear.example/mcp", headers: { Authorization: "Bearer first-secret" } };
+  const local = { command: "node", args: ["server.js"] };
+  await write(join(home, ".claude.json"), { mcpServers: { linear: remote }, projects: {
+    [workspace]: { mcpServers: { linear: { ...remote, headers: { Authorization: "Bearer second-secret" } }, local } },
+    [other]: { mcpServers: { linear: { ...remote, url: "https://other.example/mcp" }, local } },
+  } });
+  const items = await discoverConnectorImports("claude", workspace, home, join(home, ".codex"), join(home, ".claude"));
+  expect(items.filter(item => item.name === "linear")).toHaveLength(3);
+  expect(items.filter(item => item.name === "local")).toHaveLength(2);
+  expect(JSON.stringify(items)).not.toMatch(/first-secret|second-secret|enabled_tools/);
+}));
+
+test("discovery hides unsupported source runtimes, permission rules and missing programs without hiding credential setup", async () => fixture(async home => {
+  const workspace = join(home, "project");
+  await write(join(home, ".claude.json"), { mcpServers: {
+    hosted: { url: "https://mcp.figma.com/mcp" },
+    session: { url: "https://example.com/mcp", auth: "chatgpt" },
+    policy: { url: "https://example.com/mcp", disabled_tools: ["delete"] },
+    missing: { command: join(home, "missing-program") },
+    setup: { url: "https://example.com/mcp", headers: { Authorization: "Bearer ${TOKEN}" } },
+    local: { command: process.execPath, args: ["server.js"] },
+  } });
+  const items = await discoverConnectorImports("claude", workspace, home, join(home, ".codex"), join(home, ".claude"));
+  expect(items.map(item => item.name).sort()).toEqual(["local", "setup"]);
+}));
+
+test("Codex callback settings remain part of the imported connector identity", async () => fixture(async home => {
+  const workspace = join(home, "project");
+  const codex = join(home, "codex");
+  for (const [path, port] of [[join(codex, "config.toml"), 1111], [join(workspace, ".codex/config.toml"), 2222]]) {
+    await write(String(path), `mcp_oauth_callback_port = ${port}\n[mcp_servers.linear]\nurl = "https://linear.example/mcp"\n`);
+  }
+  const items = await discoverConnectorImports("chatgpt", workspace, home, codex, join(home, ".claude"));
+  expect(items).toHaveLength(2);
+}));
+
 test("maps Codex environment and HTTP authentication fields without reading environment secrets", async () => fixture(async root => {
   const configPath = join(root, "config.toml");
-  await write(configPath, '[mcp_servers.search]\nurl = "https://search.example/mcp"\nbearer_token_env_var = "IMPORT_TOKEN"\nenabled_tools = ["search"]\ntool_timeout_sec = 30\nhttp_headers = { "X-Region" = "eu" }\nenv_http_headers = { "X-Key" = "IMPORT_KEY" }\n[mcp_servers.search.oauth]\nclient_id = "registered-client"\n[mcp_servers.local]\ncommand = "node"\nargs = ["server.js", "argument with spaces"]\nenv_vars = ["IMPORT_TOKEN"]\n[mcp_servers.local.env]\nFIXED = "literal"\n');
+  await write(configPath, '[mcp_servers.search]\nurl = "https://search.example/mcp"\nbearer_token_env_var = "IMPORT_TOKEN"\ntool_timeout_sec = 30\nhttp_headers = { "X-Region" = "eu" }\nenv_http_headers = { "X-Key" = "IMPORT_KEY" }\n[mcp_servers.search.oauth]\nclient_id = "registered-client"\n[mcp_servers.local]\ncommand = "node"\nargs = ["server.js", "argument with spaces"]\nenv_vars = ["IMPORT_TOKEN"]\n[mcp_servers.local.env]\nFIXED = "literal"\n');
   const request = { source: { provider: "chatgpt", path: configPath, connector: { name: "search" } }, scope: "global" } satisfies Parameters<typeof resolvePluginImports>[0];
   const [remote] = await resolvePluginImports(request, root);
   const text = JSON.stringify(remote!.resolved);
@@ -89,7 +146,7 @@ test("maps Codex environment and HTTP authentication fields without reading envi
   expect(text).toContain('"enabled":false');
   expect(remote!.preview.format).toBe("connectors");
   expect(remote!.resolved.plugin.sourceKind).toBe("connector");
-  expect(remote!.preview.warnings.some(warning => warning.includes("tool restrictions"))).toBe(true);
+  expect(remote!.preview.connectors?.[0]?.status).not.toBe("blocked");
   const [local] = await resolvePluginImports({ ...request, source: { ...request.source, connector: { name: "local" } } }, root);
   expect(JSON.stringify(local!.resolved)).toContain('"args":["server.js","argument with spaces"]');
   expect(JSON.stringify(local!.resolved)).toContain('"IMPORT_TOKEN":"${IMPORT_TOKEN}"');

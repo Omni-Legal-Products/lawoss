@@ -20,6 +20,7 @@ describe("collectLegalMemoryDocuments", () => {
         title: "Series B Preferred Stock Financing",
         versionStatus: "executed",
         matterId: "d392e7fe-af11-4ec4-9885-5777a69448df",
+        matterTitle: undefined,
       },
     ]);
   });
@@ -38,6 +39,12 @@ describe("collectLegalMemoryDocuments", () => {
     const doc = collectLegalMemoryDocuments([[REAL_HIT]])[0];
     expect(doc.matterId).toBe("d392e7fe-af11-4ec4-9885-5777a69448df");
     expect("system" in doc).toBe(false);
+  });
+
+  test("keeps a matter title only when the same result supplies it", () => {
+    expect(collectLegalMemoryDocuments([[{ ...REAL_HIT, matter_title: "Synthetic acquisition" }]])[0]?.matterTitle)
+      .toBe("Synthetic acquisition");
+    expect(collectLegalMemoryDocuments([[REAL_HIT]])[0]?.matterTitle).toBeUndefined();
   });
 
   test("handles the find_related_documents shape, root first", () => {

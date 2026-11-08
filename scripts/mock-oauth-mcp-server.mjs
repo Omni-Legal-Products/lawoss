@@ -89,6 +89,7 @@ function authorizationServerMetadata() {
     authorization_endpoint: `${issuer}/authorize`,
     token_endpoint: `${issuer}/token`,
     registration_endpoint: `${issuer}/register`,
+    ...(process.env.CLIENT_METADATA_DOCUMENT_SUPPORTED === "1" ? { client_id_metadata_document_supported: true } : {}),
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     token_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],

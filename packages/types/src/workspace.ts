@@ -148,6 +148,8 @@ export type ProjectSyncStatus = {
   viewerUserId: string | null;
   ownerUserId: string | null;
   settings: ProjectSyncSettings;
+  /** Local folder policy, enforced even for projects shared by an older app. */
+  fileSharingDisabledReason?: "cloud_folder";
   state: ProjectSyncState;
   lastSyncAt: string | null;
   error: string | null;

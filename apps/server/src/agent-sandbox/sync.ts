@@ -30,7 +30,7 @@ export async function syncSandboxSettings(config: ServerConfig, request: typeof 
       const account = sandboxAccount(connection);
       if (!account || !connection.platformToken || !connection.platformURL) { statuses.set(config, "local"); return; }
       statuses.set(config, "syncing");
-      const row = await readRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID);
+      const row = await readRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID, { failOnInvalid: true });
       const state = row.sandboxSync?.account === account ? row.sandboxSync : undefined;
       const url = `${connection.platformURL}/api/desktop/settings`;
       const headers = { Authorization: `Bearer ${connection.platformToken}`, "Content-Type": "application/json" };
@@ -51,7 +51,7 @@ export async function syncSandboxSettings(config: ServerConfig, request: typeof 
       }
       await withSandboxSettingsLock(config, async () => {
         // A delayed response must not erase a newer local edit or cross accounts.
-        const current = await readRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID);
+        const current = await readRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID, { failOnInvalid: true });
         if (sandboxAccount(await readEigenweltConnection(config)) !== account) return;
         if (current.sandboxEdit !== row.sandboxEdit) {
           // Our own older upload advanced the remote revision. Acknowledge only

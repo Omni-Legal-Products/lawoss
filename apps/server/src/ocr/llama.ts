@@ -6,7 +6,7 @@ import { access, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { z } from "zod";
-import { assetReady, downloadModelAsset } from "./models.js";
+import { assetReady, downloadModelAsset, type ModelDownloadFetch } from "./models.js";
 import { OcrError } from "./types.js";
 
 const build = "b11234";
@@ -37,7 +37,7 @@ export async function qualityModelReady(directory: string, signal?: AbortSignal)
 }
 
 /** Downloads the pinned llama.cpp build and the model files. Complete files are reused on retry. */
-export async function prepareQualityModel(directory: string, signal: AbortSignal) {
+export async function prepareQualityModel(directory: string, signal: AbortSignal, download?: ModelDownloadFetch) {
   const archive = builds[`${process.platform}-${process.arch}`];
   if (!archive) throw new OcrError("runtime-unavailable", "This model requires an Apple Silicon Mac.");
   const location = paths(directory);
@@ -45,7 +45,7 @@ export async function prepareQualityModel(directory: string, signal: AbortSignal
   if (!await access(location.server).then(() => true, () => false)) {
     const file = join(location.root, archive.name), temporary = join(location.root, `extract-${randomUUID()}`);
     try {
-      await downloadModelAsset({ ...archive, url: `https://github.com/ggml-org/llama.cpp/releases/download/${build}/${archive.name}` }, file, signal);
+      await downloadModelAsset({ ...archive, url: `https://github.com/ggml-org/llama.cpp/releases/download/${build}/${archive.name}` }, file, signal, download);
       await mkdir(temporary, { mode: 0o700 });
       // The system tar keeps the build's library symlinks; the archive's checksum was verified above.
       await new Promise<void>((resolve, reject) => execFile("tar", ["-xf", file, "-C", temporary], { signal }, error => error ? reject(error) : resolve()));
@@ -53,7 +53,7 @@ export async function prepareQualityModel(directory: string, signal: AbortSignal
       await rename(join(temporary, `llama-${build}`), location.build);
     } finally { await rm(temporary, { recursive: true, force: true }); await rm(file, { force: true }); }
   }
-  for (const asset of weights) await downloadModelAsset(asset, join(location.root, asset.name), signal);
+  for (const asset of weights) await downloadModelAsset(asset, join(location.root, asset.name), signal, download);
 }
 
 /** Crops read at once. Two slots answered 53 crops 21% faster than one, with identical text; four gained little more. */

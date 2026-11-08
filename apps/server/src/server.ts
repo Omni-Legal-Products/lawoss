@@ -54,7 +54,6 @@ import {
   engineAccessToken,
   fetchLegalMemoryDocument,
   fetchLegalMemoryGraph,
-  fetchLegalMemoryMatters,
   fetchLegalMemoryTreeChildren,
   fetchLegalMemoryTreeRoots,
   fetchLegalMemoryTreeSearch,
@@ -108,10 +107,10 @@ import { WIKI_AGENT_TICKET_PATH } from "./lawoss/engine-agent-contract.js";
 import { EnvService } from "./env-file.js";
 import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports, withPluginImportLock } from "./plugin-imports.js";
 import { createdPluginId, parsePluginCreateRequest, planPluginCreation, pluginCreateOptions } from "./plugin-create.js";
-import { installPluginImport } from "./plugin-import-install.js";
-import { preparePluginImport, reviewedPluginImport } from "./plugin-import-checks.js";
+import { installPluginImport, rollbackPluginImport, assertPluginUnmodified } from "./plugin-import-install.js";
+import { preparePluginImport, reviewedPluginImport, assertImportable, currentPluginImportTarget } from "./plugin-import-checks.js";
 import { assertPluginDestination, installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin, resolveWorkspaceInstallPath } from "./cloud-plugins.js";
-import { resolveClaudePluginBundle } from "./claude-plugin-bundle.js";
+import { parseClaudePluginSource } from "./claude-plugin-bundle.js";
 import {
   applyMaterializedBlueprintSessions,
   normalizeBlueprintSessionTemplates,
@@ -842,7 +841,7 @@ export type StartedServer = ServeResult & {
 const orgPolicyResource = Symbol("server-org-policy");
 const firmHubResource = Symbol("server-firm-hub");
 
-export async function startServer(config: ServerConfig, runtimeOptions: { scheduledTaskSend?: ScheduledExecutor["send"]; publicEngineBinary?: () => string | undefined; documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void>; onboardingApplyCheckpoint?: (checkpoint: OnboardingApplyCheckpoint) => void } = {}): Promise<StartedServer> {
+export async function startServer(config: ServerConfig, runtimeOptions: { modelDownloadFetch?: import("./ocr/models.js").ModelDownloadFetch; scheduledTaskSend?: ScheduledExecutor["send"]; publicEngineBinary?: () => string | undefined; documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void>; onboardingApplyCheckpoint?: (checkpoint: OnboardingApplyCheckpoint) => void } = {}): Promise<StartedServer> {
   const lifetime = acquireRuntimeDbLifetime(config);
   const cleanups: Array<() => void | Promise<unknown>> = [];
   // LAWOSS: rozpočet RAM 2 GB – MCP len pre otvorených klientov (issue #367).
@@ -947,7 +946,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
     grantAgentSession: (sessionId, directory) => grantWikiAgentSession(config, { sessionId, directory, scope: "collaborator" }),
   });
   // LAWOSS: OCR models download only after the lawyer turns OCR on (lawoss/ocr-opt-in.ts).
-  const ocr = new LawossOcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config), governedOcrTransport(config));
+  const ocr = new LawossOcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config), governedOcrTransport(config), runtimeOptions.modelDownloadFetch);
   cleanups.push(() => { benchmarkRunner.dispose(); ocr.stop(); });
   const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
   cleanups.push(() => preparation.stop());
@@ -2523,7 +2522,7 @@ function createRoutes(
     await requireOrgPolicyAllows(config, "plugins.allowCustom");
     const input = parsePluginCreateRequest(await readJsonBody(ctx.request));
     if (input.skills.length) await requireOrgPolicyAllows(config, "skills.allowCustom");
-    if (input.connectors.length) await requireOrgPolicyAllows(config, "connectors.allowCustom");
+    if (input.connectors.length || input.newConnector) await requireOrgPolicyAllows(config, "connectors.allowCustom");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const item = await withPluginImportLock(async () => {
       const installed = await readInstalledCloudPlugins(config, GLOBAL_MCP_ID);
@@ -2550,21 +2549,21 @@ function createRoutes(
     const request = parsePluginImportRequest(await readJsonBodyLimited(ctx.request, 91 * 1024 * 1024));
     if ("path" in request.source || request.scope === "global") ctx.actor = await requireHost(ctx.request, config, ctx.tokens);
     else requireClientScope(ctx, "collaborator");
-    await requireOrgPolicyAllows(config, "plugins.allowCustom");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const plans = await resolvePluginImports(request, workspace.path);
+    if (plans.some(plan => plan.resolved.plugin.sourceKind === "plugin")) await requireOrgPolicyAllows(config, "plugins.allowCustom");
     const registry = request.scope === "global" ? GLOBAL_MCP_ID : workspace.id;
     const installed = await readInstalledCloudPlugins(config, registry);
-    const current = (await readRuntimeOpencodeConfig(config, registry)).mcp ?? {};
-    const importTarget = (plan: typeof plans[number]) => ({ workspace: workspace.path, scope: request.scope, current, installed: installed.plugins[plan.preview.id] });
+    const importTarget = (plan: typeof plans[number]) => currentPluginImportTarget(config, workspace.id, workspace.path, request.scope, plan.preview.id);
     if (action === "preview") {
       if (plans.some(plan => plan.preview.components.some(component => component.type === "mcp"))) await requireOrgPolicyAllows(config, "connectors.allowCustom");
-      const checked = plans.length === 1 ? [await preparePluginImport(plans[0], importTarget(plans[0]), {}, request.recheck)] : plans;
-      return jsonResponse({ items: checked.map(plan => ({ ...plan.preview, warnings: [...plan.preview.warnings, ...(installed.plugins[plan.preview.id] ? ["This import replaces the installed package with this name, including its files and connector settings."] : [])] })) });
+      const checked = plans.length === 1 ? [await preparePluginImport(plans[0], await importTarget(plans[0]), {}, request.recheck)] : plans;
+      return jsonResponse({ items: checked.map(plan => ({ ...plan.preview, warnings: [...plan.preview.warnings, ...(installed.plugins[plan.preview.id] ? ["This updates the installed copy from this source. The previous version can be restored."] : [])] })) });
     }
     ensureWritable(config);
     if (plans.length !== 1 || !request.digest || request.digest !== plans[0].preview.digest) throw new ApiError(409, "plugin_preview_changed", "The plugin changed or has not been reviewed. Preview it again before importing.");
-    const plan = reviewedPluginImport(plans[0], importTarget(plans[0]), request.validationId);
+    const plan = reviewedPluginImport(plans[0], await importTarget(plans[0]), request.validationId);
+    assertImportable(plan, request.acknowledgePartial);
     if (!plan.preview.components.length) throw new ApiError(400, "no_importable_components", "This package has no supported items to import.");
     if (plan.preview.components.some(entry => entry.type === "skill")) await requireOrgPolicyAllows(config, "skills.allowCustom");
     if (plan.preview.components.some(entry => entry.type === "mcp")) await requireOrgPolicyAllows(config, "connectors.allowCustom");
@@ -2573,7 +2572,11 @@ function createRoutes(
       workspaceId: workspace.id, action: "cloud_plugins.install", summary: `Import ${plan.preview.name} from ${request.source.provider}`,
       paths: global ? [globalOpencodeConfigDir(), globalSkillsDir()] : [join(workspace.path, ".opencode")],
     });
-    const imported = await withPluginImportLock(() => installPluginImport(config, workspace.id, workspace.path, plan, global));
+    const imported = await withPluginImportLock(async () => {
+      const checked = reviewedPluginImport(plans[0], await importTarget(plans[0]), request.validationId);
+      assertImportable(checked, request.acknowledgePartial);
+      return installPluginImport(config, workspace.id, workspace.path, checked, global);
+    });
     await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "cloud_plugins.install", target: global ? globalOpencodeConfigDir() : join(workspace.path, ".opencode"), summary: `Imported ${plan.preview.name} (${request.source.provider}, ${request.scope})`, timestamp: Date.now() });
     const affected = global ? config.workspaces : [workspace];
     for (const target of affected) {
@@ -2588,7 +2591,52 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const cloudImports = await readInstalledCloudPlugins(config, workspace.id);
     const globalImports = await readInstalledCloudPlugins(config, GLOBAL_MCP_ID);
-    return jsonResponse({ marketplaces: cloudImports.marketplaces, plugins: { ...globalImports.plugins, ...cloudImports.plugins } });
+    return jsonResponse({ marketplaces: cloudImports.marketplaces, plugins: Object.fromEntries(Object.entries({ ...globalImports.plugins, ...cloudImports.plugins }).map(([id, plugin]) => [id, { ...plugin, canRollback: Boolean(plugin.snapshots?.length) }])) });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/plugin-imports/:pluginId/update", "client", async ctx => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const local = await readInstalledCloudPlugins(config, workspace.id);
+    const global = await readInstalledCloudPlugins(config, GLOBAL_MCP_ID);
+    const plugin = local.plugins[ctx.params.pluginId] || global.plugins[ctx.params.pluginId];
+    if (!plugin?.provenance) throw new ApiError(404, "plugin_source_missing", "This older import has no tracked source. Choose its package again in Import.");
+    const origin = plugin.provenance;
+    if (plugin.scope === "global" || origin.kind !== "github") ctx.actor = await requireHost(ctx.request, config, ctx.tokens);
+    else requireClientScope(ctx, "collaborator");
+    if (plugin.sourceKind !== "skill" && plugin.sourceKind !== "connector") await requireOrgPolicyAllows(config, "plugins.allowCustom");
+    if (origin.kind === "configuration" || origin.kind === "archive" && !isAbsolute(origin.location)) throw new ApiError(400, "plugin_source_missing", "Choose the updated connector configuration or archive in Import.");
+    const source = origin.kind === "github" ? { provider: origin.provider, url: origin.location, ref: origin.ref, directory: origin.directory } : { provider: origin.provider, path: origin.location };
+    const scope = plugin.scope === "global" ? "global" : "project";
+    const plans = await resolvePluginImports({ source, scope, root: origin.root, asWorkflow: origin.asWorkflow }, workspace.path);
+    const plan = plans.find(item => item.preview.id === plugin.pluginId);
+    if (!plan) throw new ApiError(409, "plugin_source_changed", "The source package identity changed. Review it as a new import.");
+    if (plan.preview.components.some(item => item.type === "skill")) await requireOrgPolicyAllows(config, "skills.allowCustom");
+    if (plan.preview.connectors?.length) await requireOrgPolicyAllows(config, "connectors.allowCustom");
+    await assertPluginUnmodified(workspace.path, plugin, scope === "global");
+    const registry = scope === "global" ? GLOBAL_MCP_ID : workspace.id;
+    const checked = await preparePluginImport(plan, { workspace: workspace.path, scope, current: (await readRuntimeOpencodeConfig(config, registry)).mcp || {}, installed: plugin, available: Object.values({ ...global.plugins, ...local.plugins }) });
+    return jsonResponse({ source, scope, root: origin.root, asWorkflow: origin.asWorkflow, changed: origin.digest !== checked.preview.digest, preview: checked.preview });
+  });
+  addRoute(routes, "POST", "/workspace/:id/plugin-imports/:pluginId/rollback", "client", async ctx => {
+    ensureWritable(config);
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const local = await readInstalledCloudPlugins(config, workspace.id);
+    const global = await readInstalledCloudPlugins(config, GLOBAL_MCP_ID);
+    const plugin = local.plugins[ctx.params.pluginId] || global.plugins[ctx.params.pluginId];
+    if (!plugin) throw new ApiError(404, "plugin_not_found", "This plugin is no longer installed.");
+    if (plugin.scope === "global") ctx.actor = await requireHost(ctx.request, config, ctx.tokens);
+    else requireClientScope(ctx, "collaborator");
+    if (plugin.sourceKind !== "skill" && plugin.sourceKind !== "connector") await requireOrgPolicyAllows(config, "plugins.allowCustom");
+    if (plugin.files.some(file => file.objectType === "skill")) await requireOrgPolicyAllows(config, "skills.allowCustom");
+    if (plugin.files.some(file => file.objectType === "mcp")) await requireOrgPolicyAllows(config, "connectors.allowCustom");
+    await requireApproval(ctx, { workspaceId: workspace.id, action: "cloud_plugins.install", summary: `Restore the previous version of ${plugin.name}`, paths: [plugin.scope === "global" ? globalOpencodeConfigDir() : join(workspace.path, ".opencode")] });
+    const item = await withPluginImportLock(() => rollbackPluginImport(config, workspace.id, workspace.path, plugin.pluginId, plugin.scope === "global"));
+    await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor || { type: "remote" }, action: "cloud_plugins.rollback", target: plugin.pluginId, summary: `Restored ${plugin.name}`, timestamp: Date.now() });
+    for (const target of plugin.scope === "global" ? config.workspaces : [workspace]) {
+      for (const reason of ["skills", "agents", "commands", "mcp"] satisfies Array<"skills" | "agents" | "commands" | "mcp">) emitReloadEvent(ctx.reloadEvents, target, reason);
+      await syncRuntimeMcpToOpencodeEngine(config, target).catch(() => undefined);
+    }
+    return jsonResponse({ item });
   });
 
   addRoute(routes, "GET", "/workspace/:id/cloud-plugins/:pluginId/file", "client", async ctx => {
@@ -2678,27 +2726,35 @@ function createRoutes(
     const ref = typeof body.ref === "string" && body.ref.trim() ? body.ref.trim() : undefined;
     const dryRun = body.dryRun === true;
 
-    const bundle = await resolveClaudePluginBundle({ url, ref });
+    const request = parsePluginImportRequest({ source: { provider: "claude", url, ref }, scope: "project", digest: body.digest, validationId: body.validationId, acknowledgePartial: body.acknowledgePartial });
+    const plans = await resolvePluginImports(request, workspace.path);
+    if (plans.length !== 1) throw new ApiError(400, "plugin_selection_required", "This repository contains multiple packages. Select one in the plugin import dialog.");
+    const installed = await readInstalledCloudPlugins(config, workspace.id);
+    const target = { workspace: workspaceAppFilesRoot(config, workspace), scope: request.scope, current: (await readRuntimeOpencodeConfig(config, workspace.id)).mcp || {}, installed: installed.plugins[plans[0].preview.id], available: Object.values({ ...(await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins, ...installed.plugins }) };
+    if (plans[0].preview.components.some(item => item.type === "skill")) await requireOrgPolicyAllows(config, "skills.allowCustom");
+    if (plans[0].preview.connectors?.length) await requireOrgPolicyAllows(config, "connectors.allowCustom");
+    const plan = dryRun ? await preparePluginImport(plans[0], target) : reviewedPluginImport(plans[0], target, request.validationId);
+    const source = parseClaudePluginSource(url);
+    const preview = { pluginId: plan.preview.id, name: plan.preview.displayName || plan.preview.name, description: plan.preview.description, version: plan.preview.version, source: { owner: source.owner, repo: source.repo, ref: plan.preview.provenance?.ref || ref || "", dir: plan.preview.provenance?.directory || null }, components: plan.preview.components.map(item => ({ type: item.type, name: item.name, description: null })), warnings: plan.preview.warnings, review: plan.preview };
     if (dryRun) {
-      return jsonResponse({ preview: bundle.preview });
+      return jsonResponse({ preview });
     }
+    if (request.digest !== plan.preview.digest) throw new ApiError(409, "plugin_preview_changed", "Review the current repository revision before installing.");
+    assertImportable(plan, request.acknowledgePartial);
 
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "cloud_plugins.install",
-      summary: `Install Claude plugin ${bundle.resolved.plugin.name} from ${bundle.preview.source.owner}/${bundle.preview.source.repo}`,
+      summary: `Install Claude plugin ${plan.preview.name} from ${source.owner}/${source.repo}`,
       paths: [legalworkConfigPath(workspaceAppFilesRoot(config, workspace)), join(workspaceAppFilesRoot(config, workspace), ".opencode")],
     });
 
-    const imported = await installCloudPlugin({
-      serverConfig: config,
-      workspaceId: workspace.id,
-      workspaceRoot: workspaceAppFilesRoot(config, workspace),
-      marketplaceId: null,
-      resolved: bundle.resolved,
-      provenance: { source: bundle.preview.source, version: bundle.preview.version },
+    const imported = await withPluginImportLock(async () => {
+      const checked = reviewedPluginImport(plans[0], await currentPluginImportTarget(config, workspace.id, workspaceAppFilesRoot(config, workspace), "project", plans[0].preview.id), request.validationId);
+      assertImportable(checked, request.acknowledgePartial);
+      return installPluginImport(config, workspace.id, workspaceAppFilesRoot(config, workspace), checked, false);
     });
 
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
@@ -2707,7 +2763,7 @@ function createRoutes(
       actor: ctx.actor ?? { type: "remote" },
       action: "cloud_plugins.install",
       target: legalworkConfigPath(workspaceAppFilesRoot(config, workspace)),
-      summary: `Installed Claude plugin ${bundle.resolved.plugin.name} from ${url}`,
+      summary: `Installed Claude plugin ${plan.preview.name} from ${url}`,
       timestamp: Date.now(),
     });
 
@@ -2722,7 +2778,7 @@ function createRoutes(
     // Hot-register any bundled MCP servers with the running engine.
     await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
 
-    return jsonResponse({ item: imported, preview: bundle.preview });
+    return jsonResponse({ item: imported, preview });
   });
 
   addRoute(routes, "DELETE", "/workspace/:id/cloud-plugins/:pluginId", "client", async (ctx) => {
@@ -3467,20 +3523,6 @@ function createRoutes(
     const payload = await serializeWorkflowSkill(workspace.path, skill);
     const result = await hubCreate(client, { kind: "workflow", name, description, payload });
     return jsonResponse({ ok: true, ...result });
-  });
-
-  // Matter id to title, so a source can say which matter it belongs to.
-  addRoute(routes, "POST", "/workspace/:id/legalmemory/matters", "client", async (ctx) => {
-    requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
-    if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
-    try {
-      return jsonResponse({ ok: true, matters: await fetchLegalMemoryMatters(server, await engineAccessToken(server.name)) });
-    } catch {
-      // A source without its matter is still a usable source.
-      return jsonResponse({ ok: true, matters: {} });
-    }
   });
 
   // The caller's LegalMemory estate as a lazy file tree. The LegalWork server

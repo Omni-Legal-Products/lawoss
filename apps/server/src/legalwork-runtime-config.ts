@@ -24,6 +24,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   legalworkPluginPath,
   legalworkExtensionsPreviewPluginPath,
+  legalworkChromeDevtoolsPluginPath,
   legalworkSandboxPluginPath,
   legalworkCapabilitiesKnowledgePluginPath,
   legalworkLegalMemoryKnowledgePluginPath,
@@ -343,10 +344,12 @@ export async function buildLegalworkRuntimeConfigObject(
       },
     },
     plugin: (await Promise.all([
-      "opencode-chrome-devtools",
-      // Adds "Sign in with Anthropic" auth methods (Claude Pro/Max subscription
-      // OAuth + "Create an API Key" console OAuth) to the provider list. Without
-      // this plugin the engine only offers manual Anthropic API-key entry.
+      bundledPluginSpec(legalworkChromeDevtoolsPluginPath(), config),
+      // LAWOSS: Adds "Sign in with Anthropic" auth methods (Claude Pro/Max
+      // subscription OAuth + "Create an API Key" console OAuth) to the provider
+      // list. Upstream v0.2.11 removed it; LAWOSS keeps it as an alpha entry
+      // condition (owner decision). Without it the engine only offers manual
+      // Anthropic API-key entry.
       "opencode-anthropic-auth",
       bundledPluginSpec(legalworkExtensionsPreviewPluginPath(), config),
       bundledPluginSpec(legalworkCapabilitiesKnowledgePluginPath(), config),

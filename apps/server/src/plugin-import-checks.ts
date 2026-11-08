@@ -1,16 +1,23 @@
 import { createHash, randomUUID } from "node:crypto";
-import { access, stat } from "node:fs/promises";
-import { constants } from "node:fs";
-import { delimiter, isAbsolute, join } from "node:path";
 import type { ConnectorImportCheck, PluginImportScope } from "@legalwork/types/plugin-import";
 import { ApiError } from "./errors.js";
 import { connectorConfigVariables, isCredentialHeader } from "./connector-config.js";
 import { importRecord } from "./connector-import-compatibility.js";
-import { mergeConnectorSetup, normalizePluginMcpConfig, resolveWorkspaceInstallPath, type CloudImportedPlugin } from "./cloud-plugins.js";
-import { probeMcpServer, registerMcpClient, type McpProbeOptions } from "./mcp-probe.js";
+import { mergeConnectorSetup, normalizePluginMcpConfig, resolveWorkspaceInstallPath, readInstalledCloudPlugins, type CloudImportedPlugin } from "./cloud-plugins.js";
+import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import type { ServerConfig } from "./types.js";
+import { probeMcpServer, registerMcpClient, legalworkMcpClientIdentity, type McpProbeOptions } from "./mcp-probe.js";
 import type { PluginImportPlan } from "./plugin-imports.js";
+import { evaluateImportRequirements } from "./plugin-import-requirements.js";
+import { connectorProgramAvailable } from "./connector-program.js";
 
-type ImportTarget = { workspace: string; scope: PluginImportScope; current: Record<string, unknown>; installed?: CloudImportedPlugin };
+type ImportTarget = { workspace: string; scope: PluginImportScope; current: Record<string, unknown>; installed?: CloudImportedPlugin; available?: CloudImportedPlugin[] };
+export async function currentPluginImportTarget(config: ServerConfig, workspaceId: string, workspace: string, scope: PluginImportScope, pluginId: string): Promise<ImportTarget> {
+  const global = await readInstalledCloudPlugins(config, GLOBAL_MCP_ID);
+  const local = scope === "project" ? await readInstalledCloudPlugins(config, workspaceId) : global;
+  const registry = scope === "global" ? GLOBAL_MCP_ID : workspaceId;
+  return { workspace, scope, current: (await readRuntimeOpencodeConfig(config, registry)).mcp || {}, installed: local.plugins[pluginId], available: Object.values({ ...global.plugins, ...local.plugins }) };
+}
 type Prepared = { key: string; expires: number; plan: PluginImportPlan; bytes: number };
 const preparations = new Map<string, Prepared>();
 const pendingPreparations = new Map<string, Promise<PluginImportPlan>>();
@@ -22,7 +29,7 @@ function keyFor(plan: PluginImportPlan, target: ImportTarget): string {
   // Re-review if an owned connector's setup changes, including an endpoint change.
   const owned = new Set(target.installed?.files.filter(file => file.objectType === "mcp").map(file => file.path.replace(/^opencode\.jsonc#mcp\./, "")));
   const setup = Object.fromEntries(Object.keys(plan.connectorConfigs ?? {}).filter(name => owned.has(name)).map(name => [name, target.current[name]]));
-  return createHash("sha256").update(JSON.stringify([plan.preview.digest, target.workspace, target.scope, setup, target.installed?.connectorDefaults])).digest("hex");
+  return createHash("sha256").update(JSON.stringify([plan.preview.id, plan.preview.digest, target.workspace, target.scope, setup, target.installed?.connectorDefaults, process.env.LEGALWORK_MCP_CLIENT_METADATA_URL, target.available?.map(item => [item.pluginId, item.provenance?.digest, item.importState?.readiness])])).digest("hex");
 }
 
 /** Check from the actual LegalWork server; never execute imported programs or read another app's credentials. */
@@ -38,6 +45,7 @@ async function checkRemote(check: ConnectorImportCheck, config: Record<string, u
   // Anonymous access cannot test account permissions or static credential validity.
   // Never send source secrets to redirects, discovery or registration endpoints.
   const probe = await probeMcpServer(url, { ...options, headers: undefined, exactUrl: true });
+  if (check.declaredTransport && probe.transport && check.declaredTransport !== probe.transport) return blocked("transport_mismatch", "This endpoint does not accept the portable connector’s declared Streamable HTTP transport. Obtain the correct endpoint before importing.");
   if (!probe.reachable) return blocked("unreachable", "This connector could not be reached from the LegalWork server. Check the address, network access and any provider IP allowlist, then check again.", true);
   if (!probe.steps.find(step => step.id === "connect")?.ok) {
     if (hasCredentials && probe.steps[0]?.status === 403) return credentialSetup;
@@ -56,6 +64,10 @@ async function checkRemote(check: ConnectorImportCheck, config: Record<string, u
     if (requested.size !== advertised.size || [...requested].some(scope => !advertised.has(scope))) return blocked("scope_change", "The provider advertises different permissions from this export. LegalWork's engine would request those advertised permissions. Review and correct the source permission configuration before importing.");
   }
   if (typeof oauth.clientId === "string" && oauth.clientId) {
+    if (oauth.clientId === (options.clientMetadataUrl || process.env.LEGALWORK_MCP_CLIENT_METADATA_URL)) {
+      try { await legalworkMcpClientIdentity(probe, typeof oauth.redirectUri === "string" ? oauth.redirectUri : "http://127.0.0.1:19876/mcp/oauth/callback", options); }
+      catch (error) { return blocked("client_metadata", error instanceof Error ? error.message : "LegalWork's client metadata is unavailable.", true); }
+    }
     const methods = probe.oauth?.tokenEndpointAuthMethods;
     if (methods?.length && !methods.includes("none") && !methods.includes("client_secret_post")) return blocked("client_authentication", "This provider requires a client authentication method LegalWork cannot use.");
     if (methods?.length && !methods.includes("none") && methods.includes("client_secret_post") && !oauth.clientSecret) {
@@ -64,8 +76,15 @@ async function checkRemote(check: ConnectorImportCheck, config: Record<string, u
     }
     return { ...check, status: "setup", code: "sign_in", message: "Sign in after importing. The provider must allow this registered application's callback, your account and connections from the LegalWork server." };
   }
-  if (!probe.oauth?.dynamicRegistration) return blocked("registration_required", probe.oauth?.clientIdMetadataDocuments ? "This provider requires a client metadata identity or a registered OAuth application. LegalWork cannot use the original app's identity and needs its own registration." : "This provider does not allow automatic OAuth registration. Ask your administrator or the provider for an OAuth application registered for LegalWork.");
   const redirectUri = typeof oauth.redirectUri === "string" ? oauth.redirectUri : `http://127.0.0.1:${typeof oauth.callbackPort === "number" ? oauth.callbackPort : 19876}/mcp/oauth/callback`;
+  try {
+    const identity = await legalworkMcpClientIdentity(probe, redirectUri, options);
+    if (identity) {
+      config.oauth = { ...oauth, clientId: identity, redirectUri };
+      return { ...check, status: "setup", code: "sign_in", message: "LegalWork's own OAuth client identity is configured. Sign in after importing; the provider will check approval and account access." };
+    }
+  } catch (error) { return blocked("client_metadata", error instanceof Error ? error.message : "LegalWork's OAuth client metadata is unavailable.", true); }
+  if (!probe.oauth?.dynamicRegistration) return blocked("registration_required", probe.oauth?.clientIdMetadataDocuments ? "This provider requires an OAuth client metadata identity. Configure LegalWork's own public client metadata or a registered OAuth application; the original app's identity cannot be transferred." : "This provider does not allow automatic OAuth registration. Ask your administrator or the provider for an OAuth application registered for LegalWork.");
   const registration = await registerMcpClient(url, { ...options, headers: undefined, probe, redirectUri, ...(typeof oauth.scope === "string" ? { scope: oauth.scope } : {}) });
   if (!registration.registered) {
     const temporary = registration.reason === "unreachable" || registration.status === 429 || registration.status !== null && registration.status >= 500;
@@ -87,18 +106,12 @@ async function checkLocal(check: ConnectorImportCheck, config: Record<string, un
   if (connectorConfigVariables(config).length) return { ...check, status: "setup", code: "inputs", inputs: connectorConfigVariables(config) };
   const program = Array.isArray(config.command) && typeof config.command[0] === "string" ? config.command[0] : "";
   const packaged = plan.resourceFiles.some(file => resolveWorkspaceInstallPath(target.workspace, file.path, target.scope === "global") === program && (process.platform === "win32" || (file.mode & 0o111) !== 0));
-  const paths = isAbsolute(program) ? [program] : (process.env.PATH ?? "").split(delimiter).filter(Boolean).flatMap(path => process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";").map(extension => join(path, `${program}${extension}`)) : [join(path, program)]);
-  let available = packaged;
-  for (const path of paths) {
-    if (available) break;
-    available = await stat(path).then(info => info.isFile() ? access(path, constants.X_OK).then(() => true, () => false) : false, () => false);
-  }
+  const available = packaged || await connectorProgramAvailable(program);
   if (!available) return { ...check, status: "blocked", code: "program_missing", message: `The program “${program}” is not available on the LegalWork server. Install it there or correct the source configuration, then check again.`, retryable: true };
   return { ...check, status: "setup", code: "local_program", message: "The program is available on the LegalWork server. Configure any dependencies and enable the connector after importing. Import checks do not execute the program." };
 }
 
 async function prepare(plan: PluginImportPlan, target: ImportTarget, options: McpProbeOptions, recheck: boolean): Promise<PluginImportPlan> {
-  if (!plan.preview.connectors?.length) return plan;
   for (const [id, value] of preparations) if (value.expires <= Date.now()) preparations.delete(id);
   const key = keyFor(plan, target);
   const cached = [...preparations.values()].find(value => value.key === key);
@@ -148,6 +161,8 @@ async function prepare(plan: PluginImportPlan, target: ImportTarget, options: Mc
   if (Object.keys(configs).length) prepared.resolved.memberships.push({ configObjectId: `${prepared.preview.id}/mcp`, configObject: { id: `${prepared.preview.id}/mcp`, objectType: "mcp", title: prepared.preview.name, description: null, currentRelativePath: null, status: "active", updatedAt: null, latestVersion: { id: "mcp", rawSourceText: null, normalizedPayloadJson: { mcpServers: configs } } } });
   prepared.resolved.plugin.excludedConnectors = excluded.map(check => ({ name: check.name, message: check.message }));
   prepared.resolved.plugin.connectorDefaults = defaults;
+  evaluateImportRequirements(prepared.preview, target.available);
+  prepared.resolved.plugin.importState = { readiness: prepared.preview.readiness || "ready", requirements: prepared.preview.requirements || [] };
   // Keep durable diagnostics credential-free. Prepared registration is not source metadata.
   const report = prepared.resourceFiles.at(-1);
   if (report && /\/LEGALWORK-IMPORT(?:-\d+)?\.json$/.test(report.path)) report.bytes = Buffer.from(JSON.stringify(prepared.preview, null, 2));
@@ -171,9 +186,16 @@ export async function preparePluginImport(plan: PluginImportPlan, target: Import
 
 /** Client-supplied assessment cannot authorize an install. Source/config changes require review again. */
 export function reviewedPluginImport(plan: PluginImportPlan, target: ImportTarget, validationId?: string): PluginImportPlan {
-  if (!plan.preview.connectors?.length) return plan;
+  if (!plan.preview.connectors?.length && !plan.preview.provenance && !plan.preview.requirements?.length) return plan;
   const prepared = validationId ? preparations.get(validationId) : undefined;
   if (!prepared || prepared.expires <= Date.now() || prepared.key !== keyFor(plan, target)) throw new ApiError(409, "connector_review_expired", "The connector review expired or its configuration changed. Check the import again.");
   if (!prepared.plan.preview.components.length) throw new ApiError(400, "connectors_not_supported", "None of these connectors can be used by LegalWork. Review the reasons before choosing another configuration.");
   return structuredClone(prepared.plan);
+}
+
+export function assertImportable(plan: PluginImportPlan, acknowledgePartial = false) {
+  const required = plan.preview.requirements?.filter(item => item.required && item.status === "blocked");
+  if (required?.length) throw new ApiError(400, "plugin_requirements_unmet", required.map(item => item.message).join(" "));
+  if (!plan.preview.components.length) throw new ApiError(400, "no_importable_components", "This package has no supported items to import.");
+  if (plan.preview.readiness === "partial" && !acknowledgePartial) throw new ApiError(409, "partial_import_confirmation", "Review the omitted behavior and confirm that you want to import only the supported contents.");
 }

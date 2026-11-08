@@ -992,17 +992,17 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     }
   };
 
-  const handleMethodSelect = async (method: ProviderAuthMethod) => {
-    if (!selectedEntry || actionDisabled) return;
+  const handleMethodSelect = async (method: ProviderAuthMethod, entry = selectedEntry) => {
+    if (!entry || actionDisabled) return;
     setLocalError(null);
 
-    if (selectedEntry.id === EIGENWELT_PROVIDER_ID && method.type === "oauth") {
-      await startEigenweltOauth(selectedEntry);
+    if (entry.id === EIGENWELT_PROVIDER_ID && method.type === "oauth") {
+      await startEigenweltOauth(entry);
       return;
     }
 
     if (method.type === "oauth") {
-      await startOauth(selectedEntry, method.methodIndex);
+      await startOauth(entry, method.methodIndex);
       return;
     }
 
@@ -1046,7 +1046,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     }
 
     if (entry.methods.length === 1) {
-      void handleMethodSelect(entry.methods[0]);
+      void handleMethodSelect(entry.methods[0], entry);
       return;
     }
 

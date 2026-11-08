@@ -73,12 +73,42 @@ export type McpProbeResult = {
 };
 
 export type McpProbeOptions = {
+  /** Operator-owned, public HTTPS identity; never an identity copied from another app. */
+  clientMetadataUrl?: string;
   headers?: Record<string, string>;
   timeoutMs?: number;
   fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   /** Imports check the declared address, without silently trying a different endpoint. */
   exactUrl?: boolean;
 };
+
+export async function legalworkMcpClientIdentity(probe: McpProbeResult, redirectUri: string, options: McpProbeOptions): Promise<string | undefined> {
+  const configured = options.clientMetadataUrl || process.env.LEGALWORK_MCP_CLIENT_METADATA_URL;
+  if (!probe.oauth?.clientIdMetadataDocuments || !configured) return undefined;
+  const url = new URL(configured);
+  if (url.protocol !== "https:" || !url.pathname || url.pathname === "/" || url.username || url.password || url.search || url.hash) throw new ApiError(400, "invalid_client_metadata", "LegalWork's OAuth client metadata must use a public HTTPS URL without credentials or query parameters.");
+  const response = await (options.fetch || fetch)(url, { signal: AbortSignal.timeout(options.timeoutMs || 6000), redirect: "error" });
+  if (!response.ok) throw new ApiError(400, "client_metadata_unavailable", "LegalWork's OAuth client metadata could not be reached.");
+  const reader = response.body?.getReader();
+  if (!reader) throw new ApiError(400, "invalid_client_metadata", "LegalWork's OAuth client metadata is empty.");
+  let text = "";
+  let bytes = 0;
+  const decoder = new TextDecoder();
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      bytes += chunk.value.length;
+      if (bytes > 64 * 1024) throw new ApiError(400, "invalid_client_metadata", "LegalWork's OAuth client metadata is too large.");
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+    text += decoder.decode();
+  } finally { await reader.cancel().catch(() => undefined); }
+  let metadata: unknown;
+  try { metadata = JSON.parse(text); } catch { throw new ApiError(400, "invalid_client_metadata", "LegalWork's OAuth client metadata is invalid JSON."); }
+  if (!isRecord(metadata) || metadata.client_id !== configured || typeof metadata.client_name !== "string" || !Array.isArray(metadata.redirect_uris) || !metadata.redirect_uris.includes(redirectUri) || metadata.token_endpoint_auth_method !== "none") throw new ApiError(400, "invalid_client_metadata", "LegalWork's OAuth client metadata must identify this URL, declare a public client and allow the exact callback used for this connection.");
+  return configured;
+}
 
 const PROTOCOL_VERSION = "2025-06-18";
 

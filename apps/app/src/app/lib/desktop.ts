@@ -96,6 +96,8 @@ declare global {
         ackSnapshot?: () => Promise<{ ok: boolean; moved: boolean }>;
       };
       updater?: {
+        getPreferences?: (legacy?: { autoCheck?: boolean; autoDownload?: boolean }) => Promise<{ autoCheck: boolean; autoDownload: boolean }>;
+        setPreferences?: (patch: { autoCheck?: boolean; autoDownload?: boolean }) => Promise<{ autoCheck: boolean; autoDownload: boolean }>;
         getChannel?: () => Promise<{
           channel: "stable" | "alpha";
           feedUrl: string;

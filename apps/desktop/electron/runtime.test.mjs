@@ -18,6 +18,7 @@ import {
   mergeRuntimeMcpConfig,
   bundledNodeDirectory,
   childProcessPath,
+  bundledOpencodeSdkDirectory,
   nodeShimFileName,
   nodeShimScriptContent,
   opencodeHomeEnvFromRoot,
@@ -81,6 +82,15 @@ describe("outside app-files root", () => {
       externalWorkspaceAppFilesRoot(configPath, workspace),
       path.join(process.cwd(), "config", "workspace-app-files", hash),
     );
+  });
+});
+
+describe("bundled OpenCode SDK location", () => {
+  it("uses the staged desktop SDK in development even when Electron has a resourcesPath", () => {
+    assert.equal(bundledOpencodeSdkDirectory({ isPackaged: false, resourcesPath: "/Electron.app/Contents/Resources", desktopRoot: "/checkout/apps/desktop" }), path.join("/checkout/apps/desktop/resources/opencode-sdk"));
+  });
+  it("uses only the application resources in a packaged build", () => {
+    assert.equal(bundledOpencodeSdkDirectory({ isPackaged: true, resourcesPath: "/LegalWork.app/Contents/Resources", desktopRoot: "/unrelated/checkout" }), path.join("/LegalWork.app/Contents/Resources/opencode-sdk"));
   });
 });
 

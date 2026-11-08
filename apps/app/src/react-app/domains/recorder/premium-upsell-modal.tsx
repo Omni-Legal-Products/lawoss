@@ -9,7 +9,7 @@
  *   success → a checkmark confirmation before the provider auto-closes.
  *   timeout → the poll gave up; it still unlocks on its own once active.
  *
- * The three benefits are what both plans (Plus €29, Pro €69, 7-day free trial)
+ * The three benefits are what both plans (Plus €29, Pro €69, 7-day trial)
  * unlock: premium audio transcription models, included EU/ZDR AI usage (€30 or
  * €70 per seat and month), and firm-wide sharing of workflows & integrations.
  */

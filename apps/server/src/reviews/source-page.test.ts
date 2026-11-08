@@ -38,7 +38,12 @@ test("native PDF quotations highlight only cited sentence spans, across lines, p
   try {
     const pdf = await PDFDocument.create(), font = await pdf.embedFont(StandardFonts.Helvetica);
     const prefix = "Unrelated text. ", quote = "The notice period is 30 days.";
-    pdf.addPage([400, 400]).drawText(prefix + quote + " Other text.", { x: 20, y: 350, size: 12, font });
+    // Distinct PDF font runs preserve the citation's exact native bounds despite
+    // host font substitution. Partial-run proportional widths have a separate unit test.
+    const surrounding = await pdf.embedFont(StandardFonts.HelveticaOblique), firstPage = pdf.addPage([400, 400]);
+    firstPage.drawText(prefix, { x: 20, y: 350, size: 12, font: surrounding });
+    firstPage.drawText(quote, { x: 20 + font.widthOfTextAtSize(prefix, 12), y: 350, size: 12, font });
+    firstPage.drawText(" Other text.", { x: 20 + font.widthOfTextAtSize(prefix + quote, 12), y: 350, size: 12, font: surrounding });
     const second = pdf.addPage([400, 400]);
     second.drawText("Die Kündigungsfrist beträgt", { x: 20, y: 350, size: 12, font });
     second.drawText("dreißig Tage. Unrelated text.", { x: 20, y: 330, size: 12, font });

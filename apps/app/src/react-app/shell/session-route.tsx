@@ -994,7 +994,7 @@ export function SessionRoute() {
     if (modelPicker.open || modelPicker.compactOpen) void sessionProviderAuthStore.refreshCustomProviderModels().catch(() => undefined);
   }, [modelPicker.open, modelPicker.compactOpen, sessionProviderAuthStore]);
 
-  // "Start free trial" CTAs (migration dialog, connect-AI bar): the choice is
+  // "Start €1 trial" CTAs (migration dialog, connect-AI bar): the choice is
   // already made, so go straight to the Eigenwelt sign-in in the browser (the
   // platform funnel continues to the trial) instead of the provider picker.
   const startEigenweltTrial = useCallback(async () => {

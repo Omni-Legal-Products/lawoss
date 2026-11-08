@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { EventEmitter } from "node:events";
 
 import {
   ELECTRON_UPDATER_FEEDS,
@@ -11,6 +12,7 @@ import {
   registerUpdaterIpc,
   staleUpdaterStatePaths,
   electronUpdaterFeedConfig,
+  downloadUpdateReady,
 } from "./updater.mjs";
 
 // 🟡 LAWOSS: testy čítajú tracked feed z modulu namiesto literálu, aby
@@ -20,6 +22,69 @@ const STABLE_ORIGIN = new URL(STABLE_FEED).origin;
 const GITHUB_TAG_FEED = "https://github.com/Omni-Legal-Products/lawoss/releases/download/v0.2.0";
 
 const fakeApp = { getPath: (key) => (key === "home" ? "/Users/test" : `/Users/test/${key}`) };
+
+describe("downloadUpdateReady", () => {
+  it("waits for macOS to finish unpacking after the ZIP transfer", async () => {
+    const native = new EventEmitter();
+    let downloaded = false, ready = false;
+    const result = downloadUpdateReady({ async downloadUpdate() { downloaded = true; } }, native).then(() => { ready = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(downloaded, true);
+    assert.equal(ready, false);
+    native.emit("update-downloaded");
+    await result;
+    assert.equal(ready, true);
+    assert.equal(native.listenerCount("error"), 0);
+    assert.equal(native.listenerCount("update-downloaded"), 0);
+  });
+
+  it("reports an unpacking failure after downloadUpdate has already resolved", async () => {
+    const native = new EventEmitter();
+    const result = downloadUpdateReady({ async downloadUpdate() {} }, native);
+    const rejected = assert.rejects(result, /No space left on device/);
+    await new Promise((resolve) => setImmediate(resolve));
+    native.emit("error", new Error("ditto: No space left on device"));
+    await rejected;
+    assert.equal(native.listenerCount("update-downloaded"), 0);
+  });
+
+  it("subscribes before starting a cached download and still waits for its promise", async () => {
+    const native = new EventEmitter();
+    /** @type {() => void} */
+    let finish = () => assert.fail("download must start first");
+    let ready = false;
+    const result = downloadUpdateReady({ downloadUpdate() {
+      native.emit("update-downloaded");
+      return new Promise((resolve) => { finish = () => resolve(undefined); });
+    } }, native).then(() => { ready = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(ready, false);
+    finish();
+    await result;
+    assert.equal(native.listenerCount("error"), 0);
+  });
+
+  it("cleans up native listeners when the download fails", async () => {
+    const native = new EventEmitter();
+    await assert.rejects(downloadUpdateReady({ async downloadUpdate() { throw new Error("Download failed"); } }, native), /Download failed/);
+    assert.equal(native.listenerCount("error"), 0);
+    assert.equal(native.listenerCount("update-downloaded"), 0);
+  });
+
+  it("times out a missing native completion event so retry remains possible", async () => {
+    const native = new EventEmitter();
+    await assert.rejects(downloadUpdateReady({ async downloadUpdate() {} }, native, 10), /could not finish preparing/);
+    assert.equal(native.listenerCount("error"), 0);
+    assert.equal(native.listenerCount("update-downloaded"), 0);
+  });
+
+  it("keeps the download promise as readiness off macOS", async () => {
+    let downloaded = false;
+    await downloadUpdateReady({ async downloadUpdate() { downloaded = true; } }, null);
+    assert.equal(downloaded, true);
+    await assert.rejects(downloadUpdateReady({ async downloadUpdate() { throw new Error("Download failed"); } }, null), /Download failed/);
+  });
+});
 
 it("keeps Windows installer architectures separate on every update feed", () => {
   for (const url of [STABLE_FEED, GITHUB_TAG_FEED, "https://example.test/alpha"]) { // 🟡 LAWOSS: feedy forku
