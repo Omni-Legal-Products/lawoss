@@ -29,7 +29,7 @@ import type { SkillCard } from "@/app/types";
 import type { SkillDetailsStore } from "./skill-details-dialog";
 import type { PluginDetailsAccess } from "./plugin-details-dialog";
 import type { ConnectorState } from "./connector-status";
-import { pluginImportDestination } from "./plugin-import-presentation";
+import { createdPluginSignInConnector, pluginImportDestination } from "./plugin-import-presentation";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins" | "storage";
 
@@ -59,7 +59,7 @@ export type ExtensionsViewProps = {
   selectedWorkspaceRoot: string;
   workspaceKey?: string;
   /** Re-read the library when the server starts or reconnects. */
-  libraryConnection?: object | null;
+  libraryConnection?: { baseUrl: string } | null;
   isRemoteWorkspace: boolean;
   canEditPlugins: boolean;
   canUseGlobalScope: boolean;
@@ -68,6 +68,7 @@ export type ExtensionsViewProps = {
   extensions: PluginsExtensionsStore;
   pluginImports?: PluginImportStore;
   pluginCreation?: PluginCreateStore;
+  onAuthorizeConnector?: (name: string) => void;
   skillImports?: SkillImportStore & Pick<SkillsExtensionsStore, "skills">;
   skillTools?: Pick<SkillsExtensionsStore, "importedPackages" | "removeImportedPackage" | "revealSkillsFolder">;
   skillDetails?: SkillDetailsStore & { skills: () => SkillCard[]; readPackageComponent: PluginDetailsAccess["readComponent"] };
@@ -124,17 +125,19 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const [importVersion, setImportVersion] = useState(0);
   const [packageLibrary, setPackageLibrary] = useState<{ target: string; items: ImportedPlugin[] } | null>(null);
   const packageTarget = props.workspaceKey ?? props.selectedWorkspaceRoot;
+  const libraryServer = props.libraryConnection?.baseUrl;
+  const libraryReady = props.libraryConnection !== null;
   const currentPackageTarget = useRef(packageTarget);
   currentPackageTarget.current = packageTarget;
   useEffect(() => setCreatePluginOpen(false), [packageTarget]);
   useEffect(() => {
     let stopped = false;
-    if (props.libraryConnection === null) { setPackageLibrary(null); return; }
+    if (!libraryReady) { setPackageLibrary(null); return; }
     if (props.skillTools) void props.skillTools.importedPackages()
       .then(items => { if (!stopped) setPackageLibrary({ target: packageTarget, items }); })
       .catch(error => { if (!stopped) toast.error(error instanceof Error ? error.message : t("skills.unknown_error")); });
     return () => { stopped = true; };
-  }, [props.skillTools, packageTarget, props.isRemoteWorkspace, props.libraryConnection, importVersion]);
+  }, [props.skillTools, packageTarget, props.isRemoteWorkspace, libraryServer, libraryReady, importVersion]);
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
   const [pluginSearch, setPluginSearch] = useState("");
   const [source, setSource] = useState<IntegrationLibrarySource>("all");
@@ -210,11 +213,13 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             </IntegrationMoreMenu>
           </div>
         </div>
-        {createPluginOpen && props.pluginCreation ? <PluginCreateDialog key={packageTarget} store={props.pluginCreation} allowSkills={props.canAddSkill !== false && !skillsForbidden} allowConnectors={props.canAddConnector !== false && !connectorsForbidden} returnFocus={addButton} onClose={() => setCreatePluginOpen(false)} onCreated={plugin => {
+        {createPluginOpen && props.pluginCreation ? <PluginCreateDialog key={packageTarget} store={props.pluginCreation} allowSkills={props.canAddSkill !== false && !skillsForbidden} allowConnectors={props.canAddConnector !== false && !connectorsForbidden} returnFocus={addButton} onClose={() => setCreatePluginOpen(false)} onCreated={(plugin, newConnector) => {
           if (currentPackageTarget.current !== packageTarget) return;
           setPackageLibrary(current => ({ target: packageTarget, items: [...(current?.target === packageTarget ? current.items : []).filter(item => item.pluginId !== plugin.pluginId), plugin] }));
           importedPackage();
           toast.success(t("plugin_create.created", { name: plugin.displayName ?? plugin.name }));
+          const connector = createdPluginSignInConnector(plugin, newConnector);
+          if (connector) props.onAuthorizeConnector?.(connector);
         }} /> : null}
         {enginePluginsOpen && props.developerMode ? <Dialog open onOpenChange={setEnginePluginsOpen}>
           <DialogContent finalFocus={moreButton} className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background sm:max-w-3xl">

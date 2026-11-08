@@ -21,6 +21,7 @@ import { toast } from "@/components/ui/sonner";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { t } from "@/i18n";
 import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
+import { presetConfiguration } from "@/app/native-preset";
 import type {
   EigenweltHubInstall,
   EigenweltHubItem,
@@ -230,12 +231,14 @@ export function HubDownloadSection({
     setBusyId(item.id);
     try {
       const detail = await legalworkClient.hubGet(workspaceId, item.id);
-      if (!detail.payload || typeof detail.payload !== "object") {
+      if (!detail.payload || typeof detail.payload !== "object" || Array.isArray(detail.payload)) {
         throw new Error(t("firm_hub.preset_invalid"));
       }
+      const current = await legalworkClient.getConfig(workspaceId);
+      const prepared = presetConfiguration(Object.fromEntries(Object.entries(detail.payload)), current.providerDisplay);
       // LAWOSS: predvoľba s poskytovateľom prepíše rozdielny blok iného klienta až po potvrdení.
       await patchProviderConfirmingOverwrite((confirmProviderOverwrite) => legalworkClient.patchConfig(workspaceId, {
-        opencode: detail.payload as Record<string, unknown>,
+        opencode: prepared.configuration,
         ...(confirmProviderOverwrite ? { confirmProviderOverwrite } : {}),
       }));
       // Presets apply from settings (not the install route), so record the pulled
@@ -247,6 +250,7 @@ export function HubDownloadSection({
         name: item.name,
       });
       toast.success(t(wasInstalled ? "firm_hub.updated" : "firm_hub.preset_applied", { name: item.name }));
+      if (prepared.requiresSetup.length) toast.info(t("firm_hub.preset_setup_required"));
       await installsQuery.refetch();
       onConfigApplied?.();
     } catch (error) {

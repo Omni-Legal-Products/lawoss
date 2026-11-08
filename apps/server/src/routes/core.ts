@@ -28,6 +28,7 @@ import { addRoute, type Route } from "./registry.js";
 import { connectorSettings } from "../connectors/settings.js";
 import { registerConnectorRoutes } from "./connectors.js";
 import { hasConnectorRuntimeCapability } from "../connectors/capability.js";
+import { registerBrowserPasswordRoutes } from "./browser-passwords.js";
 import { collectSupportDiagnostics } from "../support-diagnostics.js";
 
 type JsonResponse = (data: unknown, status?: number) => Response;
@@ -84,12 +85,14 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
   const googleWorkspaceConnectFlows = createGoogleWorkspaceConnectFlowManager(config);
   registerConnectorRoutes({ routes, config, jsonResponse, readOptionalJsonBody, resolveWorkspace });
   const envPendingChangesByRuntime = new Map<string, boolean>();
+  registerBrowserPasswordRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable });
 
   const healthResponse = () => jsonResponse({
     ok: true,
     version: serverVersion,
     opencodeVersion,
     uptimeMs: Date.now() - config.startedAt,
+    ...(config.engineProjectTrustRequired ? { engine: { status: config.managedEngineStarting === false && config.opencodeBaseUrl ? "ready" : "starting" } } : {}),
   });
 
   addRoute(routes, "GET", "/health", "none", async () => healthResponse());
@@ -337,7 +340,7 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
   addRoute(routes, "GET", "/workspaces", "client", async (ctx) => {
     const active = config.workspaces[0] ?? null;
     const items = config.workspaces.map((workspace) => serializeWorkspace(workspace, ctx.actor?.scope));
-    return jsonResponse({ items, workspaces: items, activeId: active?.id ?? null });
+    return jsonResponse({ items, workspaces: items, activeId: active?.id ?? null, warnings: config.workspaceWarnings ?? [] });
   });
 
   function rethrowEnvStoreReadError(error: unknown): never {

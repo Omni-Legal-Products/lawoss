@@ -15,7 +15,7 @@ import { createHostDecisionPort } from "./host-decision.js";
 
 export const PublicAiInputSchema = z.strictObject({providerId: z.string().min(1).max(128), modelId: z.string().min(1).max(200), text: z.string().trim().min(1).max(16000)});
 export type PublicAiInput = z.infer<typeof PublicAiInputSchema>;
-const providerSchema = z.object({npm: z.literal("@ai-sdk/openai-compatible"), options: z.object({baseURL: z.url(), apiKey: z.string().optional()}), models: z.record(z.string(), z.unknown())});
+const providerSchema = /* Engine v2 provider block (v1: npm/options). */ z.object({package: z.literal("@opencode/ai/providers/openai-compatible"), settings: z.object({baseURL: z.url(), apiKey: z.string().optional()}), models: z.record(z.string(), z.unknown())});
 const modelResponse = z.object({info: z.object({error: z.unknown().optional()}), parts: z.array(z.object({type: z.string(), text: z.string().optional()}))});
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 async function fileHash(path: string) {
@@ -37,11 +37,11 @@ async function targetFor(config: ServerConfig, input: PublicAiInput) {
   const selected = providerSchema.safeParse((await readGlobalProviderMap(config))[input.providerId]);
   if (!selected.success || !Object.hasOwn(selected.data.models, input.modelId))
     throw new ApiError(409, "public_ai_provider_unsupported", "Select a configured OpenAI-compatible provider and one of its models for the public scratch test.");
-  const url = new URL(selected.data.options.baseURL);
+  const url = new URL(selected.data.settings.baseURL);
   const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
   if ((url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) || url.username || url.password || url.search || url.hash)
     throw new ApiError(400, "public_ai_target_invalid", "Use an HTTPS target or an explicit loopback test receiver without URL credentials.");
-  const apiKey = selected.data.options.apiKey ?? "";
+  const apiKey = selected.data.settings.apiKey ?? "";
   const endpoint = url.href.replace(/\/+$/, "") + "/chat/completions";
   return {endpoint, apiKey, fingerprint: hash(JSON.stringify({endpoint, provider: input.providerId, model: input.modelId, account: hash(apiKey)}))};
 }

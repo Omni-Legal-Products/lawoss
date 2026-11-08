@@ -19,6 +19,8 @@ files:
   - server/**/*
   - "!server/dist/opencode-plugins/**"
   - package.json
+  # Build downloads are not runtime files; the installed engine ships below.
+  - "!node_modules/@legalwork/opencode-release/generated/archive-cache{,/**/*}"
 extraResources:
   - from: resources/build-info.json
     to: build-info.json
@@ -35,16 +37,16 @@ extraResources:
   # Cloud dictation detects silence locally before opening a paid session.
   - from: node_modules/@ricky0123/vad-web/dist/silero_vad_legacy.onnx
     to: speech/silero_vad_legacy.onnx
+  - from: resources/opencode-engine
+    to: opencode-engine
   - from: resources/licenses
     to: licenses
   - from: resources/opencode-sdk
     to: opencode-sdk
     filter:
       - package.json
-  # FileMatcher always skips a source's root node_modules directory. Copy
-  # its contents as a separate resource so the SDK dependency graph ships.
-  - from: resources/opencode-sdk/node_modules
-    to: opencode-sdk/node_modules
+  # v2 provides effect and @opencode/plugin inside the released CLI. The
+  # declaration above is deliberate: do not copy a foreign node_modules tree.
   - from: resources/actaport-mcp
     to: actaport-mcp
     filter:
@@ -79,10 +81,10 @@ extraResources:
   - from: server/dist/opencode-plugins
     to: opencode-plugins
     filter:
-      - "*.js"
-      - "!*.test.js"
+      - "*/index.js"
       # Do not ship a retired plugin left by an incremental server build.
-      - "!legalwork-anthropic-auth.js"
+      - "!legalwork-anthropic-auth/**"
+      - "!legalwork-chrome-devtools/**"
   # The runtime dock/window icon, which the .icns baked in below cannot supply:
   # resolveAppIconPath() reads these out of `process.resourcesPath/icons` so the
   # dock can swap to the ink plate when macOS is in dark mode. Without them a
@@ -134,15 +136,19 @@ mac:
   sign: scripts/sign-macos.cjs
   binaries:
     - Contents/Resources/node/node
+    - Contents/Resources/helpers/LegalWorkNotifications.node
   icon: resources/icons/icon.icns
   category: public.app-category.developer-tools
   hardenedRuntime: true
   gatekeeperAssess: false
   notarize: false
+  # Only opt into assistant entitlements together with a matching provisioning profile.
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     NSAppleEventsUsageDescription: LAWOSS uses System Events to paste dictated text, and Apple Mail or Microsoft Outlook to open editable email drafts with the recipients and attachments you choose.
+    NSUserActivityTypes:
+      - INSendMessageIntent
     NSMicrophoneUsageDescription: LAWOSS uses the microphone when you start Voice Mode or record a conversation in the Recorder tab.
     NSAudioCaptureUsageDescription: LAWOSS captures system audio when you record calls or meetings in the Recorder tab. Audio is transcribed locally on this device and never uploaded.
     NSInputMonitoringUsageDescription: LAWOSS uses keyboard monitoring to detect your dictation shortcut and support hold-to-talk outside the app.
@@ -164,6 +170,7 @@ mac:
       filter:
         - LegalWorkAudioTap
         - LegalWorkKeyMonitor
+        - LegalWorkNotifications.node
   target:
     - dmg
     - zip

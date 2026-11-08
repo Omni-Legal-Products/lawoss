@@ -1,3 +1,4 @@
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import { currentLocale, t, type Language } from "@/i18n";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { workspaceRelativePath } from "../../okf/plan-groups";
@@ -17,7 +18,7 @@ export async function prepareOkfDraft(
   openDraft: () => Promise<string>,
   locale?: Language,
 ): Promise<string> {
-  if (workspace.workspaceType === "remote" || !workspace.path) throw new Error(t("lawoss.setup.error.localWorkspace"));
+  if (isRetiredRemoteWorkspace(workspace) || !workspace.path) throw new Error(t("lawoss.setup.error.localWorkspace"));
   const capabilities = await client.capabilities();
   if (!capabilities.skills.write || !capabilities.skillResources?.write) throw new Error(t("lawoss.setup.error.skillWrite"));
   const { modified, written } = await refreshOkfSkills(client, workspace.id, [

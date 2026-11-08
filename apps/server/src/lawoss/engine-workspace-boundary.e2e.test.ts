@@ -6,13 +6,21 @@ import { z } from "zod";
 import { startEmbeddedServer } from "../embedded.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
 import { WIKI_AGENT_TICKET_PATH } from "./engine-agent-contract.js";
+import { verifiedTestEngine } from "../opencode-candidate.test-support.js";
 
 /**
  * LAWOSS: one managed engine serves every client folder. Its plugins may reach only the
  * workspace of the chat that runs them. The fake engine below calls the server with nothing
  * but what it inherited, the way a plugin (or a shell reading its environment) would.
  */
-const engine = `#!${process.execPath}
+// Engine v2 fixture: a verified candidate of the pinned derivative that answers the native
+// readiness contract (/api/info with its PID, migration status, password-authenticated /api).
+const engine = (version: string) => `#!${process.execPath}
+import { Database } from "bun:sqlite";
+const database = new Database(process.env.OPENCODE_DB, { create: true });
+database.exec("PRAGMA user_version=1");
+database.close();
+const password = process.argv.includes("--service") ? (await Bun.file(process.env.OPENCODE_CONFIG_DIR + "/service-legalwork.json").json()).password : process.env.OPENCODE_PASSWORD;
 // Like the plugins: the first instance request loads them, which redeems the ticket once.
 const ticket = process.env.LEGALWORK_WIKI_AGENT_TICKET;
 delete process.env.LEGALWORK_WIKI_AGENT_TICKET;
@@ -21,9 +29,15 @@ const redeem = () => redemption ??= fetch(process.env.LEGALWORK_SERVER_URL + "/e
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
 const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
   const url = new URL(request.url);
-  if (url.pathname === "/global/health") return Response.json({ healthy: true, version: "synthetic-test" });
+  if (url.pathname.startsWith("/api/")) {
+    if (request.headers.get("authorization") !== "Basic " + Buffer.from("opencode:" + password).toString("base64")) return new Response("Unauthorized", { status: 401 });
+    if (url.pathname === "/api/info") return Response.json({ version: ${JSON.stringify(version)}, pid: process.pid });
+    if (url.pathname === "/api/experimental/migration/v1") return Response.json({ status: "completed", progress: { completed: 0, total: 0 } });
+  }
   const secret = await redeem();
-  if (url.pathname === "/instance/dispose") settled = true;
+  // v1 /instance/dispose or the v2 per-location eviction closes the scratch instance of the ticket probe.
+  if (url.pathname === "/instance/dispose" || url.pathname === "/api/debug/location" && request.method === "DELETE") settled = true;
+  if (url.pathname.startsWith("/api/")) return Response.json({ data: [] });
   if (url.pathname === "/spent") return Response.json({ ticket, settled });
   if (url.pathname !== "/probe") return Response.json({ healthy: true });
   const calls = await request.json();
@@ -41,7 +55,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
   }
   return Response.json({ environment: JSON.stringify(process.env), results });
 } });
-console.log("opencode server listening on http://127.0.0.1:" + server.port);
+console.log("server listening on http://127.0.0.1:" + server.port);
 `;
 
 const probeSchema = z.object({ environment: z.string(), results: z.array(z.object({ status: z.number(), body: z.string() })) });
@@ -73,8 +87,9 @@ async function twoClients() {
   await mkdir(clientA); await mkdir(clientB);
   await writeFile(join(clientA, "poznamka.md"), "Spis klienta A");
   await writeFile(join(clientB, "tajne.md"), "DÔVERNÉ KLIENTA B");
-  const bin = join(root, "engine");
-  await writeFile(bin, engine); await chmod(bin, 0o755);
+  const sdk = join(root, "sdk"); await mkdir(sdk);
+  await writeFile(join(sdk, "package.json"), JSON.stringify({ opencode: { version: "2.1.4", runtime: "released-cli", providedModules: ["@opencode/plugin", "effect"] } }));
+  const { bin, candidateBuild } = await verifiedTestEngine(root, engine);
   const logs: string[] = [];
   for (const method of ["log", "info", "warn", "error"] as const) {
     const original = console[method];
@@ -84,7 +99,7 @@ async function twoClients() {
   const server = await startEmbeddedServer({
     host: "127.0.0.1", port: 0, workspaces: [clientA, clientB],
     configPath: join(root, "server.json"), readOnly: false, logRequests: true,
-    token: "client-token", hostToken: "host-token", manageOpencode: true, opencodeBin: bin,
+    token: "client-token", hostToken: "host-token", manageOpencode: true, opencodeBin: bin, opencodeCandidateBuild: candidateBuild, opencodeSdkDirectory: sdk,
   });
   cleanup.push(() => server.stop());
   const [a, b] = server.config.workspaces;

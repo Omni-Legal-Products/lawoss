@@ -7,8 +7,10 @@ Use this map when you know what you want to do but not where to start. The assis
 | Screen | What it is for | Guide |
 | --- | --- | --- |
 | Welcome | First-run account, folder, audio and integration setup | [Getting started](getting-started.md) |
+| Your legal research | Choose your country and set up database accounts in the existing secure login card | [Research databases](integrations.md#research-databases) |
 | Home / New Chat | Start an assistant conversation, attach inputs and choose a model | [Chats](workspaces-chats.md) |
 | Chat and document tabs | Continue work, respond to approvals, inspect files and use the terminal | [Chats](workspaces-chats.md), [Files](files-documents.md) |
+| Sign-in details needed card | Save a missing website login directly in chat and let the browser task continue | [Browser passwords](settings-privacy.md#browser-passwords) |
 | Projects | Select the matter or working context from the project catalog | [Projects](projects-sharing.md) |
 | Project Home | Matter details, notes, linked folders, recordings and upcoming deadlines | [Projects](projects-sharing.md) |
 | Project Files | Local files and linked storage, with import and document panels | [Files](files-documents.md), [Storage](connected-storage.md) |
@@ -20,6 +22,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Project Tabular Review | Ask the same questions across documents and inspect cited answers | [Tabular Review](reviews.md) |
 | Project Dashboards and dashboard files | Save previews, copy to projects or wikis, rename, export and reopen dashboards | [Dashboards](dashboards.md) |
 | Wiki | Maintain reusable firm knowledge with pages, links, properties and a graph | [Wiki](wiki.md) |
+| Wiki: Legal Research / Rechtliche Recherche, starter picker, area and jurisdiction indexes | Create a research wiki automatically or through Add wiki; review research drafts before saving | [Legal research knowledge base](wiki.md#your-legal-research-knowledge-base) |
 | Recorder / Recordings | Capture audio, import recordings and inspect transcripts | [Audio](audio.md) |
 | Evaluations | Compare model performance against benchmark tasks and judging criteria | [Evaluations](evaluations.md) |
 
@@ -44,7 +47,7 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | Notifications | Which task events produce notifications or badges? | [Tasks](tasks-intake.md) |
 | Tool Permissions | What can the assistant do automatically? | [Settings](settings-privacy.md) |
 | Customization | How do I change language, appearance and project defaults? | [Settings](settings-privacy.md), [Localization](localization.md) |
-| Secrets | How do I save credentials and apply pending changes? | [Settings](settings-privacy.md) |
+| Secrets | How do I save browser passwords, use automatic filling and apply environment changes? | [Settings](settings-privacy.md) |
 | Privacy | How do usage analytics and online catalog updates work? | [Settings](settings-privacy.md) |
 | Updates | Which version/channel is running, and how do I install an update? | [Troubleshooting](troubleshooting.md) |
 | Workspace Permissions | Which folders can this workspace access? | [Settings](settings-privacy.md) |

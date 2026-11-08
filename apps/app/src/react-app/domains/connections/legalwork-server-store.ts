@@ -26,13 +26,6 @@ import {
 
 type SetStateAction<T> = T | ((current: T) => T);
 
-type RemoteWorkspaceInput = {
-  legalworkHostUrl: string;
-  legalworkToken?: string | null;
-  directory?: string | null;
-  displayName?: string | null;
-};
-
 export type LegalworkServerStoreSnapshot = {
   legalworkServerSettings: LegalworkServerSettings;
   legalworkServerUrl: string;
@@ -65,7 +58,6 @@ type CreateLegalworkServerStoreOptions = {
   activeClient: () => unknown | null;
   selectedWorkspaceDisplay: () => WorkspaceDisplay;
   restartLocalServer: () => Promise<boolean>;
-  createRemoteWorkspaceFlow: (input: RemoteWorkspaceInput) => Promise<boolean>;
 };
 
 type MutableState = {
@@ -625,21 +617,6 @@ export function createLegalworkServerStore(options: CreateLegalworkServerStoreOp
     }));
 
     const ok = result.status === "connected" || result.status === "limited";
-    if (ok && !isDesktopRuntime()) {
-      const active = options.selectedWorkspaceDisplay();
-      const shouldAttach =
-        !options.activeClient() ||
-        active.workspaceType !== "remote" ||
-        active.remoteType !== "legalwork";
-      if (shouldAttach) {
-        await options
-          .createRemoteWorkspaceFlow({
-            legalworkHostUrl: derived,
-            legalworkToken: next.token ?? null,
-          })
-          .catch(() => undefined);
-      }
-    }
     return ok;
   };
 

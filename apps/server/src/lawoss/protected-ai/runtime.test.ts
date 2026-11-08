@@ -15,6 +15,7 @@ import { ProtectedDocumentRuntime } from "./runtime.js";
 import type { ProtectedVmOpen } from "./vm-engine.js";
 import { compareAndSetGovernanceProfile } from "../ai-governance-store.js";
 import { protectedAiTarget } from "./transport.js";
+import { nativeRow } from "../test-support/native-config.js";
 
 test("corrupt private history remains an explicit cached error and prevents new protected execution", async () => {
   const { config, root } = await syntheticHostConfig();
@@ -51,7 +52,7 @@ test("a denied native synthetic classification and an unknown legal profile cann
     // Protocol-only seam; this regression proves denial before any VM startup.
     openEngine: async () => { engines++; throw new Error("must not start"); } });
   try {
-    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({ provider: { fixture: { npm: "@ai-sdk/openai-compatible", options: { baseURL: "http://127.0.0.1:47831/v1" }, models: { fixture: {} } } } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => nativeRow({ provider: { fixture: { npm: "@ai-sdk/openai-compatible", options: { baseURL: "http://127.0.0.1:47831/v1" }, models: { fixture: {} } } } }));
     await writeFile(join(root, "selected.txt"), "SYNTHETIC-CLASSIFICATION-CANARY");
     const [source] = await documents.prepare(workspace, ["selected.txt"]);
     for (let i = 0; i < 200; i++) { if ((await documents.list(workspace))[0]?.status === "readable") break; await Bun.sleep(10); }
@@ -116,7 +117,7 @@ test("protocol-only VM seam preserves session identity, rewrites only owned dire
     await symlink(join(root, "foreign.txt"), join(root, "case", "foreign-alias.txt"));
     const sources = await documents.prepare(workspace, ["case/selected.txt", "foreign.txt", "case/foreign-alias.txt"]);
     for (let i = 0; i < 200; i++) { if ((await documents.list(workspace)).every(source => source.status === "readable")) break; await Bun.sleep(10); }
-    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({ provider: { fixture: { npm: "@ai-sdk/openai-compatible", options: { baseURL: "http://127.0.0.1:47831/v1" }, models: { fixture: {} } } } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => nativeRow({ provider: { fixture: { npm: "@ai-sdk/openai-compatible", options: { baseURL: "http://127.0.0.1:47831/v1" }, models: { fixture: {} } } } }));
     const selected = sources[0], foreign = sources[1], foreignAlias = sources[2];
     const input = { workspaceId: workspace.id, caseDirectory: "case", providerId: "fixture", modelId: "fixture", sources: [{ id: selected.id, hash: selected.hash }] };
     for (const source of [foreign, foreignAlias]) await expect(runtime.open({ ...input, sources: [{ id: source.id, hash: source.hash }] }, AbortSignal.timeout(3000))).rejects.toMatchObject({ status: 403, code: "protected_source_denied" });

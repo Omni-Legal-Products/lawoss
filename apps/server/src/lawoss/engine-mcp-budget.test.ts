@@ -19,18 +19,18 @@ function fixture(options: { limit?: number; idleMs?: number; busy?: Set<string> 
   return { budget, disposed, initialized, busy, advance: (ms: number) => { clock += ms; } };
 }
 
-test("engine cesty, ktoré spúšťajú MCP, sa rozpoznajú; čítanie zoznamu chatov nie", () => {
-  expect(initializesEngineMcp("GET", "/mcp")).toBe(true);
-  expect(initializesEngineMcp("POST", "/mcp/orsr/connect")).toBe(true);
-  expect(initializesEngineMcp("GET", "/command")).toBe(true);
-  expect(initializesEngineMcp("POST", "/session/ses_1/prompt_async")).toBe(true);
-  expect(initializesEngineMcp("POST", "/api/session/ses_1/prompt")).toBe(true);
-  expect(initializesEngineMcp("GET", "/experimental/tool/ids")).toBe(true);
-  expect(initializesEngineMcp("GET", "/session")).toBe(false);
-  expect(initializesEngineMcp("GET", "/session/status")).toBe(false);
-  expect(initializesEngineMcp("GET", "/session/ses_1/message")).toBe(false);
-  expect(initializesEngineMcp("GET", "/path")).toBe(false);
-  expect(initializesEngineMcp("GET", "/event")).toBe(false);
+test("engine v2: cesty, ktoré postavia lokáciu (pluginy a MCP), sa rozpoznajú; zoznam a čítanie chatov nie", () => {
+  for (const [method, path] of [["GET", "/mcp"], ["POST", "/experimental/mcp/orsr/connect"], ["GET", "/command"], ["GET", "/model"],
+    ["GET", "/agent"], ["GET", "/api/location"], ["POST", "/api/session/ses_1/prompt"], ["POST", "/session/ses_1/command"],
+    ["PATCH", "/session/ses_1"], ["POST", "/session/ses_1/fork"], ["POST", "/api/rpc/legalwork.managed-settings/refresh"], ["GET", "/fs/list"]]) {
+    expect([method, path, initializesEngineMcp(method, path)]).toEqual([method, path, true]);
+  }
+  for (const [method, path] of [["GET", "/api/info"], ["GET", "/event"], ["GET", "/session"], ["GET", "/api/session/active"],
+    ["GET", "/session/ses_1"], ["GET", "/session/ses_1/message"], ["GET", "/api/session/ses_1/message/msg_1"], ["POST", "/session"],
+    ["POST", "/session/ses_1/move"], ["POST", "/api/session/ses_1/interrupt"], ["DELETE", "/session/ses_1"],
+    ["GET", "/api/experimental/migration/v1"], ["DELETE", "/api/debug/location"], ["GET", "/credential"]]) {
+    expect([method, path, initializesEngineMcp(method, path)]).toEqual([method, path, false]);
+  }
 });
 
 test("druhý otvorený klient uvoľní najdlhšie nepoužitého nečinného", async () => {
@@ -133,8 +133,8 @@ test("explicitný reload otvorí priečinok bez inicializácie a uvoľní predo�
 });
 
 test("akcia chatu sa rozpozná; ostatné engine cesty nie", () => {
-  expect(engineSessionAction("POST", "/session/ses_1/message")).toBe("ses_1");
-  expect(engineSessionAction("post", "/api/session/ses_1/prompt_async")).toBe("ses_1");
+  expect(engineSessionAction("POST", "/session/ses_1/command")).toBe("ses_1");
+  expect(engineSessionAction("post", "/api/session/ses_1/prompt")).toBe("ses_1");
   expect(engineSessionAction("GET", "/session/ses_1/message")).toBeNull();
   expect(engineSessionAction("POST", "/session")).toBeNull();
   expect(engineSessionAction("GET", "/mcp")).toBeNull();
@@ -212,6 +212,7 @@ test("cesty, pri ktorých záleží na konfigurácii inštancie", () => {
   expect(readsEngineConfig("/config/providers")).toBe(true);
   expect(readsEngineConfig("/agent")).toBe(true);
   expect(readsEngineConfig("/skill")).toBe(true);
+  expect(readsEngineConfig("/api/model")).toBe(true);
   expect(readsEngineConfig("/session")).toBe(false);
   expect(readsEngineConfig("/event")).toBe(false);
   expect(readsEngineConfig("/session/ses_1/message")).toBe(false);

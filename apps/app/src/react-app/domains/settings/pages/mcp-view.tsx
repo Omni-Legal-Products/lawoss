@@ -1155,7 +1155,7 @@ function McpConfiguredServerRow(props: {
     <>
       <IntegrationLibraryRow name={props.displayName(props.entry.name)} description={props.directoryEntry?.description ?? marketplace?.summary ?? t("integrations.custom_connector")} source={owner ? t("integrations.plugin_source", { name: pluginImportName(owner) }) : marketplace ? t("integrations.plugin_source", { name: "LAWOSS Marketplace" }) : undefined} icon={<McpConfiguredServerIcon {...props} />} busy={props.busy} onOpen={() => props.onSelect(props.entry.name)} status={<ConnectorStatus state={props.status} />}
         onShare={props.canShareWithFirm && props.onShareWithFirm ? () => void props.onShareWithFirm?.(props.entry.name, props.displayName(props.entry.name)) : undefined}
-        onRemove={props.entry.source !== "config.global" ? () => props.onRemove(props.entry.name) : undefined} />
+        onRemove={props.entry.source !== "config.global" && props.entry.editable !== false ? () => props.onRemove(props.entry.name) : undefined} />
       <McpConfiguredServerDetails {...props} />
     </>
   );
@@ -1169,18 +1169,18 @@ function McpConfiguredServerIcon(props: Parameters<typeof McpConfiguredServerRow
 }
 
 function McpConnectorStatus(props: Parameters<typeof McpConfiguredServerRow>[0]) {
-  if (props.onToggleEnabled && props.entry.source !== "config.global" && (props.status === "connected" || props.status === "disabled")) return null;
+  if (props.onToggleEnabled && props.entry.source !== "config.global" && props.entry.editable !== false && (props.status === "connected" || props.status === "disabled")) return null;
   return <ConnectorStatus state={props.status} />;
 }
 
 function McpConnectorToggle(props: Parameters<typeof McpConfiguredServerRow>[0] & { onSetup?: () => void }) {
-  if (!props.onToggleEnabled || props.entry.source === "config.global") return null;
+  if (!props.onToggleEnabled || props.entry.source === "config.global" || props.entry.editable === false) return null;
   return <Switch
     checked={props.entry.config.enabled !== false}
     disabled={props.busy || props.togglingMcp !== null}
     aria-label={`${t(props.entry.config.enabled === false ? "mcp.enable_app" : "mcp.disable_app")} ${props.displayName(props.entry.name)}`}
     onCheckedChange={enabled => {
-      if (enabled && connectorNeedsSetup(props.entry.config)) { props.onSetup?.(); return; }
+      if (enabled && connectorNeedsSetup(props.entry.config, props.entry.configured)) { props.onSetup?.(); return; }
       if (props.togglingMcp) return;
       props.onToggleBusy(props.entry.name);
       void Promise.resolve(props.onToggleEnabled?.(props.entry.name, enabled)).finally(() => props.onToggleBusy(null));
@@ -1192,7 +1192,7 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
   const [signingIn, setSigningIn] = useState(false);
   const [editing, setEditing] = useState(false);
   useEffect(() => { if (!props.selected) setEditing(false); }, [props.selected]);
-  const needsSetup = connectorNeedsSetup(props.entry.config);
+  const needsSetup = connectorNeedsSetup(props.entry.config, props.entry.configured);
   const signIn = async () => {
     setSigningIn(true);
     try { await props.onAuthorize(props.entry); }
@@ -1215,14 +1215,15 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
           <div className="min-w-0 space-y-1"><h3 className="text-sm font-medium">{t("integrations.connector_account_access")}</h3><p className="text-xs leading-5 text-muted-foreground">{t(props.entry.config.enabled === false && props.onToggleEnabled ? "integrations.connector_enable_signin_hint" : "integrations.connector_account_hint")}</p></div>
           {props.status === "connected" ? <Button variant="outline" size="sm" disabled={props.busy || props.logoutBusy} onClick={() => props.onRequestLogout(props.entry.name)}>{t(props.logoutBusy && props.logoutTarget === props.entry.name ? "mcp.logout_working" : "mcp.logout_action")}</Button> : <Button size="sm" disabled={props.busy || signingIn || props.togglingMcp !== null} onClick={() => void signIn()}>{signingIn ? <Loader2 className="animate-spin" /> : null}{t("mcp.login_action")}</Button>}
         </div> : null}
-        {props.entry.source === "config.remote" && props.onToggleEnabled && !needsSetup ? <div className="flex items-center justify-between gap-4 py-4"><span className="text-sm font-medium">{t("connector_setup.settings")}</span><Button variant="outline" size="sm" disabled={props.busy} onClick={() => setEditing(true)}>{t("common.edit")}</Button></div> : null}
+        {props.entry.source === "config.remote" && props.entry.editable !== false && props.onToggleEnabled && !needsSetup ? <div className="flex items-center justify-between gap-4 py-4"><span className="text-sm font-medium">{t("connector_setup.settings")}</span><Button variant="outline" size="sm" disabled={props.busy} onClick={() => setEditing(true)}>{t("common.edit")}</Button></div> : null}
+        {props.entry.editable === false ? <p className="py-4 text-xs text-muted-foreground">{t("connector_setup.authored_readonly")}</p> : null}
         <details className="group pt-5">
           <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-muted-foreground hover:text-foreground"><Code2 className="size-3.5" />{t("mcp.technical_details")}<ChevronDown className="ms-auto size-3.5 transition-transform group-open:rotate-180" /></summary>
           <div className="mt-3 space-y-2 rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground"><p>{t(props.entry.config.type === "remote" ? "integrations.connector_remote" : "integrations.connector_local")}</p><p className="break-all font-mono">{props.entry.config.type === "remote" ? props.entry.config.url : props.entry.config.command?.join(" ")}</p></div>
         </details>
       </div>
       {props.errorInfo && !needsSetup ? <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-xs leading-5 text-destructive">{props.errorInfo}</p> : null}
-      {props.entry.source !== "config.global" && !props.pluginName ? <DialogFooter className="justify-start sm:justify-start">
+      {props.entry.source !== "config.global" && props.entry.editable !== false && !props.pluginName ? <DialogFooter className="justify-start sm:justify-start">
         <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={props.busy} onClick={() => props.onRemove(props.entry.name)}>{t("mcp.remove_app")}</Button>
       </DialogFooter> : null}
       </>}

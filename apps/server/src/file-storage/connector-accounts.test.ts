@@ -6,6 +6,8 @@ import { z } from "zod";
 import type { ServerConfig } from "../types.js";
 import { startServer } from "../server.js";
 import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
+import { bootstrapRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import { prepareConnectorStorage } from "../connectors/store.js";
 import { writeConnectorConnections } from "../connectors/store.js";
 import { saveConnectorWriteSetting } from "../connectors/settings.js";
 import { savedConnectorStatus } from "../connectors/broker.js";
@@ -35,6 +37,8 @@ beforeEach(async () => {
   const workspace = join(root, "project"); await mkdir(workspace);
   config = { host: "127.0.0.1", port: 0, token: "fixture-owner", hostToken: "fixture-host", configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [],
     workspaces: [{ id: "project", name: "Project", path: workspace, workspaceType: "local", preset: "default" }], authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  await bootstrapRuntimeOpencodeConfig(config);
+  await prepareConnectorStorage(config);
   await writeEigenweltConnection(config, { platformToken: "fixture-platform-token", platformURL: "https://storage-broker.test", account: { userId: "alice", userName: "Alice", userEmail: "alice@example.test", orgId: "firm", orgName: "Firm" } });
   await writeConnectorConnections(config, owner, "google-drive", [account]); calls = [];
   globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {

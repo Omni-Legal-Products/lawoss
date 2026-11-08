@@ -151,9 +151,10 @@ describe("nový chat prípadu: technické pokyny idú modelu skryto (R1)", () =>
     expect(peek).toBeGreaterThan(0);
     expect(clears).toHaveLength(3);
     // Fronta: až po `await enqueue(...)`; Fusion: až v `.then` úspešného behu; bežné odoslanie: až po kontrole výsledku.
-    expect(body.slice(peek, clears[0])).toContain('await enqueue({ kind: "prompt"');
+    expect(body.slice(peek, clears[0])).toContain("await enqueue(queuedNativePrompt({");
     expect(body.slice(clears[1]! - 20, clears[1])).toContain(".then(() =>");
-    expect(body.slice(clears[1]!, clears[2])).toContain("if (result.error) throw new Error(serializeSDKError(result.error));");
+    // Engine v2: `sendSessionPrompt` vyhodí chybu odmietnutia, takže pokyn sa zabudne až po úspešnom odovzdaní.
+    expect(body.slice(clears[1]!, clears[2])).toContain("await sendSessionPrompt(scope.opencode, request");
     expect(body.slice(0, peek)).not.toContain("clearCaseChatContext");
   });
 });

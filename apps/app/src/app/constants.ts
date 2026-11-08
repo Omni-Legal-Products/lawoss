@@ -36,6 +36,9 @@ export type McpDirectoryInfo = {
   timeout?: number;
   /** Update an existing owned connector without changing its scope or identity. */
   existingConfig?: import("@legalwork/types/connector-config").ConnectorConfig;
+  configured?: import("@legalwork/types/connector-config").ConnectorDisplayItem["configured"];
+  editable?: boolean;
+  configEdit?: import("@legalwork/types/connector-config").ConnectorConfigEdit;
   /** Static auth headers for a remote MCP (e.g. { Authorization: "Bearer …" }).
    * When set, the server connects via these headers and skips OAuth — the way to
    * connect token-authed servers like iManage that reject the engine's OAuth redirect. */

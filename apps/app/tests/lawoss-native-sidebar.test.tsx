@@ -400,7 +400,7 @@ describe("bočný panel (natívny AppSidebar, vykreslený)", () => {
   test("hore Dnes · natívny Nový chat · Pridať klienta; starý strom, Opýtať sa ani Klienti a prípady v navigácii nie sú", () => {
     const out = sidebar(navValue(mixed, []), [group(tatranWs)]);
     const today = out.indexOf('data-lawoss-lite-nav="today"');
-    const chat = out.indexOf(`<span>${t("projects.new_chat", "en")}</span>`);
+    const chat = out.indexOf(`>${t("projects.new_chat", "en")}</span>`); // v0.3.0: upstream label span has classes
     const add = out.indexOf('data-lawoss-lite-nav="add_client"');
     expect(today).toBeGreaterThan(-1);
     expect(chat).toBeGreaterThan(today);

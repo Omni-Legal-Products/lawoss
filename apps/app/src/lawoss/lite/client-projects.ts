@@ -3,6 +3,7 @@
  * Čistý model bez Reactu: ktoré priečinky sa v sekcii klientov neukážu, ktorý viditeľný projekt
  * vlastní ktorého klienta z prehľadu OKF (podľa cesty na disku) a od ktorého priečinka sa číta prax.
  */
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import { addDays, deadlineKey, type MatterOverview } from "../../../../../lawoss/okf/read";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { locateInScope, type OkfReadResult, type OkfScope } from "../okf/read-model";
@@ -32,7 +33,7 @@ export type ClientNavModel = {
   visible: readonly Workspace[];
 };
 
-const isLocal = (w: Workspace): boolean => w.workspaceType !== "remote" && Boolean(w.path);
+const isLocal = (w: Workspace): boolean => !isRetiredRemoteWorkspace(w) && Boolean(w.path);
 const strictlyWithin = (outer: string, inner: string): boolean => outer !== inner && within(outer, inner);
 
 /** Absolútny priečinok cesty z prehľadu (voči koreňu rozsahu); mimo rozsahu `null`. */

@@ -13,8 +13,10 @@ describe("portable wiki starters", () => {
     expect(files["Structure.md"]).toContain("clickable evidence is not required to complete onboarding");
     expect(files["Structure.md"]).toContain("Colleagues may not have the same drive connection or permissions");
     for (const path of ["AGENTS.md", "Structure.md", template === "firm" ? "Skills/wiki-setup/SKILL.md" : "Skills/Bootstrap.md"]) {
-      expect(files[path]).toContain("Only clean, reusable templates may be copied");
+      expect(files[path]).toContain("Clean, reusable templates may be copied");
       expect(files[path]).toContain("Never copy original client or matter documents");
+      expect(files[path]).toContain("supporting legal sources");
+      expect(files[path]).toContain("let the user choose Save to wiki");
     }
     expect(files["Structure.md"]).toContain("including their properties, code blocks and Sources/ pages");
     expect(files["Structure.md"]).toContain("Do not create a provenance catalog, import log or evidence dump");

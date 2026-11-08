@@ -14,6 +14,7 @@ import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { LawossDocuments } from "./documents/service.js";
 import { documentLinkedFolders, writeLinkedFoldersMap } from "./linked-folders.js";
 import { WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PATH } from "./engine-agent-contract.js";
+import { nativeRow } from "./test-support/native-config.js";
 
 /**
  * LAWOSS alfa2 A3 (N-18, N-19) v pribalenom engine 1.18.29: klient A má pripojený priečinok s PDF, klient B nie.
@@ -60,7 +61,7 @@ test.skipIf(!binary)("pripojený priečinok: chat klienta aj prípadu čítajú 
     readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
   };
   // Klient A má pripojený priečinok (natívny zápis riadku klienta); B nie.
-  await writeRuntimeOpencodeConfig(config, "ws_a", (current) => ({ ...current, permission: { external_directory: { [`${linkedA}/*`]: "allow" } } }));
+  await writeRuntimeOpencodeConfig(config, "ws_a", (current) => ({ ...current, ...nativeRow({ permission: { external_directory: { [`${linkedA}/*`]: "allow" } } }) }));
   const ocr = new OcrManager(join(root, "private", "ocr"));
   const preparation = new DocumentPreparation(ocr, {});
   const documents = new LawossDocuments(config, preparation, (workspace) => documentLinkedFolders(config, workspace));

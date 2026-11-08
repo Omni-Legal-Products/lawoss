@@ -129,6 +129,29 @@ export function yoloExternalDirectory(workspace: Record<string, unknown>): Recor
   return isRecord(rule) ? rule : { "*": "allow" };
 }
 
+/** Engine v2 keeps permissions as ordered native rules; the last matching rule wins. */
+export type YoloNativeRule = { action: string; resource: string; effect: "allow" | "ask" | "deny" };
+const YOLO_NATIVE_TOOLS = ["edit", "shell", "external_directory"] as const;
+
+/** The YOLO rule of one native tool: unchanged when the tool's last whole-tool rule denies it,
+ * otherwise a whole-tool allow followed by the lawyer's denied patterns, so they still win. */
+function yoloNativeTool(rules: readonly YoloNativeRule[], tool: string): YoloNativeRule[] {
+  const own = rules.filter((rule) => rule.action === tool);
+  if (own.filter((rule) => rule.resource === "*").at(-1)?.effect === "deny") return [];
+  return [{ action: tool, resource: "*", effect: "allow" }, ...own.filter((rule) => rule.resource !== "*" && rule.effect === "deny")];
+}
+
+/** applyYoloPermissions for native v2 rules: the YOLO rules follow the rules in effect. */
+export function applyYoloNativeRules<R extends YoloNativeRule>(rules: readonly R[], enabled: boolean): Array<R | YoloNativeRule> {
+  if (!enabled) return [...rules];
+  return [...rules, ...YOLO_NATIVE_TOOLS.flatMap((tool) => yoloNativeTool(rules, tool))];
+}
+
+/** yoloExternalDirectory for native v2 rules (the workspace's own denials kept). */
+export function yoloNativeExternalDirectory<R extends YoloNativeRule>(rules: readonly R[]): Array<R | YoloNativeRule> {
+  return [...rules, ...yoloNativeTool(rules, "external_directory")];
+}
+
 export function registerYoloModeRoutes(options: { routes: Route[]; config: ServerConfig;
   jsonResponse: (value: unknown, status?: number) => Response;
   readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>> }) {
@@ -140,4 +163,15 @@ export function registerYoloModeRoutes(options: { routes: Route[]; config: Serve
     if (!parsed.success) throw new ApiError(400, "invalid_yolo_mode", "Send only whether YOLO Mode is on.");
     return jsonResponse(await writeYoloMode(config, parsed.data.enabled));
   });
+}
+
+/**
+ * Engine v2 form of `yoloPermissions` for the chat agent's own rules (evaluated after the shared ones):
+ * edit and shell are allowed unless forbidden outright, denied patterns follow. Folders keep asking so
+ * the linked-folders plugin can answer „once“ (and keep its card for another client's folder), unless
+ * the lawyer allowed every folder outright.
+ */
+export function yoloNativeAgentRules<R extends YoloNativeRule>(rules: readonly R[]): YoloNativeRule[] {
+  const foldersAllowed = rules.filter(rule => rule.action === "external_directory" && rule.resource === "*").at(-1)?.effect === "allow";
+  return YOLO_NATIVE_TOOLS.filter(tool => tool !== "external_directory" || foldersAllowed).flatMap(tool => yoloNativeTool(rules, tool));
 }

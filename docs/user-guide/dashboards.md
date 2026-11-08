@@ -9,6 +9,16 @@ Dashboards and reports are saved files in your project or wiki. Project Files an
 3. Choose **Save** to save directly into the originating project or wiki. An update preview saves back to its original file, provided that version has not changed.
 4. Reopen the file from the project's **Files > Dashboards**, the file sidebar or the wiki explorer. Both file explorers refresh after saving.
 
+## Assistant briefings and embedded charts
+
+In the Personal Assistant, requested reports and scheduled briefings can be saved directly in its own workspace. They appear as document cards that you select to open beside the chat. This does not publish to a shared wiki or another project. Ordinary project and wiki generation continues to offer a preview with **Save**.
+
+A Markdown briefing can embed a saved chart while keeping the summary, email links and task checkboxes editable. Select the embedded chart's **Open in tab** button to expand it. Report and dashboard cards use their readable titles rather than internal filenames. Priority email links open the original message in its provider; task links open the task in LegalWork.
+
+Cards labelled **Dashboard** or **Report**, including cards from links in a reply, open the rendered document beside the chat. The underlying `.view.json` file is its saved format, not a code document. Ordinary JSON files still open in the text editor.
+
+To embed an existing saved view, ask the Assistant to add it to your Markdown file. The file keeps a `legalwork-view` fenced reference, so reopening the document loads that same view. Source mode preserves the reference. Removing the block removes the embed, not the saved report file. An unsaved preview cannot be embedded as a saved chart.
+
 ## Save an independent copy
 
 Select the arrow beside **Save** or **Saved** to open **Save a copy**. Enter a title, choose **Projects** or **Wikis**, select a destination and choose **Save a copy**. Saving into a shared wiki makes the copy available to its members. Only writable wikis are offered as new destinations.

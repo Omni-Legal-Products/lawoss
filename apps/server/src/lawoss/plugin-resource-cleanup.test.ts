@@ -153,8 +153,9 @@ test("verzia, na ktorú ukazuje uložené nastavenie MCP, sa nezmaže", async ()
     const install = (resolved: CloudPluginResolved) => installCloudPlugin({ serverConfig: config, workspaceId: "workspace", workspaceRoot: ws, marketplaceId: null, resolved });
     const namespaceDir = join(ws, ".opencode", "plugin-resources", NAMESPACE);
     const first = await install(bundle("v1"));
-    await writeRuntimeOpencodeConfig(config, "workspace", (current) => ({ ...current, mcp: { ...current.mcp,
-      custom: { type: "local", command: ["node", join(namespaceDir, digestOf(first), "scripts", "run.mjs"), "--custom"], enabled: true } } }));
+    // Engine v2: connectors live under `mcp.servers`.
+    await writeRuntimeOpencodeConfig(config, "workspace", (current) => ({ ...current, mcp: { ...current.mcp, servers: { ...current.mcp?.servers,
+      custom: { type: "local", command: ["node", join(namespaceDir, digestOf(first), "scripts", "run.mjs"), "--custom"], disabled: false } } } }));
     const second = await install(bundle("v2"));
     expect(await entries(namespaceDir)).toEqual([digestOf(first), digestOf(second)].sort());
   });

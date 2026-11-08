@@ -1,6 +1,6 @@
 # LegalWork user guide
 
-LegalWork runs an assistant against the files, models and connected services you choose. A local workspace works on this computer; a remote workspace runs on its connected worker. Model requests go to the selected provider. Local execution does not mean every model or connector operates offline.
+LegalWork runs an assistant against the files, models and connected services you choose. Project folders work on the computer running LegalWork; connectors provide access to the services you connect. Model requests go to the selected provider. Local execution does not mean every model or connector operates offline.
 
 This manual is bundled with the app. Ask the assistant a question about LegalWork to use the `legalwork-help` skill. Start with the [screen map](screens.md) to find the right surface. The generated [screen inventory](screens.json), live UI, account access, permissions and enabled integrations establish what is available in your session.
 
@@ -8,9 +8,10 @@ This manual is bundled with the app. Ask the assistant a question about LegalWor
 
 | Question | Read |
 | --- | --- |
+| How do I use and configure my Personal Assistant? | [Personal Assistant](assistant.md) |
 | How do I get started? | [Getting started](getting-started.md) |
 | What does each screen do, and where is it? | [Screen map](screens.md) |
-| How do folders, workspaces, chats and remote workers work? | [Workspaces and chats](workspaces-chats.md) |
+| How do folders, workspaces, chats and connected services work? | [Workspaces and chats](workspaces-chats.md) |
 | How do I create a matter, link folders, set project details or share it? | [Projects and sharing](projects-sharing.md) |
 | How do I connect a model, change reasoning, or use Fusion? | [Models and Fusion](models-fusion.md) |
 | How do I open, edit, redline or export files? | [Files and document editors](files-documents.md) |

@@ -25,13 +25,14 @@ export function pcm16(buffer) {
 
 /** Worker-compatible transport, so capture, shortcuts and transcript storage stay shared. */
 export class CloudTranscriber extends EventEmitter {
-  constructor({ modelId, language, resolveConnection, socketFactory = (url, options) => new WebSocket(url, options), rotateMs = ROTATE_MS, onSpeakerPass = null, createVoiceVerifier = null, createSpeechDetector = createDictationSpeechDetector }) {
+  constructor({ modelId, language, resolveConnection, socketFactory = (url, options) => new WebSocket(url, options), rotateMs = ROTATE_MS, reconnectDelayMs = 1000, onSpeakerPass = null, createVoiceVerifier = null, createSpeechDetector = createDictationSpeechDetector }) {
     super();
     this.modelId = modelId;
     this.language = language;
     this.resolveConnection = resolveConnection;
     this.socketFactory = socketFactory;
     this.rotateMs = rotateMs;
+    this.reconnectDelayMs = reconnectDelayMs;
     this.onSpeakerPass = onSpeakerPass;
     this.createVoiceVerifier = createVoiceVerifier;
     this.createSpeechDetector = createSpeechDetector;
@@ -46,7 +47,7 @@ export class CloudTranscriber extends EventEmitter {
       const stream = { id: message.streamId, mode: message.ephemeral ? "dictation" : "meeting",
         queue: [], queuedBytes: 0, sentSamples: 0, ending: false, rotating: false,
         ready: false, finished: false, cancelled: false, socket: null, timer: null, timeout: null,
-        speakerPass: null, speechDetector: null };
+        speakerPass: null, speechDetector: null, generation: 0, retries: 0, reconnecting: false, retryTimer: null };
       if (message.ephemeral && this.createSpeechDetector) {
         try { stream.speechDetector = this.createSpeechDetector(); }
         catch { console.warn("[transcription] Local speech detection unavailable; using cloud transcription."); }
@@ -96,11 +97,20 @@ export class CloudTranscriber extends EventEmitter {
         }
       }
       if (stream.queuedBytes + (stream.socket?.bufferedAmount ?? 0) > MAX_QUEUE) {
+        // The audio files and speaker PCM are saved independently. Bound the
+        // live-caption backlog without compressing the recording's timeline.
+        stream.sentSamples += stream.queuedBytes / 2;
+        stream.queue.length = 0;
+        stream.queuedBytes = 0;
         this.fail(stream, "Cloud transcription could not keep up. Your recording is saved on this device.");
       } else this.flush(stream);
     }
     if (message.type === "finalize" && stream) {
       stream.ending = true;
+      if (stream.reconnecting) {
+        this.fail(stream, "Live transcription was interrupted. Some speech may be missing from the transcript. Your audio is saved on this device.");
+        return;
+      }
       if (stream.speechDetector) {
         let speech = true;
         try { speech = stream.speechDetector.finish(); }
@@ -118,20 +128,26 @@ export class CloudTranscriber extends EventEmitter {
     if (message.type === "drop" && stream && !stream.cancelled) {
       if (message.preserveSpeakers) this.detachSpeakerPass(stream);
       stream.cancelled = true;
+      stream.generation++;
+      clearTimeout(stream.retryTimer);
       stream.speakerPass?.stop();
       clearTimeout(stream.timer);
       if (!stream.socket) { this.dispose(stream); return; }
       if (stream.ready) stream.socket.send(JSON.stringify({ type: "cancel" }));
-      else stream.socket?.close();
-      stream.timeout = setTimeout(() => this.dispose(stream), 25_000);
+      this.dispose(stream);
     }
     if (message.type === "stop") this.kill();
   }
 
   async connect(stream) {
+    const generation = ++stream.generation;
+    const current = () => generation === stream.generation && !this.stopped && !stream.cancelled && !stream.finished;
+    stream.timeout = setTimeout(() => {
+      if (current()) this.fail(stream, "Cloud transcription could not connect.");
+    }, 25_000);
     try {
       const connection = await this.resolveConnection(this.modelId);
-      if (this.stopped || stream.cancelled || stream.finished) return;
+      if (!current()) return;
       const url = new URL(connection.url);
       url.searchParams.set("language", this.language);
       url.searchParams.set("mode", stream.mode);
@@ -139,15 +155,19 @@ export class CloudTranscriber extends EventEmitter {
       const socket = this.socketFactory(url.toString(), { headers: { Authorization: `Bearer ${connection.apiKey}` },
         handshakeTimeout: 15_000, maxPayload: 1024 * 1024, followRedirects: false });
       stream.socket = socket;
-      stream.timeout = setTimeout(() => this.fail(stream, "Cloud transcription could not connect."), 25_000);
       socket.on("message", raw => {
-        if (stream.socket !== socket || stream.finished) return;
+        if (stream.socket !== socket || !current()) return;
         try {
           const event = JSON.parse(String(raw));
           if (event.type === "ready") {
             clearTimeout(stream.timeout);
             stream.ready = true;
             stream.rotating = false;
+            stream.retries = 0;
+            if (stream.reconnecting) {
+              stream.reconnecting = false;
+              this.emit("message", { type: "stream-reconnected", streamId: stream.id });
+            }
             stream.timer = setTimeout(() => {
               if (stream.finished || stream.cancelled || stream.ending) return;
               stream.rotating = true;
@@ -168,9 +188,9 @@ export class CloudTranscriber extends EventEmitter {
             socket.close();
             if (stream.cancelled) this.dispose(stream);
             else if (stream.rotating && (!stream.ending || stream.queue.length)) void this.connect(stream);
-            else {
+            else if (stream.ending) {
               void this.finish(stream);
-            }
+            } else this.fail(stream, "Cloud transcription ended unexpectedly.");
           } else if (event.type === "error") {
             this.fail(stream, typeof event.error === "string" ? event.error : "Cloud transcription failed.");
           }
@@ -183,7 +203,7 @@ export class CloudTranscriber extends EventEmitter {
         if (stream.socket === socket && !stream.finished && !stream.cancelled) this.fail(stream, "Cloud transcription disconnected. Your recording is saved on this device.");
       });
     } catch (error) {
-      this.fail(stream, error instanceof Error ? error.message : "Cloud transcription is unavailable.");
+      if (current()) this.fail(stream, error instanceof Error ? error.message : "Cloud transcription is unavailable.");
     }
   }
 
@@ -251,22 +271,48 @@ export class CloudTranscriber extends EventEmitter {
 
   flush(stream) {
     if (!stream.ready || stream.cancelled || stream.finished) return;
-    while (stream.queue.length) {
-      const frame = stream.queue.shift();
-      stream.queuedBytes -= frame.length;
-      stream.sentSamples += frame.length / 2;
-      stream.socket.send(frame);
-    }
-    if (stream.ending) {
-      stream.ready = false;
-      clearTimeout(stream.timer);
-      stream.socket.send(JSON.stringify({ type: "finish" }));
-      stream.timeout = setTimeout(() => this.fail(stream, "Cloud transcription did not finish. Your recording is saved on this device."), 25_000);
-    }
+    try {
+      while (stream.queue.length) {
+        const frame = stream.queue.shift();
+        stream.queuedBytes -= frame.length;
+        stream.sentSamples += frame.length / 2;
+        stream.socket.send(frame);
+      }
+      if (stream.ending) {
+        stream.ready = false;
+        clearTimeout(stream.timer);
+        stream.socket.send(JSON.stringify({ type: "finish" }));
+        stream.timeout = setTimeout(() => this.fail(stream, "Cloud transcription did not finish. Your recording is saved on this device."), 25_000);
+      }
+    } catch { this.fail(stream, "Cloud transcription disconnected."); }
   }
 
   fail(stream, error) {
     if (stream.finished || stream.cancelled) return;
+    if (stream.mode === "meeting" && !stream.ending) {
+      // Network recovery must never tear down a meeting's capture graph, its
+      // other input, or its deferred speaker pass. Only replace this socket.
+      stream.generation++;
+      clearTimeout(stream.timer);
+      clearTimeout(stream.timeout);
+      const socket = stream.socket;
+      stream.socket = null;
+      stream.ready = false;
+      stream.rotating = false;
+      socket?.terminate();
+      if (!stream.reconnecting) {
+        stream.reconnecting = true;
+        this.emit("message", { type: "stream-reconnecting", streamId: stream.id, error });
+      }
+      if (!stream.retryTimer) {
+        const delay = Math.min(30_000, this.reconnectDelayMs * 2 ** Math.min(stream.retries++, 5));
+        stream.retryTimer = setTimeout(() => {
+          stream.retryTimer = null;
+          if (!stream.finished && !stream.cancelled) void this.connect(stream);
+        }, delay);
+      }
+      return;
+    }
     // A broken captions connection must not delete the audio already saved
     // for the independent speaker pass. The recorder still owns that job.
     this.detachSpeakerPass(stream);
@@ -282,10 +328,12 @@ export class CloudTranscriber extends EventEmitter {
 
   dispose(stream) {
     stream.finished = true;
+    stream.generation++;
     stream.speechDetector = null;
     stream.speakerPass?.stop();
     clearTimeout(stream.timer);
     clearTimeout(stream.timeout);
+    clearTimeout(stream.retryTimer);
     stream.socket?.close();
     stream.queue.length = 0;
     this.streams.delete(stream.id);

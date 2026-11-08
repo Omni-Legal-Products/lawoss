@@ -79,14 +79,18 @@ test("Open resolves the wiki workspace ID and supports a wiki that is now read-o
   expect(store.getState().sessions[workspacePanelKey(wiki.id)]).toBeUndefined();
 });
 
-test("remote projects use their UI route ID and cannot open a same-ID project on another server", async () => {
+test("retired remote projects stay inactive and manual server selection retains dashboard ownership", async () => {
   const store = createTestPanelTabStore();
   const remote: RouteWorkspace = { ...project, id: "rem_target", workspaceType: "remote", legalworkWorkspaceId: project.id, baseUrl: "https://remote.example", legalworkToken: "remote" };
   const remoteClient = { ...client, baseUrl: remote.baseUrl! };
   expect(await openSavedView({ client: remoteClient, view, workspaces: [project], localServer, panels: store.getState() })).toBeNull();
   expect(store.getState().sessions).toEqual({});
-  expect(await openSavedView({ client: remoteClient, view, workspaces: [project, remote], localServer, panels: store.getState() })).toBe("/workspace/rem_target/session?view=workspace");
-  expect(store.getState().sessions[workspacePanelKey(remote.id)].tabs[0]).toMatchObject({ serverUrl: remoteClient.baseUrl, owner: view.owner });
+  expect(await openSavedView({ client: remoteClient, view, workspaces: [project, remote], localServer, panels: store.getState() })).toBeNull();
+  expect(store.getState().sessions).toEqual({});
+  const selectedServer = { baseUrl: remoteClient.baseUrl, token: "selected-server" };
+  expect(await openSavedView({ client: remoteClient, view, workspaces: [project, remote], localServer: selectedServer, panels: store.getState() })).toBe("/workspace/target/session?view=workspace");
+  expect(store.getState().sessions[workspacePanelKey(project.id)].tabs[0]).toMatchObject({ serverUrl: remoteClient.baseUrl, owner: view.owner });
+  expect(store.getState().sessions[workspacePanelKey(remote.id)]).toBeUndefined();
 });
 
 test("unavailable destinations or failed wiki lookup leave the current tabs untouched", async () => {

@@ -1,9 +1,9 @@
-import { isReviewWorkerSession } from "@legalwork/types/reviews";
+import { isInternalSession } from "@legalwork/types/session-visibility";
 // The session route's data + navigation core: workspace/session loading
 // (refreshRouteState + background session fetch), endpoint and opencode
 // client resolution, URL-derived selection, redirects (fallback workspace,
-// last-session restore, welcome), desktop local-server reconnect, remote
-// connection checks, and the route inspector slice. Extracted verbatim from
+// last-session restore, welcome), desktop local-server reconnect,
+// and the route inspector slice. Extracted from
 // session-route.tsx as the final step of its decomposition; the route keeps
 // composition, handlers, and JSX.
 import { createCoalescedRefresh } from "./coalesced-refresh";
@@ -32,11 +32,6 @@ import type { WorkspaceConnectionState } from "@/app/types";
 import { normalizeDirectoryPath } from "@/app/utils";
 import { effectiveSessionDirectory, isWithinClientFolder } from "@/lawoss/shell/session-directory";
 import { t } from "@/i18n";
-import {
-  diagnoseRemoteWorkspaceTaskLoadFailure,
-  getRemoteWorkspaceConnectionKey,
-  testRemoteWorkspaceConnection,
-} from "@/react-app/domains/workspace/remote-workspace-diagnostics";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { avoidLawossHomeId, conversationWorkspaceId, defaultWorkspaceId, withoutLawossHome } from "../../lawoss/home-workspace";
 import { useBootState } from "./boot-state";
@@ -81,7 +76,6 @@ export function sessionDirectoryWithinWorkspace(workspace: RouteWorkspace | null
 
 /** Keep sessions in client subdirectories, while rejecting an untrusted escaped directory. */
 export function sessionsWithinWorkspace(workspace: RouteWorkspace, sessions: RouteSession[]) {
-  if (workspace.workspaceType === "remote") return sessions;
   const root = workspace.path?.trim() ?? "";
   if (!normalizeDirectoryPath(root)) return sessions;
   return sessions.filter((session) => isWithinClientFolder(root, session?.directory ?? ""));
@@ -184,8 +178,6 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     setWorkspaceOrderIds(nextOrder);
     writeWorkspaceOrderIds(nextOrder);
   }, [workspaces]);
-  const remoteWorkspaceCheckRunRef = useRef<Record<string, string>>({});
-  const remoteWorkspaceCheckRunCounterRef = useRef(0);
   const sessionsByWorkspaceIdRef = useRef<Record<string, RouteSession[]>>({});
   const pendingCreatedSessionIdsRef = useRef<Record<string, Record<string, number>>>({});
   const startupRetryTimerRef = useRef<number | null>(null);
@@ -213,15 +205,16 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     }
   }, [selectedWorkspaceId, selectedSessionId]);
   const handleRuntimeSessionLoaded = useCallback((session: RouteSession) => {
+    if (isInternalSession(session)) return;
     const workspace = workspacesRef.current.find(item => item.id === selectedWorkspaceId);
     if (!workspace || session.id !== selectedSessionId || removedSessionIdsRef.current.has(session.id)) return;
-    if (workspace.workspaceType !== "remote" && isWithinClientFolder(workspace.path ?? "", session.directory ?? "")) {
+    if (isWithinClientFolder(workspace.path ?? "", session.directory ?? "")) {
       const directory = session.directory.trim();
       setLoadedSessionDirectory(current => current?.workspaceId === selectedWorkspaceId && current.sessionId === session.id && current.directory === directory
         ? current : { workspaceId: selectedWorkspaceId, sessionId: session.id, directory });
     }
     // The client's chat list keeps root chats; a case chat is listed under its case.
-    if (workspace.workspaceType !== "remote" && normalizeDirectoryPath(session.directory) !== normalizeDirectoryPath(workspace.path ?? "")) return;
+    if (normalizeDirectoryPath(session.directory) !== normalizeDirectoryPath(workspace.path ?? "")) return;
     loadedSessionRef.current = { workspaceId: selectedWorkspaceId, session };
     setSessionsByWorkspaceId(current => {
       const list = current[selectedWorkspaceId] ?? [];
@@ -233,7 +226,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     });
   }, [selectedWorkspaceId, selectedSessionId]);
   const mergeFetchedSessionsWithPending = useCallback((workspaceId: string, fetched: RouteSession[], current: RouteSession[]) => {
-    fetched = fetched.filter(session => !isReviewWorkerSession(session) && !removedSessionIdsRef.current.has(session.id));
+    fetched = fetched.filter(session => !isInternalSession(session) && !removedSessionIdsRef.current.has(session.id));
     // Preserve newer runtime fields only for sessions still listed by the server.
     const loaded = loadedSessionRef.current?.workspaceId === workspaceId ? loadedSessionRef.current.session : null;
     fetched = preferLoadedSession(fetched, loaded);
@@ -285,40 +278,12 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
 
       const fetchOnce = async (workspace: RouteWorkspace, attempt: number): Promise<void> => {
         if (!workspacesRef.current.some(item => item.id === workspace.id)) return;
-        const isRemoteLegalworkWorkspace = workspace.workspaceType === "remote" && workspace.remoteType !== "opencode";
         const endpoint = endpointForWorkspace(workspace);
-        if (!endpoint) {
-          if (workspace.workspaceType === "remote") {
-            const message = t("diagnostics.remote_url_missing");
-            setErrorsByWorkspaceId((current) => ({ ...current, [workspace.id]: message }));
-            setWorkspaceConnectionOverrides((current) => ({
-              ...current,
-              [workspace.id]: {
-                status: "error",
-                message,
-                checkedAt: Date.now(),
-              },
-            }));
-            setRetryingWorkspaceIds((current) =>
-              current.includes(workspace.id) ? current.filter((id) => id !== workspace.id) : current,
-            );
-          }
-          return;
-        }
+        if (!endpoint) return;
         const startedAt = backgroundSessionLoadInFlight.current.get(workspace.id) ?? 0;
         if (startedAt) return;
         const requestStartedAt = Date.now();
         backgroundSessionLoadInFlight.current.set(workspace.id, requestStartedAt);
-        if (isRemoteLegalworkWorkspace) {
-          setWorkspaceConnectionOverrides((current) => ({
-            ...current,
-            [workspace.id]: {
-              status: "connecting",
-              message: t("workspace_list.loading_remote_tasks"),
-              checkedAt: null,
-            },
-          }));
-        }
         const isCurrentRequest = () => {
           const current = workspacesRef.current.find(item => item.id === workspace.id);
           const currentEndpoint = endpointForWorkspace(current);
@@ -338,18 +303,6 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
           });
           setErrorsByWorkspaceId((current) => ({ ...current, [workspace.id]: null }));
           setWorkspaceConnectionOverrides((current) => {
-            if (isRemoteLegalworkWorkspace) {
-              return {
-                ...current,
-                [workspace.id]: {
-                  status: "connected",
-                  message: items.length > 0
-                    ? t("workspace_list.connected_loaded_tasks", { count: items.length })
-                    : t("workspace.connected_no_tasks"),
-                  checkedAt: Date.now(),
-                },
-              };
-            }
             if (current[workspace.id]?.status !== "error") return current;
             const next = { ...current };
             delete next[workspace.id];
@@ -386,24 +339,9 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
             await fetchOnce(workspace, attempt + 1);
             return;
           }
-          // Keep final failures visible for local cloud folders as well as
-          // remote workers, so the affected project can explain how to recover.
-          if (workspace.workspaceType === "remote") {
-            const connectionState = await diagnoseRemoteWorkspaceTaskLoadFailure(workspace, message);
-            if (!isCurrentRequest()) return;
-            setErrorsByWorkspaceId((current) => ({
-              ...current,
-              [workspace.id]: connectionState.message ?? t("diagnostics.remote_failed"),
-            }));
-            setWorkspaceConnectionOverrides((current) => {
-              return {
-                ...current,
-                [workspace.id]: connectionState,
-              };
-            });
-          } else {
-            setErrorsByWorkspaceId((current) => ({ ...current, [workspace.id]: message }));
-          }
+          // Keep the affected project's final error visible, including
+          // disconnected cloud folders, so users can see how to recover.
+          setErrorsByWorkspaceId((current) => ({ ...current, [workspace.id]: message }));
           setRetryingWorkspaceIds((current) =>
             current.includes(workspace.id) ? current.filter((id) => id !== workspace.id) : current,
           );
@@ -429,6 +367,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         try {
           desktopList = await workspaceBootstrap() as WorkspaceList;
           desktopWorkspaces = (desktopList.workspaces ?? []).map(mapDesktopWorkspace);
+          if (desktopList.warnings?.length) setRouteError(desktopList.warnings.join("\n"));
         } catch (error) {
           const message = describeRouteError(error);
           console.error("[session-route] workspaceBootstrap failed", error);
@@ -487,10 +426,12 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       if (!isCurrent()) return;
       // Restore saved dashboard tabs to the current desktop port before
       // exposing the new client. Only server-confirmed local owners can move.
-      if (isDesktopRuntime()) usePanelTabStore.getState().reconnectLocalTabs(normalizedBaseUrl, [], list.items.filter(workspace => workspace.workspaceType !== "remote").map(workspace => workspace.id));
+      if (isDesktopRuntime()) usePanelTabStore.getState().reconnectLocalTabs(normalizedBaseUrl, [], list.items.map(workspace => workspace.id));
       const { routeWorkspaceId, selectedSessionId } = routeSelectionRef.current;
       hasLoadedServerWorkspacesRef.current = true;
       setHasLoadedServerWorkspaces(true);
+      const warnings = [...(desktopList?.warnings ?? []), ...(list.warnings ?? [])];
+      if (warnings.length) setRouteError([...new Set(warnings)].join("\n"));
       const nextWorkspaces = orderRouteWorkspaces(
         mergeRouteWorkspaces(list.items, desktopWorkspaces),
         workspaceOrderIdsRef.current,
@@ -549,10 +490,9 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       );
       setLegacySelectedWorkspaceId(nextWorkspaceId);
       writeActiveWorkspaceId(nextWorkspaceId || null);
-      // Mark the chosen workspace as active on the server so that the
-      // OpenCode engine bound to it re-reads opencode.jsonc and applies
-      // permissions. Fire-and-forget; the route is idempotent and any
-      // transport failure is non-fatal. See issue #870.
+      // Record the chosen workspace on the server without restarting its
+      // engine: delegated or scheduled work may already be running there.
+      // Fire-and-forget; a transport failure is non-fatal to navigation.
       if (nextWorkspaceId && list.activeId !== nextWorkspaceId && !launchActivatedWorkspaceIdsRef.current.has(nextWorkspaceId)) {
         launchActivatedWorkspaceIdsRef.current.add(nextWorkspaceId);
         const nextWorkspace = nextWorkspaces.find((workspace) => workspace.id === nextWorkspaceId) ?? null;
@@ -610,6 +550,14 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     }
   }, [loadWorkspaceSessionsInBackground, markBootRouteReady]);
   const refreshRouteState = useMemo(() => createCoalescedRefresh(refreshOnce), [refreshOnce]);
+
+  // Changing the URL selects a known project without rerunning desktop boot,
+  // reconnecting the server, or reloading every project's sessions.
+  useEffect(() => {
+    if (!hasLoadedServerWorkspaces || !routeWorkspaceId || selectedWorkspaceId !== routeWorkspaceId) return;
+    setLegacySelectedWorkspaceId(selectedWorkspaceId);
+    writeActiveWorkspaceId(selectedWorkspaceId);
+  }, [hasLoadedServerWorkspaces, routeWorkspaceId, selectedWorkspaceId]);
   const handleRuntimeSessionUpdated = useCallback((update: { sessionId: string; info: Record<string, unknown> }) => {
     if (!selectedWorkspaceId) return;
     setSessionsByWorkspaceId((current) => {
@@ -649,21 +597,6 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   useEffect(() => {
     sessionsByWorkspaceIdRef.current = sessionsByWorkspaceId;
   }, [sessionsByWorkspaceId]);
-
-  const handleRemoteWorkspaceConnectionSaved = useCallback(
-    async (workspaceId: string) => {
-      delete remoteWorkspaceCheckRunRef.current[workspaceId];
-      setWorkspaceConnectionOverrides((current) => {
-        const next = { ...current };
-        delete next[workspaceId];
-        return next;
-      });
-      setErrorsByWorkspaceId((current) => ({ ...current, [workspaceId]: null }));
-      setRetryingWorkspaceIds((current) => current.filter((id) => id !== workspaceId));
-      await refreshRouteState();
-    },
-    [refreshRouteState],
-  );
 
   useEffect(() => {
     let cancelled = false;
@@ -850,8 +783,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     ? loadedSessionDirectory.directory : null;
   const selectedSessionDirectory = sessionDirectoryWithinWorkspace(selectedWorkspace, selectedSession ?? (loadedDirectory ? { directory: loadedDirectory } : null));
   // Single source of truth for the selected workspace's server URL/token/id.
-  // For remote workspaces this is the worker that owns the workspace; for
-  // local workspaces it's the user's local LegalWork server.
+  // Projects use the user's selected LegalWork server connection (LAWOSS: transport kept across metadata refreshes).
   const selectedWorkspaceEndpoint = useSelectedWorkspaceEndpoint(selectedWorkspace, { baseUrl, token, hostToken, localClient: client });
   const selectedWorkspaceServerToken = selectedWorkspaceEndpoint?.token ?? "";
   const opencodeBaseUrl = selectedWorkspaceEndpoint?.opencodeBaseUrl ?? "";
@@ -886,65 +818,6 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         : null,
     [opencodeBaseUrl, selectedWorkspaceError, selectedWorkspaceRoot, selectedWorkspaceServerToken, selectedWorkspaceEndpoint?.hostToken],
   );
-  const runRemoteWorkspaceConnectionCheck = useCallback(
-    async (workspaceId: string, mode: "test" | "recover") => {
-      const workspace = workspacesRef.current.find((item) => item.id === workspaceId);
-      if (!workspace || workspace.workspaceType !== "remote") return false;
-      const connectionKey = getRemoteWorkspaceConnectionKey(workspace);
-      remoteWorkspaceCheckRunCounterRef.current += 1;
-      const runId = String(remoteWorkspaceCheckRunCounterRef.current);
-      remoteWorkspaceCheckRunRef.current[workspaceId] = runId;
-
-      setWorkspaceConnectionOverrides((current) => ({
-        ...current,
-        [workspaceId]: {
-          status: "connecting",
-          message: t("config.testing_connection"),
-          checkedAt: null,
-        },
-      }));
-
-      const result = await testRemoteWorkspaceConnection(workspace);
-      const currentWorkspace = workspacesRef.current.find((item) => item.id === workspaceId);
-      if (
-        remoteWorkspaceCheckRunRef.current[workspaceId] !== runId ||
-        !currentWorkspace ||
-        getRemoteWorkspaceConnectionKey(currentWorkspace) !== connectionKey
-      ) {
-        if (remoteWorkspaceCheckRunRef.current[workspaceId] === runId) {
-          delete remoteWorkspaceCheckRunRef.current[workspaceId];
-        }
-        return false;
-      }
-      setWorkspaceConnectionOverrides((current) => ({
-        ...current,
-        [workspaceId]: result.state,
-      }));
-
-      if (!result.ok) {
-        setErrorsByWorkspaceId((current) => ({
-          ...current,
-          [workspaceId]: result.state.message ?? t("diagnostics.remote_failed"),
-        }));
-        if (remoteWorkspaceCheckRunRef.current[workspaceId] === runId) {
-          delete remoteWorkspaceCheckRunRef.current[workspaceId];
-        }
-        return false;
-      }
-
-      setErrorsByWorkspaceId((current) => ({ ...current, [workspaceId]: null }));
-      setRetryingWorkspaceIds((current) => current.filter((id) => id !== workspaceId));
-      if (mode === "recover") {
-        await refreshRouteState();
-      }
-      if (remoteWorkspaceCheckRunRef.current[workspaceId] === runId) {
-        delete remoteWorkspaceCheckRunRef.current[workspaceId];
-      }
-      return true;
-    },
-    [refreshRouteState],
-  );
-
   return {
     navigateToWorkspaceSession,
     routeWorkspaceId,
@@ -992,7 +865,5 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     rememberPendingCreatedSession,
     handleRuntimeSessionLoaded,
     handleRuntimeSessionUpdated,
-    handleRemoteWorkspaceConnectionSaved,
-    runRemoteWorkspaceConnectionCheck,
   };
 }

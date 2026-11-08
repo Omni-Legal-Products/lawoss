@@ -1,4 +1,4 @@
-import type { FilePartInput } from "@opencode-ai/sdk/v2/client";
+import type { FilePartInput } from "@/app/lib/opencode-view";
 import type { ComposerAttachment, ComposerDraft, ComposerPart } from "@/app/types";
 import type { ComposerPastePart } from "../composer-state-store";
 import {

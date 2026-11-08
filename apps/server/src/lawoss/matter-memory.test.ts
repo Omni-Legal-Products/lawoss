@@ -133,7 +133,7 @@ test("neplatné argumenty, chýbajúci priečinok a vzdialený klient", async ()
   expect(await refusal(readMatterMemoryForChat(f.config, f.own, { action: "write", matter: f.m1 }, none))).toMatchObject({ code: "memory_arguments", status: 400 });
   expect(await refusal(readMatterMemoryForChat(f.config, f.own, { action: "read", matter: "Spisy/M001" }, none))).toMatchObject({ code: "memory_arguments" });
   expect(await refusal(readMatterMemoryForChat(f.config, f.own, { action: "read", matter: join(f.k1, "Spisy", "M404") }, none))).toMatchObject({ code: "memory_folder_missing", status: 404 });
-  expect(await refusal(readMatterMemoryForChat(f.config, { ...f.own, workspaceType: "remote" }, { action: "read", matter: f.m1 }, none))).toMatchObject({ code: "memory_local_workspace_required" });
+  // LAWOSS v2: upstream removed remote workspaces, so the local-only refusal has no input left.
 });
 
 test("dlhá pamäť sa číta po stranách cez nextOffset a nič sa nestratí", async () => {

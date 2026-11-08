@@ -69,8 +69,9 @@ describe("LAWOSS stráž Eigenweltu a analytiky", () => {
     for (const unsafe of ["lawossEngineEnv()", "lawossEngineEnv(process.env)", "lawossEngineEnv(options.inheritEnvironment === false ? process.env : {})"]) {
       assertCaught(managed, text => text.replace(call, unsafe));
     }
-    assertCaught(managed, text => text.replace("    ...options.env,\n    ...lawossEnv,", "    ...lawossEnv,\n    ...options.env,"));
-    assertCaught(managed, text => text.replace("    ...lawossEnv,\n    OPENCODE_SERVER_USERNAME: username,", "    OPENCODE_SERVER_USERNAME: username,"));
+    // Engine v2: poistky LAWOSS idú posledné pred heslom enginu, za upstream FFF a dôveryhodnými CA.
+    assertCaught(managed, text => text.replaceAll("    ...lawossEnv,\n    ...(options.service ? {} : { OPENCODE_PASSWORD: password }),", "    ...(options.service ? {} : { OPENCODE_PASSWORD: password }),"));
+    assertCaught(managed, text => text.replaceAll("    NODE_USE_SYSTEM_CA: \"1\",\n    ...lawossEnv,\n", "    ...lawossEnv,\n    NODE_USE_SYSTEM_CA: \"1\",\n").replaceAll("    ...lawossEnv,\n    ...(options.service", "    ...(options.service"));
     for (const flag of ["OPENCODE_DISABLE_MODELS_FETCH", "OPENCODE_DISABLE_SHARE", "OPENCODE_DISABLE_AUTOUPDATE"]) {
       assertCaught("apps/server/src/lawoss/engine-network.ts", text => text.replace(`${flag}: "1"`, `${flag}: "0"`));
     }
@@ -78,9 +79,9 @@ describe("LAWOSS stráž Eigenweltu a analytiky", () => {
   });
 
   test("návrat sťahovania katalógu zlyhá", () => {
-    const managed = structureWith("apps/server/src/managed-opencode.ts", (text) => text.replace("    ...lawossEnv,\n    OPENCODE_SERVER_USERNAME: username,", "    OPENCODE_SERVER_USERNAME: username,"));
+    const managed = structureWith("apps/server/src/managed-opencode.ts", (text) => text.replaceAll("    ...lawossEnv,\n    ...(options.service ? {} : { OPENCODE_PASSWORD: password }),", "    ...(options.service ? {} : { OPENCODE_PASSWORD: password }),"));
     assert.ok(checkStructure(managed).some((line) => line.startsWith("apps/server/src/managed-opencode.ts")));
-    const embedded = structureWith("apps/server/src/embedded.ts", (text) => text.replace("          ...(managedDb ? { OPENCODE_DB", '          OPENCODE_MODELS_URL: "https://models.example.test",\n          ...(managedDb ? { OPENCODE_DB'));
+    const embedded = structureWith("apps/server/src/embedded.ts", (text) => text.replace("            OPENCODE_DB: database,\n", '            OPENCODE_MODELS_URL: "https://models.example.test",\n            OPENCODE_DB: database,\n'));
     assert.ok(checkStructure(embedded).some((line) => line.startsWith("apps/server/src/embedded.ts")));
     const env = structureWith("apps/server/src/lawoss/engine-network.ts", (text) => text.replace('OPENCODE_DISABLE_MODELS_FETCH: "1"', 'OPENCODE_DISABLE_MODELS_FETCH: "0"'));
     assert.ok(checkStructure(env).length > 0);
@@ -96,8 +97,10 @@ describe("LAWOSS stráž Eigenweltu a analytiky", () => {
   });
 
   test("odkrytý účet Eigenwelt alebo jeho poistka na serveri zlyhá", () => {
-    const surface = structureWith("apps/app/src/lawoss/feature-flags.ts", (text) => text.replace('  "eigenwelt-trial",\n]);', "]);"));
+    const surface = structureWith("apps/app/src/lawoss/feature-flags.ts", (text) => text.replace('  "eigenwelt-trial",\n', ""));
     assert.ok(checkStructure(surface).some((line) => line.includes("feature-flags.ts")));
+    const assistant = structureWith("apps/app/src/lawoss/feature-flags.ts", (text) => text.replace('  "eigenwelt-trial",\n  "assistant",\n', '  "eigenwelt-trial",\n'));
+    assert.ok(checkStructure(assistant).some((line) => line.includes("feature-flags.ts")));
     const server = structureWith("apps/server/src/lawoss/commercial-services.ts", (text) => text.replace('env[EIGENWELT_ACCOUNT_ENV] === "1";', 'env[EIGENWELT_ACCOUNT_ENV] !== "0";'));
     assert.ok(checkStructure(server).some((line) => line.includes("commercial-services.ts")));
   });

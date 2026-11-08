@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListView as ProviderListResponse } from "../src/app/types";
 
 import type { ProviderListItem } from "../src/app/types";
 import { isAgentCapableModel, pickDefaultModel } from "../src/lawoss/shell/default-model-pick";
@@ -15,7 +15,7 @@ import { getDefaultModelForSingleConnectedProvider } from "../src/react-app/infr
  * its connect-AI state.
  */
 
-const provider = (id: string, models: Record<string, { toolcall: boolean }>): ProviderListItem =>
+const provider = (id: string, models: Record<string, { tools: boolean }>): ProviderListItem =>
   ({
     id,
     name: id,
@@ -23,17 +23,17 @@ const provider = (id: string, models: Record<string, { toolcall: boolean }>): Pr
     source: "api" as const,
     options: {},
     models: Object.fromEntries(
-      Object.entries(models).map(([modelID, { toolcall }]) => [
+      Object.entries(models).map(([modelID, { tools }]) => [
         modelID,
-        { id: modelID, name: modelID, capabilities: { toolcall } },
+        { id: modelID, name: modelID, capabilities: { tools } },
       ]),
     ),
   }) as unknown as ProviderListItem;
 
 const openrouter = provider("openrouter", {
-  "google/gemini-3-pro-image-preview": { toolcall: false },
-  "anthropic/claude-sonnet-4.5": { toolcall: true },
-  "openai/gpt-5": { toolcall: true },
+  "google/gemini-3-pro-image-preview": { tools: false },
+  "anthropic/claude-sonnet-4.5": { tools: true },
+  "openai/gpt-5": { tools: true },
 });
 
 describe("pickDefaultModel", () => {
@@ -59,10 +59,10 @@ describe("pickDefaultModel", () => {
 
   test("picks nothing when no model is usable — the connect-AI state stays", () => {
     const imagesOnly = provider("openrouter", {
-      "google/gemini-3-pro-image-preview": { toolcall: false },
+      "google/gemini-3-pro-image-preview": { tools: false },
       // flagged tool-capable, but the id says it is not a chat endpoint
-      "openai/gpt-image-2": { toolcall: true },
-      "openai/gpt-realtime": { toolcall: true },
+      "openai/gpt-image-2": { tools: true },
+      "openai/gpt-realtime": { tools: true },
     });
     expect(pickDefaultModel([imagesOnly])).toBeNull();
     expect(pickDefaultModel([provider("empty", {})])).toBeNull();
@@ -70,14 +70,14 @@ describe("pickDefaultModel", () => {
 
   test("does not choose arbitrarily between zero or several providers", () => {
     expect(pickDefaultModel([])).toBeNull();
-    expect(pickDefaultModel([openrouter, provider("openai", { "gpt-5": { toolcall: true } })])).toBeNull();
+    expect(pickDefaultModel([openrouter, provider("openai", { "gpt-5": { tools: true } })])).toBeNull();
   });
 });
 
 describe("pickDefaultModel never picks a free model (#231)", () => {
   const free = provider("openrouter", {
-    "deepseek/deepseek-chat:free": { toolcall: true },
-    "anthropic/claude-sonnet-4.5": { toolcall: true },
+    "deepseek/deepseek-chat:free": { tools: true },
+    "anthropic/claude-sonnet-4.5": { tools: true },
   });
 
   test("skips an advertised free default and takes the first paid tool-capable model", () => {
@@ -88,7 +88,7 @@ describe("pickDefaultModel never picks a free model (#231)", () => {
   });
 
   test("picks nothing when every tool-capable model is free", () => {
-    expect(pickDefaultModel([provider("openrouter", { "deepseek/deepseek-chat:free": { toolcall: true } })])).toBeNull();
+    expect(pickDefaultModel([provider("openrouter", { "deepseek/deepseek-chat:free": { tools: true } })])).toBeNull();
   });
 });
 
@@ -112,7 +112,7 @@ describe("getDefaultModelForSingleConnectedProvider", () => {
   // again. Picking the retired provider back made the two effects rewrite
   // the default model forever and Home crashed in a Select (max update depth).
   test.each(["opencode", "eigenwelt-free"])("never picks the retired %s provider", (id) => {
-    const retired = provider(id, { "big-pickle": { toolcall: true } });
+    const retired = provider(id, { "big-pickle": { tools: true } });
     const list = {
       all: [retired],
       connected: [id],
@@ -123,7 +123,7 @@ describe("getDefaultModelForSingleConnectedProvider", () => {
 
   test("ignores a retired provider next to the one real provider", () => {
     const list = {
-      all: [provider("opencode", { "big-pickle": { toolcall: true } }), openrouter],
+      all: [provider("opencode", { "big-pickle": { tools: true } }), openrouter],
       connected: ["opencode", "openrouter"],
       default: {},
     } as unknown as ProviderListResponse;
@@ -135,7 +135,7 @@ describe("getDefaultModelForSingleConnectedProvider", () => {
 });
 
 describe("isAgentCapableModel", () => {
-  const capable = { capabilities: { toolcall: true } };
+  const capable = { capabilities: { tools: true } };
   const model = (id: string) => ({ id, name: id, ...capable }) as unknown as ProviderListItem["models"][string];
 
   test("rejects non-chat endpoints by id even when flagged tool-capable", () => {
@@ -150,7 +150,7 @@ describe("isAgentCapableModel", () => {
 
   test("rejects a model without the capability", () => {
     expect(
-      isAgentCapableModel("m", { id: "m", name: "m", capabilities: { toolcall: false } } as unknown as ProviderListItem["models"][string]),
+      isAgentCapableModel("m", { id: "m", name: "m", capabilities: { tools: false } } as unknown as ProviderListItem["models"][string]),
     ).toBe(false);
     expect(isAgentCapableModel("m", { id: "m", name: "m" } as unknown as ProviderListItem["models"][string])).toBe(false);
   });

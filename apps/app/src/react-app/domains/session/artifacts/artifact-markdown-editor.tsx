@@ -25,6 +25,36 @@ import { markdownBlocksPlugin } from "./markdown-block-controls";
 import { preservedFrontmatterPlugin } from "./markdown-frontmatter-plugin";
 import { documentFingerprint, literalHtmlSyntax, requiresMarkdownSource } from "./markdown-document-sync";
 import { preserveMarkdownFrontmatter } from "./markdown-block-model";
+import { $getNearestNodeFromDOMNode } from "lexical";
+
+// Lexical renders app-specific schemes as about:blank. Read the original link
+// from its document state and route clicks through the host, without weakening
+// the editor's URL sanitizer or rewriting the saved Markdown.
+const appLinkNavigationPlugin = realmPlugin<{ getOpen: () => ((href: string) => void) | undefined }>({
+  init(realm, params) {
+    realm.pub(createRootEditorSubscription$, editor => {
+      const click = (event: MouseEvent) => {
+        const open = params?.getOpen();
+        if (!open || !(event.target instanceof Node)) return;
+        const target = event.target;
+        const href = editor.getEditorState().read(() => {
+          let node = $getNearestNodeFromDOMNode(target);
+          while (node && node.getType() !== "link" && node.getType() !== "autolink") node = node.getParent();
+          const data = node?.exportJSON();
+          return data && "url" in data && typeof data.url === "string" ? data.url : null;
+        }, { editor });
+        if (!href || href.startsWith("#") || (editor.isEditable() && !event.metaKey && !event.ctrlKey && !/^legalwork(?:task|-view|-wiki):/i.test(href))) return;
+        event.preventDefault();
+        event.stopPropagation();
+        open(href);
+      };
+      return editor.registerRootListener((root, previous) => {
+        previous?.removeEventListener("click", click, true);
+        root?.addEventListener("click", click, true);
+      });
+    });
+  },
+});
 
 type Props = {
   value: string;
@@ -79,6 +109,8 @@ function MarkdownToolbar({ rawMarkdown, showLink = true, allowDiff, literalHtml,
 
 export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview, extensions, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, toolbarMenuItems, onOpenLink, suppressHtmlProcessing = false, allowDiff = true, externalFrontmatter = false, serializeRichText }: Props) {
   const theme = useSyncExternalStore(subscribeToTheme, getResolvedThemeMode, getResolvedThemeMode);
+  const openLink = useRef(onOpenLink);
+  openLink.current = onOpenLink;
   const editor = useRef<MDXEditorMethods>(null);
   const initial = useRef(value);
   const initialMode = useRef<ViewMode>(viewModeRequest?.mode === "diff" ? "diff" : requiresMarkdownSource(value, suppressHtmlProcessing) ? "source" : viewModeRequest?.mode ?? "rich-text");
@@ -160,7 +192,7 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
   const plugins = useMemo(() => [
     // AutoLink runs after initial normalization and dirties untouched files containing bare URLs.
     // Existing Markdown links and explicit CreateLink actions remain available.
-    headingsPlugin(), listsPlugin(), quotePlugin(), linkPlugin({ disableAutoLink: true }), linkDialogPlugin({ LinkDialog, linkAutocompleteSuggestions: linkSuggestions, onClickLinkCallback: onOpenLink }),
+    headingsPlugin(), listsPlugin(), quotePlugin(), linkPlugin({ disableAutoLink: true }), linkDialogPlugin({ LinkDialog, linkAutocompleteSuggestions: linkSuggestions, onClickLinkCallback: onOpenLink }), appLinkNavigationPlugin({ getOpen: () => openLink.current }),
     imagePlugin({ imageUploadHandler: imageUpload, imagePreviewHandler: imagePreview, ImageDialog: MarkdownImageDialog }),
     tablePlugin(), thematicBreakPlugin(), externalFrontmatter ? preservedFrontmatterPlugin() : frontmatterPlugin(),
     codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),

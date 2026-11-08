@@ -322,15 +322,13 @@ describe("effective MCP handoff", () => {
         ["runtime", true],
       ]);
 
+      // Engine v2 (upstream v0.3.0): without the server the store reads the engine itself, never a desktop file
+      // fallback. Without any client the list is empty, so no entry with an unknown disabled state can be exported.
       connected = false;
       await store.refreshMcpServers();
       const fallback = store.getSnapshot().mcpServers;
-      expect(fallback.map((entry) => [entry.name, entry.config.url, entry.source])).toEqual([
-        ["shared", "https://project.example.test/mcp", "config.project"],
-        ["runtime", "https://runtime.example.test/mcp", "config.remote"],
-      ]);
       expect(fallback.every((entry) => entry.disabledByTools === undefined)).toBe(true);
-      expect(() => buildMcpConfigExport(fallback, ["runtime"])).toThrow("MCP runtime: effective disabled state is unknown");
+      if (fallback.length) expect(() => buildMcpConfigExport(fallback, fallback.map((entry) => entry.name))).toThrow("effective disabled state is unknown");
     } finally {
       store.dispose();
       if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);

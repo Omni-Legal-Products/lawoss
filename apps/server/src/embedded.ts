@@ -8,11 +8,13 @@ import { acquireRuntimeDbLifetime } from "./runtime-db-lifecycle.js";
  */
 import { mkdir } from "node:fs/promises";
 import { connectorRuntimeCapability } from "./connectors/capability.js";
+import { prepareConnectorStorage } from "./connectors/store.js";
+import { bootstrapRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { join, resolve } from "node:path";
-import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
+import { engineStorageDir } from "./engine-storage.js";
 import { resolveServerConfig, type CliArgs } from "./config.js";
-import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
-import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
+import { resolveEngineExecutable, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
+import { startServer } from "./server.js";
 import { ensureWorkspaceFiles, ensureWorkspaceFilesForBootstrap } from "./workspace-init.js";
 import { externalOpencodeConfigDir, workspaceAppFilesRoot, usesExternalWorkspaceAppFiles } from "./lawoss/workspace-app-files.js";
 import { globalSkillsDir } from "./workspace-files.js";
@@ -22,6 +24,7 @@ import {
   keepLegalworkRuntimeConfigFileFresh,
   legalworkRuntimeConfigFilePath,
   writeLegalworkRuntimeConfigFile,
+  legalworkMandatoryRuntimeConfigContent,
 } from "./legalwork-runtime-config.js";
 import { globalOpenCodeConfigPath } from "./mcp.js";
 import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
@@ -33,6 +36,9 @@ import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
+import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./managed-engine-lifecycle.js";
+import { legacyMcpAuthPath } from "./legacy-mcp-credentials.js";
+import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
 import { issueWikiAgentTicket } from "./wiki/agent-access.js";
 import { settleEngineAgentTicket } from "./lawoss/engine-agent-ticket.js";
 import { WIKI_AGENT_TICKET_ENV } from "./lawoss/engine-agent-contract.js";
@@ -48,6 +54,10 @@ export type EmbeddedServerOptions = CliArgs & {
   getUiLocale?: ServerConfig["getUiLocale"];
   /** Desktop networking stack, including its system proxy, for model assets. */
   modelDownloadFetch?: import("./ocr/models.js").ModelDownloadFetch;
+  /** Host-resolved existing Node/OpenSSL runtime for policy-controlled HTTP hops. Never read from configuration or HTTP. */
+  rawHttpNodeExecutable?: () => string;
+  /** Existing physical Node/image modules for isolated, cancellable image crops. Host-only. */
+  toolImageRasterRuntime?: import("./types.js").ServerRuntimeOptions["toolImageRasterRuntime"];
   /** Host-resolved bundled SDK location, including the desktop development build. */
   opencodeSdkDirectory?: string;
   decryptLegacyConnectorSecrets?: ServerConfig["decryptLegacyConnectorSecrets"];
@@ -57,8 +67,12 @@ export type EmbeddedServerOptions = CliArgs & {
   requestHostApproval?: ServerConfig["requestHostApproval"];
   /** When true, spawn a managed OpenCode child process. */
   manageOpencode?: boolean;
+  /** Host-only existing execution boundary; desktop defaults to protected. */
+  managedEngineSandbox?: boolean;
   /** Path to the OpenCode binary. Falls back to LEGALWORK_OPENCODE_BIN env. */
   opencodeBin?: string;
+  /** Host-only artifact capability, unavailable to HTTP or configuration files. */
+  opencodeCandidateBuild?: import("@legalwork/opencode-release/candidate").VerifiedOpencodeCandidate;
   /** Working directory for the managed OpenCode process. */
   opencodeCwd?: string;
   /** OS-resolved Documents project root provided by the desktop host. */
@@ -84,7 +98,6 @@ function applyHostWorkspaceAppFilesPolicy(
     .map((policy) => resolve(policy.path));
   if (outsideRoots.length === 0) return;
   for (const workspace of config.workspaces) {
-    if (workspace.workspaceType === "remote") continue;
     const workspacePath = resolve(workspace.path);
     if (outsideRoots.some((root) => isPathWithin(root, workspacePath))) {
       workspace.appFiles = "outside";
@@ -104,6 +117,8 @@ export type EmbeddedServerHandle = {
   managedOpencodeStatus: () => { running: boolean; pid: number | null } | null;
   /** Stop the HTTP server and managed OpenCode (if any). */
   stop: () => Promise<void>;
+  /** Host-only notification after a successful explicit OS trust change. */
+  invalidateRawHttpTrust: () => void;
 };
 
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
@@ -116,7 +131,11 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   config.reconnectHostWorkspace = options.reconnectHostWorkspace;
   applyHostWorkspaceAppFilesPolicy(config, options.hostWorkspaceAppFiles);
   config.decryptLegacyConnectorSecrets = options.decryptLegacyConnectorSecrets;
-  config.agentSandboxEnabled = options.manageOpencode === true && !config.opencodeBaseUrl;
+  const managedEngine = options.manageOpencode === true && !config.opencodeBaseUrl;
+  if (managedEngine) await expectedOpencodeVersion(options.opencodeBin?.trim() || "opencode", options.opencodeCandidateBuild);
+  config.agentSandboxEnabled = managedEngine && options.managedEngineSandbox !== false;
+  config.engineProjectTrustRequired = managedEngine;
+  config.engineConfigurationMode = "native-project";
   config.requestHostApproval = options.requestHostApproval;
   config.getUiLocale = options.getUiLocale;
   config.pickDirectory = options.pickDirectory ?? null;
@@ -125,24 +144,30 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   config.recorder = options.recorder ?? null;
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
-  const managed: { engine: ManagedOpencodeServer | null } = { engine: null };
+  const managed: {
+    engine: ManagedOpencodeServer | null;
+    lifecycle: Awaited<ReturnType<typeof startManagedEngineLifecycle>> | null;
+  } = { engine: null, lifecycle: null };
   const lifetime = acquireRuntimeDbLifetime(config);
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   let unsubscribe: (() => Promise<void>) | undefined;
   let refresh: Promise<unknown> = Promise.resolve();
-  let initialMcpSync: Promise<unknown> = Promise.resolve();
   let ticketSettled: Promise<unknown> = Promise.resolve();
+  // LAWOSS: the client the managed engine is started for; its location settles the agent ticket.
+  let managedWorkspacePath: string | undefined;
   const ticketStop = new AbortController();
+  let stopped = false;
   let stopPromise: Promise<void> | undefined;
   const stop = () => {
     if (stopPromise) return stopPromise;
+    stopped = true;
     stopPromise = (async () => {
       const errors: unknown[] = [];
       // Unsubscribe synchronously; accepted writes and jobs still drain before the owner releases.
       const freshness = unsubscribe?.();
       ticketStop.abort();
-      for (const operation of [() => freshness, () => initialMcpSync, () => ticketSettled, () => refresh,
-        () => managed.engine?.close(), () => server?.stop(), () => lifetime.release()]) {
+      for (const operation of [() => freshness, () => ticketSettled, () => refresh,
+        () => managed.lifecycle ? managed.lifecycle.close() : managed.engine?.close(), () => server?.stop(), () => lifetime.release()]) {
         try { await operation(); } catch (error) { errors.push(error); }
       }
       if (errors.length) throw new AggregateError(errors, "Failed to stop embedded server resources");
@@ -151,31 +176,37 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   };
   try { return await lifetime.run(async () => {
 
+  // Desktop startup owns this one-time transition, before provider repair or
+  // connector imports can observe the current configuration.
+  await bootstrapRuntimeOpencodeConfig(config);
+  await prepareConnectorStorage(config);
 
   if (!config.readOnly) {
     await retireSharedLegacyReview(globalSkillsDir());
     await ensureBundledWorkflows();
     for (const workspace of config.workspaces) {
-      // Upstream v0.2.18: a disconnected cloud project must not prevent the shared
-      // server from starting. Its requests retry initialization and return the real error.
+      // A disconnected cloud project must not prevent the shared server from
+      // starting. Its requests retry initialization and return the real error.
       try {
         if (usesExternalWorkspaceAppFiles(workspace)) {
+          // LAWOSS: app files outside the client folder (lawoss/workspace-app-files.ts).
           const appFilesRoot = workspaceAppFilesRoot(config, workspace);
           await mkdir(appFilesRoot, { recursive: true });
           await ensureWorkspaceFiles(appFilesRoot, workspace.preset, {
+            bundledCore: !managedEngine,
             root: workspace.path,
             name: workspace.displayName ?? workspace.name,
           });
         } else {
-          await ensureWorkspaceFilesForBootstrap(workspace);
+          await ensureWorkspaceFilesForBootstrap(workspace, { bundledCore: !managedEngine });
         }
       } catch (error: unknown) {
         console.warn(`[workspace-init] ${workspace.path}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }
-  // Drop retired / unparsable provider blocks from the runtime DB BEFORE the
-  // engine config file is built: one bad stored block takes the engine down.
+  // Validate saved providers before building engine configuration. Only retired
+  // app-owned definitions are removed; invalid user connections remain intact.
   await repairAllWorkspaceRuntimeProviders(config);
   // Desktop connectors are shared by every workspace. Fold what earlier builds
   // stored per workspace or in files into the shared row before the engine
@@ -185,45 +216,45 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     globalOpencodeConfigFile: globalOpenCodeConfigPath(),
   }).catch((error: unknown) => {
     console.warn(`[embedded] connector import skipped: ${error instanceof Error ? error.message : String(error)}`);
-    return { imported: [] as string[], backups: [] as string[] };
+    return { imported: [] as string[] };
   });
-  if (connectorImport.backups.length > 0) {
-    console.log(`[embedded] connector files backed up before the move: ${connectorImport.backups.join(", ")}`);
-  }
   if (connectorImport.imported.length > 0) {
     console.log(`[embedded] moved connectors into the shared store: ${connectorImport.imported.join(", ")}`);
   }
 
-  server = await startServer(config, { modelDownloadFetch: options.modelDownloadFetch, publicEngineBinary: () => managed.engine?.execution.command, onListening: async (port) => {
+  server = await startServer(config, { modelDownloadFetch: options.modelDownloadFetch, publicEngineBinary: () => managed.engine?.execution.command,
+    ...(options.rawHttpNodeExecutable ? { rawHttpNodeExecutable: options.rawHttpNodeExecutable } : {}),
+    ...(options.toolImageRasterRuntime ? { toolImageRasterRuntime: options.toolImageRasterRuntime } : {}), onListening: async (port) => {
     const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${port}`;
-  if (!config.opencodeBaseUrl && options.manageOpencode) {
-    // One managed engine has one process-wide OPENCODE_CONFIG_DIR. Select the
-    // workspace requested by the embedding host, not merely the first
-    // persisted registry item, so a restart on workspace activation isolates
-    // its external config, commands and skills from another matter.
-    const requestedDirectory = options.opencodeDirectory?.trim();
-    const workspace = requestedDirectory
-      ? config.workspaces.find((entry) => resolve(entry.path) === resolve(requestedDirectory)) ?? config.workspaces[0]
-      : config.workspaces[0];
-    if (workspace?.path) {
-      // Server-managed config file: the engine re-reads it from disk on every
-      // instance rebuild, and keepLegalworkRuntimeConfigFileFresh rewrites it
-      // on every runtime-DB write — so disposes always pick up current state.
-      const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
-      unsubscribe = keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
-      // Fire-and-forget: refresh the GLOBAL paid manifest's model list around
-      // the kept key (no-op when not signed in) with the firm's access token,
-      // so the list reflects the admin's on/off choices, then rewrite the
-      // engine config so the current models appear across every workspace.
-      refresh = ensureFreshPlatformToken(config)
-        .catch(() => null)
-        .then((platformToken) => refreshEigenweltPaidManifest(config, { platformToken }))
-        .then((r) => (r.changed ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))
-        .catch(() => undefined);
-      const cwd = options.opencodeCwd
-        || process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim()
-        || workspace.path;
-      await mkdir(cwd, { recursive: true });
+    if (!config.opencodeBaseUrl && options.manageOpencode) {
+      // One managed engine has one process-wide OPENCODE_CONFIG_DIR. Select the
+      // workspace requested by the embedding host, not merely the first
+      // persisted registry item, so a restart on workspace activation isolates
+      // its external config, commands and skills from another matter.
+      const requestedDirectory = options.opencodeDirectory?.trim();
+      const workspace = requestedDirectory
+        ? config.workspaces.find((entry) => resolve(entry.path) === resolve(requestedDirectory)) ?? config.workspaces[0]
+        : config.workspaces[0];
+      if (workspace?.path) {
+        managedWorkspacePath = workspace.path;
+        // Server-managed config file: the engine re-reads it from disk on every
+        // instance rebuild, and keepLegalworkRuntimeConfigFileFresh rewrites it
+        // on every runtime-DB write — so disposes always pick up current state.
+        const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
+        unsubscribe = keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
+        // Fire-and-forget: refresh the GLOBAL paid manifest's model list around
+        // the kept key (no-op when not signed in) with the firm's access token,
+        // so the list reflects the admin's on/off choices, then rewrite the
+        // engine config so the current models appear across every workspace.
+        refresh = ensureFreshPlatformToken(config)
+          .catch(() => null)
+          .then((platformToken) => refreshEigenweltPaidManifest(config, { platformToken }))
+          .then((r) => (r.changed && !stopped ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))
+          .catch(() => undefined);
+        const cwd = options.opencodeCwd
+          || process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim()
+          || workspace.path;
+        await mkdir(cwd, { recursive: true });
 
         // Private engine DB: never share OpenCode's global opencode.db with a
         // separately installed OpenCode — a newer install migrates it to a
@@ -234,16 +265,26 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         const managedDb = await prepareManagedOpencodeEngineDb(config);
         if (managedDb) process.env.OPENCODE_DB = managedDb.path;
 
-        const engineHome = join(runtimeStorageDir(config), "engine-home");
-        if (config.agentSandboxEnabled) await mkdir(engineHome, { recursive: true });
-        const dependencies = await prepareManagedOpencodeDependencies(config, options.opencodeSdkDirectory);
-        if (!dependencies.seeded) console.warn(`[legalwork-server] Bundled engine dependencies unavailable (${dependencies.reason}); runtime package installation may be required.`);
         // LAWOSS: bez relé katalógu modelov a bez OPENCODE_MODELS_URL. Engine číta
-        // pribalený katalóg a nič nesťahuje (lawoss/engine-network.ts cez managed-opencode.ts).
+        // pribalený katalóg a nič nesťahuje (lawossEngineEnv v managed-opencode.ts).
+        const engineHome = join(engineStorageDir(config), "engine-home");
+        await mkdir(engineHome, { recursive: true });
+        const database = managedDb?.path || (process.env.OPENCODE_DB ? resolve(cwd, process.env.OPENCODE_DB) : "");
+        if (!database) throw new Error("A private managed engine database is required for native restart recovery.");
+        process.env.OPENCODE_DB = database;
+        const executablePath = await resolveEngineExecutable(options.opencodeBin?.trim() || process.env.LEGALWORK_OPENCODE_BIN?.trim() || "opencode", options.opencodeCwd || process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim() || engineHome, process.env);
+        await expectedOpencodeVersion(executablePath, options.opencodeCandidateBuild);
+        const service = { configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineHome, "state"), executablePath };
         const externalConfigDir = externalOpencodeConfigDir(config, workspace);
-        managed.engine = await createManagedOpencodeServer({
-          bin: options.opencodeBin || process.env.LEGALWORK_OPENCODE_BIN,
-          cwd,
+        const dependencies = await prepareManagedOpencodeDependencies(config, options.opencodeSdkDirectory);
+        if (dependencies.reason === "bundle-unavailable") console.warn("[legalwork-server] Prepare desktop resources to validate the released engine's bundled runtime declaration.");
+        managed.lifecycle = await startManagedEngineLifecycle({ config, database, service, legacyMcpAuthPath: legacyMcpAuthPath(), create: async (mode, beforeSpawn) => {
+          const engine = await createConfiguredManagedEngine(config, {
+          bin: executablePath,
+          candidateBuild: options.opencodeCandidateBuild,
+          cwd: options.opencodeCwd || process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim() || engineHome,
+          beforeSpawn,
+          ...(mode === "service" ? { service } : { parentLease: true }),
           excludedPorts: [config.port],
           env: {
             ...(process.env.LEGALWORK_DEV_MODE ? { LEGALWORK_DEV_MODE: process.env.LEGALWORK_DEV_MODE } : {}),
@@ -254,59 +295,42 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
             [WIKI_AGENT_TICKET_ENV]: issueWikiAgentTicket(config),
             LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config),
             OPENCODE_CONFIG: runtimeConfigPath,
-            // The firm's enforced settings: read after every project's own config.
+            // App-owned discovery root; native guard hooks enforce firm policy.
             // LAWOSS: v režime outside je jediný koreň konfigurácie enginu externý
             // priečinok aktívneho spisu (príkazy, skills); projektová konfigurácia
             // klienta sa nenačíta.
             OPENCODE_CONFIG_DIR: externalConfigDir ?? orgPolicyEngineDir(config),
-            ...(externalConfigDir ? { OPENCODE_DISABLE_PROJECT_CONFIG: "true" } : {}),
-            ...(config.agentSandboxEnabled ? {
-              OPENCODE_DISABLE_PROJECT_CONFIG: "true",
-              // In the pinned engine this controls home config/plugin discovery.
-              OPENCODE_TEST_HOME: engineHome,
-              XDG_CONFIG_HOME: join(engineHome, "config"),
-              OPENCODE_CONFIG_CONTENT: "",
-            } : {}),
-            ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
+            // Engine v2 reads the generated native project settings (engine-project.ts) as project config;
+            // only the LAWOSS outside mode, whose config lives in the external directory, turns it off.
+            OPENCODE_CONFIG_PROJECT_DISABLE: externalConfigDir ? "true" : "",
+            OPENCODE_TEST_HOME: engineHome,
+            XDG_CONFIG_HOME: join(engineHome, "config"),
+            XDG_STATE_HOME: service.stateDirectory,
+            OPENCODE_CONFIG_CONTENT: await legalworkMandatoryRuntimeConfigContent(config),
+            OPENCODE_DB: database,
           },
-        });
+          });
+          managed.engine = engine;
+          return engine;
+        } });
 
-        config.opencodeBaseUrl = managed.engine.url;
-        config.opencodeUsername = managed.engine.username;
-        config.opencodePassword = managed.engine.password;
-        for (const entry of config.workspaces) {
-          if (entry.workspaceType === "remote") {
-            entry.baseUrl ??= managed.engine.url;
-            entry.opencodeUsername ??= managed.engine.username;
-            entry.opencodePassword ??= managed.engine.password;
-            entry.directory ??= entry.path;
-            continue;
-          }
-          entry.baseUrl = managed.engine.url;
-          entry.opencodeUsername = managed.engine.username;
-          entry.opencodePassword = managed.engine.password;
-          entry.directory = entry.path;
-        }
       }
     }
   } });
 
   // LAWOSS: not awaited, a cold plugin load must not delay startup; no instance serves anything before it.
-  if (managed.engine) ticketSettled = settleEngineAgentTicket(config, managed.engine, join(runtimeStorageDir(config), "engine-ticket-probe"), ticketStop.signal)
+  // The probe builds the opened client's location (plugins and MCP); admit it into the MCP budget (RAM 2 GB).
+  if (managed.engine) ticketSettled = settleEngineAgentTicket(config, managed.engine, managedWorkspacePath ?? config.workspaces[0]?.path ?? "", ticketStop.signal)
     .catch((error: unknown) => { if (!ticketStop.signal.aborted) console.warn(`[embedded] engine ticket window left open: ${error instanceof Error ? error.message : String(error)}`); });
 
-  // The runtime config file above only covers workspaces[0]. Push every
-  // workspace's runtime-DB MCPs into the engine so they aren't invisible
-  // until a manual reload. Best-effort.
-  initialMcpSync = managed.engine
-    ? syncAllWorkspacesRuntimeMcpToEngine(config).catch(() => undefined)
-    : Promise.resolve();
-
+  const started = server;
+  if (!started) throw new Error("Embedded server did not start");
   return {
-    port: server.port,
-    url: `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${server.port}`,
+    port: started.port,
+    url: `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${started.port}`,
     config,
-    managedOpencodeExecution: managed.engine?.execution ?? null,
+    invalidateRawHttpTrust: () => started.invalidateRawHttpTrust(),
+    get managedOpencodeExecution() { return managed.engine?.execution ?? null; },
     managedOpencodeStatus: () => managed.engine
       ? { running: managed.engine.running(), pid: managed.engine.pid }
       : null,

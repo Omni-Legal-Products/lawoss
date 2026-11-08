@@ -7,6 +7,7 @@ import { readRuntimeOpencodeConfig, runtimeExternalDirectory, writeRuntimeOpenco
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
+import { nativeRow } from "./test-support/native-config.js";
 
 const roots: string[] = [], stops: (() => void | Promise<void>)[] = [];
 const originalData = process.env.LEGALWORK_DATA_DIR, originalTokens = process.env.LEGALWORK_TOKEN_STORE;
@@ -42,7 +43,8 @@ async function fixture() {
 
 /** Značka, ktorú appka zapíše do klienta pri prvom otvorení (`.opencode/legalwork.json`). */
 const writeMarker = async (folder: string, root: string) => { await mkdir(join(folder, ".opencode"), { recursive: true }); await writeFile(join(folder, ".opencode", "legalwork.json"), JSON.stringify({ version: 1, workspace: { name: "x", createdAt: 1, preset: "starter" }, authorizedRoots: [root], reload: null })); };
-const grantsOf = async (config: ServerConfig, id: string) => Object.keys(runtimeExternalDirectory(await readRuntimeOpencodeConfig(config, id)));
+// Engine v2: folder grants are native rules; their resources are the v1 pattern keys.
+const grantsOf = async (config: ServerConfig, id: string) => runtimeExternalDirectory(await readRuntimeOpencodeConfig(config, id)).map((rule) => rule.resource);
 
 /** Prax „3-neusporiadana-prax“ s pridanými C002 a C017 (C002 už otvorený, so značkou); C022 v nej je, ale pridaný nebol. */
 async function practiceFixture() {
@@ -121,7 +123,7 @@ test("presun praxe odoberie povolenie do starej praxe aj priestorom mimo nej", a
   const outside = join(f.base, "Iný klient"); await mkdir(outside);
   await writeFile(join(outside, "client.md"), card("SYN Iný"));
   const other = (await f.apply(convert(outside, "Iný klient"))).workspace;
-  await writeRuntimeOpencodeConfig(f.config, other.id, current => ({ ...current, permission: { external_directory: { [`${join(f.practice, "Office")}/*`]: "allow", [`${outside}/Prilohy/*`]: "allow" } } }));
+  await writeRuntimeOpencodeConfig(f.config, other.id, current => ({ ...current, ...nativeRow({ permission: { external_directory: { [`${join(f.practice, "Office")}/*`]: "allow", [`${outside}/Prilohy/*`]: "allow" } } }) }));
   await rename(f.practice, f.renamed);
   const preview = await f.ok(await f.onboarding("moved-folder", { workspaceId: f.c002.id, folderPath: f.renamed }));
   for (const match of preview.matches) await f.ok(await f.post(`/workspace/${match.workspaceId}/reconnect`, { folderPath: match.folderPath, expectedPath: match.expectedPath }));

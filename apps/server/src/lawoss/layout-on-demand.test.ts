@@ -1,3 +1,4 @@
+import type { Actor } from "../types.js";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -19,6 +20,9 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })));
 });
+
+// Upstream v2: the review start names its actor.
+const actor: Actor = { type: "remote", scope: "owner", clientId: "layout-on-demand-test" };
 
 test("a page read without layout is finished for automatic runs but not for a layout request", () => {
   const ocr = { text: "Synthetic clause", regions: [], truncated: false };
@@ -61,16 +65,16 @@ test("a review asks for layout only when the lawyer requests it for one document
     throw new Error("Review did not settle");
   };
   let review = await service.create(workspace, { requestId: randomUUID(), name: "Layout", files: ["scan.pdf"], columns: [column] });
-  await service.start(workspace, review.id, { revision: review.revision });
+  await service.start(workspace, review.id, { revision: review.revision }, actor);
   review = await settled(review.id);
   expect(requests).toEqual([expect.objectContaining({ layout: false })]);
   // A plain run of a finished review prepares nothing again.
-  await service.start(workspace, review.id, { revision: review.revision });
+  await service.start(workspace, review.id, { revision: review.revision }, actor);
   review = await settled(review.id);
   expect(requests).toHaveLength(1); expect(executed).toBe(1);
-  await service.start(workspace, review.id, { revision: review.revision, documentIds: [review.documents[0]!.id], layout: true });
+  await service.start(workspace, review.id, { revision: review.revision, documentIds: [review.documents[0]!.id], layout: true }, actor);
   review = await settled(review.id);
   expect(requests).toHaveLength(2); expect(requests[1]).toMatchObject({ layout: true, force: false });
   expect(executed).toBe(2); expect(review.cells[0]!.status).toBe("complete");
-  await expect(service.start(workspace, review.id, { revision: review.revision, retryFailed: true, layout: true })).rejects.toThrow("Retry failed");
+  await expect(service.start(workspace, review.id, { revision: review.revision, retryFailed: true, layout: true }, actor)).rejects.toThrow("Retry failed");
 }, 20_000);

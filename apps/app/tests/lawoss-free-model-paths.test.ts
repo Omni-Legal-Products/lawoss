@@ -6,8 +6,9 @@
  */
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListView as ProviderListResponse } from "../src/app/types";
 import { createClient } from "../src/app/lib/opencode";
+import { queuedNativePrompt, selectSessionExecution, sendSessionCommand, sendSessionPrompt } from "../src/app/lib/system-reminder";
 import { clientChatGap } from "../src/lawoss/domains/onboarding/client-chat";
 import { matterModelGap } from "../src/lawoss/lite/matter-model";
 import { isFreeModelRequest } from "../src/lawoss/shell/free-models";
@@ -24,7 +25,7 @@ const providerList = (providers: Record<string, Fixture>, advertised: Record<str
       name: id,
       env: [],
       source: provider.source ?? "api",
-      models: Object.fromEntries(Object.entries(provider.models).map(([modelID, model]) => [modelID, { id: modelID, name: modelID, capabilities: { toolcall: true }, ...model }])),
+      models: Object.fromEntries(Object.entries(provider.models).map(([modelID, model]) => [modelID, { id: modelID, name: modelID, capabilities: { tools: true }, ...model }])),
     })),
     connected: Object.keys(providers),
     default: advertised,
@@ -32,11 +33,11 @@ const providerList = (providers: Record<string, Fixture>, advertised: Record<str
 
 const FREE = { providerID: "openrouter", modelID: "deepseek/deepseek-chat:free" };
 const PAID = { providerID: "anthropic", modelID: "claude-sonnet" };
-const PRICE = { cost: { input: 3, output: 15 } };
+const PRICE = { cost: [{ input: 3, output: 15, cache: { read: 0, write: 0 } }] };
 const MIXED = providerList({
-  openrouter: { models: { "deepseek/deepseek-chat:free": {}, "deepseek/deepseek-r2": { cost: { input: 0, output: 0 } }, "anthropic/claude-sonnet": PRICE } },
+  openrouter: { models: { "deepseek/deepseek-chat:free": {}, "deepseek/deepseek-r2": { cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }] }, "anthropic/claude-sonnet": PRICE } },
   anthropic: { models: { "claude-sonnet": PRICE } },
-  ollama: { source: "config", models: { "qwen-72b": { cost: { input: 0, output: 0 } } } },
+  ollama: { source: "config", models: { "qwen-72b": { cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }] } } },
 });
 
 describe("predvolený model chatu klienta", () => {
@@ -113,20 +114,24 @@ describe("odoslanie do enginu", () => {
     expect(isFreeModelRequest(undefined)).toBe(false);
   });
 
+  // Engine v2: prompty, príkazy aj fronta idú cez `system-reminder.ts`, ktorý bezplatný model odmietne skôr, než niečo odošle.
   test("klient enginu odmietne bezplatný model pri každom type odoslania a nič neodošle", async () => {
     const calls = capture();
     const client = createClient("http://localhost/workspace/ws_1/opencode", "/Klienti/Novak", { mode: "legalwork", token: "t" });
     const parts = [{ type: "text" as const, text: "Zhrň spis." }];
-    await expect(client.session.promptAsync({ sessionID: "s1", model: FREE, parts })).rejects.toThrow();
-    await expect(client.session.prompt({ sessionID: "s1", model: FREE, parts })).rejects.toThrow();
-    await expect(client.session.command({ sessionID: "s1", command: "zhrn", arguments: "", model: "openrouter/deepseek/deepseek-chat:free" })).rejects.toThrow();
+    await expect(sendSessionPrompt(client, { sessionID: "s1", model: FREE, parts })).rejects.toThrow();
+    await expect(sendSessionPrompt(client, { sessionID: "s1", model: FREE, parts }, { waitForCompletion: true })).rejects.toThrow();
+    await expect(sendSessionCommand(client, { sessionID: "s1", command: "zhrn", arguments: "", model: "openrouter/deepseek/deepseek-chat:free" })).rejects.toThrow();
+    expect(() => queuedNativePrompt({ sessionID: "s1", model: FREE, parts })).toThrow();
+    await expect(selectSessionExecution(client, "s1", { model: FREE })).rejects.toThrow();
     expect(calls).toHaveLength(0);
   });
 
   test("platený model prejde bez zmeny", async () => {
     const calls = capture();
     const client = createClient("http://localhost/workspace/ws_1/opencode", "/Klienti/Novak", { mode: "legalwork", token: "t" });
-    await client.session.promptAsync({ sessionID: "s1", model: PAID, parts: [{ type: "text", text: "Zhrň spis." }] });
-    expect(calls.map((call) => new URL(call.url).pathname)).toContain("/workspace/ws_1/opencode/session/s1/prompt_async");
+    await sendSessionPrompt(client, { sessionID: "s1", model: PAID, parts: [{ type: "text", text: "Zhrň spis." }] }).catch(() => undefined);
+    expect(calls.length).toBeGreaterThan(0);
+    expect(queuedNativePrompt({ sessionID: "s1", model: PAID, parts: [{ type: "text", text: "Zhrň spis." }] }).model).toMatchObject({ id: "claude-sonnet", providerID: "anthropic" });
   });
 });

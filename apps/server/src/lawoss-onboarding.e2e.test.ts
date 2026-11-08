@@ -153,13 +153,14 @@ test("office runtime grant is exact, ticket-confirmed, and stays scoped to its c
   expect(preview.preview.officeMemoryRoot).toBe(office.root);
   const first = await f.success("apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
   const firstGrants = runtimeExternalDirectory(await readRuntimeOpencodeConfig(f.config, first.workspace.id));
-  expect(firstGrants).toEqual({ [`${office.root}/*`]: "allow" });
-  expect(firstGrants[`${f.parent}/*`]).toBeUndefined();
+  // Engine v2: folder grants are native rules.
+  expect(firstGrants).toEqual([{ action: "external_directory", resource: `${office.root}/*`, effect: "allow" }]);
+  expect(firstGrants.some(rule => rule.resource === `${f.parent}/*`)).toBe(false);
 
   const second = await f.apply({ action: "client", parent: f.parent, name: "Second", title: "Second client", ...common });
   const secondGrants = runtimeExternalDirectory(await readRuntimeOpencodeConfig(f.config, second.workspace.id));
-  expect(secondGrants).toEqual({ [`${office.root}/*`]: "allow" });
-  expect(secondGrants[`${first.root}/*`]).toBeUndefined();
+  expect(secondGrants).toEqual([{ action: "external_directory", resource: `${office.root}/*`, effect: "allow" }]);
+  expect(secondGrants.some(rule => rule.resource === `${first.root}/*`)).toBe(false);
 });
 
 test("malformed persisted ticket is rejected before it can create a client", async () => {

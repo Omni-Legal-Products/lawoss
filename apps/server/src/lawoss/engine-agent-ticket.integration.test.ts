@@ -16,6 +16,7 @@ import { ensureWikiAgentToken, issueWikiAgentTicket } from "../wiki/agent-access
 import { ENGINE_CONNECTION_REFUSED, WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PATH } from "./engine-agent-contract.js";
 import { settleEngineAgentTicket } from "./engine-agent-ticket.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
+import { nativeRow } from "./test-support/native-config.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 const toolPart = z.object({ type: z.literal("tool"), tool: z.string(), state: z.object({ status: z.string(), output: z.string().optional(), error: z.string().optional() }).passthrough() }).passthrough();
@@ -37,7 +38,7 @@ async function harness(bin: string, pluginEntries: string[]) {
     approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [workspace("klient-a", clientA), workspace("klient-b", clientB)],
     authorizedRoots: [clientA, clientB], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
   };
-  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "allow", read: "allow", edit: "allow", webfetch: "allow" } }));
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => nativeRow({ permission: { bash: "allow", read: "allow", edit: "allow", webfetch: "allow" } }));
 
   // Model na skúšku: na správu zavolá nástroje, ktoré pomenuje značka `KROK:<kľúč>`; po ich výsledkoch skončí.
   const steps = new Map<string, Array<{ name: string; arguments: Record<string, unknown> }>>();

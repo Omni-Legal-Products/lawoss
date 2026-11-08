@@ -8,13 +8,14 @@ import { GLOBAL_PROVIDERS_ID, writeRuntimeOpencodeConfig } from "../../runtime-o
 import { protectedAiTarget } from "./transport.js";
 import { registerProtectedDocumentProfileRoutes } from "./profiles.js";
 import { matchRoute, type Route, type RequestContext } from "../../routes/registry.js";
+import { nativeRow } from "../test-support/native-config.js";
 
 test("native profile discovery lists only current eligible stored scopes for the configured account without granting or selecting", async () => {
   const {root, config} = await syntheticHostConfig();
   const workspaceRoot = join(root, "workspace"); await mkdir(join(workspaceRoot, "case"), {recursive: true});
   config.workspaces.push({id: "fixture", path: workspaceRoot, workspaceType: "local"} as any);
   try {
-    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: "https://example.invalid/v1", apiKey: "NEVER-RETURN-SECRET"}, models: {fixture: {}}}}}));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () =>nativeRow({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: "https://example.invalid/v1", apiKey: "NEVER-RETURN-SECRET"}, models: {fixture: {}}}}}));
     const target = await protectedAiTarget(config, "fixture", "fixture");
     const patch = {state: "approved" as const, scope: {workspaceId: "fixture", matterId: "explicit-matter", jurisdictions: ["CZ" as const]}, targetFingerprint: target.fingerprint, legalProfileId: "reviewed-policy", legalProfileVersion: "2", evidenceRefs: ["sha256:"+"a".repeat(64)], expiresAt: null};
     for (const [id, change] of [["eligible", {}], ["expired", {scope: {...patch.scope, matterId: "expired"}, expiresAt: "2000-01-01T00:00:00.000Z"}], ["foreign", {scope: {...patch.scope, workspaceId: "other"}}], ["unproven", {scope: {...patch.scope, matterId: "no-evidence"}, evidenceRefs: []}], ["suspended", {scope: {...patch.scope, matterId: "suspended"}, state: "suspended"}]] as const)
@@ -36,7 +37,7 @@ test("native profile discovery lists only current eligible stored scopes for the
     await symlink(root, join(workspaceRoot, "escape"));
     await expect(invoke("escape")).rejects.toMatchObject({code: "invalid_path"});
     await expect(invoke("../")).rejects.toMatchObject({code: "invalid_path"});
-    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, current => ({...current, provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: "https://example.invalid/v1", apiKey: "ROTATED"}, models: {fixture: {}}}}}));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, current => ({...current, ...nativeRow({ provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: "https://example.invalid/v1", apiKey: "ROTATED"}, models: {fixture: {}}}} })}));
     expect((await (await invoke("case")).json()).profiles).toEqual([]);
   } finally {await closeOrgPolicyRuntime(config); await rm(root, {recursive: true, force: true});}
 });

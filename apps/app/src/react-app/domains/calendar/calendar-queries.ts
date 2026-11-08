@@ -1,14 +1,19 @@
 import { useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { onSyncPoke } from "../../kernel/sync-events";
+import { connectedCalendars, connectedCalendarEvents, type ConnectedCalendar } from "./connected-calendars";
 
 export type CalendarSource = { id: string; name: string; workspaceId: string; client: LegalworkServerClient };
 export type CalendarContext = { client: LegalworkServerClient | null; workspaceId?: string; remoteSources?: CalendarSource[] };
 
 export function useCalendarRefresh() {
   const cache = useQueryClient();
-  useEffect(() => onSyncPoke(() => { void cache.invalidateQueries({ queryKey: ["calendar"] }); }), [cache]);
+  useEffect(() => onSyncPoke(poke => {
+    if (poke.resync || poke.projects || poke.tasks || poke.policy || poke.hub || poke.sessions || poke.approvals || poke.reload) {
+      void cache.invalidateQueries({ queryKey: ["calendar"] });
+    }
+  }), [cache]);
   return () => { void cache.invalidateQueries({ queryKey: ["calendar"] }); };
 }
 
@@ -42,4 +47,21 @@ export function useCalendarRecords({ client, workspaceId }: CalendarContext) {
     queryFn: () => client && workspaceId ? client.calendarItems(workspaceId, true) : { items: [], conflicts: [] },
     refetchInterval: 60_000,
   });
+}
+
+export function useConnectedCalendars(client: LegalworkServerClient | null) {
+  return useQuery({
+    queryKey: ["calendar", client?.baseUrl, "connections"], enabled: Boolean(client),
+    queryFn: () => client ? connectedCalendars(client) : { calendars: [], unavailable: [] },
+    staleTime: 60_000, refetchInterval: 60_000, retry: false,
+  });
+}
+
+export function useConnectedCalendarEvents(client: LegalworkServerClient | null, calendars: ConnectedCalendar[], from: string, to: string) {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return useQueries({ queries: calendars.map(calendar => ({
+    queryKey: ["calendar", client?.baseUrl, "connected-events", calendar.key, from, to, timeZone],
+    enabled: Boolean(client), queryFn: () => client ? connectedCalendarEvents(client, calendar, from, to, timeZone) : [],
+    staleTime: 60_000, refetchInterval: 60_000, retry: false, gcTime: 0,
+  })) });
 }

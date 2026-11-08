@@ -118,15 +118,16 @@ export function folderEngine(connection: Pick<OkfConnection, "baseUrl" | "token"
   if (!endpoint) return null;
   const client = (directory: string) => createClient(endpoint.opencodeBaseUrl, directory, { token: endpoint.token, mode: "legalwork" });
   return {
+    // Engine v2 (ADR 0016): `location.get` vracia skutočný priečinok a koreň jeho projektu; zoznam konverzácií
+    // filtruje `directory` a voči projektu `subpath` (namiesto `path` z 1.x).
     locate: async (folder, signal) => {
-      const opencode = client(folder);
-      const [where, project] = await Promise.all([
-        opencode.path.get({ directory: folder }, { signal }).then(unwrap),
-        opencode.project.current({ directory: folder }, { signal }).then(unwrap).catch(() => null),
-      ]);
-      return { directory: where.directory, worktree: where.worktree, projectId: project?.id ?? null };
+      const where = await client(folder).location.get({ location: { directory: folder } }, { signal });
+      return { directory: where.directory, worktree: where.project.directory, projectId: where.project.id ?? null };
     },
-    list: async (folder, query, signal) => unwrap(await client(folder).session.list({ directory: folder, ...query }, { signal })),
+    list: async (folder, query, signal) => {
+      const page = await client(folder).session.list({ directory: folder, ...(query.path === undefined ? {} : { subpath: query.path }), parentID: null, limit: query.limit }, { signal });
+      return page.data.map((s): ListedSession => ({ id: s.id, title: s.title, directory: s.location.directory, time: s.time, metadata: s.metadata }));
+    },
   };
 }
 
@@ -134,8 +135,8 @@ export function folderEngine(connection: Pick<OkfConnection, "baseUrl" | "token"
 export async function readSessionDirectory(connection: Pick<OkfConnection, "baseUrl" | "token">, workspace: RouteWorkspace, sessionId: string, signal?: AbortSignal): Promise<string | null> {
   const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token });
   if (!endpoint) throw new Error("no connection");
-  const session = unwrap(await createClient(endpoint.opencodeBaseUrl, workspace.path, { token: endpoint.token, mode: "legalwork" }).session.get({ sessionID: sessionId }, { signal }));
-  return session.directory || null;
+  const session = await createClient(endpoint.opencodeBaseUrl, workspace.path, { token: endpoint.token, mode: "legalwork" }).session.get({ sessionID: sessionId }, { signal });
+  return session.location.directory || null;
 }
 
 export function folderSessionsQuery(connection: Pick<OkfConnection, "baseUrl" | "token" | "client"> | null, folder: Folder) {

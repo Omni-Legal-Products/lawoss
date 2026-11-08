@@ -1,4 +1,4 @@
-import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
+import type { SessionStatus } from "@opencode/client";
 import type { LegalworkSessionSnapshot, LawossDocumentSummary } from "@/app/lib/legalwork-server";
 import { useSessionActivityStore } from "../status/session-activity-store";
 import { t } from "@/i18n";
@@ -149,9 +149,12 @@ export function reconcileDocumentGeneration(key: string, result: DocumentGenerat
   if (!envelope || !isDocumentGenerationSnapshotCurrent(binding, envelope)) return;
   const snapshot = envelope.snapshot;
   // Historical/legacy bindings without a persisted engine-visible ID remain conservative.
-  const currentTurn = binding.messageId
-    ? snapshot.messages.filter(({ info }) => info.role === "assistant" && info.parentID === binding.messageId && !info.summary)
-    : [];
+  // Engine v2 has no assistant `parentID`: the turn is every assistant message after the
+  // engine-visible user message, up to the next user message.
+  const userIndex = binding.messageId ? snapshot.messages.findIndex(({ info }) => info.role === "user" && info.id === binding.messageId) : -1;
+  const nextUser = userIndex < 0 ? -1 : snapshot.messages.findIndex(({ info }, index) => index > userIndex && info.role === "user");
+  const currentTurn = userIndex < 0 ? []
+    : snapshot.messages.slice(userIndex + 1, nextUser < 0 ? undefined : nextUser).filter(({ info }) => info.role === "assistant" && !info.summary);
   const failed = currentTurn.find(message => message.info.role === "assistant" && message.info.error);
   if (failed?.info.role === "assistant") {
     saveBinding(key, { ...binding, phase: "error", error: JSON.stringify(failed.info.error) });

@@ -1,7 +1,8 @@
 /** @jsxImportSource react */
 import { useSessionInboxStore } from "../sidebar/session-inbox-store";
 import { useEffect } from "react";
-import type { Session, SessionStatus } from "@opencode-ai/sdk/v2/client";
+import type { SessionView as Session } from "@/app/lib/opencode-view";
+import type { SessionStatus } from "@opencode/client";
 
 import type { LegalworkSessionSnapshot } from "@/app/lib/legalwork-server";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
@@ -10,10 +11,11 @@ import { ensureWorkspaceSessionSync, snapshotKey, trackWorkspaceSessionsSync } f
 type ReactSessionRuntimeProps = {
   workspaceId: string;
   sessionId: string | null;
+  assistantActive?: boolean;
   activeSessionIds?: string[];
   opencodeBaseUrl: string;
   legalworkToken: string;
-  directory?: string;
+  legalworkHostToken?: string;
   onSessionLoaded?: (session: Session) => void;
   onSessionUpdated?: (update: { sessionId: string; info: Record<string, unknown> }) => void;
   onSessionStatus?: (update: { sessionId: string; status: SessionStatus }) => void;
@@ -25,7 +27,7 @@ export function ReactSessionRuntime(props: ReactSessionRuntimeProps) {
       workspaceId: props.workspaceId,
       baseUrl: props.opencodeBaseUrl,
       legalworkToken: props.legalworkToken,
-      directory: props.directory,
+      legalworkHostToken: props.legalworkHostToken,
       onSessionUpdated: props.onSessionUpdated,
       onSessionStatus: props.onSessionStatus,
     };
@@ -35,7 +37,7 @@ export function ReactSessionRuntime(props: ReactSessionRuntimeProps) {
       releaseSessions();
       releaseWorkspace();
     };
-  }, [props.workspaceId, props.sessionId, props.activeSessionIds, props.opencodeBaseUrl, props.legalworkToken, props.directory, props.onSessionUpdated, props.onSessionStatus]);
+  }, [props.workspaceId, props.sessionId, props.activeSessionIds, props.opencodeBaseUrl, props.legalworkToken, props.legalworkHostToken, props.onSessionUpdated, props.onSessionStatus]);
 
   // Only a loaded chat in the foreground is read. Sidebar expansion/prefetch is not reading.
   useEffect(() => {
@@ -45,13 +47,14 @@ export function ReactSessionRuntime(props: ReactSessionRuntimeProps) {
     const key = snapshotKey(props.workspaceId, sessionId);
     const update = () => {
       const loaded = cache.getQueryData<LegalworkSessionSnapshot>(key)?.session.id === sessionId;
-      useSessionInboxStore.getState().open(loaded && document.visibilityState === "visible" && document.hasFocus() ? sessionId : null);
+      useSessionInboxStore.getState().open(loaded && document.visibilityState === "visible" && document.hasFocus() ? sessionId : null,
+        props.assistantActive ? props.workspaceId : null);
     };
     const unsubscribe = cache.getQueryCache().subscribe(event => { if (event.type === "updated" && key.every((part, index) => event.query.queryKey[index] === part)) update(); });
     window.addEventListener("focus", update); window.addEventListener("blur", update); document.addEventListener("visibilitychange", update);
     update();
     return () => { unsubscribe(); window.removeEventListener("focus", update); window.removeEventListener("blur", update); document.removeEventListener("visibilitychange", update); useSessionInboxStore.getState().open(null); };
-  }, [props.workspaceId, props.sessionId]);
+  }, [props.workspaceId, props.sessionId, props.assistantActive]);
 
   // The open chat's snapshot is authoritative even when the sidebar's
   // paginated session list is stale or does not contain this conversation.

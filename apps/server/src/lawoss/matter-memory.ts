@@ -61,7 +61,7 @@ async function ownFolders(config: ServerConfig, workspace: WorkspaceInfo,
   linkedFolders: (config: ServerConfig, workspace: WorkspaceInfo) => Promise<readonly string[]>): Promise<OwnFolders> {
   const root = await canonicalPath(workspace.path);
   const others = await Promise.all(config.workspaces
-    .filter((entry) => entry.id !== workspace.id && entry.workspaceType !== "remote" && Boolean(entry.path))
+    .filter((entry) => entry.id !== workspace.id && Boolean(entry.path))
     .map((entry) => canonicalPath(entry.path)));
   return { root, linked: await linkedFolders(config, workspace), others: others.filter((other) => other !== root) };
 }
@@ -101,7 +101,6 @@ async function officeReadable(logical: string, own: { root: string; linked: read
 /** `linkedFolders`: the client's linked folders, read at every call (tests pass their own, as for `LawossDocuments`). */
 export async function readMatterMemoryForChat(config: ServerConfig, workspace: WorkspaceInfo, body: unknown,
   linkedFolders: (config: ServerConfig, workspace: WorkspaceInfo) => Promise<readonly string[]> = documentLinkedFolders): Promise<MatterMemoryResult> {
-  if (workspace.workspaceType === "remote") throw new ApiError(400, "memory_local_workspace_required", "Case memory can be read only in a local client folder.");
   const parsed = inputSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "memory_arguments", "Use action preamble or read and the absolute path of this client's case folder.");
   const { action, matter, offset = 0 } = parsed.data;
@@ -205,7 +204,6 @@ const refused = (out: string) => new ApiError(422, "memory_write_refused", `${ou
  */
 export async function writeMatterMemoryForChat(config: ServerConfig, workspace: WorkspaceInfo, body: unknown,
   linkedFolders: (config: ServerConfig, workspace: WorkspaceInfo) => Promise<readonly string[]> = documentLinkedFolders): Promise<MatterMemoryWritePreview | MatterMemoryWriteResult> {
-  if (workspace.workspaceType === "remote") throw new ApiError(400, "memory_local_workspace_required", "Case memory can be written only in a local client folder.");
   if (config.readOnly) throw new ApiError(403, "read_only", "This server is read-only. Nothing was written.");
   const parsed = writeSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "memory_arguments", "Send the case folder, the whole record, the reason and, for a change of an existing record, its revision.");

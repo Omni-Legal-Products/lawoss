@@ -1,12 +1,13 @@
-import { useRef, useState, type ChangeEvent } from "react";
-import { BookOpen, Briefcase, CalendarClock, FolderSymlink, Users, CalendarDays, House, FolderOpen, LayoutGrid, Pin, Clock, TableProperties, ListTodo, Files, MessageSquare, Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, PenLine, Upload, Workflow, X } from "lucide-react";
+import { useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { AssistantFlowerIcon } from "./assistant-appearance";
+import { BookOpen, Briefcase, CalendarClock, FolderSymlink, CalendarDays, Check, Clock, Files, FlaskConical, FolderOpen, GripVertical, House, Inbox, LayoutGrid, ListTodo, Loader2, MessageSquare, Mic, PenLine, Pin, SquarePen, Table2, TableProperties, Upload, Users, Workflow, X } from "lucide-react";
 import { LazyMotion, Reorder, domMax, useDragControls } from "motion/react";
 import { toast } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import lawossMark from "../../../../../../../lawoss/brand/lawoss-mark.svg";
 import { t } from "@/i18n";
-import { hideCommercialSidebarItems } from "@/lawoss/feature-flags";
+import { hideCommercialSidebarItems, isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { useChatSectionVisibility } from "@/lawoss/lite/chat-sections";
 import { useUiMode } from "@/lawoss/lite/ui-mode";
 import { cn } from "@/lib/utils";
@@ -33,7 +34,7 @@ export const SIDEBAR_ITEMS = {
   projectTasks: { label: "projects.tasks", icon: ListTodo },
   projectFiles: { label: "projects.files", icon: Files },
   projectSessions: { label: "sidebar.collapse_sessions", icon: MessageSquare },
-  navNewChat: { label: "projects.new_chat", icon: PenLine },
+  navNewChat: { label: "projects.new_chat", icon: SquarePen },
   navTasks: { label: "sidebar.tasks", icon: Inbox },
   navWorkflows: { label: "sidebar.workflows", icon: Workflow },
   navRecorder: { label: "recorder.nav_label", icon: Mic },
@@ -45,9 +46,10 @@ export function SidebarCustomization({ onDone }: { onDone: () => void }) {
   const { config, update } = useShellConfig();
   // LAWOSS: pripnuté a nedávne chaty majú v bežnom režime vlastnú voľbu (predvolene vypnuté).
   const chatSections = useChatSectionVisibility(useUiMode());
-  const options = <K extends ShellNavKey | ChatSectionKey | ProjectNavKey>(keys: K[], change: (keys: K[]) => void, label: string) => (
+  const options = <K extends ShellNavKey | ChatSectionKey | ProjectNavKey>(keys: K[], change: (keys: K[]) => void, label: string, extra?: ReactNode) => (
     <div className="mt-3">
       <h3 className="px-2 pb-1 text-xs text-muted-foreground">{label}</h3>
+      {extra}
       <Reorder.Group axis="y" values={keys} onReorder={change} aria-label={label}>
         {keys.map(key => <NavigationOption key={key} navKey={key} checked={key === "projectSessions" ? config.collapseProjectSessions : chatSections.handles(key) ? chatSections.shown(key, config[key]) : config[key]} onCheckedChange={checked => chatSections.handles(key) ? chatSections.set(key, checked) : update(key === "projectSessions" ? { collapseProjectSessions: checked } : { [key]: checked })} onMove={direction => {
           const next = [...keys], index = next.indexOf(key), target = index + direction;
@@ -77,7 +79,14 @@ export function SidebarCustomization({ onDone }: { onDone: () => void }) {
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         <LazyMotion features={domMax}>
           {options(hideCommercialSidebarItems(config.navOrder), navOrder => update({ navOrder: [...navOrder, ...config.navOrder.filter((key) => !navOrder.includes(key))] }), t("sidebar.main_actions"))}
-          {options(hideCommercialSidebarItems(config.chatSectionOrder), chatSectionOrder => update({ chatSectionOrder: [...chatSectionOrder, ...config.chatSectionOrder.filter((key) => !chatSectionOrder.includes(key))] }), t("sidebar.chat_sections"))}
+          {options(hideCommercialSidebarItems(config.chatSectionOrder).filter(key => key !== "navNewChat"), chatSectionOrder => update({ chatSectionOrder: ["navNewChat", ...chatSectionOrder, ...config.chatSectionOrder.filter((key) => key !== "navNewChat" && !chatSectionOrder.includes(key))] }), t("sidebar.chat_sections"), <>
+            <VisibilityToggle checked={config.navNewChat} onCheckedChange={navNewChat => update({ navNewChat })}>
+              <SquarePen className="size-[18px] shrink-0" strokeWidth={1.5} /><span className="truncate">{t("projects.new_chat")}</span>
+            </VisibilityToggle>
+            {/* 🟡 LAWOSS: Asistent je platená plocha Eigenwelt. */}
+            {isCommercialSurfaceHidden("assistant") ? null : <VisibilityToggle checked={config.navAssistant !== false} onCheckedChange={navAssistant => update({ navAssistant })}>
+              <AssistantFlowerIcon size={18} /><span className="truncate">{t("assistant.title")}</span>
+            </VisibilityToggle>}</>)}
           {options(hideCommercialSidebarItems(config.projectNavOrder), projectNavOrder => update({ projectNavOrder: [...projectNavOrder, ...config.projectNavOrder.filter((key) => !projectNavOrder.includes(key))] }), t("sidebar.project_items"))}
         </LazyMotion>
         </div>
@@ -144,13 +153,10 @@ function NavigationOption(props: {
 
   return (
     <Reorder.Item value={props.navKey} dragListener={false} dragControls={dragControls} dragElastic={0} className="relative flex h-10 items-center gap-1 rounded-lg bg-background pr-1" whileDrag={{ boxShadow: "0 3px 12px rgb(0 0 0 / 0.12)" }}>
-      <Button variant="ghost" role="checkbox" aria-checked={props.checked} onClick={() => props.onCheckedChange(!props.checked)} className="h-10 min-w-0 flex-1 justify-start gap-2.5 px-2 font-normal text-foreground">
-        <span aria-hidden="true" className={cn("flex size-4 shrink-0 items-center justify-center rounded-full border", props.checked ? "border-blue-9 bg-blue-9 text-white" : "border-muted-foreground/60 bg-transparent")}>
-          {props.checked ? <Check className="size-3" strokeWidth={3} /> : null}
-        </span>
+      <VisibilityToggle checked={props.checked} onCheckedChange={props.onCheckedChange}>
         <Icon className="size-[18px] shrink-0" strokeWidth={1.5} />
         <span className="truncate">{label}</span>
-      </Button>
+      </VisibilityToggle>
       {props.onMove ? <Button variant="ghost" size="icon-xs" className="touch-none cursor-grab text-muted-foreground/50 hover:text-muted-foreground active:cursor-grabbing" aria-label={t("projects.reorder_nav", { name: label })} title={t("projects.reorder_nav_hint")}
         onPointerDown={(event) => dragControls.start(event)}
         onKeyDown={(event) => {
@@ -161,4 +167,13 @@ function NavigationOption(props: {
       ><GripVertical className="size-3.5" /></Button> : null}
     </Reorder.Item>
   );
+}
+
+function VisibilityToggle({ checked, onCheckedChange, children }: { checked: boolean; onCheckedChange: (checked: boolean) => void; children: ReactNode }) {
+  return <Button variant="ghost" role="checkbox" aria-checked={checked} onClick={() => onCheckedChange(!checked)} className="h-10 w-full min-w-0 flex-1 justify-start gap-2.5 px-2 font-normal text-foreground">
+    <span aria-hidden="true" className={cn("flex size-4 shrink-0 items-center justify-center rounded-full border", checked ? "border-blue-9 bg-blue-9 text-white" : "border-muted-foreground/60 bg-transparent")}>
+      {checked ? <Check className="size-3" strokeWidth={3} /> : null}
+    </span>
+    {children}
+  </Button>;
 }

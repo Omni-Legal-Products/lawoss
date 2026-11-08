@@ -1,25 +1,6 @@
-/**
- * Single source of truth for "where does a workspace's server live?".
- *
- * Every workspace-scoped API call in the app must route to the LegalWork server
- * that actually owns that workspace. For local workspaces that's the user's
- * local LegalWork server. For workspaces hosted on a remote LegalWork worker
- * (`id` starts with `rem_` and `workspaceType === "remote"`), it's the
- * `baseUrl`/`legalworkHostUrl` and `legalworkToken` saved on the workspace
- * record, with the workspace addressed by its server-side id (the `rem_`
- * prefix is stripped, or `legalworkWorkspaceId` is used when present).
- *
- * Always go through {@link resolveWorkspaceEndpoint} when you need:
- *   - an `LegalworkServerClient` for a workspace
- *   - a mounted `/workspace/<id>` URL prefix
- *   - the `/opencode` URL for the OpenCode SDK
- *
- * Don't compose `<baseUrl>/workspace/<id>` by hand — that pattern is what
- * caused this whole class of "remote workspace API calls hit the local
- * server" bugs.
- */
+/** Resolve supported project requests through the selected LegalWork server. */
 
-import type { WorkspaceInfo } from "./desktop";
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import {
   buildLegalworkWorkspaceBaseUrl,
   createLegalworkServerClient,
@@ -31,12 +12,12 @@ export type ResolvedWorkspaceEndpoint = {
   baseUrl: string;
   /** Auth token for that server. May be empty for unauthenticated local servers. */
   token: string;
-  /** Explicit host capability for the server owning this workspace; never borrowed across owners. */
+  /** Host credential is present only for the local server owning this workspace. */
   hostToken?: string;
   /** Workspace id as the owning server expects it in URL paths. No `rem_` prefix. */
   workspaceId: string;
-  /** True when the workspace lives on a remote LegalWork worker, not the user's local server. */
-  isRemote: boolean;
+  /** Kept false for components that also render a manual server connection. */
+  isRemote: false;
   /** LegalworkServerClient bound to {@link baseUrl}/{@link token}. */
   client: LegalworkServerClient;
   /** Mounted base url: `<baseUrl>/workspace/<workspaceId>`. No trailing slash. */
@@ -52,81 +33,32 @@ export type LocalServerHandle = {
   hostToken?: string | null;
 };
 
-/** Effective routing/auth operands, without allocating a transport. */
-export type WorkspaceEndpointConnection = Pick<ResolvedWorkspaceEndpoint, "baseUrl" | "token" | "workspaceId" | "isRemote" | "hostToken"> & { localClient?: LegalworkServerClient };
-
-type WorkspaceEndpointInput = Pick<
-  WorkspaceInfo,
-  | "id"
-  | "workspaceType"
-  | "baseUrl"
-  | "legalworkHostUrl"
-  | "legalworkToken"
-  | "legalworkClientToken"
-  | "legalworkHostToken"
-  | "legalworkWorkspaceId"
-> | null | undefined;
+type WorkspaceEndpointInput = { id: string; workspaceType?: string | null } | null | undefined;
 
 /**
- * Cheap predicate. Use this instead of duplicating the `id.startsWith("rem_")`
- * check inline.
- */
-export function isRemoteWorkspace(workspace: WorkspaceEndpointInput): boolean {
-  if (!workspace) return false;
-  return (
-    workspace.id.trim().startsWith("rem_") &&
-    workspace.workspaceType === "remote"
-  );
-}
-
-/**
- * Returns the server-side workspace id (no `rem_` prefix) for any workspace.
- * For local workspaces, returns the id as-is.
+ * Retired remote records never produce a usable server-side project ID.
  */
 export function workspaceServerId(workspace: WorkspaceEndpointInput): string {
   if (!workspace) return "";
   const id = workspace.id.trim();
-  if (!isRemoteWorkspace(workspace)) return id;
-  const explicit = workspace.legalworkWorkspaceId?.trim();
-  if (explicit) return explicit;
-  return id.startsWith("rem_") ? id.slice("rem_".length) : id;
+  return isRetiredRemoteWorkspace(workspace) ? "" : id;
 }
 
-function pickRemoteBaseUrl(workspace: WorkspaceEndpointInput): string {
-  if (!workspace) return "";
-  return (workspace.baseUrl ?? workspace.legalworkHostUrl ?? "").trim();
-}
-
-function pickRemoteToken(workspace: WorkspaceEndpointInput): string {
-  if (!workspace) return "";
-  return (
-    workspace.legalworkToken ??
-    workspace.legalworkClientToken ??
-    workspace.legalworkHostToken ??
-    ""
-  ).trim();
-}
+/** LAWOSS: effective routing/auth operands, without allocating a transport. */
+export type WorkspaceEndpointConnection = Pick<ResolvedWorkspaceEndpoint, "baseUrl" | "token" | "workspaceId" | "isRemote" | "hostToken"> & { localClient?: LegalworkServerClient };
 
 /**
  * Resolve the right server endpoint for a workspace. Returns null when the
- * workspace can't be reached (remote with no baseUrl, or local with no local
- * server connected yet). Resolve these scalar operands before deciding whether
- * an existing transport can be retained across workspace metadata refreshes.
+ * project is retired or no LegalWork server is connected yet. LAWOSS: resolve these
+ * scalar operands before deciding whether an existing transport can be retained across
+ * workspace metadata refreshes.
  */
 export function resolveWorkspaceEndpointConnection(
   workspace: WorkspaceEndpointInput,
   localServer: LocalServerHandle,
 ): WorkspaceEndpointConnection | null {
   if (!workspace) return null;
-
-  if (isRemoteWorkspace(workspace)) {
-    const baseUrl = pickRemoteBaseUrl(workspace);
-    if (!baseUrl) return null;
-    const token = pickRemoteToken(workspace);
-    const workspaceId = workspaceServerId(workspace);
-    return { baseUrl, token, workspaceId, isRemote: true, hostToken: workspace.legalworkHostToken?.trim() || undefined };
-  }
-
+  if (isRetiredRemoteWorkspace(workspace)) return null;
   const localBaseUrl = (localServer.baseUrl ?? "").trim();
   if (!localBaseUrl) return null;
   const localToken = (localServer.token ?? "").trim();
@@ -137,18 +69,12 @@ export function resolveWorkspaceEndpointConnection(
 
 /** Allocate a client only after the caller has resolved the connection. */
 export function createWorkspaceEndpoint(connection: WorkspaceEndpointConnection): ResolvedWorkspaceEndpoint {
-  const { baseUrl, token, hostToken, workspaceId, localClient, ...scope } = connection;
+  const { baseUrl, token, hostToken, workspaceId, localClient } = connection;
   const client = localClient ?? createLegalworkServerClient({ baseUrl, token: token || undefined, hostToken });
   const mountedBaseUrl = (
     buildLegalworkWorkspaceBaseUrl(baseUrl, workspaceId) ?? baseUrl
   ).replace(/\/+$/, "");
-  return {
-    ...scope,
-    baseUrl, token, hostToken, workspaceId,
-    client,
-    mountedBaseUrl,
-    opencodeBaseUrl: `${mountedBaseUrl}/opencode`,
-  };
+  return { baseUrl, token, hostToken, workspaceId, isRemote: false, client, mountedBaseUrl, opencodeBaseUrl: `${mountedBaseUrl}/opencode` };
 }
 
 /** Resolve and allocate a ready-to-use workspace client and mounted URLs. */

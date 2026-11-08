@@ -1,19 +1,26 @@
-/** Build tooling only: installed applications never download an engine. */
+/**
+ * Build tooling only: installed applications never download an engine.
+ *
+ * LAWOSS (ADR 0016, MČ 8. 11. 2026): the guest engine is the same LegalWork derivative
+ * `2.1.4-legalwork.http-policy.3` the desktop uses, built from source by the reviewed recipe
+ * (`packages/opencode-release/build/recipe.json`; `pnpm engine:prepare --target linux-arm64
+ * --target linux-x64-baseline`). OpenCode publishes no 2.1.4 GitHub release for it, so nothing is
+ * downloaded here: the archive comes from the locally prepared distribution and must match the
+ * reviewed archive and binary pins before extraction and after it.
+ */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createReadStream } from 'node:fs';
 import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pipeline } from 'node:stream/promises';
-import { Transform } from 'node:stream';
 
 import reviewedPins from '../../apps/server/src/lawoss/protected-ai/engine-pins.json' with {type: 'json'};
 export const protectedEngineVersion = reviewedPins.engineVersion;
 // One reviewed pin source is shared by build tooling and the packaged loader.
 export const protectedEnginePins = Object.freeze(Object.fromEntries(Object.entries(reviewedPins.architectures).map(([arch, pin]) => [arch, Object.freeze(pin)])));
 const repository = reviewedPins.repository;
-// v1.18.29 LICENSE blob 6439474beed8e0271df9862eff97ffd70ec2464c.
+// v2.1.4 LICENSE (identical to v1.18.29 blob 6439474beed8e0271df9862eff97ffd70ec2464c), shipped as LICENSE in the derivative archive.
 const licenseText = `MIT License
 
 Copyright (c) 2025 opencode
@@ -40,6 +47,15 @@ async function sha256(path) {
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(path)) hash.update(chunk);
   return hash.digest('hex');
+}
+/** The prepared derivative distribution (generated/receipt.json), never a network location. */
+async function preparedArchive(pin) {
+  const explicit = process.env.LAWOSS_PROTECTED_ENGINE_ARCHIVES?.trim();
+  if (explicit) return join(explicit, pin.name);
+  const receiptPath = new URL('../../packages/opencode-release/generated/receipt.json', import.meta.url);
+  const receipt = JSON.parse(await readFile(receiptPath, 'utf8').catch(() => { throw new Error(`Protected engine archive is not prepared; run pnpm engine:prepare --target ${pin.target} first`); }));
+  if (typeof receipt.archiveDirectory !== 'string' || !receipt.targets?.includes(pin.target)) throw new Error(`Protected engine archive is not prepared; run pnpm engine:prepare --target ${pin.target} first`);
+  return join(receipt.archiveDirectory, pin.name);
 }
 function pinFor(architecture, version) {
   if (version !== protectedEngineVersion) throw new Error('Unreviewed engine version; review new release asset pins first');
@@ -71,17 +87,7 @@ export async function provisionProtectedEngineAssets({ architecture, destination
   const pin = pinFor(architecture, version);
   const scratch = await mkdtemp(join(tmpdir(), 'protected-engine-assets-'));
   try {
-    if (!archivePath) {
-      archivePath = join(scratch, pin.name);
-      const response = await fetch(`https://github.com/${repository}/releases/download/v${version}/${pin.name}`, { signal: AbortSignal.timeout(180000) });
-      if (!response.ok || !response.body) throw new Error(`Protected engine asset download failed: HTTP ${response.status}`);
-      let received = 0;
-      const limit = new Transform({ transform(chunk, encoding, callback) {
-        received += chunk.length;
-        callback(received > pin.size ? new Error('Protected engine archive size exceeded') : null, chunk);
-      } });
-      await pipeline(response.body, limit, createWriteStream(archivePath, { flags: 'wx' }));
-    }
+    archivePath ??= await preparedArchive(pin);
     await verifyFile(archivePath, pin.size, pin.sha256, 'archive');
     // The exact archive is pinned before extraction. Never extract unverified
     // metadata, links or traversal paths; only the fixed reviewed entry is read.
@@ -100,11 +106,11 @@ export async function provisionProtectedEngineAssets({ architecture, destination
     await writeFile(join(destination, 'protected-opencode-sbom.json'), JSON.stringify({
       bomFormat: 'CycloneDX', specVersion: '1.6', version: 1,
       metadata: { component: { type: 'application', name: 'OpenCode', version } },
-      components: [{ type: 'application', name: 'OpenCode', version, purl: `pkg:github/${repository}@v${version}`,
+      components: [{ type: 'application', name: 'OpenCode', version, purl: `pkg:github/anomalyco/opencode@v2.1.4`,
         hashes: [{ alg: 'SHA-256', content: pin.binarySha256 }],
         licenses: [{ license: { id: 'MIT', text: { contentType: 'text/plain', content: licenseText } } }],
-        properties: [{ name: 'lawoss:inventory-scope', value: 'Reviewed release binary; embedded dependency inventory is not provided by this artifact' }],
-        externalReferences: [{ type: 'distribution', url: `https://github.com/${repository}/releases/download/v${version}/${pin.name}` }] }],
+        properties: [{ name: 'lawoss:inventory-scope', value: 'LegalWork derivative built from the reviewed recipe; embedded dependency inventory is not provided by this artifact' }],
+        externalReferences: [{ type: 'vcs', url: 'https://github.com/anomalyco/opencode/tree/68bc26b7da1990ce10ffecfbc1e09eb13aa5d824' }] }],
     }, null, 2) + '\n');
     return manifest;
   } finally { await rm(scratch, { recursive: true, force: true }); }

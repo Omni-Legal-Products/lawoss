@@ -6,7 +6,7 @@
  * Krok preto vyberie predvolený model poskytovateľa podľa toho istého pravidla a uloží ho tak ako
  * Nastavenia AI (`defaultModel`, variant sa pri inom modeli vynuluje). Zmeniť ho ide v malom výbere.
  */
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListView as ProviderListResponse } from "@/app/types";
 import type { ModelRef } from "@/app/types";
 import { formatModelLabel } from "@/app/utils";
 import {

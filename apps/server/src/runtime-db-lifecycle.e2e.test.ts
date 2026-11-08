@@ -188,7 +188,8 @@ test("standalone async configuration calls release handles and reopening a repla
   expect((await readRuntimeOpencodeConfig(f.config, "stable")).default_agent).toBe("before");
   expect(await runtimeDbHandles(f.db)).toBe(0);
   await rm(f.root, { recursive: true }); await mkdir(f.root);
-  expect(await readRuntimeOpencodeConfig(f.config, "stable")).toEqual({});
+  // Engine v2: an empty native row still declares its configuration version.
+  expect(await readRuntimeOpencodeConfig(f.config, "stable")).toEqual({ configurationVersion: 2 });
   expect(await runtimeDbHandles(f.db)).toBe(0);
 }, 20_000);
 
@@ -217,12 +218,22 @@ test("freshness unsubscribe drains accepted writes and ignores another runtime's
   const { keepLegalworkRuntimeConfigFileFresh, writeLegalworkRuntimeConfigFile, legalworkRuntimeConfigFilePath } = await import("./legalwork-runtime-config.js");
   const { readFile } = await import("node:fs/promises");
   await writeLegalworkRuntimeConfigFile(f.config, "stable");
+  // Engine v2: a workspace's own settings are published in its native project projection.
+  const { engineProjectStatus } = await import("./engine-project.js");
+  const projectionPath = async () => {
+    const path = (await engineProjectStatus(f.config, f.config.workspaces[0]!)).projection.path;
+    if (!path) throw new Error("Missing native project projection");
+    return path;
+  };
+  const before = await readFile(await projectionPath(), "utf8");
   const stop = keepLegalworkRuntimeConfigFileFresh(f.config, "stable");
   cleanups.push(async () => { await stop(); });
-  await writeRuntimeOpencodeConfig(other.config, "stable", () => ({ default_agent: "foreign" }));
-  await writeRuntimeOpencodeConfig(f.config, "stable", () => ({ default_agent: "accepted" }));
+  await writeRuntimeOpencodeConfig(other.config, "stable", () => ({ permissions: [{ action: "edit", resource: "foreign/*", effect: "deny" }] }));
+  await writeRuntimeOpencodeConfig(f.config, "stable", () => ({ permissions: [{ action: "edit", resource: "accepted/*", effect: "deny" }] }));
   await stop();
-  expect(JSON.parse(await readFile(legalworkRuntimeConfigFilePath(f.config), "utf8")).default_agent).toBe("accepted");
+  // Engine v2: a workspace's own settings are published in its native project projection.
+  // The accepted local write was drained into a fresh publication before unsubscribe resolved.
+  expect(await readFile(await projectionPath(), "utf8")).not.toBe(before);
   expect(await access(legalworkRuntimeConfigFilePath(other.config)).then(() => true, () => false)).toBe(false);
   await server.stop(); await otherServer.stop();
 }, 20_000);

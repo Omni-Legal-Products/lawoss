@@ -1,16 +1,22 @@
 import { GuidanceAckSchema, type GuidanceAck } from "./ai-governance-schema.js";
-import { initializeSqlite } from "./runtime-db.js";
 import { drainRuntimeDb, runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
-import { dirname } from "node:path";
 import { sandboxSettingsSchema, sandboxSyncSchema, type SandboxSettings } from "./agent-sandbox/settings-schema.js";
+import { dirname } from "node:path";
 import type { ServerConfig } from "./types.js";
-import { ensureDir } from "./utils.js";
 import { connectorConfigVariables } from "./connector-config.js";
-import { withLawossToolDefaults } from "./lawoss/tool-permission-defaults.js";
-import { appliedOrgPolicy } from "./org-policy.js";
 import { ApiError } from "./errors.js";
+import { withLawossToolDefaultRules } from "./lawoss/tool-permission-defaults.js";
+import { appliedOrgPolicy } from "./org-policy.js";
+import { z } from "zod";
+import { openNativeConfigState } from "./native-config-state.js";
+import { decodeNativeRuntimeConfigRecord, nativeRuntimeConfigRecord, runtimeEngineConfiguration, upgradeRuntimeConfigRecord,
+  type NativeRuntimeConfiguration, type RuntimeConfigUpgradeNotice } from "./runtime-config-upgrade.js";
 
-export type RuntimeOpencodeConfig = {
+export { runtimeEngineConfiguration } from "./runtime-config-upgrade.js";
+
+export type RuntimeOpencodeConfig = { -readonly [Key in keyof NativeRuntimeConfiguration]: NativeRuntimeConfiguration[Key] } & {
+  /** Every persisted row is native V2. New native writes are stamped by the store. */
+  configurationVersion?: 2;
   /** Informational read acknowledgment; never a permission or provider profile. */
   guidanceAck?: GuidanceAck;
   aiPreference?: {version: 1; preferredMode: "local" | "unspecified"; sourceHash: string};
@@ -22,20 +28,12 @@ export type RuntimeOpencodeConfig = {
   sandboxEdit?: string;
   sandboxSync?: { account: string; revision: number; dirty: boolean };
   sandboxNetworkMode?: "allow" | "block" | "approve";
-  default_agent?: string;
-  plugin?: string[];
-  disabled_providers?: string[];
-  mcp?: Record<string, Record<string, unknown>>;
-  permission?: {
-    external_directory?: Record<string, unknown>;
-    [key: string]: unknown;
-  };
-  provider?: Record<string, unknown>;
-  agent?: Record<string, Record<string, unknown>>;
-  /** OpenCode v1 config: additional skill directories or URLs. */
-  skills?: string[];
-  /** Additional ambient instruction files supplied to the managed engine. */
-  instructions?: string[];
+  /** App-owned switches, independent of user-authored policy statements. */
+  providerActivation?: Record<string, "allow" | "deny">;
+  providerModelSelection?: Record<string, string[]>;
+  /** Immutable app-private receipts prevent legacy grants replaying after revocation. */
+  nativeSavedApprovalImportIDs?: string[];
+  projectPermissionApprovals?: Array<{ id: string; action: string; resources: string[]; createdAt: number; updatedAt?: number }>;
   personalization?: PersonalizationSettings;
 };
 
@@ -62,11 +60,9 @@ export const DEFAULT_PERSONALIZATION_SETTINGS: PersonalizationSettings = {
 export const MAX_CUSTOM_INSTRUCTIONS_LENGTH = 12_000;
 
 
-type RuntimeOpencodeDb = {
-  close: () => void;
-  get: (workspaceId: string) => { configJson: string } | undefined;
-  upsert: (value: { workspaceId: string; configJson: string; updatedAt: number }) => void;
-};
+type RuntimeOpencodeDb = Awaited<ReturnType<typeof openNativeConfigState>>;
+
+export type RuntimeConfigUpgradeBackup = { sourceVersion: number; configJson: string; noticesJson: string; createdAt: number };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -90,100 +86,87 @@ export function normalizePersonalizationSettings(value: unknown): Personalizatio
   };
 }
 
-function recordRecordMap(value: unknown): Record<string, Record<string, unknown>> | undefined {
-  if (!isRecord(value)) return undefined;
-  const entries: Record<string, Record<string, unknown>> = {};
-  for (const [key, item] of Object.entries(value)) {
-    if (isRecord(item)) entries[key] = item;
-  }
-  return Object.keys(entries).length ? entries : undefined;
-}
-
 function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
-  if (!isRecord(value)) return {};
-  const defaultAgent = typeof value.default_agent === "string" ? value.default_agent : undefined;
-  const plugin = Array.isArray(value.plugin) ? value.plugin.filter((item) => typeof item === "string") : undefined;
-  const disabledProviders = Array.isArray(value.disabled_providers)
-    ? value.disabled_providers.filter((item) => typeof item === "string")
+  const decoded = decodeNativeRuntimeConfigRecord(value);
+  const application = decoded.application;
+  const providerActivation: Record<string, "allow" | "deny"> = {};
+  if (application.providerActivation !== undefined) {
+    if (!isRecord(application.providerActivation)) throw new Error("Invalid saved provider activation controls.");
+    for (const [id, effect] of Object.entries(application.providerActivation)) {
+      if (effect !== "allow" && effect !== "deny") throw new Error("Invalid saved provider activation effect.");
+      providerActivation[id] = effect;
+    }
+  }
+  const personalization = isRecord(application.personalization)
+    ? normalizePersonalizationSettings(application.personalization)
     : undefined;
-  const mcp = isRecord(value.mcp) ? value.mcp as Record<string, Record<string, unknown>> : undefined;
-  const permission = isRecord(value.permission) && Object.keys(value.permission).length ? value.permission : undefined;
-  const provider = isRecord(value.provider) ? value.provider : undefined;
-  const agent = recordRecordMap(value.agent);
-  const skills = Array.isArray(value.skills) ? value.skills.filter((item) => typeof item === "string") : undefined;
-  const instructions = Array.isArray(value.instructions) ? value.instructions.filter((item) => typeof item === "string") : undefined;
-  const personalization = isRecord(value.personalization)
-    ? normalizePersonalizationSettings(value.personalization)
-    : undefined;
-  const guidanceAck = GuidanceAckSchema.safeParse(value.guidanceAck);
-  const preference: RuntimeOpencodeConfig["aiPreference"] = isRecord(value.aiPreference) && value.aiPreference.version === 1
-    && (value.aiPreference.preferredMode === "local" || value.aiPreference.preferredMode === "unspecified")
-    && typeof value.aiPreference.sourceHash === "string" && /^[a-f0-9]{64}$/.test(value.aiPreference.sourceHash)
-    ? {version: 1 as const, preferredMode: value.aiPreference.preferredMode, sourceHash: value.aiPreference.sourceHash} : undefined;
+  const nativeSavedApprovalImportIDs = application.nativeSavedApprovalImportIDs === undefined ? undefined
+    : z.array(z.string().min(1)).parse(application.nativeSavedApprovalImportIDs);
+  const projectPermissionApprovals = application.projectPermissionApprovals === undefined ? undefined
+    : z.array(z.object({ id: z.string(), action: z.string(), resources: z.array(z.string()), createdAt: z.number().finite(), updatedAt: z.number().finite().optional() }).strict()).parse(application.projectPermissionApprovals);
+  const guidanceAck = GuidanceAckSchema.safeParse(application.guidanceAck);
+  const preferenceSource = application.aiPreference;
+  const preference: RuntimeOpencodeConfig["aiPreference"] = isRecord(preferenceSource) && preferenceSource.version === 1
+    && (preferenceSource.preferredMode === "local" || preferenceSource.preferredMode === "unspecified")
+    && typeof preferenceSource.sourceHash === "string" && /^[a-f0-9]{64}$/.test(preferenceSource.sourceHash)
+    ? {version: 1 as const, preferredMode: preferenceSource.preferredMode, sourceHash: preferenceSource.sourceHash} : undefined;
+  const boundaries = application.aiBoundaries, yolo = application.lawossYolo;
   return {
+    ...decoded.configuration,
+    configurationVersion: 2,
+    // LAWOSS app-owned fields (lawoss/runtime-config-keys.ts).
     ...(guidanceAck.success ? {guidanceAck: guidanceAck.data} : {}),
     ...(preference ? {aiPreference: preference} : {}),
     // A damaged value stays visible as invalid (treated as enforced), never silently dropped to the default.
-    ...(value.aiBoundaries === undefined ? {} : isRecord(value.aiBoundaries) && typeof value.aiBoundaries.enforced === "boolean" && Object.keys(value.aiBoundaries).length === 1
-      ? {aiBoundaries: {enforced: value.aiBoundaries.enforced}} : {aiBoundaries: {invalid: true as const}}),
-    ...(isRecord(value.lawossYolo) && value.lawossYolo.enabled === true ? {lawossYolo: {enabled: true as const}} : {}),
-    ...(typeof value.sandboxEdit === "string" ? { sandboxEdit: value.sandboxEdit } : {}),
-    ...(value.sandbox !== undefined ? { sandbox: sandboxSettingsSchema.parse(value.sandbox) } : {}),
-    ...(value.sandboxSync !== undefined ? { sandboxSync: sandboxSyncSchema.parse(value.sandboxSync) } : {}),
-    ...(value.sandboxNetworkMode !== undefined ? { sandboxNetworkMode:
-      value.sandboxNetworkMode === "allow" || value.sandboxNetworkMode === "approve" ? value.sandboxNetworkMode : "block" } : {}),
-    ...(defaultAgent ? { default_agent: defaultAgent } : {}),
-    ...(plugin ? { plugin } : {}),
-    ...(disabledProviders ? { disabled_providers: disabledProviders } : {}),
-    ...(mcp ? { mcp } : {}),
-    ...(permission ? { permission } : {}),
-    ...(provider ? { provider } : {}),
-    ...(agent ? { agent } : {}),
-    ...(skills ? { skills } : {}),
-    ...(instructions ? { instructions } : {}),
+    ...(boundaries === undefined ? {} : isRecord(boundaries) && typeof boundaries.enforced === "boolean" && Object.keys(boundaries).length === 1
+      ? {aiBoundaries: {enforced: boundaries.enforced}} : {aiBoundaries: {invalid: true as const}}),
+    ...(isRecord(yolo) && yolo.enabled === true ? {lawossYolo: {enabled: true as const}} : {}),
+    ...(typeof application.sandboxEdit === "string" ? { sandboxEdit: application.sandboxEdit } : {}),
+    ...(application.sandbox !== undefined ? { sandbox: sandboxSettingsSchema.parse(application.sandbox) } : {}),
+    ...(application.sandboxSync !== undefined ? { sandboxSync: sandboxSyncSchema.parse(application.sandboxSync) } : {}),
+    ...(application.sandboxNetworkMode !== undefined ? { sandboxNetworkMode:
+      application.sandboxNetworkMode === "allow" || application.sandboxNetworkMode === "approve" ? application.sandboxNetworkMode : "block" } : {}),
+    ...(Object.keys(providerActivation).length ? { providerActivation } : {}),
+    ...(application.providerModelSelection === undefined ? {} : { providerModelSelection: z.record(z.string(), z.array(z.string())).parse(application.providerModelSelection) }),
     ...(personalization ? { personalization } : {}),
+    ...(projectPermissionApprovals ? { projectPermissionApprovals } : {}),
+    ...(nativeSavedApprovalImportIDs ? { nativeSavedApprovalImportIDs } : {}),
   };
 }
 
+// LAWOSS: one path owner pins the runtime DB identity for a server's lifetime (runtime-db-lifecycle.ts).
 /** Directory holding runtime state (the SQLite DB and derived files). */
-export function runtimeStorageDir(config: ServerConfig): string {
+export function runtimeStorageDir(config: Pick<ServerConfig, "configPath">): string {
   return dirname(runtimeDbPath(config));
 }
 
-export type RuntimeOpencodeConfigWriteListener = (config: ServerConfig, workspaceId: string) => void;
+export type RuntimeOpencodeConfigWriteListener = (config: ServerConfig, workspaceId: string, change?: { permissionsChanged: boolean }) => void;
 
 const writeListeners = new Set<RuntimeOpencodeConfigWriteListener>();
 
 /**
  * Observe runtime config writes. Used to keep derived state (e.g. the
  * engine-visible runtime config file) in sync with the DB. Returns an
- * unsubscribe function. Listeners must not throw.
+ * unsubscribe function. Every registered listener runs synchronously even if
+ * another throws, so revocation guards cannot miss an already committed edit.
+ * The write rejects with the first listener failure after notifying the rest.
  */
 export function onRuntimeOpencodeConfigWrite(listener: RuntimeOpencodeConfigWriteListener): () => void {
   writeListeners.add(listener);
   return () => writeListeners.delete(listener);
 }
 
-async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
-  await ensureDir(dirname(path));
-  return initializeSqlite(path, (sqlite) => {
-  sqlite.exec("CREATE TABLE IF NOT EXISTS runtime_opencode_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
-  const get = sqlite.prepare("SELECT config_json AS configJson FROM runtime_opencode_configs WHERE workspace_id = ?");
-  const upsert = sqlite.prepare("INSERT INTO runtime_opencode_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at");
-  return {
-    close: () => sqlite.close(),
-    get: (workspaceId) => {
-      const row = get.get(workspaceId);
-      if (!isRecord(row) || typeof row.configJson !== "string") return undefined;
-      return { configJson: row.configJson };
-    },
-    upsert: ({ workspaceId, configJson, updatedAt }) => {
-      upsert.run(workspaceId, configJson, updatedAt);
-    },
-  };
-  });
+function notifyRuntimeConfigWrite(config: ServerConfig, workspaceId: string, permissionsChanged: boolean) {
+  const errors: unknown[] = [];
+  for (const listener of [...writeListeners]) {
+    try { listener(config, workspaceId, { permissionsChanged }); }
+    catch (error) { errors.push(error); }
+  }
+  if (errors.length) throw errors[0];
 }
 
+// LAWOSS: the shared runtime-DB owner closes this handle only after the last listener stops
+// and releases it at once on Windows (runtime-db-lifecycle.ts).
 const resourceKey = Symbol("runtime-opencode-config-store");
 
 /** Release a stopped server's config connection before removing its storage. */
@@ -191,17 +174,32 @@ export async function closeRuntimeOpencodeConfig(config: ServerConfig, path = ru
   await drainRuntimeDb(config, path);
 }
 
-async function runtimeDb(config: ServerConfig): Promise<RuntimeOpencodeDb> {
-  return runtimeDbResource(config, resourceKey, openRuntimeDb);
+async function runtimeDb(config: ServerConfig, importLegacy = false): Promise<RuntimeOpencodeDb> {
+  // The first opener decides the legacy import; it is the startup bootstrap below.
+  return runtimeDbResource(config, resourceKey, path => openNativeConfigState(path, importLegacy ? (workspaceId, source) => {
+    const imported = upgradeRuntimeConfigRecord(JSON.parse(source), { scope: [GLOBAL_TOOL_PERMISSIONS_ID, GLOBAL_MCP_ID, GLOBAL_PERSONALIZATION_ID, GLOBAL_PROVIDERS_ID].includes(workspaceId) ? "host" : "workspace" });
+    return { configJson: JSON.stringify(normalizeRuntimeOpencodeConfig(nativeRuntimeConfigRecord(imported))), sourceVersion: imported.sourceVersion, noticesJson: JSON.stringify(imported.notices) };
+  } : undefined));
 }
 
-/**
- * Tool permissions are GLOBAL — one safety posture for every workspace this
- * server hosts. They live under a reserved runtime-DB row instead of per
- * workspace; only `permission.external_directory` (Authorized Folders) stays
- * workspace-scoped. The id can never collide with real workspaces (those are
- * `ws_<hash>`).
- */
+/** Explicit startup-only boundary. Completed stores never consult retired
+ * sources; normal reads and writes reject an unimported legacy profile. */
+export async function bootstrapRuntimeOpencodeConfig(config: ServerConfig): Promise<void> {
+  await withRuntimeDb(config, async () => { await runtimeDb(config, true); });
+}
+
+/** Startup evidence for app-owned stores whose data lives outside runtime.sqlite.
+ * A completed component must never interpret its missing files as first use. */
+export async function beginNativeConfigComponent(config: ServerConfig, id: string): Promise<"new" | "pending" | "complete"> {
+  return withRuntimeDb(config, async () => (await runtimeDb(config)).beginComponent(id));
+}
+export async function completeNativeConfigComponent(config: ServerConfig, id: string): Promise<void> {
+  await withRuntimeDb(config, async () => { (await runtimeDb(config)).completeComponent(id); });
+}
+
+/** The Tool Permissions settings screen supplies host defaults in this reserved
+ * row. Explicit project rules and remembered chat approvals stay project scoped.
+ * This id cannot collide with a real workspace (those are `ws_<hash>`). */
 export const GLOBAL_TOOL_PERMISSIONS_ID = "__global_tool_permissions__";
 
 /** Host-wide personalisation shared by every workspace served on this device. */
@@ -224,14 +222,13 @@ export async function readGlobalMcpMap(config: ServerConfig): Promise<Record<str
 
 /**
  * LAWOSS: vlastní poskytovatelia (Ollama, LM Studio, OpenAI-compatible) pre každý priečinok,
- * ako konektory v GLOBAL_MCP_ID. Prihlásenia (auth.json) sú v engine globálne už dnes;
+ * ako konektory v GLOBAL_MCP_ID. Prihlásenia sú v engine globálne;
  * bez tohto riadku by sa vlastný poskytovateľ stratil pri prechode na iný priečinok.
  */
 export const GLOBAL_PROVIDERS_ID = "__global_providers__";
 
-export async function readGlobalProviderMap(config: ServerConfig): Promise<Record<string, unknown>> {
-  const provider = (await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID)).provider;
-  return isRecord(provider) ? { ...provider } : {};
+export async function readGlobalProviderMap(config: ServerConfig): Promise<NonNullable<NativeRuntimeConfiguration["providers"]>> {
+  return { ...(await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID)).providers };
 }
 
 export async function readGlobalPersonalizationSettings(
@@ -241,76 +238,100 @@ export async function readGlobalPersonalizationSettings(
   return normalizePersonalizationSettings(globalConfig.personalization);
 }
 
-/** Read the global tool-permission map (never contains external_directory). */
-export async function readGlobalToolPermissions(config: ServerConfig): Promise<Record<string, unknown>> {
+/** Read native global tool rules (never includes a project folder grant). */
+export async function readGlobalToolPermissions(config: ServerConfig): Promise<NonNullable<NativeRuntimeConfiguration["permissions"]>> {
   const globalConfig = await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID);
-  const permission = isRecord(globalConfig.permission) ? { ...globalConfig.permission } : {};
-  delete permission.external_directory;
-  // LAWOSS: nenastavené edit/bash sa pýtajú, ak o nich nerozhoduje firma (lawoss/tool-permission-defaults.ts).
-  return withLawossToolDefaults(permission, Object.keys((await appliedOrgPolicy(config, "tools.permissions"))?.value ?? {}));
+  const own = (globalConfig.permissions ?? []).filter(rule => rule.action !== "external_directory");
+  // LAWOSS: nenastavené edit/shell sa pýtajú, ak o nich nerozhoduje firma (lawoss/tool-permission-defaults.ts).
+  return withLawossToolDefaultRules(own, Object.keys((await appliedOrgPolicy(config, "tools.permissions"))?.value ?? {}));
 }
 
 /**
- * Effective permission map for a workspace: the global tool permissions plus
- * the workspace's own external_directory. Tool keys in the workspace row are
- * ignored (legacy rows from when permissions were workspace-scoped).
+ * Native rule order is retained. A project's own rules follow the host defaults;
+ * firm enforcement remains native policy with its separate authority.
  */
 export function applyGlobalToolPermissions(
   runtimeConfig: RuntimeOpencodeConfig,
-  globalPermission: Record<string, unknown>,
+  globalPermission: NonNullable<NativeRuntimeConfiguration["permissions"]>,
 ): RuntimeOpencodeConfig {
-  const workspacePermission = isRecord(runtimeConfig.permission) ? runtimeConfig.permission : {};
-  const permission: Record<string, unknown> = { ...globalPermission };
-  if (isRecord(workspacePermission.external_directory)) {
-    permission.external_directory = workspacePermission.external_directory;
-  }
-  const next = { ...runtimeConfig };
-  delete next.permission;
-  return Object.keys(permission).length
-    ? { ...next, permission: permission as RuntimeOpencodeConfig["permission"] }
-    : next;
+  return { ...runtimeConfig, permissions: [...globalPermission, ...runtimeConfig.permissions ?? []] };
 }
 
-export function runtimePluginList(config: RuntimeOpencodeConfig): string[] {
-  return Array.isArray(config.plugin) ? config.plugin.filter((item) => typeof item === "string") : [];
+export function runtimePluginList(config: RuntimeOpencodeConfig): NonNullable<NativeRuntimeConfiguration["plugins"]> {
+  return config.plugins ?? [];
 }
 
 export function runtimeDisabledProviderList(config: RuntimeOpencodeConfig): string[] {
-  return Array.isArray(config.disabled_providers)
-    ? config.disabled_providers.filter((item) => typeof item === "string")
-    : [];
+  const effects = new Map<string, string>();
+  for (const rule of config.policies ?? []) if (rule.action === "provider.use" && !/[?*]/.test(rule.resource)) effects.set(rule.resource, rule.effect);
+  return [...effects].flatMap(([id, effect]) => effect === "deny" ? [id] : []);
 }
 
 export function runtimeMcpMap(config: RuntimeOpencodeConfig): Record<string, Record<string, unknown>> {
-  return Object.fromEntries(Object.entries(recordRecordMap(config.mcp) ?? {}).map(([name, entry]): [string, Record<string, unknown>] => [name,
-    connectorConfigVariables(entry).length || entry.url === "https://configure-before-connecting.invalid/mcp" ? { ...entry, enabled: false } : entry,
+  return Object.fromEntries(Object.entries(config.mcp?.servers ?? {}).map(([name, entry]): [string, Record<string, unknown>] => [name,
+    connectorConfigVariables(entry).length || "url" in entry && entry.url === "https://configure-before-connecting.invalid/mcp" ? { ...entry, disabled: true } : { ...entry },
   ]));
 }
 
-export function runtimeAgentMap(config: RuntimeOpencodeConfig): Record<string, Record<string, unknown>> {
-  return recordRecordMap(config.agent) ?? {};
+export function runtimeAgentMap(config: RuntimeOpencodeConfig): NonNullable<NativeRuntimeConfiguration["agents"]> {
+  return config.agents ?? {};
 }
 
-export function runtimeExternalDirectory(config: RuntimeOpencodeConfig): Record<string, unknown> {
-  const permission = isRecord(config.permission) ? config.permission : null;
-  const externalDirectory = permission && isRecord(permission.external_directory) ? permission.external_directory : null;
-  return externalDirectory ?? {};
+export function runtimeExternalDirectory(config: RuntimeOpencodeConfig): NonNullable<NativeRuntimeConfiguration["permissions"]> {
+  return (config.permissions ?? []).filter(rule => rule.action === "external_directory");
+}
+
+function savedConfigError(options: { settingsScope?: "application" | "session" } = {}, cause?: unknown) {
+  const reason = cause instanceof ApiError && isRecord(cause.details) && typeof cause.details.reason === "string" ? cause.details.reason : undefined;
+  return new ApiError(409, "execution_settings_invalid", "Saved native settings could not be loaded safely. LegalWork has stopped this operation to avoid resetting your permissions. Restore or repair the original app profile before retrying.", { settingsScope: options.settingsScope ?? "application", ...(reason ? { reason } : {}) });
+}
+
+function permissionFingerprint(config: RuntimeOpencodeConfig) {
+  return JSON.stringify({ permissions: config.permissions,
+    agents: Object.fromEntries(Object.entries(config.agents ?? {}).map(([id, agent]) => [id, agent.permissions])),
+    approvals: [...new Set((config.projectPermissionApprovals ?? []).map(approval => JSON.stringify([approval.action, [...approval.resources].sort()])))].sort(),
+  });
+}
+
+function readStoredConfig(db: RuntimeOpencodeDb, workspaceId: string): RuntimeOpencodeConfig {
+  const row = db.get(workspaceId);
+  if (!row) return normalizeRuntimeOpencodeConfig({});
+  const parsed: unknown = JSON.parse(row.configJson);
+  if (!isRecord(parsed) || parsed.configurationVersion !== 2) throw new Error("Current settings must declare native configuration version 2.");
+  return normalizeRuntimeOpencodeConfig(parsed);
+}
+
+/** Originals never leave this private store; no client route exposes them. */
+export async function readRuntimeConfigUpgradeBackups(config: ServerConfig, workspaceId: string) {
+  return withRuntimeDb(config, async () => (await runtimeDb(config)).backups(workspaceId));
+}
+
+export async function runtimeConfigUpgradeNotices(config: ServerConfig, workspaceId: string): Promise<RuntimeConfigUpgradeNotice[]> {
+  const backups = await withRuntimeDb(config, async () => (await runtimeDb(config)).backups(workspaceId));
+  return backups.flatMap(backup => {
+    const value: unknown = JSON.parse(backup.noticesJson);
+    if (!Array.isArray(value)) throw new Error("Invalid saved configuration upgrade notices.");
+    return value.flatMap((item: unknown): RuntimeConfigUpgradeNotice[] => {
+      if (!isRecord(item) || !Array.isArray(item.fields) || !item.fields.every(field => typeof field === "string")) throw new Error("Invalid saved configuration upgrade notice.");
+      if (item.code === "legacy_agent_generation_requires_native_support" && typeof item.agentId === "string") return [{ code: item.code, agentId: item.agentId, fields: item.fields }];
+      if (item.code === "legacy_workspace_tool_permissions_inactive") return [{ code: item.code, fields: item.fields }];
+      if (item.code === "retired_managed_browser_replaced") return [{ code: item.code, fields: item.fields }];
+      if (item.code === "sandbox_settings_repaired") return [{ code: item.code, fields: item.fields }];
+      throw new Error("Invalid saved configuration upgrade notice.");
+    });
+  });
 }
 
 export async function readRuntimeOpencodeConfig(config: ServerConfig, workspaceId: string, options: { failOnInvalid?: boolean; settingsScope?: "application" | "session" } = {}): Promise<RuntimeOpencodeConfig> {
   return withRuntimeDb(config, async () => {
   const db = await runtimeDb(config);
-  const row = db.get(workspaceId);
-  if (!row) return {};
   try {
-    const parsed: unknown = JSON.parse(row.configJson);
-    if (options.failOnInvalid && !isRecord(parsed)) throw new Error("Invalid saved configuration");
-    return normalizeRuntimeOpencodeConfig(parsed);
-  } catch {
-    if (options.failOnInvalid) throw new ApiError(409, "execution_settings_invalid", "Saved execution settings could not be read. Commands and web access are blocked. Restore the settings or save protected execution settings again.", { settingsScope: options.settingsScope ?? "application" });
-    return {};
+    return readStoredConfig(db, workspaceId);
+  } catch (error) {
+    // A failed migration can contain restrictions. Never replace it with an
+    // empty configuration, even when a display caller omitted failOnInvalid.
+    throw savedConfigError(options, error);
   }
-
   });
 }
 
@@ -326,18 +347,60 @@ export async function writeRuntimeOpencodeConfig(
 ): Promise<RuntimeOpencodeConfig> {
   return withRuntimeDb(config, async () => {
   const db = await runtimeDb(config);
-  const current = await readRuntimeOpencodeConfig(config, workspaceId);
+  // Every app client shares this server. Keep the synchronous SQLite read,
+  // updater and replacement together: awaiting a second read here let parallel
+  // connector/provider edits overwrite one another with the same old row.
+  let current: RuntimeOpencodeConfig;
+  try { current = readStoredConfig(db, workspaceId); }
+  catch (error) { throw savedConfigError({}, error); }
   // Snapshot before the updater, which may mutate current in place. Keep key
   // order: ordered permission rules can change meaning when reordered.
   const previous = JSON.stringify(current);
-  const next = normalizeRuntimeOpencodeConfig(updater(current));
+  const previousPermissions = permissionFingerprint(current);
+  // Preserve import history even when a settings editor replaces all ordinary
+  // project settings. Revoking a grant must not revive its old engine record.
+  const importIDs = [...current.nativeSavedApprovalImportIDs ?? []];
+  const updated = updater(current);
+  const next = normalizeRuntimeOpencodeConfig({ ...updated,
+    ...(importIDs.length || updated.nativeSavedApprovalImportIDs?.length ? { nativeSavedApprovalImportIDs: [...new Set([...importIDs, ...updated.nativeSavedApprovalImportIDs ?? []])] } : {}),
+  });
   const configJson = JSON.stringify(next);
-  if (configJson === previous) return next;
+  if (configJson === previous && db.has(workspaceId)) return next;
   const now = Date.now();
   db.upsert({ workspaceId, configJson, updatedAt: now });
-  for (const listener of writeListeners) listener(config, workspaceId);
+  const permissionsChanged = previousPermissions !== permissionFingerprint(next);
+  notifyRuntimeConfigWrite(config, workspaceId, permissionsChanged);
   return next;
+  });
+}
 
+type SandboxRuntimeMetadata = Pick<RuntimeOpencodeConfig, "sandbox" | "sandboxEdit" | "sandboxSync">;
+
+/** An explicit, complete sandbox-settings update can repair its reserved row.
+ * The invalid original is backed up in the same transaction as replacement.
+ * This API cannot select an ordinary project or carry engine permission keys. */
+export async function writeSandboxRuntimeConfig(config: ServerConfig,
+  target: { kind: "default" } | { kind: "session"; workspaceId: string; sessionId: string },
+  updater: (current: SandboxRuntimeMetadata) => SandboxRuntimeMetadata,
+): Promise<void> {
+  const workspaceId = target.kind === "default" ? "__sandbox_default__" : `__sandbox_session__${JSON.stringify([target.workspaceId, target.sessionId])}`;
+  return withRuntimeDb(config, async () => {
+  const db = await runtimeDb(config);
+  const source = db.source(workspaceId);
+  const update = (current: RuntimeOpencodeConfig) => {
+    const next = updater({ sandbox: current.sandbox, sandboxEdit: current.sandboxEdit, sandboxSync: current.sandboxSync });
+    if (Object.keys(next).some(key => !["sandbox", "sandboxEdit", "sandboxSync"].includes(key))) throw new Error("A sandbox-settings update cannot replace engine configuration.");
+    return normalizeRuntimeOpencodeConfig({ ...current, ...next });
+  };
+  try { readStoredConfig(db, workspaceId); }
+  catch {
+    if (!source) throw savedConfigError();
+    const next = update(normalizeRuntimeOpencodeConfig({}));
+    db.upgrade({ workspaceId, sourceJson: source.configJson, sourceVersion: -1, configJson: JSON.stringify(next), noticesJson: JSON.stringify([{ code: "sandbox_settings_repaired", fields: ["sandbox"] }]), updatedAt: Date.now() });
+    notifyRuntimeConfigWrite(config, workspaceId, true);
+    return;
+  }
+  await writeRuntimeOpencodeConfig(config, workspaceId, update);
   });
 }
 
@@ -365,34 +428,21 @@ export function mergeOpencodeConfigs(
   persisted: Record<string, unknown>,
   runtime: RuntimeOpencodeConfig,
 ): Record<string, unknown> {
-  const persistedPermission = isRecord(persisted.permission) ? persisted.permission : {};
-  const persistedExternalDirectory = isRecord(persistedPermission.external_directory)
-    ? persistedPermission.external_directory
-    : {};
+  const native = runtimeEngineConfiguration(persisted);
   return {
-    ...persisted,
-    plugin: [
-      ...(Array.isArray(persisted.plugin) ? persisted.plugin.filter((item) => typeof item === "string") : []),
+    ...native,
+    plugins: [
+      ...native.plugins ?? [],
       ...runtimePluginList(runtime),
     ],
-    disabled_providers: [
-      ...(Array.isArray(persisted.disabled_providers) ? persisted.disabled_providers.filter((item) => typeof item === "string") : []),
-      ...runtimeDisabledProviderList(runtime),
-    ].filter((item, index, list) => list.indexOf(item) === index),
+    policies: [...native.policies ?? [], ...runtime.policies ?? []],
     mcp: {
-      ...(isRecord(persisted.mcp) ? persisted.mcp : {}),
-      ...runtimeMcpMap(runtime),
+      ...native.mcp, ...runtime.mcp,
+      servers: { ...native.mcp?.servers, ...runtime.mcp?.servers },
     },
-    permission: {
-      ...persistedPermission,
-      ...(isRecord(runtime.permission) ? runtime.permission : {}),
-      external_directory: {
-        ...persistedExternalDirectory,
-        ...runtimeExternalDirectory(runtime),
-      },
-    },
-    ...(runtime.provider ? { provider: { ...(isRecord(persisted.provider) ? persisted.provider : {}), ...runtime.provider } } : {}),
-    ...(runtime.agent ? { agent: { ...(isRecord(persisted.agent) ? persisted.agent : {}), ...runtime.agent } } : {}),
+    permissions: [...native.permissions ?? [], ...runtime.permissions ?? []],
+    ...(runtime.providers ? { providers: { ...native.providers, ...runtime.providers } } : {}),
+    ...(runtime.agents ? { agents: { ...native.agents, ...runtime.agents } } : {}),
     ...(runtime.default_agent ? { default_agent: runtime.default_agent } : {}),
   };
 }

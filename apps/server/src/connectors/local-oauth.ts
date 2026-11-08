@@ -14,7 +14,7 @@ import { requireConnectorConnectSlot } from "./single-connection.js";
 const stateSchema = z.object({
   client: connectorOAuthClientInputSchema,
   revision: z.string(),
-  connections: z.array(connectorConnectionSchema.extend({ readOnly: z.boolean(), authorizedWrites: z.array(z.string()).optional(), authorizedSends: z.boolean().optional(), grantKey: z.string().optional() })),
+  connections: z.array(connectorConnectionSchema.extend({ readOnly: z.boolean(), authorizedWrites: z.array(z.string()).optional(), authorizedSends: z.boolean().optional(), authorizedOrganization: z.boolean().optional(), grantKey: z.string().optional() })),
 });
 type LocalState = z.infer<typeof stateSchema>;
 type LocalFlow = { id: string; connectionId: string; key: string; revision: string; expiresAt: number; reconnect: boolean; activated: boolean; readOnly: boolean; authorizedWrites: string[] };
@@ -142,6 +142,14 @@ export async function requireLocalOAuthSendAccess(config: ServerConfig, id: stri
   }
 }
 
+export async function requireLocalOAuthOrganizeAccess(config: ServerConfig, id: string, connectionId: string) {
+  const saved = await state(config, id);
+  const connection = saved?.connections.find((item) => item.id === connectionId);
+  if (id === "gmail" && (!connection || connection.authorizedOrganization !== true)) {
+    throw new ApiError(409, "connector_write_reconnect_required", "Reconnect Gmail with write access enabled to grant mailbox organization permissions. Reading remains available.");
+  }
+}
+
 export function createLocalOAuthFlows(config: ServerConfig) {
   const flows = activeFlows.get(config) ?? new Map<string, LocalFlow>();
   activeFlows.set(config, flows);
@@ -191,7 +199,7 @@ export function createLocalOAuthFlows(config: ServerConfig) {
         }
         const previous = current.connections.find((item) => item.id === flow.connectionId);
         requireConnectorConnectSlot(current.connections, flow.reconnect || flow.activated ? flow.connectionId : undefined, "custom");
-        const connection = { id: flow.connectionId, createdAt: current.connections.find((item) => item.id === flow.connectionId)?.createdAt ?? new Date().toISOString(), needsReconnect: false, source: "custom", readOnly: flow.readOnly, authorizedWrites: flow.authorizedWrites, authorizedSends: flow.authorizedWrites.includes("outlook"), grantKey: flow.key };
+        const connection = { id: flow.connectionId, createdAt: current.connections.find((item) => item.id === flow.connectionId)?.createdAt ?? new Date().toISOString(), needsReconnect: false, source: "custom", readOnly: flow.readOnly, authorizedWrites: flow.authorizedWrites, authorizedSends: flow.authorizedWrites.includes("outlook"), authorizedOrganization: flow.authorizedWrites.includes(connectionProvider(flow.id)), grantKey: flow.key };
         if (!await vault.setEntry(stateKey(flow.id), stateSchema, { ...current, connections: [...current.connections.filter((item) => item.id !== flow.connectionId), connection] }, () => flows.get(flowId) === flow)) {
           throw new ApiError(409, "connector_state_changed", "Your connected accounts changed. Start again.");
         }

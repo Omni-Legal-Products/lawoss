@@ -27,7 +27,7 @@ test('alpha-macos-aarch64 mirrors the Windows signing gate for unsigned internal
     assert.match(gate, /echo "draft=false" >> "\$GITHUB_OUTPUT"\n\s+fi\n\s+exit 0\n/, 'the signed branch ends the gate');
     assert.match(gate, /NOTARIZE: \$\{\{ \(vars\.MACOS_NOTARIZE \|\| 'true'\) == 'true' \}\}/);
     assert.match(text, /sandbox-runtime:\n\s+needs: signing/);
-    assert.match(text, /publish-alpha-macos-aarch64:\n\s+needs: \[signing, sandbox-runtime\]/);
+    assert.match(text, /publish-alpha-macos-aarch64:\n\s+needs: \[signing, sandbox-runtime, opencode-engine\]/);
     for (const name of ['MACOS_NOTARIZE', 'SIGNED'])
         assert.match(text, new RegExp(`\\n      ${name}: \\$\\{\\{ needs\\.signing\\.outputs\\.signed \\}\\}\\n`), name);
     assert.match(text, /\n      DRAFT: \$\{\{ needs\.signing\.outputs\.draft \}\}\n/);

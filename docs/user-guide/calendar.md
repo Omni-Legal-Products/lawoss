@@ -6,7 +6,7 @@ Use Calendar to see when work is due and keep deadline records with their suppor
 
 ## Find and read the calendar
 
-Open **Calendar** in the main navigation for the combined view, or a project's **Calendar** for that project's entries. The combined view includes accessible local/shared projects, connected remote workers and dated Inbox tasks. It does not automatically import every appointment from your Google or Outlook account.
+Open **Calendar** in the main navigation for the combined view, or a project's **Calendar** for that project's entries. The combined view includes accessible local/shared projects and dated Inbox tasks. It does not automatically import every appointment from your Google or Outlook account.
 
 Choose **Week**, **Month** or **Agenda**. Week is the initial view. Move between dates or return to today, and use the filters to narrow the displayed work. Opening a task opens its normal task detail without turning it into a separate deadline. A task without a date will not appear as a dated entry. Project Home also shows upcoming active deadlines and a **View all** action.
 

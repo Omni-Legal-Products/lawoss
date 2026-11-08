@@ -42,7 +42,7 @@ export function meetingCandidate(processes) {
 }
 
 export class MeetingMonitor {
-  /** @param {{app: Pick<import('electron').App, 'getPath'>, onChange: (status: import('@legalwork/types/audio').AudioMeetingStatus) => void, onStart: (title?: string) => void, probe?: () => Promise<{supported: boolean, processes: object[]}>, platform?: string, now?: () => number}} options */
+  /** @param {{app: Pick<import('electron').App, 'getPath'>, onChange: (status: import('@legalwork/types/audio').AudioMeetingStatus) => void, onStart: (title?: string) => void, probe?: () => Promise<{supported: boolean, processes: object[]}>, platform?: string, now?: () => number, detectionDefault?: boolean}} options */
   constructor({ app, onChange, onStart, probe, platform = process.platform, now = Date.now, detectionDefault = true }) {
     // LAWOSS: main.mjs passes detectionDefault false; detection starts only after the user turns it on.
     this.detectionDefault = detectionDefault;

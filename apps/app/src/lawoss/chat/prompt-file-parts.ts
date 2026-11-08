@@ -1,4 +1,4 @@
-import type { FilePartInput } from "@opencode-ai/sdk/v2/client";
+import type { FilePartInput } from "@/app/lib/opencode-view";
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
 import { comparable, isWithinClientFolder } from "../shell/session-directory";
 

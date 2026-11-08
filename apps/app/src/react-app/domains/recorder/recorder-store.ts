@@ -1,3 +1,6 @@
+import { readMessages } from "@/app/lib/opencode-read";
+import { sendSessionPrompt } from "@/app/lib/system-reminder";
+import { createSessionView } from "@/app/lib/opencode-read";
 /**
  * Recorder runtime store (module-level, mirrors the Voice Mode pattern):
  * bootstraps the local model manager, drives capture + live transcription,
@@ -78,6 +81,7 @@ import { currentLocale, t } from "@/i18n";
 import { MODEL_TIERS, isPremiumEntitled, isPremiumEntitlementKnown, tierForModelId } from "./model-tiers";
 
 import { decodeAudioFileToPcm16k, startCapture, type CaptureHandle, type CaptureLevels } from "./capture";
+import { controlRecorder, type RecorderCommand } from "./assistant-recorder-control";
 import { refreshDictationMicrophones } from "./dictation-microphone";
 import { formatDictationShortcut } from "./dictation-shortcut";
 
@@ -161,6 +165,7 @@ export type RecorderState = {
   liveTranscriptNotifiedSessions: string[];
   liveTranscriptDismissedPaths: string[];
   error: string | null;
+  transcriptionReconnecting: boolean;
   systemDictation: AudioSystemDictationStatus | null;
   meeting: AudioMeetingStatus | null;
   /** Live OS permission readiness for "Dictate anywhere" (setup wizard). */
@@ -432,7 +437,7 @@ function transcriptText(segments: AudioTranscriptSegment[], limit = 12_000): str
 async function ensureCopilotSession(client: Client, directory: string | null): Promise<string> {
   if (copilotSessionId) return copilotSessionId;
   const session = unwrap(
-    await client.session.create({ directory: directory ?? undefined, title: "Recorder call copilot" }),
+    await createSessionView(client,{ directory: directory ?? undefined, title: "Recorder call copilot" }),
   );
   copilotSessionId = session.id;
   return session.id;
@@ -460,16 +465,12 @@ async function runCopilotPrompt(question: string, transcript: string, language: 
   const prompt = transcript.trim().length
     ? `Live transcript so far:\n"""\n${transcript}\n"""\n\nRequest: ${question}`
     : `There is no transcript yet.\n\nRequest: ${question}`;
-  const promptCall = client.session.prompt({
-    sessionID,
-    system,
-    parts: [{ type: "text", text: prompt }],
-  });
+  const promptCall = sendSessionPrompt(client,{sessionID,system,parts:[{type:"text",text:prompt}]},{waitForCompletion:true}).then(()=>readMessages(client,sessionID));
   const timeout = new Promise<never>((_, reject) => {
     setTimeout(() => reject(new Error(t("recorder.copilot_timeout"))), 75_000);
   });
   const result = unwrap(await Promise.race([promptCall, timeout]));
-  const answer = (result.parts ?? [])
+  const answer = (result.findLast(message=>message.info.role==="assistant")?.parts ?? [])
     .flatMap((part) => (part.type === "text" && typeof part.text === "string" ? [part.text] : []))
     .join("\n")
     .trim();
@@ -539,6 +540,11 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
   const handleEvent = (event: AudioRecorderEvent) => {
     const state = get();
     switch (event.type) {
+      case "recordings-changed": {
+        void get().refreshRecordings();
+        if (state.openedRecording) void get().openRecording(state.openedRecording.meta.id);
+        break;
+      }
       case "model-download-progress": {
         // Patch the one model in place — a full bootstrap round-trip per
         // progress tick would hammer IPC + fs during large downloads.
@@ -608,6 +614,12 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       }
       case "recording-warning": {
         if (state.recording?.id === event.recordingId) set({ error: event.error });
+        break;
+      }
+      case "recording-transcription-status": {
+        if (state.recording?.id === event.recordingId || state.starting) {
+          set({ transcriptionReconnecting: event.reconnecting });
+        }
         break;
       }
       case "recording-updated": {
@@ -813,6 +825,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     liveTranscriptNotifiedSessions: [],
     liveTranscriptDismissedPaths: [],
     error: null,
+    transcriptionReconnecting: false,
     systemDictation: null,
     meeting: null,
     dictationReadiness: null,
@@ -1318,7 +1331,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           return;
         }
 
-        set({ error: null, permissionsNeeded: [], segments: [], partials: [], copilotEntries: [], diarizing: false });
+        set({ error: null, transcriptionReconnecting: false, permissionsNeeded: [], segments: [], partials: [], copilotEntries: [], diarizing: false });
         let startedMetaId: string | null = null;
         // Speaker identification is always on for retained recordings once the
         // models are present; never a one-shot dictation.
@@ -1789,7 +1802,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         const body = t("recorder.live_share_notice").replace("{file}", fileName);
         try {
           unwrap(
-            await client.session.promptAsync({
+            await sendSessionPrompt(client,{
               sessionID: sessionId,
               directory: directory || copilotContext?.getDirectory() || undefined,
               noReply: true,
@@ -1835,6 +1848,13 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
 });
 
 // Expose the reveal helper here so the pane stays free of dunder commands.
+declare global {
+  interface Window { __legalworkRecorder?: (input: RecorderCommand) => Promise<unknown>; }
+}
+if (typeof window !== "undefined") {
+  window.__legalworkRecorder = input => controlRecorder(useRecorderStore.getState, input);
+}
+
 export async function revealRecording(meta: AudioRecordingMeta) {
   await desktopBridge.__revealItemInDir(meta.folderPath);
 }

@@ -7,7 +7,7 @@ import type { WikiContribution } from "@legalwork/types/wiki-suggestions";
 import { ApiError } from "../errors.js";
 import type { ServerConfig, TokenScope } from "../types.js";
 import { WikiSuggestions } from "../wiki/suggestions.js";
-import { WikiStore, wikiPath } from "../wiki/store.js";
+import { WikiStore, wikiPath, wikiAssetContentType } from "../wiki/store.js";
 import { wikiAgentCanAccess } from "../wiki/access.js";
 import { authenticateWikiAgentRequest } from "../wiki/agent-access.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
@@ -30,16 +30,17 @@ export function registerWikiSuggestionRoutes(options: {
     await authenticateWikiAgentRequest(config, ctx.request);
     return new WikiSuggestions(project.directory || project.path, project.id);
   };
-  const destination = async (ctx: RequestContext, target: { wikiId: string; path: string }, writing = false) => {
+  const destination = async (ctx: RequestContext, target: { wikiId: string; path: string; createFolders?: boolean }, writing = false) => {
     wikiPath(target.path);
     if (!/\.md$/i.test(target.path)) throw new ApiError(400, "invalid_wiki_page", "Choose a Markdown page ending in .md.");
     const wiki = await store.get(target.wikiId);
     if (ctx.actor?.type !== "host" && ctx.actor?.scope !== "owner" && !wiki.sync) throw new ApiError(404, "wiki_not_found", "This wiki is not available.");
+    if (target.createFolders && wiki.purpose !== "legal-research") throw new ApiError(400, "wiki_folder_proposal_unavailable", "New folders can be proposed only in the legal research wiki.");
     const project = config.workspaces.find(item => item.id === ctx.params.workspaceId);
     if (!project || !await wikiAgentCanAccess(config, await store.list(), wiki, await realpath(project.directory || project.path))) throw new ApiError(403, "wiki_access_denied", "This wiki is not available to this project.");
     await options.ensureWikiReadable?.(ctx, wiki);
     const folder = target.path.includes("/") ? target.path.slice(0, target.path.lastIndexOf("/")) : "";
-    if (folder && !((await store.snapshot(wiki.id)).folders ?? []).includes(folder)) {
+    if (folder && !target.createFolders && !((await store.snapshot(wiki.id)).folders ?? []).includes(folder)) {
       throw new ApiError(400, "wiki_folder_missing", "This folder is not in the selected wiki. Choose an existing folder.");
     }
     if (writing) await options.ensureWikiWritable?.(ctx, wiki);
@@ -62,7 +63,7 @@ export function registerWikiSuggestionRoutes(options: {
     const items: WikiContribution[] = [];
     const unavailableProjects: string[] = [];
     for (const project of config.workspaces) {
-      if (project.workspaceType === "remote" || wikis.some(item => item.workspaceId === project.id)) continue;
+      if (wikis.some(item => item.workspaceId === project.id)) continue;
       try {
         const root = await realpath(project.directory || project.path);
         if (!await wikiAgentCanAccess(config, wikis, wiki, root)) continue;
@@ -82,6 +83,17 @@ export function registerWikiSuggestionRoutes(options: {
     return jsonResponse({ items: (await repo.list()).map(({ content, ...item }) => item) });
   });
   addRoute(routes, "GET", `${base}/:suggestionId`, "client", async ctx => jsonResponse(await (await repository(ctx)).read(ctx.params.suggestionId)));
+  addRoute(routes, "GET", `${base}/:suggestionId/attachments/:sha256`, "client", async ctx => {
+    const repo = await repository(ctx);
+    const draft = await repo.read(ctx.params.suggestionId);
+    if (new URL(ctx.request.url).searchParams.get("revision") !== draft.revision) throw new ApiError(409, "suggestion_changed", "This draft changed. Reload it before opening the source file.");
+    const index = draft.attachments.findIndex(file => file.sha256 === ctx.params.sha256);
+    const file = await repo.attachment(draft, index);
+    return new Response(new Uint8Array(file.data), { headers: {
+      "content-type": wikiAssetContentType(file.path), "content-length": String(file.data.length),
+      "x-content-type-options": "nosniff", "content-security-policy": "sandbox; default-src 'none'", "cache-control": "private, no-store",
+    } });
+  });
   addRoute(routes, "POST", base, "client", async ctx => {
     const repo = await repository(ctx, true);
     const input = await parse(ctx, WikiSuggestionInputSchema);
@@ -105,7 +117,9 @@ export function registerWikiSuggestionRoutes(options: {
       if (action === "dismiss") return jsonResponse(await repo.finish(draft, "dismissed"));
       const wiki = await destination(ctx, draft.destination, true);
       // Exact file and exact wiki revision reviewed by the user, never an upsert.
-      await store.write(wiki.id, draft.destination.path, draft.content, draft.destination.baseRevision ?? "");
+      const attachments = [];
+      for (let index = 0; index < draft.attachments.length; index++) attachments.push(await repo.attachment(draft, index));
+      await store.writeContribution(wiki.id, draft.destination.path, draft.content, draft.destination.baseRevision ?? "", attachments);
       options.onChanged?.(wiki.id);
       return jsonResponse(await repo.finish(draft, "saved"));
     });

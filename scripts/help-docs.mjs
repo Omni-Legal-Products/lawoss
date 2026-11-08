@@ -52,6 +52,7 @@ const routeGuides = {
 
 const settingGuides = {
   general: "settings-privacy.md", permissions: "settings-privacy.md",
+  assistant: "assistant.md",
   account: "settings-privacy.md", ai: "models-fusion.md",
   "tabular-review": "reviews.md", extensions: "integrations.md",
   personalisation: "settings-privacy.md", notifications: "tasks-intake.md",
@@ -107,6 +108,7 @@ export function generateHelpScreens(root = repoRoot) {
     schemaVersion: 1,
     generatedBy: "scripts/gen-core-skills.mjs",
     note: "Source-defined routes and visible settings for the build that bundles this file. Runtime, platform, account and permissions can restrict them.",
+    dialogs: [{ id: "assistant-upgrade", guide: "assistant.md", source: "apps/app/src/react-app/shell/assistant-upgrade.tsx" }],
     routes: [...routes].sort().map((path) => ({ path, guide: guide(routeGuides, path), source: routerSource })),
     settings: [...settings].sort(([a], [b]) => a.localeCompare(b, "en")).map(([id, scope]) => ({
       id, scope, guide: guide(settingGuides, id), source: settingsSource,

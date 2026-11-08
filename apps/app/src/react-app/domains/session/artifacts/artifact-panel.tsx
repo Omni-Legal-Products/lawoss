@@ -2,6 +2,7 @@ import { documentNavigationSchema } from "@legalwork/types/office-editor";
 import { suggestionIdFromFile } from "@legalwork/types/wiki-suggestions";
 import { PersistentArtifactPanel, useDocumentAgentControl, useDocumentRuntimeEntry, useDocumentTaskActive } from "./document-runtime";
 import { executeWordCopy } from "./docx-agent-copy";
+import { checkDocumentTask } from "./document-task-queue";
 import { isDocumentReadTool } from "./document-agent-read";
 import { useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
 import { ProjectFilePanel } from "../../workspace/project-file-panel";
@@ -99,7 +100,8 @@ function absoluteWorkspacePath(root: string, path: string) {
   return cleanRoot ? `${cleanRoot}/${cleanPath}` : cleanPath;
 }
 
-export function ArtifactPanel(props: ArtifactPanelProps) {
+export function ArtifactPanel(input: ArtifactPanelProps) {
+  const props = input.tab.source ? { ...input, workspaceId: input.tab.source.workspaceId, workspaceRoot: input.tab.source.workspaceRoot, isRemoteWorkspace: false } : input;
   if (props.tab.pendingImportId || props.tab.sourceProject || props.tab.searchSources || props.tab.reviewCitation || props.tab.reviewRecognition || !props.client || !props.workspaceId) return <ArtifactPanelContent {...props} />;
   return <PersistentArtifactPanel {...props} />;
 }
@@ -566,7 +568,8 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         { name: "toolName", type: "string", required: true, description: "Editor tool name." },
         { name: "args", type: "object", description: "Arguments for the editor tool." },
       ],
-      execute: async (rawArgs) => {
+      execute: async (rawArgs, helpers) => {
+        checkDocumentTask(helpers);
         if (!isRecord(rawArgs)) return { ok: false, error: "Document tool arguments are required." };
         if (!controlSessionIds.includes(stringProperty(rawArgs, "sessionId"))) {
           return { ok: false, error: "No in-app document is open for this session." };
@@ -580,9 +583,11 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         if (toolName === "prepare_file_edit") {
           if (!isEditableDocument) return { ok: false, error: "This document is read-only. Open an editable workspace copy first." };
           await api.drain();
+          checkDocumentTask(helpers);
           const saved = target.preview === "word" ? await docxApi.current?.flushSave()
             : !documentDirtyRef.current || await api.save();
           if (!saved || documentDirtyRef.current) return { ok: false, error: "The document still has unsaved changes. File editing is not ready; the draft remains open." };
+          checkDocumentTask(helpers);
           // Release the live editor before a file pipeline writes, so a stale
           // draft can never overwrite those changes. Opening again refetches it.
           if (!runtimeEntry) onClose();
@@ -591,7 +596,8 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         const copying = target.preview === "word" && (toolName === "create_comparison_copy" || toolName === "create_clean_copy");
         if (copying && (!client || !workspaceId)) return { ok: false, error: "The task's project is unavailable." };
         const result = copying && client && workspaceId && (toolName === "create_comparison_copy" || toolName === "create_clean_copy")
-          ? await executeWordCopy(api, client, workspaceId, toolName, toolArgs)
+          ? await executeWordCopy(api, client, workspaceId, toolName, toolArgs, helpers)
+          : target.preview === "word" && docxApi.current ? await docxApi.current.executeAgentTool(toolName, toolArgs, helpers)
           : await api.executeAgentTool(toolName, toolArgs);
         if (!result.success) return { ok: false, error: result.error || `Could not run ${toolName}.`, data: result.data, saved: result.saved === true };
         return {

@@ -1,5 +1,5 @@
-import { ensureWorkspaceSessionSync, snapshotKey, statusKey, trackWorkspaceSessionSync } from "../sync/session-sync";
-import { useEffect, useMemo, useRef } from "react";
+import { ensureWorkspaceSessionSync, snapshotKey, trackWorkspaceSessionSync } from "../sync/session-sync";
+import { useEffect, useMemo } from "react";
 import { createClient } from "@/app/lib/opencode";
 import { useSessionInteractions } from "../sync/use-session-interactions";
 import { SessionSurface, type SessionSurfaceProps } from "../surface/session-surface";
@@ -14,36 +14,28 @@ import type { ModelRef } from "@/app/types";
 import type { LegalworkSessionSnapshot } from "@/app/lib/legalwork-server";
 import { useQueryCacheState } from "@/react-app/infra/query-cache-state";
 import { chatDirectory } from "@/lawoss/shell/session-directory";
-import { getReactQueryClient } from "@/react-app/infra/query-client";
 
 /** Each open chat owns its approvals, questions and todos. Focusing a different
  * tab changes navigation, never the session to which an action is addressed. */
 export function WorkspaceChat(props: SessionSurfaceProps & { clientRoot: string }) {
   // LAWOSS: each chat follows its own folder (a case chat runs in its case subfolder), from
-  // its loaded snapshot; the client root until then. Events, status and permission requests
-  // of a chat exist only in its folder's engine instance.
+  // its loaded snapshot; the client root until then. Approval paths resolve against it.
   const loadedKey = useMemo(() => snapshotKey(props.workspaceId, props.sessionId), [props.workspaceId, props.sessionId]);
   const loaded = useQueryCacheState<LegalworkSessionSnapshot | null>(loadedKey, null);
   const directory = chatDirectory(props.clientRoot, props.isRemoteWorkspace, props.sessionId, loaded);
-  // The status read is keyed by chat only; read it again in the chat's own folder once known.
-  const firstDirectory = useRef(directory);
-  useEffect(() => {
-    if (firstDirectory.current === directory) return;
-    firstDirectory.current = directory;
-    void getReactQueryClient().invalidateQueries({ queryKey: statusKey(props.workspaceId, props.sessionId) });
-  }, [directory, props.workspaceId, props.sessionId]);
   const client = useMemo(() => createClient(props.opencodeBaseUrl, directory || undefined,
-    { token: props.legalworkToken, mode: "legalwork" }), [props.opencodeBaseUrl, directory, props.legalworkToken]);
+    { token: props.legalworkToken, hostToken: props.legalworkHostToken, mode: "legalwork" }), [props.opencodeBaseUrl, directory, props.legalworkToken, props.legalworkHostToken]);
   useEffect(() => {
-    const input = { workspaceId: props.workspaceId, baseUrl: props.opencodeBaseUrl, legalworkToken: props.legalworkToken, directory: directory || undefined };
+    const input = { workspaceId: props.workspaceId, baseUrl: props.opencodeBaseUrl, legalworkToken: props.legalworkToken, legalworkHostToken: props.legalworkHostToken };
     const releaseWorkspace = ensureWorkspaceSessionSync(input);
     const releaseSession = trackWorkspaceSessionSync(input, props.sessionId);
     return () => { releaseSession(); releaseWorkspace(); };
-  }, [props.workspaceId, props.opencodeBaseUrl, props.legalworkToken, props.sessionId, directory]);
+  }, [props.workspaceId, props.opencodeBaseUrl, props.legalworkToken, props.legalworkHostToken, props.sessionId]);
   const interactions = useSessionInteractions({ client, serverClient: props.client, workspaceId: props.workspaceId, sessionId: props.sessionId, workspaceRoot: directory });
   const key = chatModelKey(props.opencodeBaseUrl, props.workspaceId, props.sessionId);
   const stored = useSessionModelStore(state => state.selections[key]);
-  const selection = stored ?? { model: props.selectedModel, variant: props.modelVariant };
+  // Assistant settings are controlled by its identity dialog outside the chat pane.
+  const selection = props.assistantDate || !stored ? { model: props.selectedModel, variant: props.modelVariant } : stored;
   useEffect(() => {
     if (props.selectedModel.providerID && props.selectedModel.modelID) useSessionModelStore.getState().initialize(key, { model: props.selectedModel, variant: props.modelVariant });
   }, [key, props.selectedModel, props.modelVariant]);

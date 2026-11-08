@@ -3,6 +3,7 @@ import { viewSaveSource, recordViewSaveSource } from "../views/save-source.js";
 import { registerWikiProjectRoutes } from "./wiki-projects.js";
 import { registerWikiSuggestionRoutes } from "./wiki-suggestions.js";
 import { z } from "zod";
+import { legalResearchCountries } from "../native-shared-values.js";
 import { ViewSaveInputSchema, WikiDataQuerySchema } from "../views/schema.js";
 import { ViewRepository } from "../views/repository.js";
 import { queryWikiPages, wikiPageFields } from "../wiki/data-query.js";
@@ -42,7 +43,9 @@ type Options = {
 const sharingSchema = z.object({ access: z.enum(["org", "members"]), memberIds: z.array(z.string().min(1).max(200)).max(500) });
 const createSchema = z.object({
   name: z.string().trim().min(1).max(200), root: z.string().trim().min(1).max(4096).optional(),
-  template: z.enum(["firm", "blank"]).optional(), sharing: sharingSchema.optional(), attach: z.boolean().optional(),
+  template: z.enum(["firm", "blank", "legal-research"]).optional(), sharing: sharingSchema.optional(), attach: z.boolean().optional(),
+  language: z.enum(["en", "de"]).optional(),
+  country: z.string().refine(value => value === "OTHER" || legalResearchCountries.includes(value)).optional(),
 }).strict();
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(), allowInProjects: z.boolean().optional(), projectWorkspaceIds: z.array(z.string().min(1).max(200)).max(1000).nullable().optional(),
@@ -105,6 +108,16 @@ export function registerWikiRoutes(options: Options): WikiStore {
     return path;
   };
   const sharingUnavailable = () => new ApiError(503, "wiki_sharing_unavailable", "Wiki sharing is unavailable on this server.");
+  addRoute(routes, "POST", "/wikis/legal-research/ensure", "host-token", async ctx => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    const input = z.object({ language: z.enum(["en", "de"]), country: z.string().refine(value => value === "OTHER" || legalResearchCountries.includes(value)).optional() }).strict().safeParse(await readJsonBodyLimited(ctx.request, 1024));
+    if (!input.success) throw new ApiError(400, "invalid_wiki_language", "Choose English or German for the research wiki.");
+    const result = await store.ensureLegalResearch(input.data.language, input.data.country);
+    if (result.created) options.onWorkspacesChanged?.();
+    if ((result.created || result.updated) && result.wiki) change(result.wiki.id);
+    return jsonResponse(result);
+  });
   addRoute(routes, "GET", "/wikis/deleted", "client", async ctx => {
     requireClientScope(ctx, "owner");
     return jsonResponse({ items: await store.deleted() });

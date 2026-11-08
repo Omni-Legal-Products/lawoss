@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListView as ProviderListResponse } from "../src/app/types";
 
 import type { ProviderListItem } from "../src/app/types";
 import { compareProviders, filterProviderList } from "../src/app/utils/providers";

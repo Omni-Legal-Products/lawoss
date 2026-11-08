@@ -1,3 +1,4 @@
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import { protectedWorkspaceUploadParts } from "../domains/session/surface/composer/composer-draft";
 import { currentTemplateLocale } from "@/lawoss/i18n/template-locale";
 import { allDocumentGenerations, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, hasProtectedDocumentSession, reconcileDocumentGeneration, readDocumentGenerationSnapshot, isDocumentGenerationSnapshotCurrent, observeDocumentGeneration, subscribeDocumentGenerations, documentGenerationsRevision, submitBoundDocumentGeneration, PROTECTED_DOCUMENT_GENERATION_TRANSPORT } from "../domains/session/panel/document-generation-lifecycle";
@@ -5,6 +6,17 @@ import { ensureWorkspaceSessionSync, trackWorkspaceSessionSync } from "../domain
 import { generationPrompt, selectDocumentGenerationProfile, type DocumentGenerationRequest, type DocumentGenerationCallback } from "../domains/session/panel/document-processing";
 import { documentExecutionDirectory, preflightDocumentGeneration } from "../domains/session/panel/native-document-preflight";
 import { PROJECT_FOLDER_RECONNECTED_EVENT } from "../domains/workspace/project-folder-recovery";
+import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domains/workspace/project-defaults-store";
+import {ensureNativeCatalogReady} from "@/app/lib/opencode-catalog-ready";
+import type { Client } from "@/app/types";
+import { snapshotQueuedDraft } from "@/react-app/domains/session/surface/use-session-message-queue";
+import { assistantOutgoingScope, moveAssistantOutgoingMessage } from "@/react-app/domains/session/surface/assistant-outgoing-messages";
+import { readConfig } from "@/app/lib/opencode-config";
+import { readMcpStatuses } from "@/react-app/domains/connections/native-mcp";
+import { projectSession } from "@/app/lib/opencode-view";
+import { sendSessionPrompt } from "@/app/lib/system-reminder";
+import { sendSessionCommand } from "@/app/lib/system-reminder";
+import { createSessionView, readSession } from "@/app/lib/opencode-read";
 import { SessionViewDeleteDialog, type SessionViewDeleteRequest } from "@/react-app/domains/views/session-view-delete-dialog";
 import { deleteOrReviewSession } from "@/react-app/domains/views/session-view-delete";
 import { useDocumentProjectResolver } from "../domains/session/artifacts/document-runtime";
@@ -13,6 +25,11 @@ import { projectViewFromPath } from "./workspace-routes";
 import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { buildFusionDelegationSystemPrompt } from "@/react-app/domains/session/fusion/fusion-prompt";
+import type { AssistantAvatarIcon, AssistantProfile } from "@legalwork/types/main-assistant";
+import { carryAssistantDraft } from "@/react-app/domains/session/surface/composer-state-store";
+import { hasAssistantSubscription } from "@legalwork/types/main-assistant";
+import { AssistantUpgradeModal } from "./assistant-upgrade";
+import { resolveAssistantChat } from "./assistant-navigation";
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
@@ -41,6 +58,7 @@ import { TasksPane } from "../domains/tasks/tasks-pane";
 import { openTaskProject } from "../domains/tasks/task-project-navigation";
 import { useQuery } from "@tanstack/react-query";
 import { WikiManager } from "../domains/wiki/wiki-manager";
+import { useResearchWiki } from "../domains/wiki/use-research-wiki";
 import { PageLoading, PageLoadingSpinner } from "@/components/page";
 import type { WikiVault } from "@legalwork/types/wiki";
 import { useComposerStateStore } from "../domains/session/surface/composer-state-store";
@@ -59,17 +77,13 @@ import {
 import { toast } from "@/components/ui/sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useUpdateCheckRequestStore } from "@/react-app/domains/settings/state/update-check-request";
-import type {
-  AgentPartInput,
-  FilePartInput,
-  ProviderListResponse,
-  SessionStatus,
-  TextPartInput,
-} from "@opencode-ai/sdk/v2/client";
+import type { AgentPartInput, FilePartInput, TextPartInput } from "@/app/lib/opencode-view";
+import type { ProviderListView as ProviderListResponse } from "@/app/types";
+import type { SessionStatus } from "@opencode/client";
 
 import { analyticsSurface, captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
 import { createClient, unwrap } from "@/app/lib/opencode";
-import { buildSessionPromptRequest, systemReminderPart } from "@/app/lib/system-reminder";
+import { buildSessionPromptRequest, systemReminderPart, queuedNativePrompt, nativeModel, resolvePromptSkill } from "@/app/lib/system-reminder";
 import { yoloTurnContext } from "@/lawoss/domains/yolo/yolo-mode";
 import { clearCaseChatContext, peekCaseChatContext } from "@/lawoss/okf/case-chat-context";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
@@ -120,7 +134,6 @@ import {
   isDesktopRuntime,
   isElectronRuntime,
   isOfficeAddinRuntime,
-  isSandboxWorkspace,
   normalizeDirectoryPath,
   normalizeSessionStatus,
   resolveModelDisplayName,
@@ -166,8 +179,10 @@ import {
 } from "@/react-app/domains/session/sync/session-sync";
 import { clientFirstLineFileParts, clientPathScope, type ClientPathScope } from "@/lawoss/chat/prompt-file-parts";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
+import { useQueryCacheState } from "@/react-app/infra/query-cache-state";
+import { isAssistantConversation } from "@/react-app/domains/session/chat/assistant-conversation";
 import { useHostApprovalSync } from "./use-host-approval-sync";
-import { seedInteractionSessions } from "@/react-app/domains/session/sync/interaction-state";
+import { emptyInteractionSessions, interactionSessionsKey, seedInteractionSessions, type InteractionSessions } from "@/react-app/domains/session/sync/interaction-state";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
 import { runFusionSend, buildFusionTraceSystemPrompt } from "@/react-app/domains/session/fusion/fusion-controller";
 import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
@@ -180,9 +195,11 @@ import { CreateProjectModal, type CreateProjectInput } from "@/react-app/domains
 import { NewChatDialog } from "@/react-app/domains/session/sidebar/new-chat-dialog";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
+import { EngineProjectRecovery } from "@/react-app/domains/workspace/engine-project-approval";
 import { SyncProviderSetup } from "@/react-app/domains/connections/provider-auth/sync-provider-setup";
 import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
 import { OfficeStep } from "@/react-app/domains/onboarding/office-step";
+import { ResearchDatabasesStep } from "@/react-app/domains/onboarding/research-databases";
 import { PermissionsStep } from "@/react-app/domains/onboarding/permissions-step";
 import {
   ensureTemplateWorkflowWatcher,
@@ -204,9 +221,7 @@ import {
   invalidateEigenweltEntitlements,
   useEigenweltEntitlements,
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
-import { FreeRetiredDialog, markFreeRetiredNoticePending } from "./free-retired-dialog";
-import { WhatsNewDialog } from "./whats-new";
-import { TranscriptionIntroDialog } from "./transcription-intro";
+import { AssistantIntroDialog } from "./assistant-intro";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { useBootState } from "./boot-state";
 import {
@@ -329,8 +344,8 @@ function attachmentMime(attachment: ComposerAttachment) {
   return "text/plain";
 }
 
-async function draftToParts(draft: ComposerDraft, workspaceRoot: string, uploads?: ReadonlyMap<ComposerPart, FilePartInput>, client?: ClientPathScope) {
-  const parts: Array<TextPartInput | FilePartInput | AgentPartInput> = [];
+async function draftToParts(draft: ComposerDraft, workspaceRoot: string, client: Client, uploads?: ReadonlyMap<ComposerPart, FilePartInput>, scope?: ClientPathScope) {
+  const parts: import("@/app/lib/opencode-view").PromptPart[] = [];
   const root = workspaceRoot.trim();
 
   const toAbsolutePath = (path: string) => {
@@ -364,7 +379,7 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string, uploads
       continue;
     }
     if (part.type === "skill") {
-      parts.push({ type: "text", text: `Load [skill ${part.name}] and follow its instructions.` });
+      parts.push(await resolvePromptSkill(client,part.name,root));
       continue;
     }
     if (part.type === "plugin") {
@@ -387,7 +402,7 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string, uploads
     }
   }
 
-  parts.push(...clientFirstLineFileParts(draft.resolvedText ?? draft.text, root, client));
+  parts.push(...clientFirstLineFileParts(draft.resolvedText ?? draft.text, root, scope));
 
   parts.push(
     ...(await Promise.all(
@@ -569,6 +584,7 @@ export function SessionRoute() {
     enabled: Boolean(client),
   });
   const activeWiki = showWikis ? wikis.data?.items.find(wiki => wiki.workspaceId === routeWorkspaceId) : undefined;
+  useResearchWiki(client, Boolean(hostToken), refreshRouteState, local.prefs.researchCountry || undefined);
   const rememberedWikiWorkspaceId = readLastWikiWorkspaceId(baseUrl);
   const preferredWiki = wikis.data?.items.find(wiki => wiki.workspaceId === rememberedWikiWorkspaceId) ?? wikis.data?.items[0];
   // The manager is a destination, not a placeholder while restoring a wiki.
@@ -598,6 +614,101 @@ export function SessionRoute() {
     if (preferredWiki) openWikiWorkspace(preferredWiki, { replace: true });
     else if (routeWorkspaceId) navigate("/wikis", { replace: true });
   }, [wikis.data, showWikis, manageWikis, activeWiki, preferredWiki, baseUrl, routeWorkspaceId, selectedWorkspace, selectedSessionId, location.pathname, location.search, navigate, openWikiWorkspace]);
+  const eigenweltEntitlementsQuery = useEigenweltEntitlements({ client, workspaceId: selectedWorkspaceId });
+  const assistantIncluded = hasAssistantSubscription(eigenweltEntitlementsQuery.data);
+  const [assistantUpgrade, setAssistantUpgrade] = useState<"closed" | "intro" | "plans">("closed");
+  const pendingAssistantOpen = useRef(false);
+  useEffect(() => {
+    if (eigenweltEntitlementsQuery.data && !assistantIncluded && selectedWorkspace?.preset === "main-assistant") setAssistantUpgrade("intro");
+  }, [assistantIncluded, eigenweltEntitlementsQuery.data?.connected, selectedWorkspace?.id]);
+  const assistant = useQuery({
+    queryKey: ["main-assistant", client?.baseUrl], enabled: Boolean(client) && assistantIncluded && !isOfficeAddinRuntime(),
+    queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantCurrent(defaultProjectFields(useProjectDefaultsStore.getState())); },
+    refetchInterval: 30_000, refetchOnWindowFocus: "always",
+  });
+  const interactionKey = useMemo(() => interactionSessionsKey(selectedWorkspaceId), [selectedWorkspaceId]);
+  const interactionSessions = useQueryCacheState<InteractionSessions>(interactionKey, emptyInteractionSessions);
+  const selectedSessionInfo = selectedSessionId ? interactionSessions[selectedSessionId]
+    ?? sessionsByWorkspaceId[selectedWorkspaceId]?.find(session => session.id === selectedSessionId) : undefined;
+  // Resolve unfamiliar links before treating them as a daily Assistant chat.
+  useQuery({
+    queryKey: ["assistant-session-info", baseUrl, selectedWorkspaceId, selectedSessionId],
+    enabled: Boolean(opencodeClient && selectedWorkspace?.preset === "main-assistant" && selectedSessionId && !selectedSessionInfo && selectedSessionId !== assistant.data?.day.sessionId),
+    queryFn: async () => {
+      if (!opencodeClient || !selectedSessionId) throw new Error("Session unavailable");
+      const info = await readSession(opencodeClient, selectedSessionId);
+      seedInteractionSessions(selectedWorkspaceId, [{ id: info.id, parentID: info.parentID ?? undefined, title: info.title }]);
+      return info;
+    },
+  });
+  const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage
+    && isAssistantConversation(selectedSessionId, assistant.data?.day.sessionId, selectedSessionInfo);
+  // Home already knows today's Assistant. Load its transcript in the shared
+  // cache so opening it does not start from an empty loading screen.
+  useEffect(() => {
+    const current = assistant.data;
+    if (!client || !current || (location.pathname !== "/home" && !isSessionIndexRoute(location.pathname))) return;
+    void getReactQueryClient().prefetchQuery({
+      queryKey: snapshotKey(current.workspace.id, current.day.sessionId),
+      queryFn: async () => (await client.getSessionSnapshot(current.workspace.id, current.day.sessionId, { limit: 140 })).item,
+      staleTime: 30_000,
+    });
+  }, [client, assistant.data, location.pathname]);
+  const assistantOnboarding = useQuery({
+    queryKey: ["assistant-onboarding", client?.baseUrl],
+    enabled: Boolean(client) && assistantIncluded && Boolean(assistant.data) && !isOfficeAddinRuntime(),
+    queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantOnboarding(); },
+    refetchOnWindowFocus: "always",
+  });
+  useEffect(() => {
+    if (!client || !assistantActive || !assistantOnboarding.data?.greetingUnread) return;
+    void client.viewAssistantGreeting().then(state => {
+      getReactQueryClient().setQueryData(["assistant-onboarding", client.baseUrl], state);
+    }).catch(error => console.warn("Could not mark the Assistant greeting read", error));
+  }, [client, assistantActive, assistantOnboarding.data?.greetingUnread]);
+  useEffect(() => {
+    if (!assistant.data) return;
+    const workspace = assistant.data.workspace;
+    usePanelTabStore.getState().setAssistantWorkspace(workspace.id);
+    setWorkspaces(current => current.some(item => item.id === workspace.id) ? current : [...current, { ...workspace, displayNameResolved: assistant.data?.profile.name ?? t("assistant.title") }]);
+    // Daily sessions are separate engine contexts, displayed as a single chat.
+    if (assistantActive && selectedSessionId && selectedSessionId !== assistant.data.day.sessionId) {
+      carryAssistantDraft(selectedSessionId, assistant.data.day.sessionId);
+      navigate(workspaceSessionRoute(workspace.id, assistant.data.day.sessionId), { replace: true });
+    }
+  }, [assistant.data, assistantActive, selectedSessionId, navigate, setWorkspaces]);
+  const openAssistant = useCallback(async () => {
+    if (!client) return;
+    if (!assistantIncluded) { pendingAssistantOpen.current = true; setAssistantUpgrade("intro"); return; }
+    try {
+      const current = await resolveAssistantChat(client, getReactQueryClient());
+      getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
+      const panels = usePanelTabStore.getState();
+      panels.setAssistantWorkspace(current.workspace.id);
+      panels.adoptChat(workspacePanelKey(current.workspace.id), current.day.sessionId, current.profile.name ?? t("assistant.title"), { preserveLayout: true });
+      setWorkspaces(previous => previous.some(item => item.id === current.workspace.id) ? previous : [...previous, { ...current.workspace, displayNameResolved: current.profile.name ?? t("assistant.title") }]);
+      navigate(workspaceSessionRoute(current.workspace.id, current.day.sessionId));
+    } catch (error) { toast.error(error instanceof Error ? error.message : t("assistant.unavailable")); }
+  }, [client, assistantIncluded, navigate, setWorkspaces]);
+  useEffect(() => {
+    if (!assistantIncluded || assistantUpgrade === "closed") return;
+    setAssistantUpgrade("closed");
+    if (pendingAssistantOpen.current) { pendingAssistantOpen.current = false; void openAssistant(); }
+  }, [assistantIncluded, assistantUpgrade, openAssistant]);
+  const saveAssistantProfile = useCallback(async (profile: AssistantProfile) => {
+    if (!client) throw new Error(t("assistant.unavailable"));
+    await client.updateAssistantProfile(profile);
+    const current = await client.mainAssistantCurrent();
+    getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
+    getReactQueryClient().setQueryData(["assistant-onboarding", client.baseUrl], await client.mainAssistantOnboarding());
+  }, [client]);
+  const answerAssistantOnboarding = useCallback(async (answer: { name: string } | { icon: AssistantAvatarIcon }) => {
+    if (!client) throw new Error(t("assistant.unavailable"));
+    const state = await client.answerAssistantOnboarding(answer);
+    const current = await client.mainAssistantCurrent();
+    getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
+    getReactQueryClient().setQueryData(["assistant-onboarding", client.baseUrl], state);
+  }, [client]);
   // Projects synced with the firm arrive, leave and get renamed in the background.
   useEffect(() => {
     const refresh = () => { void refreshRouteState(); };
@@ -638,11 +749,16 @@ export function SessionRoute() {
   }, [client?.baseUrl, detached, platform, navigate]);
   useEffect(() => onSyncPoke((poke) => {
     void refreshSessionSnapshotsOnSync(getReactQueryClient(), poke);
-    if (poke.projects || poke.resync) void getReactQueryClient().invalidateQueries({ queryKey: ["project-sync"] });
+    if (poke.projects || poke.resync) {
+      void getReactQueryClient().invalidateQueries({ queryKey: ["project-sync"] });
+      void getReactQueryClient().invalidateQueries({ queryKey: ["main-assistant"] });
+      void getReactQueryClient().invalidateQueries({ queryKey: ["assistant-onboarding"] });
+      void refreshRouteState();
+    }
     if (poke.tasks || poke.resync) refreshTaskQueries(getReactQueryClient());
     // The firm's policy may have changed the engine's providers.
     if (poke.policy) void refreshProviderListQueries(getReactQueryClient());
-  }), []);
+  }), [refreshRouteState]);
   useEffect(() => {
     if (!routeWorkspaceId || !location.pathname.endsWith("/project")) return;
     const search = new URLSearchParams(location.search);
@@ -758,7 +874,7 @@ export function SessionRoute() {
   // shows only project folders.
   const hiddenTemplateWorkspaceIds = useHiddenTemplateWorkspaceIds();
   const sidebarWorkspaces = useMemo(
-    () => withoutLawossHome(workspaces).filter((workspace) => workspace.preset !== "wiki" && !hiddenTemplateWorkspaceIds.includes(workspace.id)),
+    () => withoutLawossHome(workspaces).filter((workspace) => workspace.preset !== "wiki" && workspace.preset !== "main-assistant" && !hiddenTemplateWorkspaceIds.includes(workspace.id)),
     [hiddenTemplateWorkspaceIds, workspaces],
   );
   const workspaceSessionGroups = useMemo(
@@ -813,20 +929,7 @@ export function SessionRoute() {
     return selectedWorkspaceId;
   }, [selectedSessionId, selectedWorkspaceId, workspaceSessionGroups]);
 
-  const workspaceConnectionStateById = useMemo(() => {
-    const next: Record<string, WorkspaceConnectionState> = { ...workspaceConnectionOverrides };
-    for (const workspace of workspaces) {
-      if (workspace.workspaceType !== "remote") continue;
-      const error = errorsByWorkspaceId[workspace.id]?.trim();
-      if (!error || next[workspace.id]?.status === "connecting") continue;
-      next[workspace.id] ??= {
-        status: "error",
-        message: getWorkspaceTaskLoadErrorDisplay(workspace, error).message || error,
-        checkedAt: null,
-      };
-    }
-    return next;
-  }, [errorsByWorkspaceId, workspaceConnectionOverrides, workspaces]);
+  const workspaceConnectionStateById = workspaceConnectionOverrides;
 
   const mcpConnectedCount = useMcpConnectedCount(opencodeClient, selectedWorkspaceRoot);
 
@@ -848,7 +951,7 @@ export function SessionRoute() {
   // The workspace route can have a visible chat without a session in its URL.
   // Pick that chat too, while leaving parked tabs and other workspaces alone.
   useEffect(() => {
-    if (!routeWorkspaceId || !recordingChatSessionId || selectedWorkspace?.workspaceType === "remote"
+    if (!routeWorkspaceId || !recordingChatSessionId
       || !activeRecording || activeRecording.ephemeral || !activeRecording.projectIds?.includes(routeWorkspaceId)
       || !selectedWorkspaceRoot || !opencodeClient) return;
     void useRecorderStore.getState().startLiveTranscriptShare(
@@ -906,13 +1009,11 @@ export function SessionRoute() {
   const usableProviderCount = readiness.providerConnectedCount;
   // Free-tier retirement: older installs persisted a selection on the retired
   // free providers ("eigenwelt-free" / the built-in zen "opencode"). Clear it
-  // once and mark the migration dialog pending (marker first, so a crash in
-  // between re-runs this next boot instead of losing the notice).
+  // once; the composer's connect-AI bar offers a replacement.
   const { setPrefs } = local;
   useEffect(() => {
     const providerId = local.prefs.defaultModel?.providerID?.trim().toLowerCase();
     if (!providerId || !RETIRED_FREE_PROVIDER_IDS.has(providerId)) return;
-    markFreeRetiredNoticePending();
     setPrefs((previous) => ({ ...previous, defaultModel: null, modelVariant: null }));
   }, [local.prefs.defaultModel, setPrefs]);
   // Providers the server dropped from this workspace's stored config at
@@ -977,13 +1078,13 @@ export function SessionRoute() {
 
   // Persisted onboarding stage — survives reloads; "done" for existing
   // installs. "setup" is a legacy interim value, shown as the office step.
-  // Order: office -> audio (meetings) -> dictation -> ai -> permissions -> done. Signing in first
+  // Order: office -> audio (meetings) -> dictation -> ai -> permissions -> research -> done. Signing in first
   // lets us apply firm policies before offering permission choices.
   // Office, meetings and dictation are desktop-only; the web flow starts at ai.
   const onboardingStage =
     local.prefs.onboardingStage === "setup" ? "office" : local.prefs.onboardingStage;
   const setOnboardingStage = useCallback(
-    (stage: "ai" | "office" | "audio" | "dictation" | "permissions" | "done") => {
+    (stage: "ai" | "office" | "audio" | "dictation" | "permissions" | "research" | "done") => {
       local.setPrefs((previous) => ({
         ...previous,
         onboardingStage: stage,
@@ -1121,7 +1222,6 @@ export function SessionRoute() {
   // retried on the next poll instead of never, which used to leave "Model no
   // longer available" up until the window was reloaded. Skipped while a task
   // runs (a dispose would interrupt it); the next poll retries.
-  const eigenweltEntitlementsQuery = useEigenweltEntitlements({ client, workspaceId: selectedWorkspaceId });
   const servedModelIds = eigenweltEntitlementsQuery.data?.servedModelIds;
   const servedModelIdsPolledAt = eigenweltEntitlementsQuery.dataUpdatedAt;
   const eigenweltModelsIncluded = hasEigenweltFeature(
@@ -1194,7 +1294,8 @@ export function SessionRoute() {
   const aiPlansGateVisible =
     aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null && aiPlansVariant !== "ended" &&
     location.pathname !== "/scheduled" && location.pathname !== "/projects" && !location.pathname.endsWith("/project") && !location.pathname.endsWith("/tasks") && !location.pathname.endsWith("/calendar") && !createWorkspaceOpen;
-  const aiPlansScreenVisible = (onboardingStage === "ai" && !isCommercialSurfaceHidden("ai-plans")) || aiPlansGateVisible;
+  const assistantPlansOpen = assistantUpgrade === "plans" && !assistantIncluded;
+  const aiPlansScreenVisible = (onboardingStage === "ai" && !isCommercialSurfaceHidden("ai-plans")) || aiPlansGateVisible || assistantPlansOpen;
   // Announcements wait until it is clear whether the plan screen shows, and
   // until it is gone: they never stack on top of it.
   const announcementsReady = !effectiveLoading && aiAccess !== "unknown" && !aiPlansScreenVisible;
@@ -1268,7 +1369,7 @@ export function SessionRoute() {
       if (onboardingStage === "ai") captureAnalyticsEvent("onboarding_ai_completed", { method: path ?? "existing" });
       if (enforced) {
         captureAnalyticsEvent("onboarding_permissions_skipped", { reason: "enforced" });
-        finishOnboarding(onboardingAiMethod.current);
+        setOnboardingStage("research");
       } else if (onboardingStage === "ai") setOnboardingStage("permissions");
     })();
     return () => { cancelled = true; };
@@ -1414,20 +1515,7 @@ export function SessionRoute() {
     };
 
     void (async () => {
-      let disabledProviders: string[] = [];
-      try {
-        const config = unwrap(
-          await opencodeClient.config.get({
-            directory: selectedWorkspaceRoot || undefined,
-          }),
-        ) as { disabled_providers?: string[] };
-        disabledProviders = Array.isArray(config.disabled_providers)
-          ? config.disabled_providers
-          : [];
-        if (!cancelled) setDisabledProviderIds(disabledProviders);
-      } catch {
-        // ignore config read failures and continue with provider discovery
-      }
+      const disabledProviders=disabledProviderIds;
 
       try {
         applyProviderState(
@@ -1475,9 +1563,10 @@ export function SessionRoute() {
     // agent files become available, even when the inline picker is hidden.
     void engineReloadVersion;
     if (!opencodeClient) return [];
-    const list = unwrap(await opencodeClient.app.agents());
+    await ensureNativeCatalogReady(opencodeClient,selectedWorkspaceRoot ?? undefined);
+    const list = (await opencodeClient.agent.list({location:selectedWorkspaceRoot ? {directory:selectedWorkspaceRoot}:undefined})).data;
     return list.filter((agent) => !agent.hidden && agent.mode !== "subagent");
-  }, [engineReloadVersion, opencodeClient]);
+  }, [engineReloadVersion, opencodeClient,selectedWorkspaceRoot]);
 
   const handleOpenSettings = useCallback((route = "/settings/general", workspaceId = sidebarActiveWorkspaceId) => {
     const sessionId = workspaceId === sidebarActiveWorkspaceId ? selectedSessionId : null;
@@ -1525,17 +1614,15 @@ export function SessionRoute() {
       if (!options?.queue || !selectedWorkspaceEndpoint || scope.projectId !== selectedWorkspaceId) throw new Error(t("session.loading_detail"));
       await selectedWorkspaceEndpoint.client.updateSessionMessageQueue(selectedWorkspaceEndpoint.workspaceId, targetSessionId, { type: "enqueue", ...options.queue, execution });
     };
+    const variant = sendVariant ? { variant: sendVariant } : {};
+    const messageID = options?.messageID ? { messageID: options.messageID } : {};
 
     if (scope.protectedDocument) {
       // This session has an isolated engine and four host document capabilities.
       // Do not import composer plugins, ambient state, shell/commands or Fusion.
       if (draft.mode !== "prompt" || draft.command || draft.attachments.length || options?.queue || !options?.messageID)
         throw new Error("This document session accepts only the selected document task.");
-      const result = await scope.opencode.session.promptAsync({
-        ...buildSessionPromptRequest({sessionID: targetSessionId, parts: [{type: "text", text}], model: sendModel, agent: "legalwork", ...(sendVariant ? {variant: sendVariant} : {})}),
-        messageID: options.messageID,
-      });
-      if (result.error) throw new Error(serializeSDKError(result.error));
+      await sendSessionPrompt(scope.opencode, buildSessionPromptRequest({ sessionID: targetSessionId, parts: [{ type: "text", text }], model: sendModel, agent: "legalwork", ...variant, ...messageID }));
       return;
     }
 
@@ -1546,16 +1633,9 @@ export function SessionRoute() {
       // resolves only original-hash matches and never forwards file URLs to the VM.
       const registeredRoot = workspaces.find(workspace => workspace.id === scope.projectId)?.path ?? "";
       const uploads = protectedWorkspaceUploadParts(draft, registeredRoot);
-      const parts = await draftToParts(draft,scope.directory, uploads, clientPathScope(workspaces, scope.projectId, scope.directory));
-      if (options?.queue) {await enqueue({kind: "prompt", parts, model: sendModel, agent: "legalwork", variant: sendVariant ?? undefined}); return;}
-      const request = {...buildSessionPromptRequest({sessionID: targetSessionId, parts, model: sendModel, agent: "legalwork", variant: sendVariant ?? undefined}), ...(options?.messageID ? {messageID: options.messageID} : {})};
-      if (options?.waitForCompletion) {
-        const result = unwrap(await scope.opencode.session.prompt(request));
-        if (result.info.error) throw new Error(serializeSDKError(result.info.error));
-      } else {
-        const result = await scope.opencode.session.promptAsync(request);
-        if (result.error) throw new Error(serializeSDKError(result.error));
-      }
+      const parts = await draftToParts(draft, scope.directory, scope.opencode, uploads, clientPathScope(workspaces, scope.projectId, scope.directory));
+      if (options?.queue) { await enqueue(queuedNativePrompt({ sessionID: targetSessionId, parts, model: sendModel, agent: "legalwork", ...variant })); return; }
+      await sendSessionPrompt(scope.opencode, buildSessionPromptRequest({ sessionID: targetSessionId, parts, model: sendModel, agent: "legalwork", ...variant, ...messageID }), { waitForCompletion: options?.waitForCompletion });
       return;
     }
     if (draft.mode === "shell") {
@@ -1565,20 +1645,16 @@ export function SessionRoute() {
     }
 
     if (draft.command) {
-      if (options?.queue) { await enqueue({ kind: "command", command: draft.command.name, arguments: draft.command.arguments, model: `${sendModel.providerID}/${sendModel.modelID}`, agent: selectedAgent ?? undefined, variant: sendVariant ?? undefined }); return; }
-      const result = await scope.opencode.session.command({
+      if (options?.queue) { await enqueue({ kind: "command", command: draft.command.name, args: draft.command.arguments, model: nativeModel(sendModel, sendVariant ?? undefined), agent: selectedAgent ?? undefined }); return; }
+      await sendSessionCommand(scope.opencode, {
         sessionID: targetSessionId,
         command: draft.command.name,
+        draft: await snapshotQueuedDraft(draft, useComposerStateStore.getState().sessions[targetSessionId]),
         arguments: draft.command.arguments,
-        model: sendModel
-          ? `${sendModel.providerID}/${sendModel.modelID}`
-          : undefined,
+        model: `${sendModel.providerID}/${sendModel.modelID}`,
         agent: selectedAgent ?? undefined,
         variant: sendVariant ?? undefined,
       });
-      if (result.error) {
-        throw new Error(serializeSDKError(result.error));
-      }
       return;
     }
 
@@ -1586,9 +1662,9 @@ export function SessionRoute() {
       parts: draft.parts,
       client: scope.legalwork,
       workspaceId: scope.projectId,
-      readStatuses: async () => unwrap(await scope.opencode.mcp.status({ directory: scope.directory || undefined })),
+      readStatuses: async () => await readMcpStatuses(scope.opencode, scope.directory || undefined),
     });
-    const parts = await draftToParts(draft, scope.directory, undefined, clientPathScope(workspaces, scope.projectId, scope.directory));
+    const parts = await draftToParts(draft, scope.directory, scope.opencode, undefined, clientPathScope(workspaces, scope.projectId, scope.directory));
     const envSystemContext = await buildLegalworkEnvSystemContext(scope.legalwork, {
       cacheKey: targetSessionId,
       runtimeKey: scope.runtimeKey,
@@ -1605,7 +1681,7 @@ export function SessionRoute() {
         const trace = await buildFusionTraceSystemPrompt({ client: scope.opencode, directory: scope.directory || undefined, sessionId: targetSessionId });
         parts.push(systemReminderPart([trace, buildFusionDelegationSystemPrompt({ candidateModels: fusionModels })].filter(Boolean).join("\n\n")));
       }
-      await enqueue({ kind: "prompt", parts, model: sendModel, agent: selectedAgent ?? undefined, variant: sendVariant ?? undefined });
+      await enqueue(queuedNativePrompt({ sessionID: targetSessionId, parts, model: sendModel, agent: selectedAgent ?? undefined, ...variant }));
       clearCaseChatContext(targetSessionId); // 🟡 LAWOSS (P6)
       return;
     }
@@ -1642,26 +1718,18 @@ export function SessionRoute() {
       }
     }
 
-    const request = {
-      ...buildSessionPromptRequest({
-        sessionID: targetSessionId,
-        parts,
-        model: sendModel ?? undefined,
-        agent: selectedAgent ?? undefined,
-        ...(sendVariant ? { variant: sendVariant } : {}),
-      }),
+    const request = buildSessionPromptRequest({
+      draft: await snapshotQueuedDraft(draft, useComposerStateStore.getState().sessions[targetSessionId]),
+      sessionID: targetSessionId,
+      parts,
+      model: sendModel ?? undefined,
+      agent: selectedAgent ?? undefined,
+      ...variant,
       // LAWOSS: natívne generovanie páruje pokus s ID správy viditeľným v engine.
-      ...(options?.messageID ? { messageID: options.messageID } : {}),
-    };
-    if (options?.waitForCompletion) {
-      // The queue advances after the engine's whole loop, not after a tool
-      // step, a streamed assistant message, or the prompt_async HTTP 204.
-      const result = unwrap(await scope.opencode.session.prompt(request));
-      if (result.info.error) throw new Error(serializeSDKError(result.info.error));
-    } else {
-      const result = await scope.opencode.session.promptAsync(request);
-      if (result.error) throw new Error(serializeSDKError(result.error));
-    }
+      ...messageID,
+    });
+    // The queue advances after the engine's whole loop, not after a tool step.
+    await sendSessionPrompt(scope.opencode, request, { waitForCompletion: options?.waitForCompletion });
     clearCaseChatContext(targetSessionId); // 🟡 LAWOSS (P6): handed off successfully
   }, [local, workspaces, selectedSessionId, selectedWorkspaceId, selectedWorkspaceEndpoint, providerListQuery.data, selectedAgent, modelVariantValue]);
 
@@ -1671,7 +1739,7 @@ export function SessionRoute() {
     }
     // 🟡 LAWOSS: engine client in the target chat's own folder (send, revert, branch), never the selected chat's (#223).
     const chatEngineFor = (sessionId: string) => chatEngine(sessionId, {
-      clientRoot: selectedWorkspaceRoot, remote: selectedWorkspace?.workspaceType === "remote",
+      clientRoot: selectedWorkspaceRoot, remote: isRetiredRemoteWorkspace(selectedWorkspace),
       loaded: getReactQueryClient().getQueryData<LegalworkSessionSnapshot>(snapshotKey(selectedWorkspaceEndpoint?.workspaceId ?? "", sessionId)),
       selected: { directory: selectedSessionDirectory || selectedWorkspaceRoot, client: sessionOpencodeClient },
     }, (directory) => createClient(opencodeBaseUrl, directory || undefined, { token: selectedWorkspaceServerToken, mode: "legalwork" }));
@@ -1702,6 +1770,11 @@ export function SessionRoute() {
     // local server's, and remote workspaces silently end up calling the
     // local server with the local `rem_*` id.
     return {
+      assistantDate: assistantActive ? assistant.data?.day.date : undefined,
+      assistantOnboarding: assistantActive && assistantOnboarding.data ? {
+        state: assistantOnboarding.data,
+        onIcon: (icon: AssistantAvatarIcon) => answerAssistantOnboarding({ icon }),
+      } : undefined,
       workspaceRoot: selectedSessionDirectory || selectedWorkspaceRoot,
       developerMode: false,
       modelLabel,
@@ -1781,19 +1854,18 @@ export function SessionRoute() {
       recentFiles: [],
       searchFiles: async (query: string) => {
         const trimmed = query.trim();
-        if (!trimmed) return [];
+        if (!trimmed || !opencodeClient) return [];
         const result = unwrap(
-          await sessionOpencodeClient.find.files({
+          await opencodeClient.file.find({
             query: trimmed,
-            dirs: "true",
             limit: 50,
-            directory: selectedSessionDirectory || selectedWorkspaceRoot || undefined,
+            location: (selectedSessionDirectory || selectedWorkspaceRoot) ? { directory: selectedSessionDirectory || selectedWorkspaceRoot } : undefined,
           }),
         );
-        return result;
+        return result.data.map(file=>file.path);
       },
-      isRemoteWorkspace: selectedWorkspace?.workspaceType === "remote",
-      isSandboxWorkspace: selectedWorkspace ? isSandboxWorkspace(selectedWorkspace) : false,
+      isRemoteWorkspace: false,
+      isSandboxWorkspace: false,
       onRevertToMessage: async (messageId: string, sessionId: string) => {
         const targetSessionId = sessionId.trim() || selectedSessionId;
         if (!targetSessionId) return false;
@@ -1845,12 +1917,13 @@ export function SessionRoute() {
         }));
       },
       environmentRuntimeKey,
-      onApplyEnvironmentChanges: isDesktopRuntime() && selectedWorkspace?.workspaceType !== "remote"
+      onApplyEnvironmentChanges: isDesktopRuntime()
         ? handleApplyEnvironmentChanges
         : undefined,
     };
   }, [
     sendNativeDraft,
+    assistantIncluded, assistantActive, assistant.data?.day.date, assistant.data?.day.sessionId, assistantOnboarding.data, answerAssistantOnboarding,
     client,
     selectedWorkspaceEndpoint?.workspaceId,
     selectedWorkspaceServerToken,
@@ -1977,13 +2050,11 @@ export function SessionRoute() {
         if (!window.confirm(message)) return;
       }
       try {
-        const workspace = workspaces.find(item => item.id === workspaceId);
-        if (workspace?.workspaceType !== "remote") {
-          if (!client) throw new Error(t("session_route.create_server_unavailable"));
-          await client.deleteWorkspace(workspaceId).catch(error => {
-            if (!(error instanceof LegalworkServerError && error.status === 404 && error.code === "workspace_not_found")) throw error;
-          });
-        }
+        if (!client) throw new Error(t("session_route.create_server_unavailable"));
+        await client.deleteWorkspace(workspaceId).catch(error => {
+          if (!(error instanceof LegalworkServerError && error.status === 404 && error.code === "workspace_not_found")) throw error;
+        });
+
         await forgetWorkspaceHere(workspaceId);
         await refreshRouteState();
       } catch (error) {
@@ -2006,7 +2077,7 @@ export function SessionRoute() {
         workspaceId: workspace.id,
         baseUrl: endpoint.opencodeBaseUrl,
         legalworkToken: endpoint.token,
-        directory: binding.directory,
+        legalworkHostToken: endpoint.hostToken,
         onSessionStatus: (update: { sessionId: string; status: SessionStatus }) => {
           if (update.sessionId === binding.sessionId) applyDocumentGenerationRunStatus(key, update.status);
         },
@@ -2087,6 +2158,10 @@ export function SessionRoute() {
 
   const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId?: string; paneId?: string }) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
+    if (workspace?.preset === "main-assistant" || workspaceId === assistant.data?.workspace.id) {
+      setNewChatOpen(true);
+      return;
+    }
     if (
       !workspace ||
       loading ||
@@ -2112,7 +2187,7 @@ export function SessionRoute() {
       setErrorsByWorkspaceId((current) => ({ ...current, [workspaceId]: null }));
       setRouteError(null);
       const session = unwrap(
-        await workspaceClient.session.create({ directory: workspace.path?.trim() || undefined }),
+        await createSessionView(workspaceClient,{ directory: workspace.path?.trim() || undefined }),
       );
       registerEmptySession(session.id);
       // The UI calls this "New Chat" now, but the analytics names stay as they
@@ -2175,7 +2250,7 @@ export function SessionRoute() {
         }
       }
     }
-  }, [baseUrl, hostToken, loading, navigate, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces]);
+  }, [baseUrl, hostToken, loading, navigate, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces, assistant.data?.workspace.id]);
 
   // Latest session-list state for prev/next session tab navigation. The
   // `options` field is updated by `onSessionTabsChange` from SessionPage so we
@@ -2342,7 +2417,7 @@ export function SessionRoute() {
   };
 
   const searchWorkspaces = useMemo<SearchWorkspace[]>(() => sidebarWorkspaces.map(workspace => ({
-    id: workspace.id, title: workspace.displayNameResolved, local: workspace.workspaceType !== "remote",
+    id: workspace.id, title: workspace.displayNameResolved, local: true,
     server: endpointForWorkspace(workspace)?.baseUrl ?? workspace.id,
   })), [sidebarWorkspaces, endpointForWorkspace]);
 
@@ -2475,11 +2550,11 @@ export function SessionRoute() {
       if (targetWorkspaceId) {
         const workspacePath = targetWorkspace?.path?.trim() || folder;
         const session = createdOnServer && sessionBaseUrl && sessionToken
-          ? unwrap(await createClient(
+          ? projectSession(await createClient(
               `${(buildLegalworkWorkspaceBaseUrl(sessionBaseUrl, targetWorkspaceId) ?? sessionBaseUrl).replace(/\/+$/, "")}/opencode`,
               workspacePath || undefined,
               { token: sessionToken, hostToken, mode: "legalwork" },
-            ).session.create({ directory: workspacePath || undefined }))
+            ).session.create({ location:workspacePath ? {directory:workspacePath}:undefined }))
           : null;
         setLegacySelectedWorkspaceId(targetWorkspaceId);
         writeActiveWorkspaceId(targetWorkspaceId);
@@ -2540,7 +2615,7 @@ export function SessionRoute() {
           if (!baseUrl || !token) throw new Error(t("session_route.create_server_unavailable"));
           const workspacePath = list.workspaces.find((workspace) => workspace.id === id)?.path;
           const firstClient = createClient(`${(buildLegalworkWorkspaceBaseUrl(baseUrl, id) ?? baseUrl).replace(/\/+$/, "")}/opencode`, workspacePath, { token, hostToken, mode: "legalwork" });
-          const session = unwrap(await firstClient.session.create({ directory: workspacePath }));
+          const session = unwrap(await createSessionView(firstClient,{ directory: workspacePath }));
           rememberPendingCreatedSession(id, session.id);
           writeLastSessionFor(id, session.id);
           setSessionsByWorkspaceId((current) => {
@@ -2549,8 +2624,7 @@ export function SessionRoute() {
             return next;
           });
           navigateToWorkspaceSession(id, session.id, { replace: true });
-          const result = await firstClient.session.promptAsync({ sessionID: session.id, parts: [{ type: "text", text: t("projects.setup.initial_prompt") }], model: local.prefs.defaultModel ?? undefined, agent: selectedAgent ?? undefined });
-          if (result.error) throw new Error(serializeSDKError(result.error));
+          const result = await sendSessionPrompt(firstClient,{ sessionID: session.id, parts: [{ type: "text", text: t("projects.setup.initial_prompt") }], model: local.prefs.defaultModel ?? undefined, agent: selectedAgent ?? undefined });
         } catch (error) {
           toast.error(t("projects.setup.session_failed"), { description: error instanceof Error ? error.message : String(error) });
         }
@@ -2584,6 +2658,11 @@ export function SessionRoute() {
 
   const handleHomeSend = async (text: string, attachments: HomeDraftAttachment[]) => {
     if (homeSending.current) return;
+    // 🟡 LAWOSS: Asistent je skrytá platená plocha; Domov bez klienta založí nového klienta (nižšie).
+    if (!isCommercialSurfaceHidden("assistant") && (!homeProjectId || workspaces.find(item => item.id === homeProjectId)?.preset === "main-assistant") && !assistantIncluded) {
+      setAssistantUpgrade("intro");
+      throw new Error(t("assistant.upgrade_included"));
+    }
     if (!client) throw new Error(t("session_route.create_server_unavailable"));
     const model = local.prefs.defaultModel;
     if (!model) throw new Error(t("session_route.no_model"));
@@ -2594,6 +2673,7 @@ export function SessionRoute() {
       const references = attachments.flatMap(({ source }) => source instanceof File ? [] : [source]);
       const displayText = replaceHomeAttachmentTokens(text, attachments, ({ source }) => source instanceof File ? source.name : source.file.name);
       let workspace = homeProjectId ? workspaces.find((item) => item.id === homeProjectId) : null;
+      let assistantSessionId: string | null = null;
       if (homeProjectId && !workspace) throw new Error(t("workspace.not_found"));
       // LAWOSS: do domovského priestoru sa konverzácia ani prílohy nezakladajú (P8).
       if (workspace && isLawossHomeWorkspace(workspace)) workspace = null;
@@ -2613,15 +2693,17 @@ export function SessionRoute() {
       const targetWorkspace = workspace;
       const endpoint = resolveWorkspaceEndpoint(targetWorkspace, { baseUrl, token, hostToken });
       if (!endpoint?.token) throw new Error(t("session_route.create_server_unavailable"));
-      await endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true });
+      // Requests are already scoped to this workspace. Persisting navigation
+      // does not prepare the engine and must not delay the user's message.
+      void endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true }).catch(() => undefined);
       if (isDesktopRuntime() && !endpoint.isRemote) {
-        await workspaceSetSelected(targetWorkspace.id).catch(() => undefined);
-        await workspaceSetRuntimeActive(targetWorkspace.id).catch(() => undefined);
+        void workspaceSetSelected(targetWorkspace.id).catch(() => undefined);
+        void workspaceSetRuntimeActive(targetWorkspace.id).catch(() => undefined);
       }
       const workspaceClient = createClient(endpoint.opencodeBaseUrl, targetWorkspace.path || undefined, { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" });
       let pending = pendingHomeMessage.current;
       if (!pending || pending.workspaceId !== targetWorkspace.id) {
-        pending = { workspaceId: targetWorkspace.id, sessionId: null, uploads: new Map() };
+        pending = { workspaceId: targetWorkspace.id, sessionId: assistantSessionId, uploads: new Map() };
         pendingHomeMessage.current = pending;
       }
       const sessionId = await submitHomeMessage({
@@ -2634,7 +2716,7 @@ export function SessionRoute() {
         pending,
         client: endpoint.client,
         createSession: async () => {
-          const session = unwrap(await workspaceClient.session.create({ directory: targetWorkspace.path || undefined }));
+          const session = unwrap(await createSessionView(workspaceClient,{ directory: targetWorkspace.path || undefined }));
           rememberPendingCreatedSession(targetWorkspace.id, session.id);
           setSessionsByWorkspaceId((current) => {
             const next = { ...current, [targetWorkspace.id]: [session, ...(current[targetWorkspace.id] ?? [])] };
@@ -2646,17 +2728,15 @@ export function SessionRoute() {
         },
         sendPrompt: async (sessionId, prompt, fileContext, message) => {
           const environmentContext = await buildLegalworkEnvSystemContext(endpoint.client, { cacheKey: sessionId });
-          const system = [environmentContext, fileContext].filter(Boolean).join("\n\n");
-          const result = await workspaceClient.session.promptAsync({
+          const turnContext = [environmentContext, fileContext].filter(Boolean).join("\n\n");
+          const result = await sendSessionPrompt(workspaceClient,{
             sessionID: sessionId,
             messageID: message.id,
-            parts: [{ id: message.partId, type: "text", text: prompt }],
+            parts: [{ id: message.partId, type: "text", text: prompt }, ...(turnContext ? [systemReminderPart(turnContext)] : [])],
             model,
             agent: selectedAgent ?? undefined,
             ...(modelVariantValue ? { variant: modelVariantValue } : {}),
-            ...(system ? { system } : {}),
           });
-          if (result.error) throw new Error(serializeSDKError(result.error));
           seedSubmittedMessage(endpoint.workspaceId, sessionId, {
             id: message.id,
             role: "user",
@@ -2685,7 +2765,7 @@ export function SessionRoute() {
     const endpoint = resolveWorkspaceEndpoint({ id: wiki.workspaceId, workspaceType: "local" }, { baseUrl, token, hostToken });
     if (!endpoint) throw new Error(t("wiki.offline"));
     const wikiClient = createClient(endpoint.opencodeBaseUrl, wiki.root, { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" });
-    const session = unwrap(await wikiClient.session.create({ directory: wiki.root, title: wiki.name }));
+    const session = unwrap(await createSessionView(wikiClient,{ directory: wiki.root, title: wiki.name }));
     if (prompt) useComposerStateStore.getState().setDraft(session.id, prompt);
     setLegacySelectedWorkspaceId(wiki.workspaceId);
     writeActiveWorkspaceId(wiki.workspaceId);
@@ -2708,16 +2788,17 @@ export function SessionRoute() {
     >
     {opencodeClient && selectedWorkspaceEndpoint && opencodeBaseUrl && selectedWorkspaceServerToken ? (
       <ReactSessionRuntime
+        assistantActive={assistantActive}
         // Use the server-side workspace id (the one without the `rem_`
         // prefix) so the React Query cache keys session-sync writes match
         // the keys SessionSurface reads from. Otherwise events arrive but
         // the UI never sees them and gets stuck on "thinking".
         workspaceId={selectedWorkspaceEndpoint.workspaceId}
         sessionId={selectedSessionId}
-        directory={selectedSessionDirectory || selectedWorkspaceRoot || undefined}
         activeSessionIds={activeSelectedWorkspaceSessionIds}
         opencodeBaseUrl={opencodeBaseUrl}
         legalworkToken={selectedWorkspaceServerToken}
+        legalworkHostToken={selectedWorkspaceEndpoint.hostToken}
         onSessionLoaded={handleRuntimeSessionLoaded}
         onSessionUpdated={handleRuntimeSessionUpdated}
       />
@@ -2749,6 +2830,14 @@ export function SessionRoute() {
         }}
       />
     ) : null}
+    {onboardingStage === "research" ? <ResearchDatabasesStep
+      client={selectedWorkspaceEndpoint?.client ?? client}
+      workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? null}
+      totalSteps={isDesktopRuntime() ? 7 : 4}
+      initialCountry={local.prefs.researchCountry}
+      onCountryChange={researchCountry => local.setPrefs(previous => ({ ...previous, researchCountry }))}
+      onDone={() => finishOnboarding(onboardingAiMethod.current)}
+    /> : null}
     {onboardingStage === "permissions" ? (
       // The Settings -> Tool Permissions panel, with Continue as the action.
       <PermissionsStep
@@ -2777,7 +2866,7 @@ export function SessionRoute() {
         }
         onDone={() => {
           captureAnalyticsEvent("onboarding_permissions_done");
-          finishOnboarding(onboardingAiMethod.current);
+          setOnboardingStage("research");
         }}
       />
     ) : null}
@@ -2792,11 +2881,13 @@ export function SessionRoute() {
     {aiPlansScreenVisible ? (
       // Connect a model, then load firm policy before the permissions step.
       <AiPlansOverlay
+        assistantUpgrade={assistantPlansOpen}
         totalSteps={isDesktopRuntime() ? 6 : 3} // Plans are hidden in LAWOSS (ai-plans), so this count is never shown.
         mode={onboardingStage === "ai" ? "onboarding" : "gate"}
-        variant={aiPlansVariant ?? "new"}
+        variant={assistantPlansOpen && eigenweltView?.connected ? "no-models" : aiPlansVariant ?? "new"}
         account={aiPlansAccount}
         serverReady={Boolean(selectedWorkspaceEndpoint)}
+        projectApproval={selectedWorkspaceEndpoint ? <EngineProjectRecovery client={selectedWorkspaceEndpoint.client} workspaceId={selectedWorkspaceEndpoint.workspaceId} /> : null}
         initialSeats={eigenweltView?.entitlements?.seats}
         onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
         onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
@@ -2808,10 +2899,10 @@ export function SessionRoute() {
         }}
         onBringOwnModel={openProvidersFromPlans}
         onOpenBilling={() => void openDesktopUrl(eigenweltBillingUrl(eigenweltView?.platformURL))}
-        onCheckModels={checkEigenweltPlanModels}
+        onCheckModels={assistantPlansOpen ? async () => hasAssistantSubscription((await eigenweltEntitlementsQuery.refetch()).data) : checkEigenweltPlanModels}
         onUseOtherAccount={switchEigenweltAccount}
         onBack={
-          onboardingStage === "ai" && isDesktopRuntime()
+          assistantPlansOpen ? () => setAssistantUpgrade("intro") : onboardingStage === "ai" && isDesktopRuntime()
             ? () => {
                 onboardingWentBack.current = true;
                 // LAWOSS: krok „audio“ a „dictation“ je preskočený, keď je recorder skrytý —
@@ -2860,6 +2951,7 @@ export function SessionRoute() {
       wikiWorkspace={activeWiki}
       wiki={{ client, serverUrl: baseUrl, workspaceId: selectedWorkspaceId, workspaces: sidebarWorkspaces, onWikisChanged: () => void refreshRouteState(), onOpenWikiSession: handleOpenWikiSession, onOpenWiki: openWikiWorkspace, selectedWikiId: activeWiki?.id, onSelectWiki: showWikis ? openWikiWorkspace : undefined, onManageWikis: () => navigate("/wikis?manage=1") }}
       legalworkServerToken={selectedWorkspaceServerToken}
+      legalworkServerHostToken={selectedWorkspaceEndpoint?.hostToken}
       developerMode={developerMode}
       headerStatus={canCreateChat ? t("status.connected") : t("session.loading_detail")}
       busyHint={effectiveLoading ? t("session.loading_detail") : null}
@@ -2921,7 +3013,7 @@ export function SessionRoute() {
           );
         } finally { recordingSessionStarting.current = false; }
       }}
-      projectCalendarView={<CalendarView projectId={selectedWorkspaceId} projectName={selectedWorkspace?.displayNameResolved || selectedWorkspaceId} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} />}
+      projectCalendarView={<CalendarView projectId={selectedWorkspaceId} projectName={selectedWorkspace?.displayNameResolved || selectedWorkspaceId} client={selectedWorkspaceEndpoint?.client ?? client} personalClient={client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} />}
       projectTasksView={(embedded, inWorkspace) =>
         <TasksPane embedded={embedded} onViewAll={() => navigate(workspaceTasksRoute(selectedWorkspaceId))} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} detailMode={inWorkspace ? "panel" : "inline"} onOpenInProject={(projectId, task) => {
           const route = openTaskProject({ projectId, task, workspaces, sourceBaseUrl: (selectedWorkspaceEndpoint?.client ?? client)?.baseUrl, localServer: { baseUrl, token }, panels: usePanelTabStore.getState() });
@@ -2974,17 +3066,18 @@ export function SessionRoute() {
         openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
         : showWikis && (manageWikis || !activeWiki) ? <WikiManager client={client} serverUrl={baseUrl} workspaces={sidebarWorkspaces} onChanged={() => void refreshRouteState()} onOpen={openWikiWorkspace} onNewChat={handleOpenWikiSession} /> : scheduledPage ? (
           <ScheduledTasksPage client={client}
-            projects={workspaces.filter(workspace => workspace.workspaceType !== "remote").sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id }))}
+            projects={[...workspaces].sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.preset === "main-assistant" ? assistant.data?.profile.name ?? t("assistant.title") : workspace.displayNameResolved || workspace.name || workspace.id, assistant: workspace.preset === "main-assistant", assistantIcon: assistant.data?.profile.icon }))}
             defaultModel={local.prefs.defaultModel ? { providerID: local.prefs.defaultModel.providerID, modelID: local.prefs.defaultModel.modelID } : null}
             openTaskId={new URLSearchParams(location.search).get("task")}
             onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
         ) : calendarPage ? (
           <CalendarView client={client}
             projects={workspaces.flatMap(workspace => { const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })}
-            remoteSources={workspaces.flatMap(workspace => { if (workspace.workspaceType !== "remote") return []; const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })} />
+            remoteSources={[]} />
         ) : homePage ? (
           <AppHome
             workspaces={sidebarWorkspaces}
+            assistantProfile={assistant.data?.profile}
             projectId={homeProjectId}
             onCreateProject={() => {
               setSelectCreatedProjectForHome(true);
@@ -3051,7 +3144,7 @@ export function SessionRoute() {
             }))}
             workspacePath={selectedWorkspaceRoot ?? null}
             workspaceTargets={workspaces
-              .filter((workspace) => workspace.workspaceType !== "remote" && workspace.path?.trim())
+              .filter((workspace) => workspace.path?.trim())
               .map((workspace) => ({
                 id: workspace.id,
                 name: workspace.displayNameResolved,
@@ -3070,6 +3163,14 @@ export function SessionRoute() {
       sidebar={{
         onOpenSearch: () => setCommandPaletteOpen(true),
         onNewChat: () => setNewChatOpen(true),
+        onOpenAssistant: () => { void openAssistant(); },
+        assistantActive,
+        assistantGreetingUnread: assistantOnboarding.data?.greetingUnread,
+        assistantProfile: assistant.data?.profile,
+        assistantWorkspaceId: assistant.data?.workspace.id,
+        assistantDay: assistant.data?.day,
+        onSaveAssistantProfile: saveAssistantProfile,
+        assistantDisabled: !client || (eigenweltEntitlementsQuery.isPending && !eigenweltEntitlementsQuery.isError),
         onShowChats: () => navigate("/home"),
         onShowProjects: () => navigate("/projects"),
         onShowWikis: () => preferredWiki ? openWikiWorkspace(preferredWiki) : navigate("/wikis"),
@@ -3144,7 +3245,7 @@ export function SessionRoute() {
             );
             try {
               const session = unwrap(
-                await workspaceClient.session.create({ directory: workspace.path?.trim() || undefined }),
+                await createSessionView(workspaceClient,{ directory: workspace.path?.trim() || undefined }),
               );
               saveSessionDraft(workspaceId, session.id, { text: prompt, mode: "prompt" });
               writeActiveWorkspaceId(workspaceId || null);
@@ -3197,7 +3298,7 @@ export function SessionRoute() {
               const trimmed = nextTitle.trim();
               if (!trimmed) return;
               const target = sessionTarget(sessionId);
-              await target.client.session.update({ sessionID: sessionId, title: trimmed, directory: target.workspace.path || undefined });
+              await target.client.session.update({ sessionID: sessionId, title: trimmed,  });
               await loadWorkspaceSessionsInBackground([target.workspace]);
               await refreshRouteState();
             }
@@ -3238,7 +3339,7 @@ export function SessionRoute() {
     <CreateProjectModal
       client={client}
       open={createWorkspaceOpen}
-      additionalContent={!isExperimentHidden("view-novy-spis") && createWorkspaceOpen && !createWorkspaceBusy && selectedWorkspace && selectedWorkspace.workspaceType !== "remote" && selectedWorkspace.path && selectedWorkspaceEndpoint && !selectedWorkspaceError && !selectedWorkspaceIsLoading ? (
+      additionalContent={!isExperimentHidden("view-novy-spis") && createWorkspaceOpen && !createWorkspaceBusy && selectedWorkspace && !isRetiredRemoteWorkspace(selectedWorkspace) && selectedWorkspace.path && selectedWorkspaceEndpoint && !selectedWorkspaceError && !selectedWorkspaceIsLoading ? (
         <details className="rounded-xl border border-dls-border p-4">
           <summary className="cursor-pointer text-sm font-medium">{t("lawoss.setup.wizard.title", locale)}</summary>
           <NovySpisPanel
@@ -3288,9 +3389,8 @@ export function SessionRoute() {
       project={searchProject}
       onOpenResult={openSearchResult}
     />
-    <FreeRetiredDialog workspacesReady={!effectiveLoading} onStartTrial={() => void startEigenweltTrial()} />
-    <WhatsNewDialog hasWorkspaces={workspaces.length > 0} workspacesReady={announcementsReady} />
-    <TranscriptionIntroDialog workspacesReady={announcementsReady} onOpenRecorder={showRecorderPane} />
+    <AssistantUpgradeModal open={assistantUpgrade === "intro" && !assistantIncluded} onDismiss={() => { pendingAssistantOpen.current = false; setAssistantUpgrade("closed"); }} onUpgrade={() => setAssistantUpgrade("plans")} />
+    <AssistantIntroDialog ready={announcementsReady && Boolean(assistant.data)} onOpenAssistant={() => void openAssistant()} />
     {/* Premium upsell challenge + keeps the recorder gate synced to the sub. */}
     <PremiumUpsellHost
       client={client}
@@ -3329,16 +3429,8 @@ export function SessionRoute() {
       disabledProviders={disabledProviderIds}
       onBehaviorChange={() => {}}
       onToggleProvider={async (providerId, enable) => {
-        if (!opencodeClient) return;
-        try {
-          const config = unwrap(await opencodeClient.config.get()) as { disabled_providers?: string[] };
-          const current = Array.isArray(config.disabled_providers) ? config.disabled_providers : [];
-          const next = enable
-            ? current.filter((id: string) => id !== providerId)
-            : [...current, providerId];
-          await opencodeClient.config.update({ config: { ...config, disabled_providers: next } });
-          setDisabledProviderIds(next);
-        } catch {}
+        try {await sessionProviderAuthStore.ensureProjectProviderDisabledState(providerId,!enable);await sessionProviderAuthStore.refreshProviders({dispose:true});}
+        catch(error) {toast.error(error instanceof Error ? error.message:t("app.error_request_failed"));}
       }}
       onOpenSettings={() => {
         modelPicker.setOpen(false);

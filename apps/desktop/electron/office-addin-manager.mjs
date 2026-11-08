@@ -45,10 +45,11 @@ function logError(message) {
  * @param {import("electron").App} deps.app
  * @param {() => string | null} deps.locateServerDist  Directory holding the built server (word-addin.js), or null.
  * @param {() => string | null} deps.locatePaneDist    Directory holding the built task pane bundle, or null.
+ * @param {() => void} [deps.onTrustStoreChanged] Host-only transport invalidation after a successful explicit OS trust change.
  * @param {() => Promise<unknown>} deps.requestServerRestart  Restart the embedded server so listener state applies.
  * @param {typeof createOfficeAddinPlatformBackend} [deps.createPlatformBackend]  Platform backend (manifests, CA trust); tests inject a fake.
  */
-export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist, requestServerRestart, createPlatformBackend = createOfficeAddinPlatformBackend }) {
+export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist, requestServerRestart, onTrustStoreChanged, createPlatformBackend = createOfficeAddinPlatformBackend }) {
   const userDataDir = app.getPath("userData");
   const certDir = join(userDataDir, "office-addin-certs");
   const statePath = join(userDataDir, "office-addins.json");
@@ -191,6 +192,7 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
       logError(`trust step failed: ${trust.error}`);
       return `Could not trust the certificate: ${trust.error}`;
     }
+    onTrustStoreChanged?.();
     return null;
   }
 
@@ -307,6 +309,7 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
           error: `The certificate was not removed (${untrust.error}). Nothing was uninstalled.`,
         };
       }
+      onTrustStoreChanged?.();
       rmSync(certDir, { recursive: true, force: true });
       steps.push({ step: "certificate", ok: true });
     }

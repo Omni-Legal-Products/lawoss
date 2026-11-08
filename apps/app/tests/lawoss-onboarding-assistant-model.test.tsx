@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListView as ProviderListResponse } from "../src/app/types";
 import type { ModelRef } from "../src/app/types";
 import { isFreeModel } from "../src/lawoss/shell/free-models";
 import {
@@ -21,7 +21,7 @@ import type { WizardConnected } from "../src/lawoss/domains/onboarding/onboardin
 // bez výberu, krok 6 „Pozor“ a chat s klientom sa neponúkol. MČ: predvolený model poskytovateľa sa vyberie
 // sám a uloží ako v Nastaveniach AI, dá sa zmeniť; s vybraným modelom je chat hlavnou akciou kroku 6.
 
-type Model = { name: string; toolcall: boolean };
+type Model = { name: string; tools: boolean };
 // Čiastočný SDK zoznam: len polia, ktoré čítajú pomocníci zoznamu poskytovateľov (ako v lawoss-model-readiness).
 const providerList = (connected: string[], providers: Record<string, Record<string, Model>>, defaults: Record<string, string> = {}): ProviderListResponse =>
   ({
@@ -30,16 +30,16 @@ const providerList = (connected: string[], providers: Record<string, Record<stri
       name: id === "openai" ? "OpenAI" : id,
       env: [],
       source: "api",
-      models: Object.fromEntries(Object.entries(models).map(([modelID, model]) => [modelID, { id: modelID, name: model.name, capabilities: { toolcall: model.toolcall } }])),
+      models: Object.fromEntries(Object.entries(models).map(([modelID, model]) => [modelID, { id: modelID, name: model.name, capabilities: { tools: model.tools } }])),
     })),
     connected,
     default: defaults,
   }) as unknown as ProviderListResponse;
 
 const OPENAI = {
-  "gpt-image-2": { name: "GPT Image 2", toolcall: false },
-  "gpt-6-luna": { name: "GPT-6 Luna", toolcall: true },
-  "gpt-6-mini": { name: "GPT-6 mini", toolcall: true },
+  "gpt-image-2": { name: "GPT Image 2", tools: false },
+  "gpt-6-luna": { name: "GPT-6 Luna", tools: true },
+  "gpt-6-mini": { name: "GPT-6 mini", tools: true },
 };
 const ONE = providerList(["openai"], { openai: OPENAI }, { openai: "gpt-6-luna" });
 const LUNA: ModelRef = { providerID: "openai", modelID: "gpt-6-luna" };
@@ -74,7 +74,7 @@ describe("krok 4: predvolený model pripojeného poskytovateľa (N-A2-5)", () =>
     expect(html).toMatch(/<option value="" disabled="" selected="">Vyberte model<\/option>/);
   });
   test("platný uložený model mimo ponuky je vo výbere vybraný (nie „Vyberte model“ pri stave pripravený)", () => {
-    const list = providerList(["openai"], { openai: { ...OPENAI, "gpt-6-legacy": { name: "GPT-6 Legacy", toolcall: false } } }, { openai: "gpt-6-luna" });
+    const list = providerList(["openai"], { openai: { ...OPENAI, "gpt-6-legacy": { name: "GPT-6 Legacy", tools: false } } }, { openai: "gpt-6-luna" });
     const legacy: ModelRef = { providerID: "openai", modelID: "gpt-6-legacy" };
     const { view } = onboardingModelView(legacy, list);
     expect(view.state).toBe("ready");
@@ -86,13 +86,13 @@ describe("krok 4: predvolený model pripojeného poskytovateľa (N-A2-5)", () =>
   test("bez poskytovateľa, bez zoznamu alebo pri viacerých poskytovateľoch sa nič nevyberá samo", () => {
     expect(onboardingAutoModel(null, providerList([], { openai: OPENAI }))).toBeNull();
     expect(onboardingAutoModel(null, undefined)).toBeNull();
-    expect(onboardingAutoModel(null, providerList(["openai", "anthropic"], { openai: OPENAI, anthropic: { "claude-sonnet": { name: "Claude Sonnet", toolcall: true } } }))).toBeNull();
+    expect(onboardingAutoModel(null, providerList(["openai", "anthropic"], { openai: OPENAI, anthropic: { "claude-sonnet": { name: "Claude Sonnet", tools: true } } }))).toBeNull();
     // Ukončená bezplatná úroveň nie je model.
-    expect(onboardingAutoModel(null, providerList(["opencode"], { opencode: { "big-pickle": { name: "Big Pickle", toolcall: true } } }))).toBeNull();
+    expect(onboardingAutoModel(null, providerList(["opencode"], { opencode: { "big-pickle": { name: "Big Pickle", tools: true } } }))).toBeNull();
   });
   test("výber ponúka len modely, s ktorými asistent pracuje; pri viacerých poskytovateľoch s menom poskytovateľa", () => {
     expect(onboardingModelChoices(ONE)).toEqual([{ ...LUNA, label: "GPT-6 Luna" }, { ...MINI, label: "GPT-6 mini" }]);
-    const two = providerList(["openai", "anthropic"], { openai: OPENAI, anthropic: { "claude-sonnet": { name: "Claude Sonnet", toolcall: true } } });
+    const two = providerList(["openai", "anthropic"], { openai: OPENAI, anthropic: { "claude-sonnet": { name: "Claude Sonnet", tools: true } } });
     expect(onboardingModelChoices(two).map((choice) => choice.label)).toEqual(["OpenAI · GPT-6 Luna", "OpenAI · GPT-6 mini", "anthropic · Claude Sonnet"]);
   });
   test("stav kroku: automaticky vybraný model je hneď pripravený a treba ho uložiť", () => {
@@ -102,7 +102,7 @@ describe("krok 4: predvolený model pripojeného poskytovateľa (N-A2-5)", () =>
     // Uložený model sa už neukladá znova.
     expect(onboardingModelView(LUNA, ONE).auto).toBeNull();
     // Viac poskytovateľov: advokát vyberá sám, výber je k dispozícii.
-    const two = onboardingModelView(null, providerList(["openai", "anthropic"], { openai: OPENAI, anthropic: { "claude-sonnet": { name: "Claude Sonnet", toolcall: true } } }));
+    const two = onboardingModelView(null, providerList(["openai", "anthropic"], { openai: OPENAI, anthropic: { "claude-sonnet": { name: "Claude Sonnet", tools: true } } }));
     expect(two.auto).toBeNull();
     expect(two.view.state).toBe("pick-model");
     expect(two.view.choices?.length).toBe(3);
@@ -206,15 +206,15 @@ describe("bezplatné modely: nie vo výbere, nie automaticky", () => {
         models: Object.fromEntries(Object.entries(provider.models).map(([modelID, model]) => [modelID, {
           id: modelID,
           name: model.name,
-          api: { id: model.apiId ?? modelID, url: "", npm: "" },
-          capabilities: { toolcall: true },
-          ...(model.cost === undefined ? {} : { cost: { input: model.cost, output: model.cost, cache: { read: 0, write: 0 } } }),
+          modelID: model.apiId ?? modelID, api: { id: model.apiId ?? modelID, url: "", npm: "" },
+          capabilities: { tools: true },
+          ...(model.cost === undefined ? {} : { cost: [{ input: model.cost, output: model.cost, cache: { read: 0, write: 0 } }] }),
         }])),
       })),
       connected: Object.keys(providers),
       default: defaults,
     }) as unknown as ProviderListResponse;
-  const model = (name: string, cost?: number, apiId?: string) => ({ id: name, name, api: { id: apiId ?? name, url: "", npm: "" }, capabilities: { toolcall: true }, ...(cost === undefined ? {} : { cost: { input: cost, output: cost, cache: { read: 0, write: 0 } } }) }) as unknown as ProviderListResponse["all"][number]["models"][string];
+  const model = (name: string, cost?: number, apiId?: string) => ({ id: name, name, modelID: apiId ?? name, api: { id: apiId ?? name, url: "", npm: "" }, capabilities: { tools: true }, ...(cost === undefined ? {} : { cost: [{ input: cost, output: cost, cache: { read: 0, write: 0 } }] }) }) as unknown as ProviderListResponse["all"][number]["models"][string];
 
   test("predikát: variant :free a nulová cena pri poskytovateľovi s cenníkom; predplatné a vlastné modely nie", () => {
     expect(isFreeModel({ source: "api" }, "meta-llama/llama-4:free", model("Llama 4 (free)", 0))).toBe(true);

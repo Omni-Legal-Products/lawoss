@@ -1,0 +1,83 @@
+import { expect, test } from "bun:test";
+import { createAssistantTestClient } from "./assistant-engine.test-support.js";
+import { readDelegationResult } from "./assistant-delegation-result.js";
+
+test("reads pending questions and approvals while busy, then the final reply; never confuses idle or tools with completion", async () => {
+  let busy = true, completed = false, finish = "tool-calls", failReads = false;
+  let reply = "Report ready: review.md";
+  let error: { name: string; data: { message: string } } | undefined;
+  let questions: { id: string; sessionID: string; questions: { question: string }[] }[] = [];
+  let permissions: { id: string; sessionID: string; action: string; resources: string[] }[] = [];
+  const engine = Bun.serve({ port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === "/session/status") return failReads ? new Response(null, { status: 503 }) : Response.json(busy ? { child: { type: "busy" } } : {});
+    if (path === "/session/child/message") return Response.json([{ info: { id: "reply", sessionID: "child", role: "assistant", time: { created: 1, ...(completed ? { completed: 2 } : {}) }, finish, error }, parts: [{ type: "text", text: reply }, { type: "text", synthetic: true, text: "secret reminder" }, { type: "text", ignored: true, text: "ignored text" }] }]);
+    if (path === "/question") return Response.json(questions);
+    if (path === "/api/session/child/question") return Response.json({ data: questions });
+    // Verify the newer permission API still works when the older one is absent.
+    if (path === "/api/session/child/permission") return Response.json({ data: permissions });
+    return new Response(null, { status: 404 });
+  } });
+  const client = createAssistantTestClient({ baseUrl: engine.url.origin });
+  try {
+    expect(await readDelegationResult(client, "child")).toBeNull();
+    questions = [{ id: "q1", sessionID: "child", questions: [{ question: "Which agreement?" }] }, { id: "other", sessionID: "another-chat", questions: [{ question: "Private question" }] }];
+    const question = await readDelegationResult(client, "child");
+    expect(question?.outcome).toBe("input-required");
+    expect(question?.messageId).toBe("question:q1");
+    expect(question?.text).toContain("Which agreement?");
+    expect(question?.text).not.toContain("Private question");
+    questions = [];
+    permissions = [{ id: "p1", sessionID: "child", action: "write", resources: ["review.md"] }];
+    const approval = await readDelegationResult(client, "child");
+    expect(approval?.outcome).toBe("input-required");
+    expect(approval?.messageId).toBe("approval:p1");
+    permissions = [];
+    busy = false;
+    expect(await readDelegationResult(client, "child")).toBeNull();
+    completed = true;
+    expect(await readDelegationResult(client, "child")).toBeNull();
+    finish = "stop";
+    expect(await readDelegationResult(client, "child")).toEqual({ messageId: "reply", outcome: "reply", text: "Report ready: review.md" });
+    busy = true;
+    expect(await readDelegationResult(client, "child")).toBeNull();
+    busy = false; completed = false;
+    error = { name: "MessageAbortedError", data: { message: "Stopped by user" } };
+    expect((await readDelegationResult(client, "child"))?.outcome).toBe("interrupted");
+    error = { name: "APIError", data: { message: "Provider failed" } };
+    expect((await readDelegationResult(client, "child"))?.outcome).toBe("failed");
+    error = undefined; completed = true;
+    reply = "Full result. ".repeat(3000) + "FINAL_RESULT_END";
+    expect((await readDelegationResult(client, "child"))?.text).toBe(reply);
+    busy = true;
+    questions = [{ id: "long-question", sessionID: "child", questions: [{ question: "Decision context. ".repeat(1000) + "QUESTION_END" }] }];
+    expect((await readDelegationResult(client, "child"))?.text).toContain("QUESTION_END");
+    failReads = true;
+    await expect(readDelegationResult(client, "child")).rejects.toThrow("Could not read delegated chat progress");
+  } finally { engine.stop(true); }
+});
+
+test("a reopened watch only accepts the explicit follow-up turn, never the previous or unrelated turn", async () => {
+  let requestId = "previous-request", busy = false;
+  const engine = Bun.serve({ port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === "/session/status") return Response.json(busy ? { child: { type: "busy" } } : {});
+    if (path === "/session/child/message") return Response.json([
+      { info: { id: requestId, sessionID: "child", role: "user", time: { created: 1 } }, parts: [{ type: "text", text: "Request" }] },
+      { info: { id: "reply", sessionID: "child", role: "assistant", time: { created: 2, completed: 3 }, finish: "stop" }, parts: [{ type: "text", text: "Result" }] },
+    ]);
+    if (path === "/api/session/child/question") return Response.json({ data: [{ id: "question", sessionID: "child", questions: [{ question: "Confirm perspective?" }] }] });
+    if (path === "/api/session/child/permission") return Response.json({ data: [] });
+    return new Response(null, { status: 404 });
+  } });
+  try {
+    const client = createAssistantTestClient({ baseUrl: engine.url.origin });
+    expect(await readDelegationResult(client, "child", "follow-up")).toBeNull();
+    requestId = "follow-up";
+    expect((await readDelegationResult(client, "child", "follow-up"))?.text).toBe("Result");
+    busy = true;
+    expect((await readDelegationResult(client, "child", "follow-up"))?.outcome).toBe("input-required");
+    requestId = "unrelated-direct-message";
+    expect(await readDelegationResult(client, "child", "follow-up")).toBeNull();
+  } finally { engine.stop(true); }
+});

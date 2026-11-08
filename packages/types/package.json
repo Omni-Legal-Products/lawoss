@@ -34,6 +34,7 @@
     "./office-editor": "./src/office-editor.ts",
     "./file-storage": "./src/file-storage.ts",
     "./model-limits": "./src/model-limits.ts",
+    "./native-model-display": "./src/native-model-display.ts",
     "./usage-control": "./src/usage-control.ts",
     "./provider-usage-limit": "./src/provider-usage-limit.ts",
     "./eigenwelt-checkout": "./src/eigenwelt-checkout.ts",
@@ -49,6 +50,12 @@
     "./email-draft": "./src/email-draft.ts",
     "./calculation": "./src/calculation.ts",
     "./session-queue": "./src/session-queue.ts",
+    "./main-assistant": "./src/main-assistant.ts",
+    "./browser-password-request": "./src/browser-password-request.ts",
+    "./session-history": "./src/session-history.ts",
+    "./legalmemory": "./src/legalmemory.ts",
+    "./session-visibility": "./src/session-visibility.ts",
+    "./engine-project": "./src/engine-project.ts",
     "./scheduled-tasks": "./src/scheduled-tasks.ts",
     "./ai-governance": "./src/ai-governance.ts",
     "./org-policy": "./src/org-policy.ts",
@@ -60,7 +67,11 @@
     "./wiki": "./src/wiki.ts",
     "./wiki-suggestions": "./src/wiki-suggestions.ts",
     "./views": "./src/views.ts",
-    "./line-diff": "./src/line-diff.ts"
+    "./chat-tool-results": "./src/chat-tool-results.ts",
+    "./line-diff": "./src/line-diff.ts",
+    "./opencode-view": "./src/opencode-view.ts",
+    "./legal-research": "./src/legal-research.ts",
+    "./legal-research-wiki": "./src/legal-research-wiki.ts"
   },
   "files": [
     "src",
@@ -74,6 +85,7 @@
   },
   "devDependencies": {
     "tsup": "^8.5.0",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "@opencode/client": "2.1.4"
   }
 }

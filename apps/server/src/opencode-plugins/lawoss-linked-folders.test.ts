@@ -5,7 +5,35 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LINKED_FOLDERS_MAP_FILE, type LinkedFoldersMap } from "../lawoss/linked-folders-rules.js";
-import { LawossLinkedFolders } from "./lawoss-linked-folders.js";
+import LinkedFolders from "./lawoss-linked-folders.js";
+import { lawossNativePlugin } from "./lawoss-native-test-support.js";
+
+/**
+ * OpenCode 2: the plugin decides in the native `permission.evaluate` hook. For the assertions below an `allow` is
+ * recorded like the former "once" reply (v1) and a `deny` with its message like the former reject with a sentence
+ * (v2); an `ask` stays a card and is announced as `permission.asked`, as the engine does.
+ */
+async function nativeLinkedFolders(directory: string, sessions: Record<string, { parentID?: string; agent?: string }> = {}) {
+  const plugin = await lawossNativePlugin(LinkedFolders, { directory });
+  plugin.runtime.move(directory);
+  for (const [id, session] of Object.entries(sessions)) plugin.runtime.sessions.set(id, session);
+  const v1: unknown[] = [], v2: Sent[] = [];
+  const ask = async (id: string, sessionID: string, patterns: string[], agent?: string) => {
+    const event = { sessionID, ...(agent ? { agent } : {}), action: "external_directory", resources: patterns, effect: "ask" as "allow" | "ask" | "deny", message: undefined as string | undefined };
+    await plugin.runtime.hook("permission", "evaluate", event);
+    if (event.effect === "allow") v1.push({ path: { id: sessionID, permissionID: id }, body: { response: "once" }, query: { directory } });
+    else if (event.effect === "deny") v2.push({ url: "/permission/{requestID}/reply", path: { requestID: id }, body: { reply: "reject", message: event.message ?? "" }, query: { directory } });
+    else await plugin.runtime.event({ type: "permission.asked", data: { id, sessionID, action: "external_directory", resources: patterns } });
+  };
+  const reply = (id: string, sessionID: string, answer: string) => plugin.runtime.event({ type: "permission.replied", data: { sessionID, requestID: id, reply: answer } });
+  const send = async (sessionID: string) => {
+    const event = { sessionID, messageID: "msg_1", prompt: { text: "" }, metadata: {}, delivery: "immediate" };
+    await plugin.runtime.hook("session", "prompt", event);
+    return event.prompt.text.trim();
+  };
+  const system = async () => (await plugin.system()).join("\n");
+  return { v1, v2, ask, reply, send, system };
+}
 
 const previous = process.env.OPENCODE_CONFIG;
 const roots: string[] = [];
@@ -29,20 +57,7 @@ async function fixture() {
   return { clientA, matterA, clientB, linkedA, linkedB, writeMap };
 }
 
-async function chat(directory: string) {
-  const hooks = await LawossLinkedFolders({ directory, client: { session: { messages: async () => ({ data: [] }) } } });
-  const send = async (sessionID: string) => {
-    const output: { message: { id: string }; parts: object[] } = { message: { id: "msg_1" }, parts: [] };
-    await hooks["chat.message"]({ sessionID }, output);
-    return output.parts.map((part) => ("text" in part && typeof part.text === "string" ? part.text : "")).join("\n");
-  };
-  const system = async () => {
-    const output: string[] = [];
-    await hooks["experimental.chat.system.transform"]({}, { system: output });
-    return output.join("\n");
-  };
-  return { send, system };
-}
+const chat = (directory: string) => nativeLinkedFolders(directory);
 
 test("chat klienta aj chat prípadu dostanú pripojené priečinky klienta; chat iného klienta nie", async () => {
   const { clientA, matterA, clientB, linkedA, linkedB } = await fixture();
@@ -97,16 +112,10 @@ test("systémový text je pevný: nemení sa so zoznamom pripojených priečinko
 // neodpovie: advokát dostane kartu (appka na nej varuje). Pripojený priečinok mimo praxe (E1) ostane povolený bez karty.
 test("priečinok iného klienta: karta (bez odpovede pluginu); vlastný pripojený priečinok „once“; neznámy priečinok bez odpovede", async () => {
   const { clientA, matterA, clientB, linkedA } = await fixture();
-  const ask = async (directory: string, patterns: string[], options: { raw?: boolean; rawFails?: boolean } = {}) => {
-    const v1: unknown[] = [], v2: unknown[] = [];
-    const raw = options.raw === false ? undefined : { post: async (request: unknown) => { v2.push(request); return options.rawFails ? { error: { name: "NotFound" }, response: { ok: false } } : { data: true, response: { ok: true } }; } };
-    const hooks = await LawossLinkedFolders({ directory, client: {
-      postSessionIdPermissionsPermissionId: async (request: unknown) => { v1.push(request); return {}; },
-      _client: raw,
-      session: { get: async () => ({ data: { directory } }), messages: async () => ({ data: [] }) },
-    } });
-    await hooks.event({ event: { type: "permission.asked", properties: { id: "per_1", sessionID: "ses_1", permission: "external_directory", patterns } } });
-    return { v1, v2 };
+  const ask = async (directory: string, patterns: string[]) => {
+    const native = await nativeLinkedFolders(directory);
+    await native.ask("per_1", "ses_1", patterns);
+    return { v1: native.v1, v2: native.v2 };
   };
 
   // Vzor z testu E2 (`…/Klienti/C002*/*`) aj priečinok klienta B, aj z chatu prípadu: karta, nič sa neodmietne.
@@ -124,10 +133,6 @@ test("priečinok iného klienta: karta (bez odpovede pluginu); vlastný pripojen
   expect(request.body.reply).toBe("reject");
   expect(request.body.message).toContain("cannot be resolved to definite folders");
   expect(request.query.directory).toBe(clientA);
-  for (const options of [{ raw: false }, { rawFails: true }]) {
-    const { v1 } = await ask(clientA, [`$PRAX/Klienti/Hron/*`], options);
-    expect(v1).toEqual([{ path: { id: "ses_1", permissionID: "per_1" }, body: { response: "reject" }, query: { directory: clientA } }]);
-  }
   // E1: pripojený priečinok mimo praxe ostane „once“; nepripojený priečinok mimo klientov zostane na karte.
   const linked = await ask(clientA, [`${linkedA}/*`]);
   expect(linked.v2).toEqual([]);
@@ -147,9 +152,8 @@ test("rozsah so znakmi `[ ] { } $ \``: iný klient po normalizácii dostane kart
   if (klienti.startsWith(`${home}/`)) otherClient.push(`$HOME${klienti.slice(home.length)}/Hron/*`, `~${klienti.slice(home.length)}/*`);
   for (const yolo of [false, true]) {
     for (const pattern of otherClient) {
-      const { v1, v2, ask, hooks } = await plugin(clientA, {}, yolo);
-      if (yolo) await hooks["chat.message"]({ sessionID: "ses_1" }, { message: { id: "msg_1", agent: "legalwork" }, parts: [] });
-      await ask("per_1", "ses_1", [pattern]);
+      const { v1, v2, ask } = await plugin(clientA, {}, yolo);
+      await ask("per_1", "ses_1", [pattern], "legalwork");
       expect([...v1, ...v2]).toEqual([]);
     }
   }
@@ -177,22 +181,13 @@ test("rozsah so znakmi `[ ] { } $ \``: iný klient po normalizácii dostane kart
 
 // Rozhodnutie MČ 31. 10. 2026 (N-A7-14): priečinok klientov (`…/Klienti`) a vzor cez všetkých klientov dostanú kartu
 // s varovaním (aj v YOLO). Rozsah zamietnutý na karte sa v tom istom rozhovore neukáže znova.
-type Sent = { body: { reply: string; message: string } };
-async function plugin(directory: string, sessions: Record<string, { parentID?: string }> = {}, yolo = false, saved: Record<string, unknown[]> = {}) {
+type Sent = { url?: string; path?: { requestID: string }; query?: { directory: string }; body: { reply: string; message: string } };
+async function plugin(directory: string, sessions: Record<string, { parentID?: string; agent?: string }> = {}, yolo = false) {
   if (yolo) {
     const map = join(process.env.OPENCODE_CONFIG!, "..", LINKED_FOLDERS_MAP_FILE);
     await writeFile(map, JSON.stringify({ ...JSON.parse(await readFile(map, "utf8")), yolo: true }));
   }
-  const v1: unknown[] = [], v2: Sent[] = [];
-  const hooks = await LawossLinkedFolders({ directory, client: {
-    postSessionIdPermissionsPermissionId: async (request: unknown) => { v1.push(request); return {}; },
-    _client: { post: async (request: unknown) => { v2.push(request as Sent); return { response: { ok: true } }; } },
-    session: { get: async ({ path }: { path: { id: string } }) => ({ data: { directory, ...sessions[path.id] } }),
-      messages: async ({ path }: { path: { id: string } }) => ({ data: (saved[path.id] ?? []) as never[] }) },
-  } });
-  const ask = (id: string, sessionID: string, patterns: string[]) => hooks.event({ event: { type: "permission.asked", properties: { id, sessionID, permission: "external_directory", patterns } } });
-  const reply = (id: string, sessionID: string, answer: string) => hooks.event({ event: { type: "permission.replied", properties: { sessionID, requestID: id, reply: answer } } });
-  return { v1, v2, ask, reply, hooks };
+  return nativeLinkedFolders(directory, sessions);
 }
 
 test("priečinok klientov, nadradený priečinok a vzor cez všetkých klientov: karta, plugin nič neodmietne", async () => {
@@ -247,13 +242,12 @@ test("YOLO: chat agent bez karty, karta len pri priečinku iného klienta; podag
   const klienti = join(clientB, "..");
   const outside = join(klienti, "..", "..", "Iny");
   const once = (id: string, session: string) => ({ path: { id: session, permissionID: id }, body: { response: "once" }, query: { directory: clientA } });
-  const { v1, v2, ask, hooks } = await plugin(clientA, { ses_sub: { parentID: "ses_1" } }, true, { ses_saved: [{ info: { role: "user", agent: "legalwork" }, parts: [] }] });
-  await hooks["chat.message"]({ sessionID: "ses_1" }, { message: { id: "msg_1", agent: "legalwork" }, parts: [] });
-  await hooks["chat.message"]({ sessionID: "ses_sub" }, { message: { id: "msg_2", agent: "explore" }, parts: [] });
+  // The engine names the asking agent; a chat without it falls back to the chat's own agent.
+  const { v1, v2, ask } = await plugin(clientA, { ses_1: { agent: "legalwork" }, ses_sub: { parentID: "ses_1", agent: "explore" }, ses_saved: { agent: "legalwork" } }, true);
   // Obyčajný priečinok mimo chatu a pripojený priečinok: bez karty.
   await ask("per_1", "ses_1", [`${outside}/*`]);
   await ask("per_2", "ses_1", [`${linkedA}/*`]);
-  // Chat agenta zistí plugin aj z uložených správ (napr. po reštarte enginu).
+  // Bez agenta v otázke rozhodne agent chatu (napr. po reštarte enginu).
   await ask("per_3", "ses_saved", [`${outside}/*`]);
   expect(v1).toEqual([once("per_1", "ses_1"), once("per_2", "ses_1"), once("per_3", "ses_saved")]);
   // Priečinok iného klienta, priečinok klientov a nadradený priečinok: karta aj v YOLO.
@@ -266,18 +260,14 @@ test("YOLO: chat agent bez karty, karta len pri priečinku iného klienta; podag
   expect(v2.map((sent) => sent.body.reply)).toEqual(["reject"]);
   // Bez YOLO: obyčajný priečinok mimo chatu dostane kartu.
   await writeMap([linkedA]);
-  const off = await plugin(clientA);
-  await off.hooks["chat.message"]({ sessionID: "ses_1" }, { message: { id: "msg_1", agent: "legalwork" }, parts: [] });
+  const off = await plugin(clientA, { ses_1: { agent: "legalwork" } });
   await off.ask("per_1", "ses_1", [`${outside}/*`]);
   expect([...off.v1, ...off.v2]).toEqual([]);
 });
 
 test("systémový text: názvy nastavení po slovensky, bez anglických názvov a bez rady povoliť iného klienta", async () => {
   const { clientA } = await fixture();
-  const { hooks } = await plugin(clientA);
-  const output: string[] = [];
-  await hooks["experimental.chat.system.transform"]({}, { system: output });
-  const text = output.join("\n");
+  const text = await (await plugin(clientA)).system();
   expect(text).toContain("Nastavenia → Poskytovatelia AI");
   expect(text).toContain("Nastavenia → Oprávnenia nástrojov");
   expect(text).toContain("never LegalWork");

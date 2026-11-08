@@ -1,7 +1,8 @@
+import { nativePluginTools } from "./native-plugin-test-support.js";
+const LegalWorkSkillTools = (context = {}) => nativePluginTools(LegalWorkSkillToolsDefinition, context);
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
-import * as pluginModule from "./legalwork-skill-tools.js";
-import { LegalWorkSkillTools } from "./legalwork-skill-tools.js";
+import LegalWorkSkillToolsDefinition from "./legalwork-skill-tools.js";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -156,10 +157,10 @@ describe("SKILL.md content", () => {
     await expect(createSkill({ name: "Lease terms", description: "Reusable questions", instructions: "Rent, term, break clause", kind: "workflow", workflowType: "tabular" })).rejects.toThrow();
     expect(requests).toHaveLength(0);
     const plugin = await LegalWorkSkillTools();
-    const guidance: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"]({}, guidance);
-    expect(guidance.system.join(" ")).toContain("author-review-prompts");
-    expect(guidance.system.join(" ")).toContain("legalwork_review_library_save");
+    const guidance: { system: Array<{type:"text";text:string}> } = { system: [] };
+    await plugin.runtime.hook("session", "context", guidance);
+    expect(guidance.system.map((item: {text:string})=>item.text).join(" ")).toContain("author-review-prompts");
+    expect(guidance.system.map((item: {text:string})=>item.text).join(" ")).toContain("legalwork_review_library_save");
   });
 });
 
@@ -240,50 +241,40 @@ describe("legalwork_skill_create", () => {
     expect(requests.some((entry) => entry.method === "POST")).toBe(false);
   });
 
-  test("a call without its chat has no server connection", async () => {
-    const result = await createSkill(
-      { name: "NDA review", description: "Use when a counterparty sends an NDA.", instructions: "Review it." },
-      { directory: WORKSPACE.path },
-    );
+  // OpenCode 2 always names the calling chat (ToolContext.sessionID).
 
-    expect(result.ok).toBe(false);
-    expect(String(result.error)).toContain("not configured");
-    expect(requests.some((entry) => entry.method === "POST")).toBe(false);
-  });
 });
 
 describe("system prompt", () => {
   test("treats workflows as automatically discoverable user-facing skills", async () => {
     const plugin = await LegalWorkSkillTools();
-    const output: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"](null, output);
-    expect(output.system.join("\n")).toContain("legalwork_skill_create");
-    expect(output.system.join("\n")).toContain("Both kinds can be loaded automatically");
-    expect(output.system.join("\n")).toContain("kind=workflow, lesson=");
+    const output: { system: Array<{type:"text";text:string}> } = { system: [] };
+    await plugin.runtime.hook("session", "context", output);
+    expect(output.system.map((item: {text:string})=>item.text).join("\n")).toContain("legalwork_skill_create");
+    expect(output.system.map((item: {text:string})=>item.text).join("\n")).toContain("Both kinds can be loaded automatically");
+    expect(output.system.map((item: {text:string})=>item.text).join("\n")).toContain("kind=workflow, lesson=");
   });
 });
 
-describe("plugin module surface", () => {
-  // opencode (v1.18.29, plugin/index.ts getLegacyPlugins) treats EVERY export of
-  // a plugin module as a plugin: a non-function export throws, a function is
-  // called with the engine's PluginInput. A helper exported next to the plugin
-  // therefore ran as `helper(pluginInput)` and failed the load at engine start
-  // with "undefined is not an object (evaluating 'input.description.trim')".
-  test("every export loads as a plugin entry point", async () => {
-    const pluginInput = { directory: WORKSPACE.path, worktree: WORKSPACE.path };
-    const entries: Array<[string, unknown]> = Object.entries(pluginModule);
-    expect(entries.length).toBeGreaterThan(0);
-    for (const [name, entry] of entries) {
-      if (typeof entry !== "function") throw new Error(`${name}: plugin export is not a function`);
-      const hooks: unknown = await entry(pluginInput);
-      if (!hooks || typeof hooks !== "object") throw new Error(`${name}: plugin returned no hooks`);
-    }
-  });
-});
+// OpenCode 2 loads only the default `Plugin.define` export; the v1 rule "every export is a plugin" no longer applies.
 
 test("editing an existing tabular workflow keeps its original callable name", async () => {
   installedNames.push("workflow-tabular-lease-terms");
   const result = await createSkill({ name: "workflow-tabular-lease-terms", description: "Use when reviewing leases.", instructions: "Keep these exact existing instructions.", kind: "workflow", overwrite: true });
   expect(result).toMatchObject({ ok: true, name: "workflow-tabular-lease-terms", workflowType: "assistant" });
   expect(requests.find(request => request.method === "POST")?.body).toMatchObject({ name: "workflow-tabular-lease-terms" });
+});
+
+
+test("configured skill resources are used without speculative template reconfirmation", async () => {
+  const plugin = await LegalWorkSkillTools();
+  try {
+    const context: { system: Array<{ type: "text"; text: string }> } = { system: [] };
+    await plugin.runtime.hook("session", "context", context);
+    const guidance = context.system.map(item => item.text).join("\n");
+    expect(guidance).toContain("load and use its configured resources, templates and defaults");
+    expect(guidance).toContain("Do not ask the user to reconfirm the firm name");
+    expect(guidance).toContain("an approval the skill or tool explicitly requires");
+    expect(guidance).toContain("missing facts about a future case do not block recording its condition");
+  } finally { await plugin.close(); }
 });

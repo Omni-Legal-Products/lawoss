@@ -55,3 +55,35 @@ export function fileChangeRule(permission: Record<string, unknown>, yolo: boolea
 export function withFileChangeRule(agent: string | Record<string, unknown>, permission: Record<string, unknown>): Record<string, unknown> {
   return { ...(typeof agent === "string" ? { "*": agent } : agent), [FILE_CHANGE_PERMISSION]: fileChangeRule(permission, false) };
 }
+
+/** A native V2 permission rule: the engine evaluates the last matching rule; nothing matching asks. */
+export type LawossPermissionRule = { action: string; resource: string; effect: "allow" | "deny" | "ask" };
+
+/** V2 renamed the shell tool's action; firm policy (`tools.permissions`) still names the v1 tool. */
+const NATIVE_TOOL_ACTION: Record<string, string> = { bash: "shell" };
+const nativeAction = (tool: string) => NATIVE_TOOL_ACTION[tool] ?? tool;
+
+/**
+ * Engine v2: the same defaults as `withLawossToolDefaults`, as native rules placed first, so the
+ * lawyer's later rules (also `*`) win. An action the firm decides gets no default.
+ */
+export function withLawossToolDefaultRules(own: readonly LawossPermissionRule[], firmTools: readonly string[] = []): LawossPermissionRule[] {
+  const firm = new Set(firmTools.map(nativeAction));
+  const defaults = Object.entries(LAWOSS_TOOL_DEFAULTS).map(([tool, effect]) => ({ action: nativeAction(tool), resource: "*", effect }))
+    .filter(rule => !firm.has(rule.action) && !own.some(item => item.action === rule.action));
+  return [...defaults, ...own];
+}
+
+/**
+ * Engine v2 form of `fileChangeRule`: the `lawoss_file_change` rules derived from the edit rules in
+ * effect (`edit` or `*`, last wins). A forbidden edit stays forbidden, later denied resources follow;
+ * otherwise every change asks, or (YOLO, chat agent only) is allowed.
+ */
+export function fileChangeRules(rules: readonly LawossPermissionRule[], yolo: boolean): LawossPermissionRule[] {
+  const edit = rules.filter(rule => rule.action === "*" || rule.action === "edit");
+  const last = edit.reduce((found, rule, index) => rule.resource === "*" ? index : found, -1);
+  if (last >= 0 && edit[last]?.effect === "deny") return [{ action: FILE_CHANGE_PERMISSION, resource: "*", effect: "deny" }];
+  const denied = edit.slice(last + 1).filter(rule => rule.resource !== "*" && rule.effect === "deny");
+  return [{ action: FILE_CHANGE_PERMISSION, resource: "*", effect: yolo ? "allow" : "ask" },
+    ...denied.map(rule => ({ action: FILE_CHANGE_PERMISSION, resource: rule.resource, effect: "deny" as const }))];
+}

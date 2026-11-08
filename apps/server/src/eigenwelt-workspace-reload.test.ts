@@ -12,10 +12,6 @@ import type { ServerConfig } from "./types.js";
  * workspace kept serving its old provider list: no Eigenwelt models there
  * until it was reopened. The server now reloads the other idle workspaces
  * whenever the Eigenwelt models in the file change.
- *
- * LAWOSS (RAM 2 GB, #367 N9): a workspace without running MCP (not opened) is
- * not disposed in the background pass; its instance is marked stale and
- * released right before the next request to it, unless a task is running.
  */
 
 const priorEnv = { ...process.env };
@@ -24,11 +20,15 @@ let config: ServerConfig;
 let app: Awaited<ReturnType<typeof startServer>>;
 let engine: ReturnType<typeof Bun.serve>;
 const reloaded: string[] = [];
-const statusAsked: string[] = [];
+let statusAsked = 0;
 
 const dir = (id: string) => join(temporary, id);
 
+// LAWOSS: with the RAM 2 GB MCP budget on, an unopened client is only marked stale (deferDormantReload,
+// #367 N9; covered by lawoss-engine-mcp-budget.e2e). This upstream test checks reload selection itself.
+const previousBudget = process.env.LAWOSS_ENGINE_MCP_INSTANCES;
 beforeAll(async () => {
+  process.env.LAWOSS_ENGINE_MCP_INSTANCES = "0";
   temporary = await mkdtemp(join(tmpdir(), "legalwork-eigenwelt-reload-"));
   for (const key of [
     "LEGALWORK_TOKEN_STORE",
@@ -48,12 +48,13 @@ beforeAll(async () => {
     port: 0,
     fetch(req) {
       const url = new URL(req.url);
-      const directory = url.searchParams.get("directory") ?? "";
-      if (url.pathname === "/instance/dispose") reloaded.push(directory);
-      if (url.pathname === "/session/status") {
-        statusAsked.push(directory);
-        return Response.json({ ses_1: { type: directory === dir("ws_busy") ? "busy" : "idle" } });
+      const directory = url.searchParams.get("location[directory]") ?? "";
+      if (url.pathname === "/api/rpc/legalwork.managed-settings/refresh") { reloaded.push(directory); return Response.json({ refreshed: true }); }
+      if (url.pathname === "/api/session/active") {
+        statusAsked++;
+        return Response.json({ data: { ses_busy: { type: "running" } } });
       }
+      if (url.pathname === "/api/session/ses_busy") return Response.json({ data: { id: "ses_busy", location: { directory: dir("ws_busy") } } });
       return Response.json({});
     },
   });
@@ -81,6 +82,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (previousBudget === undefined) delete process.env.LAWOSS_ENGINE_MCP_INSTANCES; else process.env.LAWOSS_ENGINE_MCP_INSTANCES = previousBudget;
   await app?.stop();
   engine?.stop(true);
   await rm(temporary, { recursive: true, force: true });
@@ -102,18 +104,14 @@ const call = (method: string, path: string, body?: unknown) =>
 // The reloads run in the background, one workspace after another; the busy
 // workspace is checked last, so its status request marks the pass as done.
 async function reloadPassDone() {
-  await new Promise((resolve) => setTimeout(resolve, 200));
-}
-
-// The next request to a workspace (here its provider list) releases a stale instance first.
-async function touch(id: string) {
-  const response = await call("GET", `/workspace/${id}/opencode/provider`);
-  await response.arrayBuffer();
+  for (let attempt = 0; attempt < 100 && statusAsked < 2; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
 }
 
 function reset() {
   reloaded.length = 0;
-  statusAsked.length = 0;
+  statusAsked = 0;
 }
 
 test("a sign-in from one workspace reloads the other idle workspaces' engines", async () => {
@@ -127,12 +125,7 @@ test("a sign-in from one workspace reloads the other idle workspaces' engines", 
   });
   expect(signIn.status).toBe(200);
   await reloadPassDone();
-  expect(reloaded).toEqual([]);
-  await touch("ws_b");
-  await touch("ws_busy");
   // ws_a is the app's own (it reloads it); ws_busy has a task that a reload would abort.
-  expect(reloaded).toEqual([dir("ws_b")]);
-  await touch("ws_b");
   expect(reloaded).toEqual([dir("ws_b")]);
 });
 
@@ -148,6 +141,5 @@ test("a sign-out reloads them too, so the models leave every workspace", async (
   reset();
   expect((await call("PUT", "/workspace/ws_b/eigenwelt/connection", { disconnect: true })).status).toBe(200);
   await reloadPassDone();
-  await touch("ws_a");
   expect(reloaded).toEqual([dir("ws_a")]);
 });

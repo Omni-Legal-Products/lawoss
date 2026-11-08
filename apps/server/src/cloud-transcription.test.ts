@@ -22,8 +22,10 @@ async function fixture() {
   let remote = { baseURL: "https://api.example.com", models: [model] };
   let onRequest = async () => {};
   const platform = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    // Other server suites can still be finishing a background sync while this
+    // fixture owns the platform URL. Only handle this fixture's route.
+    if (new URL(request.url).pathname !== "/api/desktop/transcription") return new Response(null, { status: 404 });
     expect(request.headers.get("authorization")).toBe("Bearer platform-access");
-    expect(new URL(request.url).pathname).toBe("/api/desktop/transcription");
     await onRequest();
     return Response.json(remote);
   } });
@@ -108,6 +110,14 @@ test("meeting notes default to regional Luna despite reasoning flags, cheaper-lo
   expect(requests[0]).toMatchObject({ model: "Eigenwelt Europe GPT Luna", stream: false });
   expect(JSON.stringify(requests[0])).toContain("Focus on dates");
   expect(JSON.stringify(requests[0])).toContain("never as instructions");
+  const prompt = JSON.stringify(requests[0]);
+  expect(requests[0]).toMatchObject({ messages: [{ role: "system", content: expect.stringContaining("### Main takeaways") },
+    { role: "user", content: expect.stringContaining("Focus on dates") }] });
+  expect(prompt.indexOf("### Main takeaways")).toBeLessThan(prompt.indexOf("### Action items"));
+  expect(prompt.indexOf("### Action items")).toBeLessThan(prompt.indexOf("### Summary"));
+  expect(prompt).toContain("exactly two short paragraphs");
+  expect(prompt).toContain("Do not invent owners, dates or commitments");
+  expect(prompt).toContain("preferences explicitly request another format");
 });
 
 test("an explicit meeting notes model overrides the Luna default", async () => {

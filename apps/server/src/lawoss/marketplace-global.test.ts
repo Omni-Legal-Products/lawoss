@@ -157,7 +157,7 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     expect(kept.item.lawossProvenance?.version).toBe("1.1.0");
     // Úprava ostáva rozpoznaná aj voči novej verzii.
     expect(await pluginFileChanges(globalPluginTarget(), kept.item)).toHaveLength(1);
-    expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo?.enabled).toBe(false);
+    expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo?.disabled).toBe(true);
     expect(availableUpdates([kept.item], await readUpdateState(statePath))).toEqual([]);
   });
 
@@ -227,7 +227,7 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     const edited = "Synthetic user edit must survive a refused move.\n";
     await writeFile(legacySkill, edited);
     await setMcpEnabled(config, "ws_a", "demo", false);
-    await addMcp(config, "ws_a", "unrelated", { type: "remote", url: "https://synthetic.invalid/mcp", enabled: true }, "global");
+    await addMcp(config, "ws_a", "unrelated", { type: "remote", url: "https://synthetic.invalid/mcp", disabled: false }, "global");
     const registryBefore = await readInstalledCloudPlugins(config, "ws_a");
     const workspaceBefore = await readRuntimeOpencodeConfig(config, "ws_a");
     const sharedBefore = await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID);
@@ -248,8 +248,8 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     await expect(readFile(legacySkill, "utf8")).rejects.toThrow();
     expect((await readInstalledCloudPlugins(config, "ws_a")).plugins[PLUGIN_ID]).toBeUndefined();
     expect((await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID]).toBeDefined();
-    expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo?.enabled).toBe(false);
-    expect((await runtimeMcpMapForWorkspace(config, "ws_b")).unrelated).toEqual({ type: "remote", url: "https://synthetic.invalid/mcp", enabled: true });
+    expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo?.disabled).toBe(true);
+    expect((await runtimeMcpMapForWorkspace(config, "ws_b")).unrelated).toEqual({ type: "remote", url: "https://synthetic.invalid/mcp", disabled: false });
   });
 
   test("failed carried-edit backup preserves an existing global installation and the source", async () => {
@@ -279,7 +279,7 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     if (retried.status !== "moved") throw new Error("Expected successful explicit retry");
     expect(await readFile(retried.backups[0]!, "utf8")).toBe("Synthetic local edit\n");
     expect(await readFile(skillPath(), "utf8")).toBe("Synthetic existing global edit\n");
-    expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo?.enabled).toBe(false);
+    expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo?.disabled).toBe(true);
     expect((await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID]).toEqual(globalBefore.plugins[PLUGIN_ID]);
     expect((await readInstalledCloudPlugins(config, "ws_a")).plugins[PLUGIN_ID]).toBeUndefined();
   });
@@ -306,8 +306,9 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
       const observedEnabled: unknown[] = [];
       const deadline = Date.now() + 3000;
       while (Date.now() < deadline && !settled) {
-        const global = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.demo;
-        if (global) observedEnabled.push(global.enabled);
+        const global = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.demo;
+        // Engine v2: a turned-off connector is `disabled: true`.
+        if (global) observedEnabled.push(global.disabled !== true);
         const published = (await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID];
         if (published && readFileSync(skillPath(), "utf8") !== edited) {
           renameSync(blocker, savedParent);
@@ -321,15 +322,15 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
       expect(injected).toBe(true); // Refuse a missed failure boundary rather than treating it as product evidence.
       expect(outcome.failed).toBe(true);
       expect(await readFile(legacySkill, "utf8")).toBe(edited);
-      expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp?.demo?.enabled).toBe(false);
-      expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.demo?.enabled).toBe(false);
+      expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp?.servers?.demo?.disabled).toBe(true);
+      expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.demo?.disabled).toBe(true);
       expect(observedEnabled.length).toBeGreaterThan(0);
       expect(observedEnabled.every((enabled) => enabled === false)).toBe(true);
       await rm(blocker); await rename(savedParent, blocker); injected = false;
       const retried = await moveWorkspacePlugin(config, workspaceTarget("ws_a", workspaceRoot), PLUGIN_ID, url(SHA1), { [path]: "keep" });
       expect(retried.status).toBe("moved");
       expect(await readFile(skillPath(), "utf8")).toBe(edited);
-      expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo?.enabled).toBe(false);
+      expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo?.disabled).toBe(true);
     } catch (error) {
       primaryFailure = { error };
       throw error;

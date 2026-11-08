@@ -9,6 +9,7 @@ import { syntheticHostConfig } from "../test-support/host-config.js";
 import { compareAndSetGovernanceProfile } from "../ai-governance-store.js";
 import { evaluateTransfer } from "../ai-governance.js";
 import { ProtectedAiTransport, protectedAiTarget } from "./transport.js";
+import { nativeRow } from "../test-support/native-config.js";
 
 const scope = {workspaceId: "fixture", matterId: "matter", jurisdictions: ["CZ" as const]};
 const body = JSON.stringify({model: "fixture", messages: [{role: "user", content: "PROTECTED-SYNTHETIC-CANARY"}],
@@ -24,7 +25,7 @@ async function makeFixture() {
   const received: Array<{body: string; authorization: string | null}> = [];
   const receiver = Bun.serve({hostname: "127.0.0.1", port: 0, async fetch(request) {received.push({body: await request.text(), authorization: request.headers.get("authorization")}); return response ? response() : Response.json({choices: [{message: {role: "assistant", content: "PROTECTED_OK"}}]});}});
   const endpoint = receiver.url.origin + "/v1/chat/completions";
-  await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: receiver.url.origin + "/v1", apiKey: "HOST-SECRET"}, models: {fixture: {}}}}}));
+  await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () =>nativeRow({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: receiver.url.origin + "/v1", apiKey: "HOST-SECRET"}, models: {fixture: {}}}}}));
   let binding = "a".repeat(64), allow = true;
   let response: (() => Promise<Response> | Response) | undefined;
   const reviewed: string[] = [];
@@ -69,7 +70,7 @@ test("client transport requires current approved profiles and refuses a suspensi
 }));
 
 test("account rotation during native review emits no request to either account", async () => fixture(async f => {
-  f.review(async () => {await writeRuntimeOpencodeConfig(f.config, GLOBAL_PROVIDERS_ID, () => ({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: f.receiver.url.origin + "/v1", apiKey: "ROTATED-ACCOUNT"}, models: {fixture: {}}}}}));});
+  f.review(async () => {await writeRuntimeOpencodeConfig(f.config, GLOBAL_PROVIDERS_ID, () =>nativeRow({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: f.receiver.url.origin + "/v1", apiKey: "ROTATED-ACCOUNT"}, models: {fixture: {}}}}}));});
   await expect(new ProtectedAiTransport({...f.options, syntheticPilot: {endpoint: f.endpoint}}).dispatch(outbound(), AbortSignal.timeout(3000))).rejects.toMatchObject({code: "host_decision_stale"});
   expect(f.received).toHaveLength(0);
 }));

@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import { startServer } from "../../server.js";
 import { closeOrgPolicyRuntime } from "../../org-policy.js";
 import { syntheticHostConfig } from "../test-support/host-config.js";
+import { nativeRow } from "../test-support/native-config.js";
 
 test("the installed generation endpoint requires the native host and rejects browser supplied approval or foreign workspace authority", async () => {
   const {root, config} = await syntheticHostConfig();
@@ -61,7 +62,7 @@ test("HTTP queue admission routes only an owned protected chat through the docum
   const server = await startServer(config);
   try {
     await mkdir(join(root, "case")); await writeFile(join(root, "case", "selected.txt"), "SYNTHETIC-QUEUE-SOURCE");
-    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: "http://127.0.0.1:47831/v1"}, models: {fixture: {}}}}}));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () =>nativeRow({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: "http://127.0.0.1:47831/v1"}, models: {fixture: {}}}}}));
     const [source] = await documents.prepare(workspace, ["case/selected.txt"]);
     for (let i = 0; i < 200; i++) {if ((await documents.list(workspace))[0]?.status === "readable") break; await Bun.sleep(10);}
     await runtime.open({workspaceId: workspace.id, caseDirectory: "case", providerId: "fixture", modelId: "fixture", sources: [{id: source.id, hash: source.hash}]}, AbortSignal.timeout(3000));
@@ -157,7 +158,7 @@ test.each([false, true])("HTTP admits a verified historical queue intent before 
   let pending: Promise<Response> | undefined;
   try {
     await mkdir(join(root, "case")); await writeFile(join(root, "case", "selected.txt"), "SYNTHETIC-HISTORICAL-QUEUE");
-    const provider = (baseURL: string) => ({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL}, models: {fixture: {}}}}});
+    const provider = (baseURL: string) =>nativeRow({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL}, models: {fixture: {}}}}});
     await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => provider("http://127.0.0.1:47831/v1"));
     const target = await protectedAiTarget(config, "fixture", "fixture");
     const profilePatch = {state: "approved" as const, scope: {workspaceId: workspace.id, matterId: "synthetic-queue-matter", jurisdictions: ["CZ" as const]}, targetFingerprint: target.fingerprint,

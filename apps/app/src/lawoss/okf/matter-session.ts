@@ -1,3 +1,4 @@
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import { t } from "@/i18n";
 import { joinDesktopPath, workspaceSetSelected, workspaceSetRuntimeActive } from "@/app/lib/desktop";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -12,7 +13,7 @@ import { openSessionWithPrompt, type OkfConnection } from "./connection";
 /** Only the actual record from this discovery may nominate a path. Titles are not identity.
  * Trailing dot is invalid only on Windows; elsewhere it is a normal client folder („ACME s.r.o.“). */
 export function resolveDiscoveredMatter(workspace: RouteWorkspace | null, selected: MatterOverview, discovered: readonly MatterOverview[]) {
-  if (!workspace?.id || !workspace.path || workspace.workspaceType === "remote") throw new Error(t("lawoss.integrations.error.local_workspace"));
+  if (!workspace?.id || !workspace.path || isRetiredRemoteWorkspace(workspace)) throw new Error(t("lawoss.integrations.error.local_workspace"));
   if (!discovered.includes(selected) || discovered.filter(record => record.path.toLocaleLowerCase() === selected.path.toLocaleLowerCase()).length !== 1) throw new Error(t("lawoss.integrations.error.matter_ambiguous"));
   const parts = selected.path === "" ? [] : selected.path.split("/");
   if (parts.some(part => !part || part === "." || part === ".." || part.trim() !== part || /[\\:%?#\u0000-\u001f]/.test(part) || (isWindowsPlatform() && /[. ]$/.test(part)))) throw new Error(t("lawoss.integrations.error.matter_path"));

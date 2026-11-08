@@ -27,6 +27,7 @@ import { findAudioModel } from "./model-catalog.mjs";
 import { macOsAtLeast } from "./mac-version.mjs";
 import { editTranscriptSpeakers, resolveSummarySpeakerNames } from "./transcript-edit.mjs";
 import { CloudTranscriber, isCloudTranscriptionModel } from "./cloud-transcriber.mjs";
+import { RecorderRequestError } from "./recorder-server-request.mjs";
 import { mergeSpeakerTurns } from "./cloud-speakers.mjs";
 import { mergeSpeakerWords, splitCloudTranscript } from "./cloud-transcript.mjs";
 
@@ -178,6 +179,7 @@ export class RecorderService {
      *   speakerPasses?: import("./deferred-cloud-speakers.mjs").DeferredCloudSpeakerPass[],
      *   cloudSegments?: Map<string, { streamId: string, original: import("@legalwork/types/audio").AudioTranscriptSegment, parts: import("@legalwork/types/audio").AudioTranscriptSegment[] }>,
      *   cloudPartials?: Map<string, import("@legalwork/types/audio").AudioTranscriptSegment>,
+     *   reconnectingInputs?: Set<string>,
      *   speakerTurns?: { startMs: number, endMs: number, speaker: number }[] | null,
      * }>}
      */
@@ -730,6 +732,25 @@ export class RecorderService {
           error: recording?.meta.transcriptionSource === "cloud" ? message.error : `Live speaker detection is unavailable: ${message.error}. Transcription is still running.` });
         break;
       }
+      case "stream-reconnecting":
+      case "stream-reconnected": {
+        if (!recording || recording.finishing || recording.cancelled) break;
+        const interrupted = message.type === "stream-reconnecting";
+        recording.reconnectingInputs ??= new Set();
+        if (interrupted) {
+          console.warn(`[recorder] Reconnecting live transcription for ${message.streamId}: ${message.error}`);
+          recording.reconnectingInputs.add(message.streamId);
+          // A reconnect cannot promise delivery of audio already sent to the
+          // broken connection. Keep that caveat on the saved transcript.
+          recording.meta.error ??= "Live transcription was interrupted. Some speech may be missing from the transcript. Your audio is saved on this device.";
+          recording.cloudPartials?.delete(message.streamId);
+          this.broadcast({ type: "transcript-partial-clear", streamId, endMs: Number.MAX_SAFE_INTEGER,
+            ...(input ? { source: input.source } : {}) });
+        } else recording.reconnectingInputs.delete(message.streamId);
+        this.broadcast({ type: "recording-transcription-status", recordingId: streamId,
+          reconnecting: recording.reconnectingInputs.size > 0 });
+        break;
+      }
       case "stream-error": {
         if (recording) {
           recording.meta.status = "error";
@@ -1154,10 +1175,13 @@ export class RecorderService {
         } };
       });
       this.broadcast({ type: "recording-updated", meta: updated.meta });
-    } catch {
+    } catch (error) {
       if (signal.aborted) return;
       const updated = await this.updateSavedTranscript(recordingId, saved => ({ ...saved, meta: { ...saved.meta,
-        summaryProcessing: false, summaryError: "Meeting notes could not be generated. Check your notes model and settings. Your transcript is saved." },
+        summaryProcessing: false, summaryError: error instanceof RecorderRequestError ? error.message
+          : error instanceof Error && error.name === "TimeoutError"
+            ? "Meeting notes took too long to generate. Try again. Your transcript is saved."
+            : "Meeting notes could not be generated. Try again or check your notes model and settings. Your transcript is saved." },
       })).catch(() => null);
       if (updated) this.broadcast({ type: "recording-updated", meta: updated.meta });
     }

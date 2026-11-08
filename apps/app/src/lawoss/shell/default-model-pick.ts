@@ -11,7 +11,8 @@ const NON_CHAT_ID_FRAGMENTS = ["image", "audio", "tts", "transcribe", "realtime"
 
 /** `modelID` is the catalogue key — the id that goes into the request. */
 export function isAgentCapableModel(modelID: string, model: ProviderModel): boolean {
-  if (model.capabilities?.toolcall !== true) return false;
+  // Engine v2: `capabilities.tools` (1.x `toolcall`).
+  if (model.capabilities?.tools !== true) return false;
   const id = modelID.toLowerCase();
   return !NON_CHAT_ID_FRAGMENTS.some((fragment) => id.includes(fragment));
 }

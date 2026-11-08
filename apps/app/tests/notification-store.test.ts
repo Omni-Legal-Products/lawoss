@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { createJSONStorage } from "zustand/middleware";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { countUnreadTasks, createNotificationStore } from "../src/react-app/kernel/notification-store";
 
-// Complete owned Storage object; production persist captures its object identity.
+// Minimal localStorage stub so the persisted zustand store works under bun.
 const storage = new Map<string, string>();
 const localStorageStub = {
   getItem: (key: string) => storage.get(key) ?? null,
@@ -17,36 +17,8 @@ const localStorageStub = {
     return storage.size;
   },
 };
-const { countUnreadTasks, useNotificationStore } = await (async()=>{
-  const previous = Object.getOwnPropertyDescriptor(globalThis,"localStorage");
-  try {
-    Object.defineProperty(globalThis,"localStorage",{value:localStorageStub,configurable:true});
-    return await import("../src/react-app/kernel/notification-store");
-  } finally {
-    if(previous)Object.defineProperty(globalThis,"localStorage",previous);else Reflect.deleteProperty(globalThis,"localStorage");
-  }
-})();
-
-function claimNotificationStorage() {
-  if(!useNotificationStore.persist?.getOptions || !useNotificationStore.persist.setOptions)throw new Error("Notification persistence must initialize before fixture ownership");
-  const previousDescriptor=Object.getOwnPropertyDescriptor(globalThis,"localStorage");
-  const previousState=useNotificationStore.getState(),previousOptions=useNotificationStore.persist.getOptions();
-  if(!previousOptions.storage)throw new Error("Notification persistence storage is missing");
-  const ownedStorage=createJSONStorage<Pick<ReturnType<typeof useNotificationStore.getState>,"notifications">>(()=>localStorageStub);
-  if(!ownedStorage)throw new Error("Notification fixture storage is unavailable");
-  const restore=()=>{
-    try{useNotificationStore.setState(previousState,true);}
-    finally{
-      try{useNotificationStore.persist.setOptions(previousOptions);}
-      finally{if(previousDescriptor)Object.defineProperty(globalThis,"localStorage",previousDescriptor);else Reflect.deleteProperty(globalThis,"localStorage");}
-    }
-  };
-  try {
-    Object.defineProperty(globalThis,"localStorage",{value:localStorageStub,configurable:true});
-    useNotificationStore.persist.setOptions({storage:ownedStorage});
-    return restore;
-  } catch(error) {restore();throw error;}
-}
+// Do not depend on when another suite first imported the app's singleton.
+const useNotificationStore = createNotificationStore(() => localStorageStub);
 
 function reset() {
   useNotificationStore.setState({ notifications: [] });
@@ -54,24 +26,7 @@ function reset() {
 }
 
 describe("notification store", () => {
-  let release:(()=>void)|undefined;
-  beforeEach(()=>{release=claimNotificationStorage();reset();});
-  afterEach(()=>{try{release?.();}finally{release=undefined;}});
-
-  test("fixture failure restores state, persistence options and original global descriptor",()=>{
-    const previousState=useNotificationStore.getState(),previousOptions=useNotificationStore.persist.getOptions();
-    const previousDescriptor=Object.getOwnPropertyDescriptor(globalThis,"localStorage"),failure=new Error("Synthetic notification fixture failure");
-    expect(()=>{
-      const restore=claimNotificationStorage();
-      try{useNotificationStore.getState().add({kind:"system",title:"Synthetic owned write"});throw failure;}
-      finally{restore();}
-    }).toThrow(failure);
-    expect(useNotificationStore.getState()).toBe(previousState);
-    expect(useNotificationStore.persist.getOptions().storage).toBe(previousOptions.storage);
-    expect(useNotificationStore.persist.getOptions().merge).toBe(previousOptions.merge);
-    expect(useNotificationStore.persist.getOptions().partialize).toBe(previousOptions.partialize);
-    expect(Object.getOwnPropertyDescriptor(globalThis,"localStorage")).toEqual(previousDescriptor);
-  });
+  beforeEach(reset);
 
   test("add creates an unread entry", () => {
     useNotificationStore.getState().add({

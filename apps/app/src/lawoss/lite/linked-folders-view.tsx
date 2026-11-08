@@ -5,6 +5,7 @@
  * `setAuthorizedFolders`), rovnaký zámok firmy ako natívny panel (`tools.permissions`). Model je
  * v `linked-folders.ts`.
  */
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderSymlink, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -145,7 +146,7 @@ export function takeLinkFolderRequest(workspaceId: string): boolean {
 
 /** Koncový bod projektu klienta zo spojenia OKF (lokálny server, id projektu ako ho čaká server); vzdialený = `null`. */
 function useClientEndpoint(connection: OkfConnection | null, workspaceId: string) {
-  const workspace = connection?.workspaces.find((w) => w.id === workspaceId && w.workspaceType !== "remote") ?? null;
+  const workspace = connection?.workspaces.find((w) => w.id === workspaceId && !isRetiredRemoteWorkspace(w)) ?? null;
   return useMemo(() => connection && workspace ? resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token }) : null,
     [connection?.baseUrl, connection?.token, workspace]);
 }

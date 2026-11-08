@@ -1,11 +1,23 @@
 import { wikiPanelTab } from "../src/react-app/domains/wiki/wiki-tabs";
 import { expect, test } from "bun:test";
-import { WikiSuggestionSchema, suggestionIdFromFile, wikiSuggestionFile } from "@legalwork/types/wiki-suggestions";
+import { WikiSuggestionSchema, suggestionIdFromFile, wikiSuggestionFile, wikiSuggestionContent } from "@legalwork/types/wiki-suggestions";
 import { suggestionLocation, suggestionPagePath, suggestionOutcome, suggestionTab } from "../src/react-app/domains/wiki/wiki-suggestion-model";
 import { createPanelTabStore, usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 
 const id = "c9f74905-3cab-400c-94c9-3d5a9e22736f";
 const draft = WikiSuggestionSchema.parse({ id, workspaceId: "originating-project", sessionId: "chat", status: "pending", title: "Knowledge", content: "# Knowledge", destination: { wikiId: "wiki", path: "Knowledge.md", baseRevision: null }, createdAt: 1, updatedAt: 1, revision: "r1", filePath: wikiSuggestionFile(id) });
+
+test("source links survive destination changes, escape filenames and disappear when the source is removed", () => {
+  expect(draft.attachments).toEqual([]);
+  const files = [{ path: `Sources/${id}/Judgment [1] (EU).pdf`, name: "Judgment [1] (EU).pdf" }];
+  const content = wikiSuggestionContent("# Finding", "EU/Privacy/Finding.md", files);
+  expect(content).toContain("[Judgment \\[1\\] (EU).pdf](../../Sources/");
+  expect(content).toContain("Judgment%20%5B1%5D%20%28EU%29.pdf");
+  const moved = wikiSuggestionContent(content, "Finding.md", files);
+  expect(moved).not.toContain("../Sources");
+  expect((moved.match(/## Source files/g) ?? [])).toHaveLength(1);
+  expect(wikiSuggestionContent(moved, "Finding.md", [])).toBe("# Finding");
+});
 
 test("suggestion results open a recoverable Markdown tab tied to the originating project", () => {
   const outcome = suggestionOutcome(JSON.stringify({ suggestion: draft, staged: true, published: false }));

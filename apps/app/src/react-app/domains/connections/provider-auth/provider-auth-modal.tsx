@@ -47,7 +47,8 @@ const methodPillToneClass = (type: ProviderAuthMethod["type"]) => {
     return "border-[rgba(var(--dls-accent-rgb),0.22)] bg-[rgba(var(--dls-accent-rgb),0.07)] text-dls-accent";
   return "border-dls-border bg-dls-hover text-dls-secondary";
 };
-import type { ProviderAuthAuthorization } from "@opencode-ai/sdk/v2/client";
+import type { FormInfo } from "@opencode/client";
+import { NativeFormPanel } from "../../session/modals/native-form-panel";
 import { t } from "@/i18n";
 import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import type {
@@ -55,6 +56,7 @@ import type {
   CustomProviderEditData,
   CustomProviderInstallInput,
   ProviderAuthMethod,
+  ProviderAuthorizationView,
   ProviderAuthProvider,
   ProviderOAuthStartResult,
 } from "./store";
@@ -65,7 +67,6 @@ import {
   type LocalRuntimeTemplate,
 } from "./local-templates";
 import { findCustomModelLimitProblem } from "./custom-provider-config";
-import { defaultOutputLimit } from "@legalwork/types/model-limits";
 import { ChatGptPlanCard } from "./chatgpt-plan-card";
 
 /** Base URLs that default to the Responses API (`@ai-sdk/openai`). */
@@ -111,15 +112,6 @@ function parseTokenCount(value: string): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-/**
- * Placeholder for an empty Output field: the default the engine will get for
- * the context window entered, or "auto" when there is none (no limit block is
- * written at all then, and the engine applies its own default).
- */
-function outputLimitPlaceholder(contextLimit: string): string {
-  const context = parseTokenCount(contextLimit);
-  return context === null ? "auto" : String(defaultOutputLimit(context));
-}
 
 function makeCustomModelDraft(id: string): CustomModelDraft {
   return { id, toolCall: true, reasoning: inferReasoningFromId(id), contextLimit: "", outputLimit: "" };
@@ -263,12 +255,12 @@ export type ProviderAuthModalProps = {
   preferredProviderId?: string | null;
   /** A subscription was already selected; start its OAuth without asking again. */
   startOAuth?: boolean;
-  workerType?: "local" | "remote";
+  workerType?: "local";
   providers: ProviderAuthProvider[];
   connectedProviderIds: string[];
   authMethods: Record<string, ProviderAuthMethod[]>;
-  onSelect: (providerId: string, methodIndex?: number) => Promise<ProviderOAuthStartResult>;
-  onSubmitApiKey: (providerId: string, apiKey: string) => Promise<string | void>;
+  onSelect: (providerId: string, methodIndex?: number, answer?: Record<string, string | number | boolean | readonly string[]>) => Promise<ProviderOAuthStartResult>;
+  onSubmitApiKey: (providerId: string, apiKey: string, answer?: Record<string, string | number | boolean | readonly string[]>) => Promise<string | void>;
   onSubmitCustomProvider?: (input: CustomProviderInstallInput) => Promise<string | void>;
   onFetchCustomModels?: (input: { baseURL: string; apiKey: string; providerId?: string }) => Promise<string[]>;
   onRefreshCustomProvider?: (providerId: string) => Promise<CustomProviderEditData | null>;
@@ -293,12 +285,12 @@ export type ProviderAuthModalProps = {
 };
 
 export default function ProviderAuthModal(props: ProviderAuthModalProps) {
-  const workerType = props.workerType === "remote" ? "remote" : "local";
-  const isRemoteWorker = workerType === "remote";
 
   const [view, setView] = useState<
-    "list" | "method" | "api" | "oauth-code" | "oauth-auto" | "custom"
+    "list" | "method" | "api" | "oauth-code" | "oauth-auto" | "custom" | "native-form"
   >("list");
+  const [formMethod, setFormMethod] = useState<ProviderAuthMethod | null>(null);
+  const [authAnswer, setAuthAnswer] = useState<Record<string, string | number | boolean | readonly string[]>>({});
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [oauthCodeInput, setOauthCodeInput] = useState("");
@@ -306,7 +298,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeEntryIndex, setActiveEntryIndex] = useState(0);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [pollingBusy, setPollingBusy] = useState(false);
   const [oauthAutoBusy, setOauthAutoBusy] = useState(false);
   const [oauthCodeCopied, setOauthCodeCopied] = useState(false);
   const [oauthBrowserOpened, setOauthBrowserOpened] = useState(false);
@@ -338,6 +329,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const [customAutoRefresh, setCustomAutoRefresh] = useState(false);
   const [customAutoRefreshTouched, setCustomAutoRefreshTouched] = useState(false);
   const [customSavedBaseURL, setCustomSavedBaseURL] = useState("");
+  const [customEndpointConfigured, setCustomEndpointConfigured] = useState(false);
   const [customRefreshStatus, setCustomRefreshStatus] = useState<CustomProviderEditData["modelRefresh"]>();
   const [customBusy, setCustomBusy] = useState(false);
   const customModelChoices = useMemo(() => [...new Set([
@@ -352,10 +344,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   });
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const providerPollRef = useRef<number | null>(null);
   const oauthAutoPollRef = useRef<number | null>(null);
   const oauthCodeCopiedResetRef = useRef<number | null>(null);
-  const pollingBusyRef = useRef(false);
   const oauthSubmitBusyRef = useRef(false);
   const oauthAutoBusyRef = useRef(false);
   const oauthStartBusyRef = useRef(false);
@@ -447,8 +437,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
           if (!isOpenAiProvider(id, provider?.name)) return true;
           if (method.type !== "oauth") return true;
           if (!props.allowChatGptSubscription) return false;
-          if (isRemoteWorker) return isOpenAiHeadlessMethod(method);
-          return !isOpenAiHeadlessMethod(method);
+          return true;
         });
         if (entryMethods.length === 0) return [];
         return [{
@@ -518,7 +507,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
     return nextEntries;
   }, [
-    isRemoteWorker,
     props.allowChatGptSubscription,
     props.authMethods,
     props.connectedProviderIds,
@@ -622,21 +610,13 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setCustomAutoRefresh(false);
     setCustomAutoRefreshTouched(false);
     setCustomSavedBaseURL("");
+    setCustomEndpointConfigured(false);
     setCustomRefreshStatus(undefined);
     customModelsFocusRef.current = false;
-    pollingBusyRef.current = false;
     oauthSubmitBusyRef.current = false;
     oauthAutoBusyRef.current = false;
     oauthStartBusyRef.current = false;
-    setPollingBusy(false);
     setOauthAutoBusy(false);
-  };
-
-  const stopProviderPolling = () => {
-    if (providerPollRef.current !== null) {
-      window.clearInterval(providerPollRef.current);
-      providerPollRef.current = null;
-    }
   };
 
   const stopOauthAutoPolling = () => {
@@ -649,7 +629,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const handleClose = () => {
     void props.onRefreshProviders?.();
     stopOauthAutoPolling();
-    stopProviderPolling();
     resetState();
     props.onClose();
   };
@@ -666,13 +645,14 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setCustomAutoRefresh(edit.modelRefresh?.enabled === true);
     setCustomAutoRefreshTouched(true);
     setCustomSavedBaseURL(edit.baseURL.trim().replace(/\/+$/, ""));
+    setCustomEndpointConfigured(edit.endpointConfigured === true || Boolean(edit.baseURL));
     setCustomRefreshStatus(edit.modelRefresh);
     setCustomEditMode(true);
     setCustomFixedProviderId(edit.providerId);
     setCustomBrandName(null);
     setCustomName(edit.name);
     setCustomBaseURL(edit.baseURL);
-    setCustomBaseUrlPlaceholder(DEFAULT_BASE_URL_PLACEHOLDER);
+    setCustomBaseUrlPlaceholder(edit.endpointConfigured && !edit.baseURL ? t("provider_auth.saved_endpoint_kept") : DEFAULT_BASE_URL_PLACEHOLDER);
     setCustomApiType(edit.apiType);
     setCustomApiTypeTouched(true);
     setCustomApiKey("");
@@ -760,55 +740,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     return () => {
       oauthStartTokenRef.current += 1;
       stopOauthAutoPolling();
-      stopProviderPolling();
       if (oauthCodeCopiedResetRef.current !== null) {
         window.clearTimeout(oauthCodeCopiedResetRef.current);
         oauthCodeCopiedResetRef.current = null;
       }
     };
   }, []);
-
-  const isOauthView = resolvedView === "oauth-code" || resolvedView === "oauth-auto";
-  const activeProviderId = oauthSession?.providerId ?? selectedProviderId;
-  const isActiveProviderConnected =
-    !!activeProviderId && (props.connectedProviderIds ?? []).includes(activeProviderId);
-
-  const pollProviders = async () => {
-    const id = activeProviderId;
-    if (!id || pollingBusyRef.current) return;
-    pollingBusyRef.current = true;
-    setPollingBusy(true);
-    try {
-      await props.onRefreshProviders?.();
-    } finally {
-      pollingBusyRef.current = false;
-      setPollingBusy(false);
-    }
-    if ((props.connectedProviderIds ?? []).includes(id)) {
-      handleClose();
-    }
-  };
-
-  const startProviderPolling = () => {
-    if (typeof window === "undefined") return;
-    if (providerPollRef.current !== null) return;
-    void pollProviders();
-    providerPollRef.current = window.setInterval(() => {
-      void pollProviders();
-    }, 2000);
-  };
-
-  useEffect(() => {
-    if (!props.open || !isOauthView) {
-      stopProviderPolling();
-      return;
-    }
-    if (isActiveProviderConnected) {
-      handleClose();
-      return;
-    }
-    startProviderPolling();
-  }, [isActiveProviderConnected, isOauthView, props.open]);
 
   const openOauthUrl = async (url: string) => {
     if (!url) return;
@@ -842,9 +779,14 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
     const trimmedCode = code?.trim();
     oauthSubmitBusyRef.current = true;
+    const startToken = oauthStartTokenRef.current;
     setLocalError(null);
     try {
-      return await props.onSubmitOAuth(providerId, methodIndex, trimmedCode || undefined);
+      const result = await props.onSubmitOAuth(providerId, methodIndex, trimmedCode || undefined);
+      // Existing API keys or firm connections do not complete this sign-in.
+      // Only the current native attempt may close the dialog and its listener.
+      if (startToken === oauthStartTokenRef.current && result?.connected) handleClose();
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : t("providers.oauth_failed");
       setLocalError(message);
@@ -861,8 +803,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setOauthAutoBusy(true);
     try {
       const result = await submitOauth(session.providerId, session.methodIndex);
-      if (result?.connected) {
-        stopOauthAutoPolling();
+      if (!result?.connected && result?.message) {
+        setOauthSession(current => current ? { ...current, authorization: { ...current.authorization, instructions: result.message } } : current);
       }
     } finally {
       oauthAutoBusyRef.current = false;
@@ -887,7 +829,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     startOauthAutoPolling();
   }, [shouldStartOauthAutoPolling]);
 
-  const startOauth = async (entry: ProviderAuthEntry, methodIndex?: number) => {
+  const startOauth = async (entry: ProviderAuthEntry, methodIndex?: number, answer?: Record<string, string | number | boolean | readonly string[]>) => {
     if (actionDisabled || oauthStartBusyRef.current) return;
     if (!Number.isInteger(methodIndex) || methodIndex === undefined) {
       setLocalError(`No OAuth flow available for ${entry.name}.`);
@@ -901,7 +843,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setOauthCodeCopied(false);
     setOauthBrowserOpened(false);
     try {
-      const started = await props.onSelect(entry.id, methodIndex);
+      const started = await props.onSelect(entry.id, methodIndex, answer);
       if (startToken !== oauthStartTokenRef.current) return;
       const selectedMethod = entry.methods.find((method) => method.methodIndex === methodIndex);
       if (!selectedMethod) {
@@ -921,7 +863,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         return;
       }
 
-      if (!isOpenAiHeadlessMethod(selectedMethod)) {
+      if (started.authorization.url && !isOpenAiHeadlessMethod(selectedMethod)) {
         await openOauthUrl(started.authorization.url);
       }
 
@@ -940,8 +882,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
    * t("provider_auth.sign_in_eigenwelt"): the LegalWork server owns the OAuth loopback +
    * code exchange. We open the authorize URL, show the standard oauth-auto
    * waiting view with a synthetic session, and await the server long-poll.
-   * On success the provider flips connected and the existing provider polling
-   * closes the modal; on failure the error surfaces in the modal.
+   * Only the finalized sign-in result closes the modal; an existing provider
+   * connection is not proof that this new sign-in completed.
    */
   const startEigenweltOauth = async (entry: ProviderAuthEntry) => {
     if (!props.onEigenweltSignIn || actionDisabled || oauthStartBusyRef.current) return;
@@ -961,7 +903,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         // Synthetic session: there is no engine OAuth method behind it.
         methodIndex: -1,
         methodLabel: t("provider_auth.sign_in_eigenwelt"),
-        authorization: { url: started.authorizeUrl, method: "auto" } as ProviderAuthAuthorization,
+        authorization: { url: started.authorizeUrl, method: "auto" } as ProviderAuthorizationView,
       });
       await openOauthUrl(started.authorizeUrl);
       setView("oauth-auto");
@@ -1001,7 +943,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       return;
     }
 
-    if (method.type === "oauth") {
+    if (method.form?.length) {
+      setFormMethod(method);
+      setView("native-form");
+      return;
+    }
+    if (method.type !== "api") {
       await startOauth(entry, method.methodIndex);
       return;
     }
@@ -1069,7 +1016,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
     setLocalError(null);
     try {
-      await props.onSubmitApiKey(selectedEntry.id, trimmed);
+      await props.onSubmitApiKey(selectedEntry.id, trimmed, authAnswer);
       // Close the modal after a successful save
       props.onClose();
     } catch (error) {
@@ -1112,7 +1059,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
   const fetchCustomModels = async () => {
     const base = customBaseURL.trim().replace(/\/+$/, "");
-    if (!base) {
+    if (!base && !customEndpointConfigured) {
       setLocalError("Enter a base URL first.");
       return;
     }
@@ -1150,6 +1097,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   // Open the custom form fresh — blank for the generic entry, pre-branded
   // (fixed id, name, API type, Base-URL hint) for a branded provider.
   const startCustomProvider = (branded?: BrandedCustomProvider) => {
+    setCustomEndpointConfigured(false);
     setCustomAutoRefresh(false);
     setCustomAutoRefreshTouched(false);
     setCustomSavedBaseURL("");
@@ -1181,6 +1129,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   // top of an otherwise-blank custom form. Provider id derives from the name
   // (not fixed), so several local providers can coexist.
   const startLocalProvider = () => {
+    setCustomEndpointConfigured(false);
     setCustomEditMode(false);
     setCustomFixedProviderId(null);
     setCustomBrandName("Local model");
@@ -1231,7 +1180,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       setLocalError("Name is required.");
       return;
     }
-    if (!baseURL) {
+    if (!baseURL && !customEndpointConfigured) {
       setLocalError("Base URL is required.");
       return;
     }
@@ -1252,9 +1201,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     if (limitProblem) {
       setLocalError(
         t(
-          limitProblem.reason === "output-needs-context"
-            ? "providers.output_limit_needs_context"
-            : "providers.output_limit_too_large",
+          "providers.output_limit_too_large",
           { model: limitProblem.modelId },
         ),
       );
@@ -1272,6 +1219,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         apiType: customApiType,
         models,
         autoRefresh: customAutoRefresh,
+        preserveExistingEndpoint: customEditMode && customEndpointConfigured && !baseURL,
       });
       props.onClose();
     } catch (error) {
@@ -1373,9 +1321,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const methodDescription = (entry: ProviderAuthEntry, method: ProviderAuthMethod) => {
     const label = methodLabel(method).toLowerCase();
     if (isOpenAiProvider(entry.id, entry.name) && (label.includes("headless") || label.includes("device"))) {
-      return isRemoteWorker
-        ? t("provider_auth.device_flow_remote")
-        : t("provider_auth.device_flow_unreliable");
+      return t("providers.browser_continue_hint");
     }
     if (isAnthropicProvider(entry.id, entry.name) && isClaudeSubscriptionMethod(method)) {
       return t("providers.claude_signin_hint");
@@ -1619,6 +1565,23 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                 </div>
               ) : null}
 
+              {resolvedView === "native-form" && selectedEntry && formMethod?.form ? (
+                <NativeFormPanel form={{ id: `integration:${selectedEntry.id}`, sessionID: "", title: formMethod.label, fields: formMethod.form }} busy={actionDisabled} submitLabel={t("common.continue")} onReply={answers => {
+                  const answer: Record<string, string | number | boolean | readonly string[]> = {};
+                  const fields = formMethod.form;
+                  if (!fields) return;
+                  for (const [index, field] of fields.entries()) {
+                    if (field.type === "external") continue;
+                    const value = answers[index] ?? [];
+                    if (!value.length) continue;
+                    answer[field.key] = field.type === "multiselect" ? value : field.type === "boolean" ? value[0] === "true" : field.type === "integer" || field.type === "number" ? Number(value[0]) : value[0];
+                  }
+                  setAuthAnswer(answer);
+                  if (formMethod.type === "api") setView("api");
+                  else void startOauth(selectedEntry, formMethod.methodIndex, answer);
+                }} />
+              ) : null}
+
               {resolvedView === "api" && selectedEntry ? (
                 <div className={`${surfaceCardClass} space-y-4`}>
                   <div className="flex items-center justify-between gap-4">
@@ -1785,7 +1748,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 text-xs text-dls-secondary">
-                      <Loader2 size={14} className={props.submitting || pollingBusy || oauthAutoBusy ? "animate-spin" : ""} />
+                      <Loader2 size={14} className={props.submitting || oauthAutoBusy ? "animate-spin" : ""} />
                       <span>{t("providers.checking_status")}</span>
                     </div>
                   )}
@@ -1977,7 +1940,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                         variant="outline"
                         size="sm"
                         onClick={() => void fetchCustomModels()}
-                        disabled={actionDisabled || customBusy || customFetching || !customBaseURL.trim()}
+                        disabled={actionDisabled || customBusy || customFetching || !customBaseURL.trim() && !customEndpointConfigured}
                       >
                         {customFetching ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
                         {t(customFetching ? "provider_auth.loading_models" : customEditMode ? "provider_auth.refresh_models" : "provider_auth.fetch_from_endpoint")}
@@ -2068,7 +2031,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                                         <input
                                           type="text"
                                           inputMode="numeric"
-                                          placeholder={outputLimitPlaceholder(model.contextLimit)}
+                                          placeholder="auto"
                                           title={t("providers.output_limit_hint")}
                                           value={model.outputLimit}
                                           onChange={(event) =>
@@ -2172,7 +2135,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                   customBusy ||
                   customFetching ||
                   !customName.trim() ||
-                  !customBaseURL.trim() ||
+                  !customBaseURL.trim() && !customEndpointConfigured ||
                   customModels.length === 0
                 }
               >

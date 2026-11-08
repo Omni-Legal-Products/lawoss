@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListView as ProviderListResponse } from "../src/app/types";
 import { t } from "../src/i18n";
 import { AI_SETTINGS_PATH, matterModelGap } from "../src/lawoss/lite/matter-model";
 import { LiteMatterView } from "../src/lawoss/lite/pages/matter-page";
@@ -14,7 +14,7 @@ const providerList = (connected: string[], models: Record<string, string[]>): Pr
       name: id,
       env: [],
       source: "api",
-      models: Object.fromEntries(ids.map((modelId) => [modelId, { id: modelId, name: modelId, capabilities: { toolcall: true } }])),
+      models: Object.fromEntries(ids.map((modelId) => [modelId, { id: modelId, name: modelId, capabilities: { tools: true } }])),
     })),
     connected,
     default: {},

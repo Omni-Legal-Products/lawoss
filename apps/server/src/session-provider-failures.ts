@@ -1,5 +1,5 @@
 import { dirname } from "node:path";
-import type { SessionMessagesResponse2 } from "@opencode-ai/sdk/v2/client";
+import type { SessionMessageInfo } from "@opencode/client";
 import { z } from "zod";
 import { initializeSqlite } from "./runtime-db.js";
 import { runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
@@ -32,19 +32,20 @@ export function recordSessionProviderFailure(config: ServerConfig, workspaceId: 
 
 /** A failed request is evidence of a failed turn only after its terminal idle snapshot.
  * Successful SDK retries and intermediate tool steps always take precedence. */
-export function applySessionProviderFailures(config: ServerConfig, workspaceId: string, sessionId: string, messages: SessionMessagesResponse2, idle: boolean): Promise<SessionMessagesResponse2> {
+export function applySessionProviderFailures(config: ServerConfig, workspaceId: string, sessionId: string, messages: SessionMessageInfo[], idle: boolean): Promise<SessionMessageInfo[]> {
   if (!idle) return Promise.resolve(messages);
   return withRuntimeDb(config, async () => {
     const rows = (await store(config)).all("SELECT message_id,code FROM session_provider_failures WHERE workspace_id=? AND session_id=?", [workspaceId, sessionId]);
     const failed = new Set(rows.filter(row => row.code === "gemini_thought_signature").map(row => row.message_id));
+    // Engine v2: compaction is its own message type, so an assistant message is never a summary.
     return messages.map(message => {
-      if (message.info.role !== "assistant" || message.info.providerID !== "openrouter" || !/^google\/gemini-3(?:[.-]|$)/.test(message.info.modelID) || message.info.summary || message.info.error || message.info.finish || !message.info.time.completed
-        || message.parts.some(part => part.type === "text" && part.text.trim())) return message;
-      return { ...message, info: { ...message.info, error: { name: "UnknownError", data: {
-        message: failed.has(message.info.id)
+      if (message.type !== "assistant" || message.model.providerID !== "openrouter" || !/^google\/gemini-3(?:[.-]|$)/.test(message.model.id) || message.error || message.finish || !message.time.completed
+        || message.content.some(part => part.type === "text" && part.text.trim())) return message;
+      return { ...message, error: { type: "UnknownError",
+        message: failed.has(message.id)
           ? "The provider rejected this turn with a corrupted Gemini thought signature. The request did not complete. Send a new request after checking the provider connection."
           : "This model turn is incomplete: the engine became idle without a final answer or recorded error. Its cause is unknown. Send a new request to continue.",
-      } } } };
+      } };
     });
   });
 }

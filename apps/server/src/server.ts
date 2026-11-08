@@ -5,26 +5,39 @@ import { ProtectedDocumentRuntime } from "./lawoss/protected-ai/runtime.js";
 import { protectedGuestBundleFactory } from "./lawoss/protected-ai/bundle.js";
 import { registerProtectedDocumentProfileRoutes } from "./lawoss/protected-ai/profiles.js";
 import { registerProtectedDocumentRoutes } from "./lawoss/protected-ai/routes.js";
+import { endpointChangeConflicts, type LegacyProviderRow, mergeProviderConflicts, providerOverwriteConflicts } from "./lawoss/provider-overwrite.js";
 import { documentLinkedFolders, linkedFoldersMapRefresher, nestedClientRoots, requireLinkableExternalDirectory, requireLinkableFolders } from "./lawoss/linked-folders.js";
-import { protectedEngineFetch, protectedSessionResponse, registerProtectedRuntime } from "./lawoss/protected-ai/dispatch.js";
+import { protectedSessionResponse, registerProtectedRuntime } from "./lawoss/protected-ai/dispatch.js";
 import { retainWikiAgentRuntime } from "./wiki/agent-access.js";
-import { createGovernedEngineFetch, governedOcrTransport, requireGovernedEngineDispatch, requireAiBoundariesAdmission } from "./lawoss/ai-governance-engine.js";
+import { governedOcrTransport, requireGovernedEngineDispatch, requireAiBoundariesAdmission } from "./lawoss/ai-governance-engine.js";
 import { registerDeadlineRoutes } from "./lawoss/deadlines/routes.js";
 import { acquireRuntimeDbLifetime, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { resolveWorkspaceFilePath, recheckWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { LawossDocuments } from "./lawoss/documents/service.js";
 import { registerLawossDocumentRoutes } from "./routes/lawoss-documents.js";
-import { engineCurrentProject, engineProjectWorktree, scopeSessionListQuery, workspaceListsSession } from "./lawoss/session-list-scope.js";
-import { assertEngineRouteScoped, scopeProjectList } from "./lawoss/engine-route-scope.js";
 import { sessionFolder, sessionOwnershipChecked, workspaceReadsSession } from "./lawoss/session-ownership.js";
-import { sessionInfoSchema } from "./session-read-model.js";
-import { historicalWorkspaceSessions } from "./lawoss/workspace-history-sessions.js";
 import { getWorkspaceMemoryContext, getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
 import { readMatterMemoryForChat, writeMatterMemoryForChat } from "./lawoss/matter-memory.js";
-import { readSkillPackageFile } from "./skill-package.js";
+import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
+import { createAssistantRuntime } from "./assistant-runtime.js";
+import { browserPasswords } from "./browser-passwords.js";
+import { createNodeRawHttpTransport } from "./agent-sandbox/raw-http-node.js";
+import { isRpcError } from "@opencode/client";
+import { createToolImageRaster } from "./tool-image-raster.js";
+import { resolveNodeToolImageRasterRuntime } from "./tool-image-raster-runtime.js";
+import { registerToolImageOriginalRoutes } from "./routes/tool-image-originals.js";
+import { toolImageOriginalStore } from "./tool-image-original-store.js";
+import { startToolImageOriginalLifecycle } from "./tool-image-original-lifecycle.js";
+import { LegalMemoryPermissionReplySchema } from "./native-shared-values.js";
+import { isRetiredRemoteWorkspace } from "./native-shared-values.js";
+import { requestResourceChange } from "./request-resource-change.js";
+import { inspectSkillPackage, readSkillPackageFile } from "./skill-package.js";
+// LAWOSS: rozpočet RAM 2 GB – MCP len pre otvorených klientov (lawoss/engine-mcp-budget.ts, issue #367, ADR 0017).
+import { createEngineDirectoryLanes, createEngineMcpBudget, engineMcpBudgetSettings, engineSessionAction, initializesEngineMcp, readsEngineConfig, type EngineMcpBudget, type EngineScope } from "./lawoss/engine-mcp-budget.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
-import { stopMessageQueue } from "./session-message-queue.js";
-import { withSessionExecution } from "./session-execution-gate.js";
+import { registeredMessageQueue, stopMessageQueue } from "./session-message-queue.js";
+import { dispatchQueueAction } from "./session-dispatch.js";
+import { withSessionExecution, withSessionDispatch } from "./session-execution-gate.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
@@ -50,35 +63,44 @@ import { SystemOneConfigurationSchema } from "./systemone-schema.js";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, realpath, writeFile, rm, stat } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { LEGALMEMORY_EXPORT_DIR, safeExportFilename, safeExportRelativePath } from "./legalmemory-export.js";
 import {
   collectLegalMemoryFolderFiles,
-  engineAccessToken,
   fetchLegalMemoryDocument,
   fetchLegalMemoryGraph,
   fetchLegalMemoryTreeChildren,
   fetchLegalMemoryTreeRoots,
   fetchLegalMemoryTreeSearch,
-  resolveLegalMemoryServer,
 } from "./legalmemory-fetch.js";
+import { createNativeLegalMemoryClient, legalMemoryRouteError, listNativeLegalMemoryPermissions, replyNativeLegalMemoryPermission } from "./legalmemory-native.js";
 import { fileURLToPath } from "node:url";
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { assertManagedHistoryReadable, createEngineClient, getWorkspaceEngineSession, getWorkspaceEngineSessionOrNull, listEngineMessages, listEngineSessions, workspaceEngineLocation } from "./engine-client.js";
+import { canonicalFilePath } from "./file-write-lock.js";
+import { scopedNativeEvents } from "./native-proxy-events.js";
+import { nativeProxyPath, assertNativeProxyRoute, nativeProxySessionID, assertNativeProxyDirectory, nativeProxyFilePath, pathWithin } from "./native-proxy-policy.js";
+import { publicNativeConfigSnapshot } from "./native-client-projection.js";
+import { mergePrivateProviderEdits, mergeNativeFields, mergeProviderModelSelection } from "./native-provider-edit.js";
+import { mergeNativeToolPermissionRules, nativeToolPermissionUpdatesSchema, type NativePermissionRule } from "./native-permission-edit.js";
+import { permissionPatternMatches } from "./agent-sandbox/permissions.js";
+import { projectPermissionEffect, rememberedProjectFolderRules } from "./project-permission-approvals.js";
 import OpenAI from "openai";
 import type { RealtimeFunctionTool } from "openai/resources/realtime/realtime";
-import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
-import { announceSyncChange, syncEventStream } from "./app-sync-events.js";
+import type { ApprovalRequest, Capabilities, ServerConfig, ServerRuntimeOptions, WorkspaceInfo, WorkspaceMetadata, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
+import { announceSyncChange, onSyncChange, syncEventStream } from "./app-sync-events.js";
 import { ApprovalService } from "./approvals.js";
 import { AgentSandboxService } from "./agent-sandbox/service.js";
 import { explicitFileApprovals, managedPermissionRules } from "./agent-sandbox/engine-policy.js";
+import { rememberNativeChatApproval, listNativeProjectApprovals, removeNativeProjectApproval, updateNativeProjectApproval } from "./native-folder-approval.js";
 import { registerAgentSandboxRoutes } from "./routes/agent-sandbox.js";
-import { assertNoHostShellInterpolation, assertSandboxProxyAllowed, sandboxSessionBody } from "./agent-sandbox/proxy-gate.js";
+import { assertSandboxProxyAllowed, sandboxSessionBody } from "./agent-sandbox/proxy-gate.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
-import { addMcp, existingMcpScope, listMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled, type McpScope } from "./mcp.js";
+import { addMcp, existingMcpScope, listMcp, listMcpDisplay, mcpEditRemovalsSchema, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled, type McpScope } from "./mcp.js";
+import { projectNativeClientRead } from "./native-client-projection.js";
 import { probeMcpServer, registerMcpClient } from "./mcp-probe.js";
-import { abortable, cachedEngineResponse, sharedEngineResponse } from "./engine-warmup-gate.js";
-import { McpRecovery } from "./mcp-recovery.js";
+import { mcpRecovery, recoverWorkspaceMcp } from "./workspace-mcp-recovery.js";
+import { readNativeWorkspaceConfig } from "./native-workspace-config.js";
 import { deleteSkill, listSkills, resolveHubSkillKind, skillPathForScope, upsertSkill, type SkippedSkill } from "./skills.js";
 import {
   deleteSkillResource,
@@ -91,8 +113,7 @@ import {
 import { installHubSkill, listHubSkills } from "./skill-hub.js";
 import { scanGithubSkills, installGithubSkills, promoteSkillToWorkflow } from "./github-skills.js";
 import { deleteCommand, listCommands, repairCommands, upsertCommand } from "./commands.js";
-import { ApiError, formatError, projectFileError } from "./errors.js";
-import { resolveWithinRoot } from "./paths.js";
+import { ApiError, findApiError, formatError, projectFileError } from "./errors.js";
 import { readJsoncFile, updateJsoncTopLevel, writeJsoncFile } from "./jsonc.js";
 import { recordAudit, readAuditEntries, readLastAudit } from "./audit.js";
 import { ReloadEventStore } from "./events.js";
@@ -110,6 +131,9 @@ import { WIKI_AGENT_TICKET_PATH } from "./lawoss/engine-agent-contract.js";
 import { EnvService } from "./env-file.js";
 import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports, withPluginImportLock } from "./plugin-imports.js";
 import { createdPluginId, parsePluginCreateRequest, planPluginCreation, pluginCreateOptions } from "./plugin-create.js";
+import { configureResearchDatabase } from "./legal-research.js";
+import { researchExperience, researchExperienceOwner, researchWebsiteExperienceOwner, withResearchExperience } from "./research-experience.js";
+import { researchExperienceAction } from "./research-experience-schema.js";
 import { installPluginImport, rollbackPluginImport, assertPluginUnmodified } from "./plugin-import-install.js";
 import { preparePluginImport, reviewedPluginImport, assertImportable, currentPluginImportTarget } from "./plugin-import-checks.js";
 import { assertPluginDestination, installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin, resolveWorkspaceInstallPath } from "./cloud-plugins.js";
@@ -121,7 +145,8 @@ import {
   sanitizeLegalworkTemplateConfig,
 } from "./blueprint-sessions.js";
 import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
-import { seedOpencodeSessionMessages } from "./opencode-db.js";
+import { OpenCode } from "@opencode/client";
+import { createSeededOpencodeSession } from "./opencode-db.js";
 import { listPortableFiles } from "./portable-files.js";
 import {
   buildWorkspaceImportPreview,
@@ -143,7 +168,7 @@ import { handleWordAddinRequest, loadWordAddinTls, setAnalyticsConsent, WORD_ADD
 import { OfficeToolRelay } from "./office-tools.js";
 import { OfficeConnectionService, loadOfficeConnectionToken } from "./office-connection.js";
 import { registerOfficeToolRoutes } from "./routes/office-tools.js";
-import { BenchmarkRunner, type BenchmarkOpencodeClient } from "./benchmarks/runner.js";
+import { BenchmarkRunner } from "./benchmarks/runner.js";
 import { openBenchmarkStore } from "./benchmarks/store.js";
 import { registerBenchmarkRoutes } from "./routes/benchmarks.js";
 import { registerStorageRoutes } from "./routes/file-storage.js";
@@ -157,7 +182,7 @@ import { registerCalendarRoutes } from "./routes/calendar.js";
 import { registerReviewRoutes } from "./routes/reviews.js";
 import { ReviewDefaults } from "./reviews/storage.js";
 import { ReviewLibrary } from "./reviews/library.js";
-import { closeRuntimeOpencodeConfig, runtimeStorageDir } from "./runtime-opencode-config-store.js";
+import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { registerDocumentPreparationRoutes } from "./routes/document-preparation.js";
 import { registerOcrRoutes } from "./routes/ocr.js";
 import { OcrManager } from "./ocr/manager.js";
@@ -171,28 +196,38 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
+import { registerToolOutputRoutes } from "./routes/tool-output.js";
+import { registerEngineCredentialRoutes, engineCredentialMetadata, disconnectEngineCredential } from "./routes/engine-credentials.js";
+import { registerNativeCommandDefinitionRoutes } from "./routes/native-command-definitions.js";
+import { registerEngineProjectRoutes } from "./routes/engine-project.js";
+import { registerBrowserRoutes } from "./routes/browser.js";
+import { registerMcpOAuthRoutes } from "./routes/mcp-oauth.js";
+import { assertEngineProjectReady, engineProjectStatus } from "./engine-project.js";
+import { assertSessionHistoryReady } from "./session-history-undo.js";
+import { restoreLegacySessionPermissions } from "./session-history-permissions.js";
+import { readCurrentHistory } from "./current-history-state.js";
+import { assertManagedCommandIntegration, interruptEngineSession } from "./native-command-control.js";
+import { isInternalSession } from "./native-shared-values.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerOnboardingRoutes, type OnboardingApplyCheckpoint } from "./lawoss/onboarding.js";
 import { LawossOcrManager, registerLawossOcrRoutes } from "./lawoss/ocr-opt-in.js";
 import { registerLawossMarketplaceRoutes } from "./lawoss/marketplace-routes.js";
-// LAWOSS: rozpočet RAM 2 GB – MCP len pre otvorených klientov (lawoss/engine-mcp-budget.ts, issue #367).
-import { createEngineDirectoryLanes, createEngineMcpBudget, engineMcpBudgetSettings, engineSessionAction, initializesEngineMcp, readsEngineConfig, settleWithin, type EngineMcpBudget, type EngineScope } from "./lawoss/engine-mcp-budget.js";
 import { startWeeklyMarketplaceCheck } from "./lawoss/marketplace-updates.js";
+import { prepareConnectorStorage } from "./connectors/store.js";
 import {
   applyGlobalToolPermissions,
+  bootstrapRuntimeOpencodeConfig,
   GLOBAL_PERSONALIZATION_ID,
-  GLOBAL_PROVIDERS_ID,
   GLOBAL_TOOL_PERMISSIONS_ID,
+  GLOBAL_PROVIDERS_ID,
+  readGlobalProviderMap,
   isPersonality,
   MAX_CUSTOM_INSTRUCTIONS_LENGTH,
   mergeOpencodeConfigs,
-  mergeRuntimeProviderPatch,
   readGlobalPersonalizationSettings,
-  readGlobalProviderMap,
   readGlobalToolPermissions,
   readRuntimeOpencodeConfig,
   GLOBAL_MCP_ID,
-  runtimeMcpMap,
   type RuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
@@ -206,17 +241,23 @@ import {
 import {
   buildLegalworkRuntimeConfigObject,
   buildOrgPolicyEngineLayerFor,
-  legalworkRuntimeConfigFilePath,
   readEngineEigenweltProvider,
   writeLegalworkRuntimeConfigFile,
+  publishRuntimeConfigChanges,
 } from "./legalwork-runtime-config.js";
-import { isDeepStrictEqual } from "node:util";
-import { providerRepairNotices, repairRuntimeProviders } from "./runtime-provider-repair.js";
-import { endpointChangeConflicts, type LegacyProviderRow, mergeProviderConflicts, providerOverwriteConflicts } from "./lawoss/provider-overwrite.js";
+import { providerRepairNotices } from "./runtime-provider-repair.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
 import { createCustomProviderModelRefresh, providerBaseURL, readModelRefreshSettings, readStoredProviderApiKey } from "./custom-provider-model-refresh.js";
+// LAWOSS: provider model refresh reads only the bundled catalog (no network).
 import { bundledProviderModelCatalog } from "./lawoss/bundled-provider-catalog.js";
+import { runtimeEngineConfiguration, upgradeRuntimeConfigRecord } from "./runtime-config-upgrade.js";
+import { backupRuntimeConfigSource } from "./runtime-config-source-backup.js";
+import { Config } from "@opencode/schema/config";
+import { connectorCommandFields } from "./native-mcp-config.js";
+import { openRememberedApprovalStore } from "./remembered-approvals.js";
+import { Schema } from "effect";
 import { modelCatalogSettingsSchema } from "./model-catalog.js";
+import { nativeModelCatalogInventory } from "./native-model-catalog-rpc.js";
 import {
   EigenweltSignInTimeoutError,
   eigenweltHasPremiumModels,
@@ -236,7 +277,6 @@ import {
   writeCachedEigenweltPaidManifest,
 } from "./eigenwelt-paid-manifest.js";
 import {
-  closeEigenweltConnection,
   readEigenweltConnection,
   readEigenweltEntitlementsView,
   writeEigenweltConnection,
@@ -274,7 +314,7 @@ import { closeFirmHubRuntime, firmHubConnectorNames, firmHubSkills, onFirmHubCha
 import { appliedOrgPolicy, closeOrgPolicyRuntime, onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyAllows, requireOrgPolicyToolsUnmanaged, requireOrgPolicyUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
 import { orgPolicyEngineLayerIntact, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
 import { allowedMemberConnectors, requireConnectorAllowed, requireHubInstallAllowed } from "./org-policy-items.js";
-import { orgOcr } from "./org-policy-ai.js";
+import { orgChatEngineIds, orgEnabledProviders, orgOcr } from "./org-policy-ai.js";
 import { isOrgPolicyKey } from "./org-policy-schema.js";
 import {
   EIGENWELT_INTAKE_MAX_UPLOAD_BYTES,
@@ -436,13 +476,13 @@ function legacyRuntimeConfigFromLegalworkConfig(legalwork: Record<string, unknow
 
   return {
     keys,
-    config: {
+    config: upgradeRuntimeConfigRecord({
       ...(plugin.length ? { plugin } : {}),
       ...(Object.keys(mcp).length ? { mcp } : {}),
       ...(externalDirectory ? { permission: { external_directory: externalDirectory } } : {}),
       ...(provider ? { provider } : {}),
       ...(agent ? { agent } : {}),
-    },
+    }, { scope: "workspace" }).configuration,
   };
 }
 
@@ -482,14 +522,14 @@ function userRuntimeConfigFromOpencodeConfig(opencode: Record<string, unknown>):
 
   return {
     keys,
-    config: {
+    config: upgradeRuntimeConfigRecord({
       ...(defaultAgent ? { default_agent: defaultAgent } : {}),
       ...(plugin?.length ? { plugin } : {}),
       ...(Object.keys(mcp).length ? { mcp } : {}),
       ...(disabledProviders?.length ? { disabled_providers: disabledProviders } : {}),
       ...(provider && Object.keys(provider).length ? { provider } : {}),
       ...(agent && Object.keys(agent).length ? { agent } : {}),
-    },
+    }, { scope: "workspace" }).configuration,
   };
 }
 
@@ -499,18 +539,19 @@ async function removeUserRuntimeConfigFromOpencode(workspaceRoot: string, keys: 
   await updateJsoncTopLevel(await resolveWorkspaceFilePath(workspaceRoot, opencodeConfigPath(workspaceRoot)), updates);
 }
 
-function runtimeConfigKeys(config: RuntimeOpencodeConfig): string[] {
+function runtimeConfigKeys(input: object): string[] {
+  const config = Object.fromEntries(Object.entries(input));
   const keys: string[] = [];
   if (config.default_agent) keys.push("default_agent");
-  if (Array.isArray(config.plugin) && config.plugin.length) keys.push("plugin");
-  if (Array.isArray(config.disabled_providers) && config.disabled_providers.length) keys.push("disabled_providers");
-  if (isRecord(config.mcp) && Object.keys(config.mcp).length) keys.push("mcp");
-  const permission = isRecord(config.permission) ? config.permission : null;
-  if (permission && isRecord(permission.external_directory) && Object.keys(permission.external_directory).length) {
-    keys.push("permission");
+  if (isRecord(config.mcp) && isRecord(config.mcp.servers) && Object.keys(config.mcp.servers).length) keys.push("mcp");
+  for (const field of ["plugins", "permissions", "policies", "skills"]) {
+    const value = config[field];
+    if (Array.isArray(value) && value.length) keys.push(field);
   }
-  if (isRecord(config.provider) && Object.keys(config.provider).length) keys.push("provider");
-  if (isRecord(config.agent) && Object.keys(config.agent).length) keys.push("agent");
+  for (const field of ["providers", "agents", "commands"]) {
+    const value = config[field];
+    if (isRecord(value) && Object.keys(value).length) keys.push(field);
+  }
   return keys;
 }
 
@@ -518,62 +559,37 @@ function userOpencodeConfigKeys(config: Record<string, unknown>): string[] {
   return Object.keys(config).filter((key) => key !== "$schema").sort();
 }
 
-function mergeLegacyRuntimeConfig(
-  current: RuntimeOpencodeConfig,
-  legacy: RuntimeOpencodeConfig,
-): RuntimeOpencodeConfig {
-  const currentPermission = isRecord(current.permission) ? current.permission : {};
-  const legacyPermission = isRecord(legacy.permission) ? legacy.permission : {};
-  const currentExternalDirectory = isRecord(currentPermission.external_directory) ? currentPermission.external_directory : {};
-  const legacyExternalDirectory = isRecord(legacyPermission.external_directory) ? legacyPermission.external_directory : {};
+function mergeImportedRuntimeConfig(current: RuntimeOpencodeConfig, imported: RuntimeOpencodeConfig): RuntimeOpencodeConfig {
+  const plugins = [...current.plugins ?? [], ...imported.plugins ?? []];
+  const permissions = [...imported.permissions ?? [], ...current.permissions ?? []];
+  const policies = [...imported.policies ?? [], ...current.policies ?? []];
   return {
-    default_agent: current.default_agent ?? legacy.default_agent,
-    plugin: [
-      ...(Array.isArray(current.plugin) ? current.plugin.filter((item) => typeof item === "string") : []),
-      ...(Array.isArray(legacy.plugin) ? legacy.plugin.filter((item) => typeof item === "string") : []),
-    ].filter((item, index, list) => list.indexOf(item) === index),
-    disabled_providers: [
-      ...(Array.isArray(current.disabled_providers) ? current.disabled_providers.filter((item) => typeof item === "string") : []),
-      ...(Array.isArray(legacy.disabled_providers) ? legacy.disabled_providers.filter((item) => typeof item === "string") : []),
-    ].filter((item, index, list) => list.indexOf(item) === index),
-    mcp: {
-      ...(isRecord(legacy.mcp) ? legacy.mcp : {}),
-      ...(isRecord(current.mcp) ? current.mcp : {}),
-    },
-    permission: {
-      ...legacyPermission,
-      ...currentPermission,
-      external_directory: {
-        ...legacyExternalDirectory,
-        ...currentExternalDirectory,
-      },
-    },
-    provider: {
-      ...(isRecord(legacy.provider) ? legacy.provider : {}),
-      ...(isRecord(current.provider) ? current.provider : {}),
-    },
-    agent: {
-      ...(isRecord(legacy.agent) ? legacy.agent : {}),
-      ...(isRecord(current.agent) ? current.agent : {}),
-    },
+    ...imported, ...current,
+    default_agent: current.default_agent ?? imported.default_agent,
+    plugins: plugins.filter((item, index) => plugins.findIndex(other => JSON.stringify(other) === JSON.stringify(item)) === index),
+    permissions: permissions.filter((item, index) => !permissions.slice(index + 1).some(other => JSON.stringify(other) === JSON.stringify(item))),
+    policies: policies.filter((item, index) => !policies.slice(index + 1).some(other => JSON.stringify(other) === JSON.stringify(item))),
+    mcp: { ...imported.mcp, ...current.mcp, servers: { ...imported.mcp?.servers, ...current.mcp?.servers } },
+    providerModelSelection: { ...Object.fromEntries(Object.entries(imported.providerModelSelection ?? {}).filter(([id]) => !Object.hasOwn(current.providers ?? {}, id))), ...current.providerModelSelection },
+    providers: { ...imported.providers, ...current.providers }, agents: { ...imported.agents, ...current.agents },
   };
 }
 
-async function readOpenAiProviderApiKey(): Promise<string> {
-  const dataHome = process.env.XDG_DATA_HOME?.trim() || join(homedir(), ".local", "share");
-  try {
-    const raw = await readFile(join(dataHome, "opencode", "auth.json"), "utf8");
-    const parsed: unknown = JSON.parse(raw);
-    const openai = isRecord(parsed) ? parsed.openai : null;
-    if (!isRecord(openai) || openai.type !== "api") return "";
-    return typeof openai.key === "string" ? openai.key.trim() : "";
-  } catch {
-    return "";
-  }
+async function readOpenAiProviderApiKey(config: ServerConfig): Promise<string> {
+  const baseUrl = config.opencodeBaseUrl?.trim();
+  if (!baseUrl) return "";
+  const username = config.opencodeUsername?.trim(), password = config.opencodePassword?.trim();
+  // Voice is host-scoped. Credentials belong to its engine, independently of
+  // any selected project's configuration or admission state.
+  const client = OpenCode.make({ baseUrl, ...(username && password ? {
+    headers: { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}` },
+  } : {}) });
+  const credential = (await client.credential.list()).find(item => item.integrationID === "openai" && item.active);
+  return credential?.value.type === "key" ? credential.value.key.trim() : "";
 }
 
-async function resolveOpenAiProviderApiKey(env: EnvService): Promise<string> {
-  const providerKey = await readOpenAiProviderApiKey();
+async function resolveOpenAiProviderApiKey(config: ServerConfig, env: EnvService): Promise<string> {
+  const providerKey = await readOpenAiProviderApiKey(config);
   if (providerKey) return providerKey;
 
   const records = await env.list();
@@ -612,8 +628,8 @@ You are LegalWork. You have one continuous identity across text and voice. Alway
 - Be concise, calm, and direct.${contextSection}`;
 }
 
-async function getOpenAiRealtimeVoiceCapability(env: EnvService) {
-  const apiKey = await resolveOpenAiProviderApiKey(env);
+async function getOpenAiRealtimeVoiceCapability(config: ServerConfig, env: EnvService) {
+  const apiKey = await resolveOpenAiProviderApiKey(config, env);
   return {
     supported: Boolean(apiKey),
     providerId: apiKey ? "openai" : null,
@@ -622,10 +638,10 @@ async function getOpenAiRealtimeVoiceCapability(env: EnvService) {
   };
 }
 
-async function createOpenAiRealtimeVoiceCall(env: EnvService, input: unknown) {
-  const apiKey = await resolveOpenAiProviderApiKey(env);
+async function createOpenAiRealtimeVoiceCall(config: ServerConfig, env: EnvService, input: unknown) {
+  const apiKey = await resolveOpenAiProviderApiKey(config, env);
   if (!apiKey) {
-    throw new ApiError(409, "openai_provider_unavailable", "Connect the standard OpenAI provider before starting Voice Mode.");
+    throw new ApiError(409, "openai_provider_unavailable", "Connect OpenAI with an API key before starting Voice Mode.");
   }
 
   const offerSdp = isRecord(input) && typeof input.sdp === "string" ? input.sdp : "";
@@ -803,37 +819,12 @@ function parseWorkspaceOpencodeMount(pathname: string): { workspaceId: string; r
   return { workspaceId: decodeURIComponent(workspaceId), restPath };
 }
 
-function normalizeOpencodeProxyPath(proxyPath: string): string {
-  const raw = (proxyPath ?? "").trim() || "/";
-  const withoutPrefix = raw.startsWith("/opencode") ? raw.slice("/opencode".length) : raw;
-  const normalized = (withoutPrefix || "/").replace(/\/+$/, "");
-  return normalized || "/";
-}
-
+const normalizeOpencodeProxyPath = nativeProxyPath;
+/** LAWOSS: a read-only server refuses every engine mutation before any other proxy rule (v1 behaviour). */
 export function assertOpencodeProxyAllowed(actor: Actor, method: string, proxyPath: string, readOnly = false) {
-  const m = method.toUpperCase();
-  const reading = m === "GET" || m === "HEAD";
-  if (readOnly && !reading) {
-    throw new ApiError(403, "read_only", "Server is read-only");
-  }
-  if (m === "DELETE" && /^\/session\/[^/]+$/.test(normalizeOpencodeProxyPath(proxyPath))) {
-    throw new ApiError(409, "session_delete_requires_review", "Delete chats through the LegalWork session API so unsaved dashboards can be reviewed.");
-  }
-  if ((actor.scope ?? "viewer") !== "viewer") return;
-  if (!reading) throw new ApiError(403, "forbidden", "Viewer tokens are read-only");
-
-  // The engine's GET config/provider/file routes can reveal credentials or
-  // read files outside the workspace. Viewer access is an explicit read-model
-  // allowlist, never an assumption that every GET is safe. Reject ambiguous
-  // encoded paths instead of letting the upstream decode them differently.
-  const path = normalizeOpencodeProxyPath(proxyPath);
-  const safePath = !/[\\%?#]/.test(path) && !path.split("/").some((part) => part === "." || part === "..");
-  const viewerRead = /^(?:\/global\/health|\/event|\/permission|\/question|\/session(?:\/[A-Za-z0-9_-]+(?:\/(?:message(?:\/[A-Za-z0-9_-]+)?|children|todo|diff))?)?)$/;
-  if (!safePath || !viewerRead.test(path)) {
-    throw new ApiError(403, "forbidden", "Viewer tokens cannot access this engine endpoint");
-  }
+  if (readOnly && !["GET", "HEAD"].includes(method.toUpperCase())) throw new ApiError(403, "read_only", "Server is read-only");
+  assertNativeProxyRoute(actor, method, proxyPath);
 }
-
 function isSessionCommandProxyRequest(method: string, proxyPath: string) {
   return method === "POST" && /^\/session\/[^/]+\/command$/.test(normalizeOpencodeProxyPath(proxyPath));
 }
@@ -841,15 +832,55 @@ function isSessionCommandProxyRequest(method: string, proxyPath: string) {
 export type StartedServer = ServeResult & {
   /** Bound port of the HTTPS Word add-in listener, when enabled and started. */
   wordAddinPort: number | null;
+  /** Host-only; never exposed through HTTP/configuration. */
+  invalidateRawHttpTrust: () => void;
 };
 
 const orgPolicyResource = Symbol("server-org-policy");
 const firmHubResource = Symbol("server-firm-hub");
 
-export async function startServer(config: ServerConfig, runtimeOptions: { modelDownloadFetch?: import("./ocr/models.js").ModelDownloadFetch; scheduledTaskSend?: ScheduledExecutor["send"]; publicEngineBinary?: () => string | undefined; documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void>; onboardingApplyCheckpoint?: (checkpoint: OnboardingApplyCheckpoint) => void } = {}): Promise<StartedServer> {
+function startOriginalImageCleanup(config: ServerConfig) {
+  const first = config.workspaces.map(workspace => config.managedImageAffinity?.(workspace)).find(affinity => affinity !== undefined);
+  if (!first) return undefined;
+  const namespace = first.storageNamespace;
+  const store = toolImageOriginalStore(config);
+  return startToolImageOriginalLifecycle({
+    store: {
+      indexedSessionIDs: () => store.indexedSessionIDs(namespace),
+      deletedSessionIDs: () => store.deletedSessionIDs(namespace),
+      removeSessions: sessionIDs => store.removeSessions(namespace, sessionIDs),
+      retryReferenceDeletions: () => store.retryReferenceDeletions(),
+    },
+    source: () => {
+      const workspace = config.workspaces.find(workspace => config.managedImageAffinity?.(workspace)?.storageNamespace === namespace);
+      const affinity = workspace && config.managedImageAffinity?.(workspace);
+      if (!workspace || !affinity) throw new Error("Managed image cleanup is waiting for its owned history connection.");
+      const client = createEngineClient(config, workspace);
+      return {
+        assertCurrent() {
+          const currentWorkspace = config.workspaces.find(item => item.id === workspace.id);
+          if (!currentWorkspace || config.managedImageAffinity?.(currentWorkspace) !== affinity) throw new Error("Managed image cleanup connection changed during access.");
+        },
+        events: signal => client.event.subscribe({ signal }),
+        session: async (sessionID, signal) => { await client.session.get({ sessionID }, { signal }); },
+      };
+    },
+    report: error => console.warn("[legalwork-server] Original image cleanup is pending; stored bytes are preserved.", error),
+  });
+}
+
+// LAWOSS: runtime options of the LAWOSS entry points beyond upstream's ServerRuntimeOptions.
+type LawossServerRuntimeOptions = ServerRuntimeOptions & {
+  /** Trusted embedding port for owned non-model jobs; never read from HTTP/config/env. */
+  scheduledTaskSend?: ScheduledExecutor["send"];
+  publicEngineBinary?: () => string | undefined;
+  onboardingApplyCheckpoint?: (checkpoint: OnboardingApplyCheckpoint) => void;
+};
+
+export async function startServer(config: ServerConfig, runtimeOptions: LawossServerRuntimeOptions = {}): Promise<StartedServer> {
   const lifetime = acquireRuntimeDbLifetime(config);
   const cleanups: Array<() => void | Promise<unknown>> = [];
-  // LAWOSS: rozpočet RAM 2 GB – MCP len pre otvorených klientov (issue #367).
+  // LAWOSS: rozpočet RAM 2 GB – MCP len pre otvorených klientov (issue #367, ADR 0017).
   cleanups.push(installEngineMcpBudget(config));
   const producerStops: Array<() => void | Promise<unknown>> = [];
   let stopping = false;
@@ -873,20 +904,34 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
   };
   try { return await lifetime.run(async () => {
 
+  // Also cover callers embedding the HTTP server directly. These preflights
+  // validate completed stores without reopening their retired sources.
+  await bootstrapRuntimeOpencodeConfig(config);
+  await prepareConnectorStorage(config);
+  await readCurrentHistory(config);
+  const retiredCount = config.workspaces.filter(isRetiredRemoteWorkspace).length;
+  if (retiredCount) {
+    config.workspaceWarnings = [...(config.workspaceWarnings ?? []), `${retiredCount} saved remote agent workspace(s) are no longer supported. Their original connection settings remain in the saved configuration.`];
+    config.workspaces = config.workspaces.filter(workspace => !isRetiredRemoteWorkspace(workspace));
+  }
   // These current-dev caches share PR157's captured generation and final owner.
   await runtimeDbResource(config, orgPolicyResource, async path => ({ close: () => closeOrgPolicyRuntime(config, path) }));
   await runtimeDbResource(config, firmHubResource, async path => ({ close: () => closeFirmHubRuntime(config, join(dirname(path), "firm-hub")) }));
   cleanups.push(() => stopMessageQueue(config));
   producerStops.push(retainOrgPolicyReloads(config));
   cleanups.push(retainWikiAgentRuntime(config));
-  const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"));
+  const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"), await openRememberedApprovalStore(config));
   cleanups.push(() => approvals.dispose());
-  const agentSandbox = new AgentSandboxService(config, approvals);
+  const rawHttpTransport = runtimeOptions.rawHttpNodeExecutable ? createNodeRawHttpTransport(runtimeOptions.rawHttpNodeExecutable) : undefined;
+  cleanups.push(() => rawHttpTransport?.close());
+  const toolImageRaster = createToolImageRaster(runtimeOptions.toolImageRasterRuntime ?? resolveNodeToolImageRasterRuntime);
+  cleanups.push(() => toolImageRaster.close());
+  const agentSandbox = new AgentSandboxService(config, approvals, undefined, rawHttpTransport?.send);
   cleanups.push(() => agentSandbox.stop());
   const officeTls = config.wordAddin?.enabled ? await loadWordAddinTls(config.wordAddin) : null;
   const officeConnection = new OfficeConnectionService(officeTls ? await loadOfficeConnectionToken(officeTls.keyPath) : undefined);
   cleanups.push(() => officeConnection.dispose());
-  const reloadEvents = new ReloadEventStore();
+  const reloadEvents = new ReloadEventStore(200, () => announceSyncChange(config, "reload"));
   const tokens = new TokenService(config);
   const env = new EnvService();
   const logger = createServerLogger(config);
@@ -946,10 +991,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
   producerStops.push(() => wikiSync.stop());
   const benchmarkRunner = new BenchmarkRunner({
     config,
-    // The SDK client is structurally compatible with the runner's reduced
-    // client surface, but the generics make TS unable to prove it.
     createClient: (workspace, directory) =>
-      createDirectoryOpencodeClient(config, workspace, directory) as unknown as BenchmarkOpencodeClient,
+      createDirectoryOpencodeClient(config, workspace, directory),
     // Runs start only from a collaborator request (routes/benchmarks.ts).
     grantAgentSession: (sessionId, directory) => grantWikiAgentSession(config, { sessionId, directory, scope: "collaborator" }),
   });
@@ -991,19 +1034,23 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
   cleanups.push(() => reviews.stop());
   const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
   cleanups.push(() => scheduledTasks.close());
+  const assistantRuntime = await createAssistantRuntime(config, { scheduledTasks, resolveWorkspace: id => resolveWorkspace(config, id),
+    changed: restartReloadWatchers, tokenActive: hash => tokens.isActiveHash(hash) });
+  cleanups.push(() => assistantRuntime.close());
   const scheduledWorkspace = async (task: ScheduledTask) => {
     const workspace = await resolveWorkspace(config, task.workspaceId);
-    if (workspace.workspaceType === "remote") throw new ApiError(400, "local_schedule_only", "Scheduled tasks require a local project.");
+
     return workspace;
   };
   const scheduledTaskSend = runtimeOptions.scheduledTaskSend;
   const scheduledRunner = new ScheduledTaskRunner(scheduledTasks, {
+    resolveSession: async task => assistantRuntime.scheduledSession(task, await scheduledWorkspace(task)),
     available: async task => {
       if (config.readOnly) return false;
       const workspace = await scheduledWorkspace(task);
-      const status = unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.status({}, { signal: AbortSignal.timeout(10000) }), "/session/status");
+      const status = await createWorkspaceOpencodeClient(config, workspace).session.active({ signal: AbortSignal.timeout(10000) });
       const target = task.sessionId ?? scheduledTasks.runs(task.id)[0]?.sessionId;
-      return !target || !status[target] || status[target].type === "idle";
+      return !target || !status[target];
     },
     createSession: async task => {
       const workspace = await scheduledWorkspace(task);
@@ -1011,44 +1058,59 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       // before creating any engine session, not only before sending its prompt.
       if (!scheduledTaskSend) await requireAiBoundariesAdmission(config, "chat", workspace.id);
       const client = createWorkspaceOpencodeClient(config, workspace);
-      return unwrapOpencodeResult(await client.session.create({ title: task.title }, { signal: AbortSignal.timeout(10000) }), "/session").id;
+      return (await client.session.create({ location: workspaceEngineLocation(workspace), title: task.title }, { signal: AbortSignal.timeout(10000) })).id;
     },
     // Trusted embedding port for owned non-model jobs; never read from HTTP/config/env.
-    send: scheduledTaskSend ?? ((task: ScheduledTask, sessionId: string) => withSessionExecution(config, sessionId, async () => {
+    send: scheduledTaskSend ?? (async (task: ScheduledTask, sessionId: string) => {
       const workspace = await scheduledWorkspace(task);
       await requireGovernedEngineDispatch(config, workspace.id, "POST", `/session/${sessionId}/prompt_async`);
       const client = createWorkspaceOpencodeClient(config, workspace);
-      const session = unwrapOpencodeResult(await client.session.get({ sessionID: sessionId }, { signal: AbortSignal.timeout(10000) }), "/session");
-      if (resolve(session.directory) !== resolve(workspace.path) || session.time.archived) throw new ApiError(400, "schedule_session", "The destination chat is no longer available in this project.");
+      const work = await assistantRuntime.scheduledWork(task, workspace, sessionId);
       const agent = task.projectAccess === "all" ? ALL_PROJECTS_TASK_AGENT : PROJECT_TASK_AGENT;
-      const agents = unwrapOpencodeResult(await client.app.agents({}, { signal: AbortSignal.timeout(10000) }), "/agent");
-      const selectedAgent = agents.find(item => item.name === agent);
+      await withSessionDispatch(config, sessionId, async () => {
+      const session = await getWorkspaceEngineSession(client, workspace, sessionId);
+      if (session.time.archived) throw new ApiError(400, "schedule_session", "The destination chat is no longer available in this project.");
+      await client.model.list({ location: session.location });
+      const agents = (await client.agent.list({ location: session.location }, { signal: AbortSignal.timeout(10000) })).data;
+      const selectedAgent = agents.find(item => item.id === agent);
       if (!selectedAgent || (task.projectAccess === "project" && !hasProjectTaskBoundary(selectedAgent)))
         throw new ApiError(409, "schedule_scope_unavailable", "The local engine needs to reload scheduled task permissions. Restart LegalWork before resuming this task.");
-      if (task.projectAccess === "project" && !hasProjectTaskBoundary({ name: agent, permission: [...selectedAgent.permission, ...(session.permission ?? [])] }))
+      if (task.projectAccess === "project" && !hasProjectTaskBoundary({ id: agent, permissions: [...selectedAgent.permissions, ...(session.permissions ?? [])] }))
         throw new ApiError(409, "schedule_chat_permissions", "This chat has broader saved permissions. Choose a new chat for each run to use project-only access.");
       // The server records the schedule editor's authority. A collaborator edit
       // downgrades it; old schedules default to shared-wiki access.
-      await grantWikiAgentSession(config, { sessionId, directory: session.directory, scope: task.wikiScope, allProjects: task.projectAccess === "all",
+      // LAWOSS: `allProjects` is recorded, but agent-access.ts still limits the run to its own client.
+      await grantWikiAgentSession(config, { sessionId, directory: session.location.directory, scope: task.wikiScope, allProjects: task.projectAccess === "all",
         scheduledProjects: task.projectAccess === "all" ? "all" : [workspace.id] });
-      const result = await client.session.promptAsync({ sessionID: sessionId, agent, ...(task.model ? { model: task.model } : {}),
-        parts: [{ type: "text", text: `[Scheduled task: ${task.title}]\n\n${task.prompt}`,
-          metadata: { legalworkScheduledTask: { taskId: task.id, workspaceId: workspace.id, title: task.title } } }] }, { signal: AbortSignal.timeout(30000) });
-      if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
-    }, true)),
+      });
+      const queue = registeredMessageQueue(config);
+      if (!queue) throw new ApiError(503, "queue_unavailable", "The message queue is not ready.");
+      const action = dispatchQueueAction({ kind: "prompt", id: `msg_schedule_${task.id}_${task.nextRunAt}`, agent,
+        ...(work.model ? { model: { providerID: work.model.providerID, id: work.model.modelID } } : {}),
+        text: `[Scheduled task: ${task.title}]\n\n${work.prompt}`,
+        metadata: { legalworkScheduledTask: { taskId: task.id, workspaceId: workspace.id, title: task.title } } });
+      const state = await queue.act(workspace.id, sessionId, { ...action, resumeStopped: false });
+      const entry = state.entries.find(entry => entry.id === action.id);
+      if (entry?.status === "failed" || entry?.status === "uncertain") throw new ApiError(409, "schedule_send", entry.error ?? "Check the chat before resuming this task.");
+    }),
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents, scheduledTasks, wikiStore, wikiSync, protectedDocuments, runtimeOptions.publicEngineBinary, runtimeOptions.onboardingApplyCheckpoint);
-  configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) =>
-    unwrapOpencodeResult(await createDirectoryOpencodeClient(config, workspace, directory).session.get({ sessionID }, { signal }), "/session"));
+  await assistantRuntime.register(routes, { jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, requireApproval });
+  registerToolImageOriginalRoutes({ routes, config, raster: toolImageRaster, jsonResponse, resolveWorkspace, ensureWritable, requireClientScope, requireApproval });
+  // LAWOSS: a case chat lives in a subfolder of its client; agent-access.ts compares the directory itself.
+  configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) => {
+    const session = await createDirectoryOpencodeClient(config, workspace, directory).session.get({ sessionID }, { signal });
+    return { id: session.id, directory: session.location.directory, parentID: session.parentID };
+  });
   // LAWOSS: a case chat lives in a subfolder of its client workspace (session-ownership.ts).
-  const sandboxOwnsSession = async (workspace: WorkspaceInfo, session: { id: string; directory: string }) => {
-    if (sessionOwnershipChecked(workspace)) return workspaceReadsSession(workspace, session);
+  const sandboxOwnsSession = async (workspace: WorkspaceInfo, session: { id: string; location: { directory: string } }) => {
+    if (sessionOwnershipChecked(workspace)) return workspaceReadsSession(workspace, { id: session.id, directory: session.location.directory });
     const directory = resolveOpencodeDirectory(workspace);
-    return !!directory && resolve(session.directory) === resolve(directory);
+    return !!directory && resolve(session.location.directory) === resolve(directory);
   };
   registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
     sessionFolder: async (workspace, sessionID) => sessionFolder(workspace,
-      unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.get({ sessionID }, { signal: AbortSignal.timeout(10000) }), "/session")),
+      { directory: (await createWorkspaceOpencodeClient(config, workspace).session.get({ sessionID }, { signal: AbortSignal.timeout(10000) })).location.directory }),
     sessionLineage: async (workspace, sessionID) => {
       const client = createWorkspaceOpencodeClient(config, workspace);
       const lineage: string[] = [];
@@ -1056,7 +1118,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       while (id) {
         if (lineage.includes(id) || lineage.length >= 64) throw new ApiError(400, "sandbox_session", "Invalid chat ancestry.");
         const currentId: string = id;
-        const session = unwrapOpencodeResult(await client.session.get({ sessionID: currentId }, { signal: AbortSignal.timeout(10000) }), "/session");
+        const session = await client.session.get({ sessionID: currentId }, { signal: AbortSignal.timeout(10000) });
         if (!(await sandboxOwnsSession(workspace, session))) throw new ApiError(403, "sandbox_session", "This chat belongs to a different workspace.");
         lineage.push(id);
         id = session.parentID;
@@ -1065,31 +1127,38 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     },
     agentRules: async (workspace, sessionID, agentName) => {
       const client = createWorkspaceOpencodeClient(config, workspace);
-      const session = unwrapOpencodeResult(await client.session.get({ sessionID }), "/session");
+      const session = await client.session.get({ sessionID });
       if (!(await sandboxOwnsSession(workspace, session))) {
         throw new ApiError(403, "sandbox_session", "The command session belongs to a different workspace.");
       }
-      const agents = unwrapOpencodeResult(await client.app.agents(), "/agent");
-      const agent = agents.find((item) => item.name === agentName);
+      await client.model.list({ location: session.location });
+      const agents = (await client.agent.list({ location: session.location })).data;
+      const agent = agents.find((item) => item.id === agentName);
       if (!agent) throw new ApiError(403, "sandbox_agent", "The selected agent is unavailable.");
       // Built-in host shell and web tools stay denied. Managed tools carry
       // the original permissions under their separate identities.
-      const engineConfig = unwrapOpencodeResult(await client.config.get(), "/config");
-      const rules = managedPermissionRules(explicitFileApprovals(agent.permission, [engineConfig.permission, engineConfig.agent?.[agentName]?.permission]), session.permission ?? []);
+      const entries = await client.config.get({ location: session.location });
+      const configured = entries.flatMap(entry => entry.type === "document" ? [...(entry.info.permissions ?? []), ...(entry.info.agents?.[agentName]?.permissions ?? [])] : []);
+      const domainRules = (rules: typeof agent.permissions) => rules.map(rule => ({ permission: rule.action === "shell" ? "bash" : rule.action, pattern: rule.resource, action: rule.effect }));
+      const runtime = await readRuntimeOpencodeConfig(config, workspace.id);
+      const persisted = [...await readGlobalToolPermissions(config), ...runtime.permissions ?? [], ...runtime.agents?.[agentName]?.permissions ?? []];
+      const rules = managedPermissionRules(explicitFileApprovals(domainRules(agent.permissions), [
+        ...configured, ...persisted,
+      ]), domainRules(session.permissions ?? []).map(rule => ({ ...rule, session: true })));
       // LAWOSS: in YOLO the chat agent's folder „ask“ is for the linked-folders plugin only; the shell keeps the YOLO allow.
       return yoloShellAgentRules(rules, agentName, await yoloModeActive(config));
     },
   });
-  const guardWikiWorkspace = async (actor: Actor | undefined, workspaceId: string, method: string) => {
-    const wiki = (await wikiStore.list()).find((item) => item.workspaceId === workspaceId);
+  const guardWikiWorkspace = async (actor: Actor | undefined, workspaceId: string, method: string, metadataOnly = false, readWikis: WikiStore["list"] = () => wikiStore.list()) => {
+    const wiki = (await readWikis()).find((item) => item.workspaceId === workspaceId);
     assertWikiWorkspaceAccess(actor, wiki);
-    if (wiki) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
+    if (wiki && !metadataOnly) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
     if (wiki && method !== "GET" && method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
   };
-  const guardWikiDirectory = async (actor: Actor | undefined, request: Request, url: URL) => {
-    const directory = url.searchParams.get("directory") || decodeOpencodeDirectoryHeader(request.headers.get("x-opencode-directory"));
+  const guardWikiDirectory = async (actor: Actor | undefined, request: Request, url: URL, readWikis: WikiStore["list"] = () => wikiStore.list()) => {
+    const directory = url.searchParams.get("location[directory]") || url.searchParams.get("directory") || decodeOpencodeDirectoryHeader(request.headers.get("x-opencode-directory"));
     if (!directory) return;
-    const wiki = wikiForDirectory(await wikiStore.list(), await realpath(directory).catch(() => resolve(directory)));
+    const wiki = wikiForDirectory(await readWikis(), await realpath(directory).catch(() => resolve(directory)));
     assertWikiWorkspaceAccess(actor, wiki);
     if (wiki) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
     if (wiki && request.method !== "GET" && request.method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
@@ -1108,6 +1177,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       return lifetime.run(async () => {
       const url = new URL(request.url);
       const startedAt = Date.now();
+      // One authorization snapshot per request, without retaining permissions across requests.
+      let registrations: ReturnType<WikiStore["list"]> | undefined;
+      const readWikis = () => registrations ??= wikiStore.list();
       let authMode: AuthMode = "none";
       let proxyService: "opencode" | undefined;
       let proxyBaseUrl: string | undefined;
@@ -1134,8 +1206,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
         authMode = "client";
         try {
           const actor = officeConnection.actor(request) ?? await requireClient(request, config, tokens);
-          await guardWikiWorkspace(actor, mount.workspaceId, request.method);
-          await guardWikiDirectory(actor, request, url);
+          await guardWikiWorkspace(actor, mount.workspaceId, request.method, false, readWikis);
+          await guardWikiDirectory(actor, request, url, readWikis);
           assertOpencodeProxyAllowed(actor, request.method, mount.restPath, config.readOnly);
           const workspace = await resolveWorkspace(config, mount.workspaceId);
           proxyService = "opencode";
@@ -1143,12 +1215,10 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
           const response = await proxyOpencodeRequest({ config, request, url, workspace, proxyPath: mount.restPath, actor });
           return finalize(response);
         } catch (error) {
-          if (!(error instanceof ApiError)) {
+          if (!findApiError(error)) {
             console.error("[legalwork-server] Unhandled error:", request.method, url.pathname, error);
           }
-          const apiError = error instanceof ApiError
-            ? error
-            : new ApiError(500, "internal_error", "Unexpected server error");
+          const apiError = findApiError(error) ?? new ApiError(500, "internal_error", "Unexpected server error");
           errorMessage = apiError.message;
           return finalize(jsonResponse(formatError(apiError), apiError.status));
         }
@@ -1214,19 +1284,17 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
         proxyBaseUrl = config.workspaces[0]?.baseUrl?.trim() || undefined;
         try {
           const actor = officeConnection.actor(request) ?? await requireClient(request, config, tokens);
-          if (config.workspaces[0]) await guardWikiWorkspace(actor, config.workspaces[0].id, request.method);
-          await guardWikiDirectory(actor, request, url);
+          if (config.workspaces[0]) await guardWikiWorkspace(actor, config.workspaces[0].id, request.method, false, readWikis);
+          await guardWikiDirectory(actor, request, url, readWikis);
           assertOpencodeProxyAllowed(actor, request.method, url.pathname, config.readOnly);
           proxyService = "opencode";
           const response = await proxyOpencodeRequest({ config, request, url, workspace: config.workspaces[0], actor });
           return finalize(response);
         } catch (error) {
-          if (!(error instanceof ApiError)) {
+          if (!findApiError(error)) {
             console.error("[legalwork-server] Unhandled error:", request.method, url.pathname, error);
           }
-          const apiError = error instanceof ApiError
-            ? error
-            : new ApiError(500, "internal_error", "Unexpected server error");
+          const apiError = findApiError(error) ?? new ApiError(500, "internal_error", "Unexpected server error");
           errorMessage = apiError.message;
           return finalize(jsonResponse(formatError(apiError), apiError.status));
         }
@@ -1253,8 +1321,10 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
                 ? officeConnection.actor(request) ?? await requireClient(request, config, tokens)
                 : undefined);
         const workspaceId = route.params.id ?? route.params.workspaceId;
-        if (workspaceId) await guardWikiWorkspace(actor, workspaceId, request.method);
-        await guardWikiDirectory(actor, request, url);
+        const metadataOnly = url.pathname === "/session-inbox" || url.pathname === "/session-groups/events" || /^\/workspace\/[^/]+\/(?:events|session-groups(?:\/.*)?)$/.test(url.pathname);
+        if (workspaceId) await guardWikiWorkspace(actor, workspaceId, request.method, metadataOnly, readWikis);
+        await guardWikiDirectory(actor, request, url, readWikis);
+        if (assistantRouteRequiresSubscription(request.method, url.pathname)) await requireAssistantSubscription(config);
         let response = await route.handler({
           request,
           url,
@@ -1265,18 +1335,21 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
           tokens,
           actor,
         });
-        // LAWOSS: `/workspaces` repeats the list as `workspaces`; both are filtered.
-        const workspaceList = url.pathname === "/workspaces" ? { fields: ["items", "workspaces"], identity: "id" }
-          : url.pathname === "/scheduled-tasks/projects" ? { fields: ["projects"], identity: "id" }
-          : url.pathname === "/scheduled-tasks" ? { fields: ["tasks"], identity: "workspaceId" }
-          : url.pathname === "/session-inbox" ? { fields: ["sessions"], identity: "workspaceId" } : null;
+        const resource = requestResourceChange(request.method, url.pathname);
+        if (response.ok && resource) announceSyncChange(config, resource);
+        const workspaceList = url.pathname === "/session-groups/events" ? { field: "items", identity: "workspaceId" }
+          // LAWOSS: `/workspaces` repeats the list as `workspaces`; both are filtered (see below).
+          : url.pathname === "/workspaces" ? { field: "items", identity: "id" }
+          : url.pathname === "/scheduled-tasks/projects" ? { field: "projects", identity: "id" }
+          : url.pathname === "/scheduled-tasks" ? { field: "tasks", identity: "workspaceId" }
+          : url.pathname === "/session-inbox" ? { field: "sessions", identity: "workspaceId" } : null;
         if (request.method === "GET" && workspaceList && response.ok) {
-          const wikis = await wikiStore.list();
+          const wikis = await readWikis();
           const hidden = new Set<string>();
           for (const wiki of wikis) {
             if (!ownsWikis(actor) && !wiki.sync) hidden.add(wiki.workspaceId);
             else if (agentAccess && !await wikiAgentCanAccess(config, wikis, wiki, agentAccess.directory)) hidden.add(wiki.workspaceId);
-            else { try { await wikiSync.ensureReadable(wiki, ownsWikis(actor)); } catch { hidden.add(wiki.workspaceId); } }
+            else if (!metadataOnly) { try { await wikiSync.ensureReadable(wiki, ownsWikis(actor)); } catch { hidden.add(wiki.workspaceId); } }
           }
           const payload: unknown = await response.json();
           if (isRecord(payload)) {
@@ -1284,7 +1357,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
             const wikiIds = new Set(wikis.map((wiki) => wiki.workspaceId));
             const visible = (id: string) => !hidden.has(id) && (!agentAccess || wikiIds.has(id) || agentMayList(agentAccess, url.pathname, id));
             const filtered: Record<string, unknown> = { ...payload };
-            for (const field of workspaceList.fields) {
+            // LAWOSS: `/workspaces` repeats the list as `workspaces`; both are filtered.
+            for (const field of [workspaceList.field, ...(url.pathname === "/workspaces" ? ["workspaces"] : [])]) {
               const items = payload[field];
               if (Array.isArray(items)) filtered[field] = items.filter((item: unknown) => {
                 const id = isRecord(item) ? item[workspaceList.identity] : undefined;
@@ -1297,12 +1371,11 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
         }
         return finalize(response);
       } catch (error) {
-        if (!(error instanceof ApiError)) {
+        if (request.signal.aborted) return finalize(new Response(null, { status: 499 }));
+        if (!findApiError(error)) {
           console.error("[legalwork-server] Unhandled error:", request.method, url.pathname, error);
         }
-        const apiError = error instanceof ApiError
-          ? error
-          : new ApiError(500, "internal_error", "Unexpected server error");
+        const apiError = findApiError(error) ?? new ApiError(500, "internal_error", "Unexpected server error");
         errorMessage = apiError.message;
         return finalize(jsonResponse(formatError(apiError), apiError.status));
       }
@@ -1358,13 +1431,24 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
 
   const stopScheduledTasks = config.readOnly ? () => {} : scheduledRunner.start();
   producerStops.push(stopScheduledTasks);
+  let originalImageCleanup: ReturnType<typeof startOriginalImageCleanup>;
+  cleanups.push(() => originalImageCleanup?.close());
   const startedServer = {
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
+    invalidateRawHttpTrust: () => rawHttpTransport?.rotate(),
     stop,
   };
-    await runtimeOptions.onListening?.(server.port);
+    // Bind first: a busy preferred port can move the listener. Agent tools
+    // must receive this listener's actual address and matching credentials.
+    // Native restart recovery can call authenticated LegalWork tool/config
+    // routes while its engine boots. Engine readiness is scoped separately.
     ready = true;
+    await runtimeOptions.onListening?.(server.port);
+    await toolImageOriginalStore(config).retryReferenceDeletions().catch(error => {
+      console.warn("[legalwork-server] An explicitly requested original image deletion remains pending.", error);
+    });
+    originalImageCleanup = startOriginalImageCleanup(config);
     return startedServer;
   }); } catch (error) {
     try { await stop(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], "Server startup and cleanup failed"); }
@@ -1372,414 +1456,251 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
   }
 }
 
-function buildOpencodeProxyUrl(baseUrl: string, path: string, search: string) {
-  const target = new URL(baseUrl);
-  const trimmedPath = path.replace(/^\/opencode/, "");
-  target.pathname = trimmedPath.startsWith("/") ? trimmedPath : `/${trimmedPath}`;
-  target.search = search;
-  return target.toString();
-}
-
 function decodeOpencodeDirectoryHeader(value: string | null) {
   if (!value) return null;
   try { return decodeURIComponent(value); } catch { return value; }
 }
 
-function buildOpencodeDirectoryHeader(directory: string) {
-  return /[^\x00-\x7F]/.test(directory) ? encodeURIComponent(directory) : directory;
-}
-
-/**
- * A mounted workspace proxy accepts a child directory for a matter session.
- * Resolve it through the filesystem before forwarding so `..` and symlinks
- * cannot turn a client workspace into access to a sibling or office folder.
- */
-async function resolveProxyOpencodeDirectory(workspace: WorkspaceInfo, headers: Headers, url: URL) {
-  const root = resolveOpencodeDirectory(workspace);
-  // Matter sessions are local-only. A remote directory belongs to its worker,
-  // so this server cannot canonicalize it with the local filesystem.
-  if (workspace.workspaceType !== "local") return root;
-  const requested = url.searchParams.get("directory")?.trim() || headers.get("x-opencode-directory")?.trim();
-  if (!requested) return root;
-  if (!root) throw new ApiError(400, "invalid_directory", "This workspace has no local directory");
-
-  const decoded = (() => {
-    try {
-      return decodeURIComponent(requested);
-    } catch {
-      return requested;
-    }
-  })();
-  const candidates = decoded === requested ? [requested] : [requested, decoded];
-  for (const candidate of candidates) {
-    try {
-      return await realpath(await resolveWithinRoot(root, candidate));
-    } catch {
-      // Try the decoded form when a Unicode path was encoded for HTTP headers.
-    }
-  }
-  throw new ApiError(400, "path_escape", "Session directory escapes workspace root");
-}
-
-function createOpencodeDirectoryFetch(directory: string, config: ServerConfig, workspaceId: string): typeof fetch {
-  const governedFetch = createGovernedEngineFetch(config, workspaceId);
-  const initializedFetch = Object.assign((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-    const request = input instanceof Request ? input : new Request(input, init);
-    const headers = request.headers;
-    if (request.method === "GET" && new URL(request.url).pathname === "/session") {
-      // LAWOSS: studený štart inštancie bez MCP (GET /path ich nespúšťa; issue #367).
-      const readiness = new URL(request.url);
-      readiness.pathname = "/path";
-      readiness.search = "";
-      readiness.searchParams.set("directory", new URL(request.url).searchParams.get("directory") ?? directory);
-      const key = JSON.stringify([workspaceId, readiness.toString(), [...headers]]);
-      return abortable(sharedEngineResponse(key, signal => governedFetch(new Request(readiness, { headers, signal })), undefined, config), request.signal)
-        .then(() => { request.signal.throwIfAborted(); return governedFetch(request); });
-    }
-    return budgetedEngineFetch(config, workspaceId, request, directory, governedFetch);
-  }, { preconnect: fetch.preconnect });
-  const protectedFetch = protectedEngineFetch(config, workspaceId, initializedFetch);
-  return Object.assign(
-    (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-      const request = input instanceof Request ? input : new Request(input, init);
-      const headers = new Headers(init?.headers ?? request.headers);
-      headers.set("x-opencode-directory", buildOpencodeDirectoryHeader(directory));
-      return protectedFetch(new Request(request, { headers }));
-    },
-    { preconnect: fetch.preconnect },
-  );
-}
-
-type OpencodeClientResult<T, E> =
-  | { data: T | undefined; error: undefined; response: Response }
-  | { data: undefined; error: E; response: Response | undefined };
-
 function createWorkspaceOpencodeClient(config: ServerConfig, workspace: WorkspaceInfo) {
-  const connection = resolveWorkspaceOpencodeConnection(config, workspace);
-  const directory = resolveOpencodeDirectory(workspace);
-  const directoryFetch = directory ? createOpencodeDirectoryFetch(directory, config, workspace.id) : protectedEngineFetch(config, workspace.id, createGovernedEngineFetch(config, workspace.id));
-
-  return createOpencodeClient({
-    baseUrl: connection.baseUrl?.trim(),
-    ...(directory ? { directory } : {}),
-    ...(directoryFetch ? { fetch: directoryFetch } : {}),
-    ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}),
-  });
+  return createEngineClient(config, workspace);
+}
+function createDirectoryOpencodeClient(config: ServerConfig, workspace: WorkspaceInfo, _directory: string) {
+  return createEngineClient(config, workspace);
 }
 
-/**
- * Like createWorkspaceOpencodeClient, but pinned to an explicit directory
- * (e.g. a benchmark scratch dir inside the workspace) so the directory header
- * and per-call directory params agree.
- */
-function createDirectoryOpencodeClient(config: ServerConfig, workspace: WorkspaceInfo, directory: string) {
-  const connection = resolveWorkspaceOpencodeConnection(config, workspace);
-  return createOpencodeClient({
-    baseUrl: connection.baseUrl?.trim(),
-    directory,
-    fetch: createOpencodeDirectoryFetch(directory, config, workspace.id),
-    ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}),
-  });
-}
-
-const mcpRecoveryByServer = new WeakMap<ServerConfig, McpRecovery>();
-const mcpRecoveryStatuses = z.record(z.string(), z.object({ status: z.string() }));
-
-function mcpRecovery(config: ServerConfig): McpRecovery {
-  const recovery = mcpRecoveryByServer.get(config) ?? new McpRecovery();
-  mcpRecoveryByServer.set(config, recovery);
-  return recovery;
-}
-
-async function recoverWorkspaceMcp(config: ServerConfig, workspace: WorkspaceInfo, directory: string, snapshot?: unknown): Promise<void> {
-  try {
-    const client = createDirectoryOpencodeClient(config, workspace, directory);
-    const readStatuses = async () => {
-      const result = await client.mcp.status({ directory }, { signal: AbortSignal.timeout(5000), throwOnError: true });
-      return mcpRecoveryStatuses.parse(result.data);
-    };
-    const statuses = snapshot === undefined ? await readStatuses() : mcpRecoveryStatuses.parse(snapshot);
-    await mcpRecovery(config).recover({
-      engine: resolveWorkspaceOpencodeConnection(config, workspace).baseUrl ?? "",
-      directory, statuses, readStatuses,
-      connectors: async () => {
-        const items = await listMcp(config, workspace.id, directory);
-        const allowed = await allowedMemberConnectors(config, Object.fromEntries(items.map(item => [item.name, item.config])));
-        return items.filter(item => Object.hasOwn(allowed, item.name));
-      },
-      // Fetch cancellation does not cancel the engine's handshake. Keep the
-      // lock until it actually settles; the engine enforces its MCP timeout.
-      connect: name => client.mcp.connect({ directory, name }, { throwOnError: true }),
-    });
-  } catch {
-    // Engine unavailability must not erase connector state or block other work.
-  }
-}
-
-function unwrapOpencodeResult<T, E>(result: OpencodeClientResult<T, E>, path: string): NonNullable<T> {
-  if (result.data != null) {
-    return result.data;
-  }
-  if (result.error === undefined) {
-    throw new ApiError(502, "opencode_empty_response", "OpenCode returned an empty response", { path });
-  }
-  if (!result.response) {
-    throw new ApiError(503, "opencode_unavailable", "OpenCode engine is not ready", {
-      path,
-      reason: result.error instanceof Error ? result.error.message : String(result.error),
-    });
-  }
-  throw new ApiError(502, "opencode_request_failed", "OpenCode request failed", {
-    status: result.response.status,
-    body: result.error,
-    path,
-  });
-}
-
-async function proxyOpencodeRequest(input: {
-  config: ServerConfig;
-  request: Request;
-  url: URL;
-  workspace?: WorkspaceInfo;
-  proxyPath?: string;
-  actor?: Actor;
-}) {
+type NativeProxyInput = { config: ServerConfig; request: Request; url: URL; workspace?: WorkspaceInfo; proxyPath?: string; actor?: Actor };
+export async function proxyOpencodeRequest(input: NativeProxyInput) {
   const path = normalizeOpencodeProxyPath(input.proxyPath ?? input.url.pathname);
   const method = input.request.method.toUpperCase();
-  const mcp = path.match(/^\/mcp\/([^/]+)\/(connect|disconnect|auth(?:\/(?:callback|authenticate))?)$/);
-  const added = method === "POST" && path === "/mcp"
-    ? z.object({ name: z.string() }).safeParse(await input.request.clone().json().catch(() => null)) : null;
-  const name = mcp && (method === "POST" || method === "DELETE") ? decodeURIComponent(mcp[1]) : added?.success ? added.data.name : null;
-  if (name) {
-    const recovery = mcpRecovery(input.config);
-    return recovery.mutate(name, async () => {
-      const startAuth = method === "POST" && mcp?.[2] === "auth";
-      if (startAuth) recovery.beginAuth(name);
-      else if (mcp?.[2] !== "auth/callback") recovery.endAuth(name);
-      try {
+  const stopping = method === "POST" && /^\/session\/[^/]+\/interrupt$/.test(path);
+  const passive = method === "GET" && (path === "/info" || path === "/event");
+  if (input.workspace && !stopping && !passive) await assertEngineProjectReady(input.config, input.workspace);
+  const control = path.match(/^\/experimental\/mcp\/([^/]+)\/(connect|disconnect)$/);
+  if (control && method === "POST") return mcpRecovery(input.config).mutate(control[1], () => forwardOpencodeRequest(input));
+  const oauth = path.match(/^\/integration\/([^/]+)\/connect\/oauth(?:\/([^/]+)(\/complete)?)?$/);
+  if (oauth && input.workspace) {
+    const root = workspaceEngineLocation(input.workspace).directory;
+    const requested = input.url.searchParams.get("location[directory]") ?? root;
+    const directory = await assertNativeProxyDirectory(root, requested);
+    const servers = (await createEngineClient(input.config, input.workspace).mcp.list({ location: { directory } })).data;
+    const names = servers.filter(server => server.integrationID === oauth[1]).map(server => server.name).sort();
+    if (names.length) {
+      const recovery = mcpRecovery(input.config);
+      const invoke = async () => {
         const response = await forwardOpencodeRequest(input);
-        if (startAuth) {
-          const result = z.object({ authorizationUrl: z.string().optional() }).safeParse(await response.clone().json().catch(() => null));
-          if (response.ok && result.success && result.data.authorizationUrl) recovery.beginAuth(name);
-          else recovery.endAuth(name);
+        if (response.ok) {
+          const data: unknown = await response.clone().json().catch(() => null);
+          const status = isRecord(data) && isRecord(data.data) ? data.data : null;
+          if (status && isRecord(status.time) && typeof status.time.expires === "number" && (typeof status.attemptID === "string" || status.status === "pending")) {
+            for (const name of names) recovery.beginAuth(name, status.time.expires);
+          } else if (method === "DELETE" || oauth[3] || status && status.status !== "pending") {
+            for (const name of names) recovery.endAuth(name);
+          }
         }
         return response;
-      } catch (error) {
-        if (startAuth) recovery.endAuth(name);
-        throw error;
-      } finally {
-        if (mcp?.[2] === "auth/callback") recovery.endAuth(name);
-      }
-    });
+      };
+      const locked = (index: number): Promise<Response> => index === names.length ? invoke() : recovery.mutate(names[index]!, () => locked(index + 1));
+      return method === "GET" ? invoke() : locked(0);
+    }
   }
-  const session = path.match(/^\/session\/([^/]+)\/(?:message|prompt_async|command|fork|shell|summarize)$/);
-  return input.request.method === "POST" && session
-    ? withSessionExecution(input.config, decodeURIComponent(session[1]), () => forwardOpencodeRequest(input))
+  const sessionID = nativeProxySessionID(path);
+  return method === "POST" && sessionID && /\/(?:prompt|command|shell|compact|synthetic|fork)$/.test(path)
+    ? withSessionExecution(input.config, sessionID, () => forwardOpencodeRequest(input))
     : forwardOpencodeRequest(input);
 }
 
-async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequest>[0]) {
+async function forwardOpencodeRequest(input: NativeProxyInput) {
   const workspace = input.workspace;
-  if (workspace) {
+  if (!workspace) throw new ApiError(404, "workspace_not_found", "Project not found.");
+  // LAWOSS: a protected document chat is answered by its own runtime (lawoss/protected-ai/dispatch.ts).
+  {
     const url = new URL(input.request.url);
     url.pathname = normalizeOpencodeProxyPath(input.proxyPath ?? input.url.pathname);
     const protectedResponse = await protectedSessionResponse(input.config, workspace.id, new Request(url, input.request));
     if (protectedResponse) return protectedResponse;
   }
-  await requireGovernedEngineDispatch(input.config, workspace?.id ?? null, input.request.method, normalizeOpencodeProxyPath(input.proxyPath ?? input.url.pathname));
-  const baseUrl = workspace ? resolveWorkspaceOpencodeConnection(input.config, workspace).baseUrl?.trim() ?? "" : "";
-  if (!baseUrl) {
-    throw new ApiError(400, "opencode_unconfigured", "OpenCode base URL is missing for this workspace");
-  }
-
-  const proxyPath = input.proxyPath ?? input.url.pathname;
-  const scopedProxyPath = normalizeOpencodeProxyPath(proxyPath);
-  // Refuse locally before the session ownership lookup reaches the engine.
+  // LAWOSS: AI hranice before any engine request (lawoss/ai-governance-engine.ts).
+  await requireGovernedEngineDispatch(input.config, workspace.id, input.request.method, normalizeOpencodeProxyPath(input.proxyPath ?? input.url.pathname));
+  const actor = input.actor ?? { type: "remote", scope: "viewer" };
+  const path = normalizeOpencodeProxyPath(input.proxyPath ?? input.url.pathname);
   const method = input.request.method.toUpperCase();
-  const protectedExecution = input.config.agentSandboxEnabled || (await new WikiStore(input.config).list()).length > 0;
-  if (protectedExecution) assertSandboxProxyAllowed(method, proxyPath);
-  // LAWOSS: refuse engine routes and overrides that leave the folder; see engine-route-scope.ts.
-  assertEngineRouteScoped(method, scopedProxyPath, input.url.searchParams, input.request.headers);
-  let targetUrl = buildOpencodeProxyUrl(baseUrl, proxyPath, input.url.search);
-  const headers = new Headers(input.request.headers);
-  headers.delete("authorization");
-  headers.delete("x-legalwork-host-token");
-  headers.delete("x-legalwork-client-id");
-  headers.delete("host");
-  headers.delete("origin");
-
-  const requestedDirectory = workspace ? await resolveProxyOpencodeDirectory(workspace, headers, input.url) : null;
-  // LAWOSS: čítanie stavu MCP nespustí druhú sadu v klientovi, ktorý ju má v inom svojom priečinku (issue #367).
-  const directory = residentEngineMcpDirectory(input.config, workspace, method, scopedProxyPath, baseUrl, requestedDirectory);
-  if (directory) {
-    headers.set("x-opencode-directory", buildOpencodeDirectoryHeader(directory));
-    if (input.url.searchParams.has("directory")) {
-      const scopedUrl = new URL(targetUrl);
-      scopedUrl.searchParams.set("directory", directory);
-      targetUrl = scopedUrl.toString();
-    }
-  }
-
-  const auth = workspace ? resolveWorkspaceOpencodeConnection(input.config, workspace).authHeader ?? null : null;
-  if (auth) {
-    headers.set("Authorization", auth);
-  }
-
-  // LAWOSS: a folder's session list stays inside the folder; see session-list-scope.ts.
-  const listRoot = workspace && directory && input.request.method.toUpperCase() === "GET" && scopedProxyPath === "/session" ? resolveOpencodeDirectory(workspace) : null;
-  const listRoots = listRoot ? [listRoot, workspace?.workspaceType === "local" ? await realpath(listRoot).catch(() => listRoot) : listRoot] : null;
-  if (listRoots && directory) {
-    const scopedUrl = new URL(targetUrl);
-    await scopeSessionListQuery({ query: scopedUrl.searchParams, directory, roots: listRoots, worktree: () => engineProjectWorktree(buildOpencodeProxyUrl(baseUrl, "/project/current", ""), headers, input.request.signal) });
-    targetUrl = scopedUrl.toString();
-  }
-
-  if (scopedProxyPath === "/experimental/session") {
-    throw new ApiError(403, "workspace_history_internal", "Global session history is host-internal");
-  }
-  // LAWOSS: engine 1.18.29 lists v2 `/api/session` per engine project, not per folder; the app lists `/session`.
-  if (scopedProxyPath === "/api/session" && input.request.method.toUpperCase() === "GET") {
-    throw new ApiError(403, "session_list_unscoped", "Use the folder session list");
-  }
-  const sessionMatch = scopedProxyPath.match(/^(?:\/api)?\/session\/([^/]+)(?:\/|$)/);
-  if (workspace && sessionOwnershipChecked(workspace) && sessionMatch && !["status", "list"].includes(sessionMatch[1]!)) {
-    const sessionId = decodeURIComponent(sessionMatch[1]!);
-    const metadataUrl = buildOpencodeProxyUrl(baseUrl, `/session/${encodeURIComponent(sessionId)}`, "");
-    const metadataHeaders = new Headers(headers);
-    metadataHeaders.delete("content-length");
-    metadataHeaders.delete("content-type");
-    const metadata = await fetch(metadataUrl, { headers: metadataHeaders, signal: AbortSignal.any([input.request.signal, AbortSignal.timeout(10_000)]) });
-    if (!metadata.ok) throw new ApiError(404, "session_not_found", "Session not found");
-    const parsed = sessionInfoSchema.safeParse(await metadata.json());
-    if (!parsed.success || !(await workspaceReadsSession(workspace, parsed.data))) throw new ApiError(404, "session_not_found", "Session does not belong to this project");
-  }
-
-  const normalizedPath = normalizeOpencodeProxyPath(proxyPath);
-  const sessionDirectory = input.url.searchParams.get("directory") || decodeOpencodeDirectoryHeader(headers.get("x-opencode-directory"));
-  const session = normalizedPath.match(/^\/session\/([^/]+)\/(?:message|prompt_async|command|fork)$/);
-  if (method === "POST" && session && sessionDirectory && input.actor?.scope && await realpath(sessionDirectory).catch(() => null)) {
-    await grantWikiAgentSession(input.config, { sessionId: decodeURIComponent(session[1]), directory: sessionDirectory, scope: input.actor.scope });
-  }
-  // Buffer the request body so it can be forwarded reliably across Node.js
-  // stream boundaries (Readable.toWeb streams from the HTTP adapter aren't
-  // always accepted directly by Node's global fetch as a body).
-  let body = method === "GET" || method === "HEAD"
-    ? undefined
-    : await input.request.arrayBuffer().then((buf) => (buf.byteLength > 0 ? buf : undefined));
-  if (input.config.agentSandboxEnabled) body = sandboxSessionBody(proxyPath, body);
-  // The sandbox may change the body; let fetch calculate its current length.
-  headers.delete("content-length");
-  if (workspace && sessionDirectory && input.actor?.scope && input.actor.scope !== "viewer" && method === "POST" && /^\/session\/[^/]+\/(?:message|prompt_async|command)$/.test(normalizedPath)) {
-    // Let a healthy network restore tools before the next turn. An unreachable
-    // connector continues in the background instead of holding the chat open.
-    let timer: ReturnType<typeof setTimeout> | undefined;
+  assertOpencodeProxyAllowed(actor, method, path, input.config.readOnly);
+  // LAWOSS: the global session history stays host-internal (lawoss/workspace-history-sessions.ts).
+  if (path === "/experimental/session") throw new ApiError(403, "workspace_history_internal", "Global session history is host-internal");
+  if (!["GET", "HEAD"].includes(method)) ensureWritable(input.config);
+  const connection = resolveWorkspaceOpencodeConnection(input.config, workspace);
+  if (!connection.baseUrl) throw new ApiError(503, "opencode_unavailable", "The agent engine is not available.");
+  const client = createEngineClient(input.config, workspace);
+  const wikis = await new WikiStore(input.config).list();
+  const root = workspaceEngineLocation(workspace).directory;
+  const allowed = async (directory: string) => {
     try {
-      await Promise.race([
-        recoverWorkspaceMcp(input.config, workspace, sessionDirectory),
-        new Promise<void>(resolve => { timer = setTimeout(resolve, 2000); }),
-      ]);
-    } finally {
-      if (timer) clearTimeout(timer);
+      assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await realpath(directory).catch(() => resolve(directory))));
+      return await pathWithin(root, directory);
+    } catch { return false; }
+  };
+  const target = new URL(connection.baseUrl);
+  target.pathname = `/api${path}`;
+  target.search = input.url.search;
+  if (target.searchParams.has("location") || target.searchParams.getAll("location[directory]").length > 1 || target.searchParams.getAll("directory").length > 1) throw new ApiError(400, "ambiguous_location", "Use one native location[directory] query parameter.");
+  const requested = target.searchParams.get("location[directory]") ?? target.searchParams.get("directory") ?? decodeOpencodeDirectoryHeader(input.request.headers.get("x-opencode-directory")) ?? root;
+  const directory = await assertNativeProxyDirectory(root, requested);
+  if (!await allowed(directory)) throw new ApiError(404, "workspace_not_found", "Project not found.");
+  target.searchParams.delete("directory");
+  target.searchParams.set("location[directory]", directory);
+  if (path === "/session") target.searchParams.set("directory", directory);
+  const sessionID = nativeProxySessionID(path);
+  let sessionDirectory = directory;
+  if (sessionID) {
+    // LAWOSS (AGENTS.md): a client that leaves before the metadata read cancels it upstream too.
+    const session = await client.session.get({ sessionID }, { signal: input.request.signal });
+    if (isInternalSession(session)) throw new ApiError(404, "session_not_found", "This chat is unavailable.");
+    if (!await allowed(session.location.directory)) throw new ApiError(404, "session_not_found", "This chat does not belong to the project.");
+    sessionDirectory = session.location.directory;
+    if (method === "PATCH" && /^\/session\/[^/]+$/.test(path)) await restoreLegacySessionPermissions(input.config, workspace, client, session);
+    if (method === "POST" && /\/(?:prompt|command|synthetic|shell|compact|fork|generate)$/.test(path)) {
+      await requireAssistantWorkspaceSubscription(input.config, workspace.id);
+      await assertSessionHistoryReady(input.config, workspace, client, sessionID);
+    }
+    if (method === "POST" && path.endsWith("/interrupt")) {
+      return jsonResponse(await interruptEngineSession(client, sessionID, { managedCommands: input.config.engineProjectTrustRequired === true }));
     }
   }
-  if (isSessionCommandProxyRequest(method, proxyPath)) {
-    if (protectedExecution) {
-      if (!workspace || !body) throw new ApiError(400, "invalid_command", "A workspace command is required.");
-      const command = z.object({ command: z.string(), arguments: z.string().default("") }).parse(JSON.parse(Buffer.from(body).toString()));
-      assertNoHostShellInterpolation(command.arguments);
-      const commands = unwrapOpencodeResult(await createWorkspaceOpencodeClient(input.config, workspace).command.list(), "/command");
-      const definition = commands.find((item) => item.name === command.command);
-      if (!definition) throw new ApiError(404, "command_not_found", "Command not found.");
-      assertNoHostShellInterpolation(definition.template);
+  if (method === "GET" && path === "/event") {
+    const roots = await Promise.all(input.config.workspaces.map(async project => {
+      try { assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, project.directory || project.path)); return project.directory || project.path; }
+      catch { return null; }
+    }));
+    return scopedNativeEvents(client, async directory => {
+      try { assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await realpath(directory).catch(() => resolve(directory)))); }
+      catch { return false; }
+      for (const candidate of roots) if (candidate && await pathWithin(candidate, directory)) return true;
+      return false;
+    }, input.request.signal, close => onSyncChange(input.config, change => { if (change === "projects" || change === "policy") close(); }));
+  }
+  if (method === "GET" && path === "/session/active") {
+    const active = await client.session.active();
+    const entries = await Promise.all(Object.entries(active).map(async ([id, value]) => {
+      const session = await client.session.get({ sessionID: id }).catch(() => null);
+      return session && await allowed(session.location.directory) ? [[id, value]] : [];
+    }));
+    return jsonResponse({ data: Object.fromEntries(entries.flat()) });
+  }
+  if (method === "GET" && path === "/project") {
+    const projects = await client.project.list();
+    return jsonResponse({ data: projects.filter(project => input.config.workspaces.some(item => resolve(item.directory || item.path) === resolve(project.canonical))).filter(project => {
+      try { assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, project.canonical)); return true; } catch { return false; }
+    }) });
+  }
+  if (path.startsWith("/permission/saved")) {
+    if (path === "/permission/saved" && method === "GET") return jsonResponse({ data: await listNativeProjectApprovals(input.config, workspace) });
+    const id = path.match(/^\/permission\/saved\/([^/]+)$/)?.[1];
+    if (!id) throw new ApiError(404, "permission_not_found", "Saved permission not found in this project.");
+    if (method === "DELETE") {
+      await removeNativeProjectApproval(input.config, workspace, id);
+      return new Response(null, { status: 204 });
     }
-    // Keep the dispatch reservation after returning the command acknowledgement.
-    const commandSession = normalizedPath.match(/^\/session\/([^/]+)\/command$/);
-    if (!commandSession) throw new ApiError(400, "invalid_command", "A chat command is required.");
-    void withSessionExecution(input.config, decodeURIComponent(commandSession[1]), async () => {
-      // LAWOSS: príkaz spúšťa MCP v priečinku; počíta sa do rozpočtu (issue #367).
-      const releaseEngineMcp = await admitEngineMcp(input.config, method, scopedProxyPath, directory ? { baseUrl, authHeader: auth, directory } : null);
-      try {
-        return await fetch(targetUrl, { method, headers, body });
-      } finally {
-        releaseEngineMcp();
+    if (method === "PATCH") {
+      const updates = z.object({ action: z.string().min(1).optional(), resource: z.string().min(1).optional() }).strict().parse(await input.request.json());
+      return jsonResponse({ data: await updateNativeProjectApproval(input.config, workspace, id, updates) });
+    }
+    throw new ApiError(400, "project_permission_edit_required", "Saved approval changes must use this project's settings.");
+  }
+  if (path.startsWith("/worktree") || path === "/experimental/session/stats") {
+    const location = await client.location.get({ location: { directory } });
+    target.searchParams.set(path === "/experimental/session/stats" ? "project" : "projectID", location.project.id);
+  }
+  const file = nativeProxyFilePath(path, target, directory);
+  if (file) {
+    const runtime = await readRuntimeOpencodeConfig(input.config, workspace.id);
+    const configured = mergeOpencodeConfigs(await readOpencodeConfig(input.config, workspace), runtime);
+    const folders = readAuthorizedFoldersFromOpencodeConfig(configured, root, runtime.projectPermissionApprovals).folders;
+    let permitted = await allowed(file);
+    if (!permitted) {
+      for (const folder of folders) if (await pathWithin(folder, file)) { permitted = true; break; }
+      if (permitted) {
+        const canonical = await canonicalFilePath(file);
+        const resources = [...new Set([file, canonical].map(resource => path === "/fs/list" ? join(resource, "*") : resource))];
+        permitted = projectPermissionEffect({ ...runtimeEngineConfiguration(configured), projectPermissionApprovals: runtime.projectPermissionApprovals }, "external_directory", resources, "allow") === "allow";
       }
-    }).catch(() => {
-      // Command failures are surfaced through the OpenCode event stream.
-    });
-    return jsonResponse({ ok: true, accepted: true });
+    }
+    assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await canonicalFilePath(file)));
+    if (!permitted) throw new ApiError(403, "file_access_denied", "This file is outside the project's authorized folders. Open it through LegalWork file access.");
+    if (method !== "GET" && method !== "HEAD" && wikiForDirectory(wikis, file) && !ownsWikis(actor)) throw new ApiError(403, "wiki_write_denied", "Change shared knowledge through approved LegalWork tools.");
   }
-  const engineFetch = protectedEngineFetch(input.config, workspace?.id ?? "", fetch);
-  // LAWOSS: MCP sa spustia len v otvorenom priečinku, najviac v limite (issue #367).
-  const releaseEngineMcp = await admitEngineMcp(input.config, method, scopedProxyPath, directory ? { baseUrl, authHeader: auth, directory } : null);
+  const protectedExecution = input.config.agentSandboxEnabled || wikis.length > 0;
+  if (protectedExecution) assertSandboxProxyAllowed(method, `/api${path}`);
+  let body = method === "GET" || method === "HEAD" ? undefined : await input.request.arrayBuffer().then(value => value.byteLength ? value : undefined);
+  const permissionReply = path.match(/^\/session\/[^/]+\/permission\/([^/]+)\/reply$/);
+  if (method === "POST" && sessionID && permissionReply && body) {
+    const reply = z.object({ decision: z.enum(["once", "always", "reject"]), message: z.string().optional() }).parse(JSON.parse(Buffer.from(body).toString()));
+    if (reply.decision === "always") {
+      await rememberNativeChatApproval(input.config, workspace, sessionID, permissionReply[1]);
+      body = new TextEncoder().encode(JSON.stringify({ ...reply, decision: "once" })).buffer;
+    }
+  }
+  if (body && (path === "/session" || /^\/session\/[^/]+(?:\/move)?$/.test(path))) {
+    const value = z.record(z.string(), z.unknown()).parse(JSON.parse(Buffer.from(body).toString()));
+    if (isRecord(value.metadata) && Object.hasOwn(value.metadata, "legalworkInternal")) throw new ApiError(403, "internal_session_owned", "Internal operation contexts are managed by LegalWork.");
+    if (isRecord(value.location) && typeof value.location.directory === "string" && !await allowed(value.location.directory)) throw new ApiError(403, "workspace_location_mismatch", "The chat location does not belong to this project.");
+    if (path === "/session") {
+      value.location = { directory };
+      if (typeof value.parentID === "string") {
+        const parent = await client.session.get({ sessionID: value.parentID });
+        if (!await allowed(parent.location.directory)) throw new ApiError(404, "session_not_found", "Parent chat does not belong to this project.");
+      }
+    }
+    body = new TextEncoder().encode(JSON.stringify(value)).buffer;
+  }
+  if (protectedExecution) body = sandboxSessionBody(`/api${path}`, body);
+  if (isSessionCommandProxyRequest(method, path) && protectedExecution) {
+    if (!body) throw new ApiError(400, "invalid_command", "A project command is required.");
+    const command = z.object({ name: z.string(), text: z.string().default("") }).parse(JSON.parse(Buffer.from(body).toString()));
+    await assertManagedCommandIntegration(client, { directory });
+    const definition = (await client.command.list({ location: { directory } })).data.find(item => item.name === command.name);
+    if (!definition) throw new ApiError(404, "command_not_found", "Command not found.");
+    // The managed adapter routes template and argument expansion through the
+    // chat's sandbox; the native configured-command loader must stay disabled.
+  }
+  // LAWOSS: the chat's own folder (a case subfolder), the directory its tools claim.
+  if (sessionID && method === "POST" && /\/(?:prompt|command|synthetic|fork)$/.test(path) && actor.scope) await grantWikiAgentSession(input.config, { sessionId: sessionID, directory: sessionDirectory, scope: actor.scope });
+  const headers = new Headers(input.request.headers);
+  for (const header of ["authorization", "x-legalwork-host-token", "x-legalwork-client-id", "x-opencode-directory", "host", "origin", "content-length"]) headers.delete(header);
+  if (connection.authHeader) headers.set("Authorization", connection.authHeader);
+  assertManagedHistoryReadable(input.config, method, `/api${path}`);
+  const perform = async () => {
+    const response = await fetch(target, { method, headers, body, signal: input.request.signal });
+  if (method === "GET" && path === "/session" && response.ok) {
+    const result: unknown = await response.json();
+    if (!isRecord(result) || !Array.isArray(result.data)) throw new ApiError(502, "opencode_invalid_response", "The engine returned an invalid chat list.");
+    return jsonResponse({ ...result, data: result.data.filter(session => !isInternalSession(session)) });
+  }
+    await input.config.observeManagedEngineResponse?.({ method, path: `/api${path}`, directory }, response);
+    return response;
+  };
+  // LAWOSS (RAM 2 GB, #367, ADR 0017): a forward that builds a location (plugins and every MCP) is admitted
+  // into the MCP budget of that location first; the chat's own folder for session actions.
+  const engineScope = workspaceEngineScope(input.config, workspace);
+  const releaseEngineMcp = await admitEngineMcp(input.config, method, path, engineScope ? { ...engineScope, directory: normalizeOpencodeDirectory(sessionDirectory || directory) } : null);
+  const admissionSessionID = sessionID && method === "POST" && /\/(?:prompt|command|synthetic|shell|compact|fork|generate)$/.test(path) ? sessionID : "";
+  if (sessionID && method === "POST" && /\/(?:prompt|command)$/.test(path)) {
+    await recoverWorkspaceMcp(input.config, workspace, sessionDirectory, undefined, input.request.signal);
+  }
+  let response: Response;
   try {
-    return await dispatchOpencodeProxyRequest({ ...input, workspace, method, headers, body, targetUrl, scopedProxyPath, normalizedPath, sessionDirectory, listRoots, baseUrl, directory, engineFetch });
-  } finally {
-    releaseEngineMcp();
+    response = input.config.withManagedEngineAdmission && !["GET", "HEAD"].includes(method)
+      ? await input.config.withManagedEngineAdmission(admissionSessionID, perform) : await perform();
+  } finally { releaseEngineMcp(); }
+  if (method === "GET" && path === "/mcp" && response.ok && actor.scope !== "viewer") {
+    void response.clone().json().then(result => isRecord(result) && Array.isArray(result.data)
+      ? recoverWorkspaceMcp(input.config, workspace, directory, Object.fromEntries(result.data.flatMap(server => isRecord(server) && typeof server.name === "string" ? [[server.name, server.status]] : []))) : undefined).catch(() => undefined);
   }
-}
-
-async function dispatchOpencodeProxyRequest(input: Parameters<typeof proxyOpencodeRequest>[0] & {
-  workspace: WorkspaceInfo | undefined;
-  method: string;
-  headers: Headers;
-  body: ArrayBuffer | undefined;
-  targetUrl: string;
-  scopedProxyPath: string;
-  normalizedPath: string;
-  sessionDirectory: string | null;
-  listRoots: string[] | null;
-  baseUrl: string;
-  directory: string | null;
-  engineFetch: typeof fetch;
-}) {
-  const { workspace, method, headers, body, targetUrl, scopedProxyPath, normalizedPath, sessionDirectory, listRoots, baseUrl, directory, engineFetch } = input;
-  // Cold instance bootstrap hangs until npm install finishes. Share one GET /mcp
-  // for this URL. A different directory waits so a second install does not start
-  // beside it. A 20s client poll does not abort the install.
-  if (method === "GET" && scopedProxyPath === "/mcp") {
-    const cached = await abortable(sharedEngineResponse(targetUrl, (signal) => engineFetch(targetUrl, { method, headers, signal })), input.request.signal);
-    const shared = cachedEngineResponse(cached);
-    // Upstream v0.2.10: the desktop already polls this endpoint. Repair only failed remote
-    // transports without delaying the status response or reloading the engine.
-    if (workspace && sessionDirectory && input.actor?.scope && input.actor.scope !== "viewer" && shared.ok) {
-      void shared.clone().json().then(statuses => recoverWorkspaceMcp(input.config, workspace, sessionDirectory, statuses)).catch(() => undefined);
-    }
-    return sanitizeProxyResponse(shared);
+  if (method === "POST" && response.ok && (path === "/session" || path.endsWith("/fork")) && actor.scope) {
+    const result: unknown = await response.clone().json().catch(() => null);
+    const session = isRecord(result) && isRecord(result.data) ? result.data : null;
+    if (session && typeof session.id === "string") await grantWikiAgentSession(input.config, { sessionId: session.id, directory, scope: actor.scope });
   }
-  const response = await engineFetch(targetUrl, {
-    method,
-    headers,
-    body,
-    signal: input.request.signal,
-  });
-
-  if (workspace && listRoots && response.ok) {
-    const current = sessionInfoSchema.array().safeParse(await response.json());
-    if (!current.success) throw new ApiError(502, "opencode_invalid_response", "Invalid session list");
-    const historical = workspace.previousPaths?.length || workspace.appFilesStorageKey ? await historicalWorkspaceSessions(input.config, workspace, {
-      roots: parseOptionalBoolean(input.url.searchParams.get("roots"), "roots"),
-      start: parseOptionalNonNegativeInteger(input.url.searchParams.get("start"), "start"),
-      search: input.url.searchParams.get("search") ?? undefined,
-    }) : [];
-    const merged = new Map([...historical, ...current.data].filter(session => workspaceListsSession(workspace, listRoots, session)).map(session => [session.id, session]));
-    const ordered = [...merged.values()].sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0));
-    const limit = parseOptionalPositiveInteger(input.url.searchParams.get("limit"), "limit");
-    return jsonResponse(limit ? ordered.slice(0, limit) : ordered);
-  }
-
-  if (workspace && directory && method === "GET" && scopedProxyPath === "/project" && response.ok) {
-    const root = resolveOpencodeDirectory(workspace) ?? directory;
-    const roots = [root, workspace.workspaceType === "local" ? await realpath(root).catch(() => root) : root];
-    return jsonResponse(scopeProjectList(await response.json(), await engineCurrentProject(buildOpencodeProxyUrl(baseUrl, "/project/current", ""), headers, input.request.signal), roots));
-  }
-
-  if (method === "POST" && response.ok && (normalizedPath === "/session" || normalizedPath.endsWith("/fork")) && sessionDirectory && input.actor?.scope && await realpath(sessionDirectory).catch(() => null)) {
-    const created: unknown = await response.clone().json().catch(() => null);
-    if (isRecord(created) && typeof created.id === "string") {
-      await grantWikiAgentSession(input.config, { sessionId: created.id, directory: sessionDirectory, scope: input.actor.scope });
-    }
-  }
-  return sanitizeProxyResponse(response);
+  return sanitizeProxyResponse(await projectNativeClientRead(method, path, response));
 }
 
 /**
@@ -1827,6 +1748,7 @@ function withCors(response: Response, request: Request, config: ServerConfig) {
   );
   headers.set("Access-Control-Expose-Headers", "X-LegalWork-Updated-At");
   headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  if (request.method === "OPTIONS") headers.set("Access-Control-Max-Age", "600");
   headers.set("Vary", "Origin");
   return new Response(response.body, { status: response.status, headers });
 }
@@ -2005,7 +1927,7 @@ export type AuthorizedFoldersUpdateResponse = {
 
 type AuthorizedFoldersConfig = {
   folders: string[];
-  hiddenEntries: Record<string, unknown>;
+  hiddenRules: NativePermissionRule[];
 };
 
 function normalizeAuthorizedFolderPath(input: string | null | undefined): string {
@@ -2044,26 +1966,24 @@ function hasOwnKey(object: Record<string, unknown>, key: string): boolean {
 function readAuthorizedFoldersFromOpencodeConfig(
   opencodeConfig: Record<string, unknown>,
   workspaceRoot: string,
+  projectPermissionApprovals?: RuntimeOpencodeConfig["projectPermissionApprovals"],
 ): AuthorizedFoldersConfig {
   const workspaceRootFolder = normalizeAuthorizedFolderPath(workspaceRoot);
-  const permission = ensurePlainObject(opencodeConfig.permission);
-  const externalDirectory = ensurePlainObject(permission.external_directory);
-  const folders: string[] = [];
-  const hiddenEntries: Record<string, unknown> = {};
+  const configuration = runtimeEngineConfiguration(opencodeConfig);
+  const rules = [...configuration.permissions ?? [], ...rememberedProjectFolderRules({ ...configuration, projectPermissionApprovals })];
+  const folders: string[] = [], hiddenRules: NativePermissionRule[] = [];
   const seen = new Set<string>();
-
-  for (const [key, value] of Object.entries(externalDirectory)) {
-    const folder = externalDirectoryKeyToAuthorizedFolder(key, value);
-    if (!folder) {
-      hiddenEntries[key] = value;
-      continue;
+  for (const rule of rules) {
+    if (rule.action !== "external_directory") continue;
+    const folder = externalDirectoryKeyToAuthorizedFolder(rule.resource, rule.effect);
+    if (!folder) { hiddenRules.push(rule); continue; }
+    if (projectPermissionEffect({ ...configuration, projectPermissionApprovals }, "external_directory", [rule.resource], "allow") !== "allow") {
+      hiddenRules.push(rule); continue;
     }
     if (folder === workspaceRootFolder || seen.has(folder)) continue;
-    seen.add(folder);
-    folders.push(folder);
+    seen.add(folder); folders.push(folder);
   }
-
-  return { folders, hiddenEntries };
+  return { folders, hiddenRules };
 }
 
 function parseAuthorizedFoldersPayload(input: unknown, workspaceRoot: string): string[] {
@@ -2088,27 +2008,38 @@ function parseAuthorizedFoldersPayload(input: unknown, workspaceRoot: string): s
   return folders;
 }
 
-function mergeAuthorizedFoldersIntoExternalDirectory(
-  folders: string[],
-  hiddenEntries: Record<string, unknown>,
-): Record<string, unknown> | undefined {
-  const next: Record<string, unknown> = { ...hiddenEntries };
-  for (const folder of folders) {
-    next[authorizedFolderToExternalDirectoryKey(folder)] = "allow";
+function mergeAuthorizedFoldersIntoExternalDirectory(folders: string[], rules: ReadonlyArray<NativePermissionRule>, workspaceRoot: string): NativePermissionRule[] {
+  const desired = new Set(folders), root = normalizeAuthorizedFolderPath(workspaceRoot);
+  const result = rules.filter(rule => {
+    if (rule.action !== "external_directory") return true;
+    const folder = externalDirectoryKeyToAuthorizedFolder(rule.resource, rule.effect);
+    return folder === null || folder === root || desired.has(folder);
+  });
+  for (const folder of [...folders].reverse()) {
+    const resource = authorizedFolderToExternalDirectoryKey(folder);
+    if (result.some(rule => rule.action === "external_directory" && rule.resource === resource && rule.effect === "allow")) continue;
+    let parent = -1;
+    for (let index = 0; index < result.length; index++) {
+      const rule = result[index];
+      if (["*", "external_directory"].includes(rule.action) && permissionPatternMatches(resource, rule.resource)) parent = index;
+    }
+    // A grant follows its parent default while later child restrictions keep
+    // their original position. Unknown rules are never flattened into a map.
+    result.splice(parent + 1, 0, { action: "external_directory", resource, effect: "allow" });
   }
-  return Object.keys(next).length ? next : undefined;
+  return result;
 }
 
 function buildAuthorizedFoldersResponse(workspace: WorkspaceInfo, config: AuthorizedFoldersConfig): AuthorizedFoldersResponse {
   return {
     folders: config.folders,
-    hiddenCount: Object.keys(config.hiddenEntries).length,
+    hiddenCount: config.hiddenRules.length,
     workspaceRoot: normalizeAuthorizedFolderPath(workspace.path),
   };
 }
 
-function serializeWorkspace(workspace: ServerConfig["workspaces"][number], scope: Actor["scope"] = "viewer") {
-  const { opencodeUsername: _username, opencodePassword: _password, legalworkToken, ...rest } = workspace;
+function serializeWorkspace(workspace: ServerConfig["workspaces"][number], _scope?: Actor["scope"]): WorkspaceMetadata {
+  const { opencodeUsername: _username, opencodePassword: _password, opencode: _privateConnection, ...rest } = workspace;
   const opencodeDirectory = resolveOpencodeDirectory(workspace);
   const opencode =
     workspace.baseUrl || opencodeDirectory
@@ -2119,7 +2050,6 @@ function serializeWorkspace(workspace: ServerConfig["workspaces"][number], scope
       : undefined;
   return {
     ...rest,
-    ...(scope === "collaborator" || scope === "owner" ? { legalworkToken } : {}),
     opencode,
   };
 }
@@ -2147,17 +2077,17 @@ function createRoutes(
   const routes: Route[] = [];
   registerCloudTranscriptionRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope });
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
-    const primary = config.workspaces.find(workspace => workspace.workspaceType !== "remote");
+    const primary = config.workspaces[0];
     if (primary) {
       await writeLegalworkRuntimeConfigFile(config, primary.id);
       const previousReload = idleWorkspaceReloads;
       idleWorkspaceReloads = withRuntimeDb(config, async () => {
         await previousReload.catch(() => undefined);
         for (const workspace of config.workspaces) {
-          if (workspace.workspaceType === "remote") continue;
+          // LAWOSS (RAM 2 GB, #367 N9): an unopened client is only marked; its location reads the new files when opened.
           if (deferDormantReload(config, workspace)) continue;
           try {
-            if (!(await workspaceEngineBusy(config, workspace))) await reloadOpencodeEngine(config, workspace, { background: true });
+            if (!(await workspaceEngineBusy(config, workspace))) await reloadOpencodeEngine(config, workspace);
           } catch { /* A stopped engine will read the updated configuration on startup. */ }
         }
       });
@@ -2167,37 +2097,35 @@ function createRoutes(
     const client = createWorkspaceOpencodeClient(config, workspace);
     return {
       get: async id => {
-        const result = await client.session.get({ sessionID: id });
-        if (result.response?.status === 404) return null;
-        return unwrapOpencodeResult(result, "/session");
+        return getWorkspaceEngineSessionOrNull(client, workspace, id);
       },
-      list: async () => {
-        const lists = await Promise.all([client.session.list().then(result => unwrapOpencodeResult(result, "/session")), historicalWorkspaceSessions(config, workspace)]);
-        return [...new Map(lists.flat().map(session => [session.id, session])).values()];
-      },
-      messages: async (id, limit) => unwrapOpencodeResult(await client.session.messages({ sessionID: id, limit }), "/session/message"),
-      create: async title => unwrapOpencodeResult(await client.session.create({ title }), "/session"),
-      unarchive: async id => unwrapOpencodeResult(await client.session.update({ sessionID: id, time: { archived: 0 } }), "/session"),
+      list: async () => listEngineSessions(client, { directory: workspaceEngineLocation(workspace).directory }),
+      messages: async (id, limit) => { await getWorkspaceEngineSession(client, workspace, id); return listEngineMessages(client, id, { limit }); },
+      create: async title => client.session.create({ location: workspaceEngineLocation(workspace), title }),
+      unarchive: async id => { await getWorkspaceEngineSession(client, workspace, id); return client.session.update({ sessionID: id, archived: false }); },
     };
   });
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerCalendarEventDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
   registerEmailDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
   registerCalendarRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval,
-    listSessions: async (workspace, search) => unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.list({ limit: 200, search }), "/session"),
+    listSessions: async (workspace, search) => (await listEngineSessions(createWorkspaceOpencodeClient(config, workspace), { directory: workspaceEngineLocation(workspace).directory, limit: 200, search }))
+      .map(session => ({ ...session, title: session.title ?? "New chat", directory: session.location.directory })),
     getSession: async (workspace, id) => {
-      const result = await createWorkspaceOpencodeClient(config, workspace).session.get({ sessionID: id });
-      return result.response?.status === 404 ? null : unwrapOpencodeResult(result, "/session");
+      const session = await getWorkspaceEngineSessionOrNull(createWorkspaceOpencodeClient(config, workspace), workspace, id);
+      return session ? { ...session, directory: session.location.directory } : null;
     },
   });
-  registerScheduledTaskRoutes({ routes, config, store: scheduledTasks, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace,
-    listSessions: async (workspace, search) => unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.list({ limit: 200, search }), "/session"),
+  registerScheduledTaskRoutes({ routes, config, store: scheduledTasks, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, resolveWorkspaceMetadata,
+    getStatuses: async workspace => Object.fromEntries(Object.keys(await createWorkspaceOpencodeClient(config, workspace).session.active({ signal: AbortSignal.timeout(10000) })).map(id => [id, { type: "busy" }])) ,
+    listSessions: async (workspace, search) => (await listEngineSessions(createWorkspaceOpencodeClient(config, workspace), { directory: workspaceEngineLocation(workspace).directory, limit: 200, search }))
+      .map(session => ({ ...session, title: session.title ?? "New chat", directory: session.location.directory })),
     getSession: async (workspace, id) => {
-      const result = await createWorkspaceOpencodeClient(config, workspace).session.get({ sessionID: id });
-      return result.response?.status === 404 ? null : unwrapOpencodeResult(result, "/session");
+      const session = await getWorkspaceEngineSessionOrNull(createWorkspaceOpencodeClient(config, workspace), workspace, id);
+      return session ? { ...session, directory: session.location.directory } : null;
     },
   });
-  registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerDocumentPreparationRoutes({ routes, config, preparation, ocr, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerAiGovernanceRoutes({routes, config, jsonResponse, readJsonBodyLimited, getPublicEngineBinary: publicEngineBinary, pinnedEngineVersion: OPENCODE_VERSION});
   registerYoloModeRoutes({routes, config, jsonResponse, readJsonBodyLimited});
   registerFileOperationRoutes({ routes, config, jsonResponse, readJsonBodyLimited, requireClientScope, resolveWorkspace });
@@ -2209,34 +2137,21 @@ function createRoutes(
   registerLawossOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   const projectFolders = registerStorageRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace, onProjectFoldersChanged: (id) => noteProjectFoldersChanged(config, id), onProjectRenamed: (id, name) => noteProjectRenamed(config, id, name) });
   const readCustomProviders = async (workspace: WorkspaceInfo): Promise<Record<string, unknown>> => {
-    const persisted = mergeOpencodeConfigs(await readOpencodeConfig(workspace.path), await readRuntimeOpencodeConfig(config, workspace.id));
-    const connection = resolveWorkspaceOpencodeConnection(config, workspace);
-    let engineProviders: Record<string, unknown> = {};
-    if (connection.baseUrl) {
-      const url = new URL("/config", connection.baseUrl);
-      const directory = resolveOpencodeDirectory(workspace);
-      if (directory) url.searchParams.set("directory", directory);
-      try {
-        const response = await fetch(url, {
-          headers: connection.authHeader ? { Authorization: connection.authHeader } : {},
-          signal: AbortSignal.timeout(10_000),
-        });
-        const engine: unknown = response.ok ? await response.json() : null;
-        if (isRecord(engine) && isRecord(engine.provider)) engineProviders = engine.provider;
-      } catch { /* The persisted inventory remains usable while the engine reconnects. */ }
-    }
-    return { ...engineProviders, ...(isRecord(persisted.provider) ? persisted.provider : {}) };
+    const persisted = mergeOpencodeConfigs(await readOpencodeConfig(config, workspace), await readRuntimeOpencodeConfig(config, workspace.id));
+    // Authored definitions determine editability and secret endpoint binding.
+    // A runtime model catalog is not evidence that LegalWork owns its config.
+    return { ...runtimeEngineConfiguration(persisted).providers };
   };
   const refreshCustomModels = createCustomProviderModelRefresh({
     config,
     readProviders: readCustomProviders,
-    readCatalogModels: async (workspace, providerId) => {
-      const catalogModels = await bundledProviderModelCatalog(providerId);
-      const client = createWorkspaceOpencodeClient(config, workspace);
-      const providers = unwrapOpencodeResult(await client.provider.list(), "/provider");
-      const knownModels = new Set(Object.keys(providers.all.find(provider => provider.id === providerId)?.models ?? {}));
-      return Object.fromEntries(Object.entries(catalogModels).filter(([id]) => !knownModels.has(id)));
+    readCatalogInventory: async (workspace, providerId, refresh) => {
+      // LAWOSS: a refresh reads only the bundled catalog, never the Eigenwelt mirror (lawoss/bundled-provider-catalog.ts).
+      // The available list stays what the engine actually loaded (upstream native inventory).
+      if (refresh) await bundledProviderModelCatalog(providerId);
+      return nativeModelCatalogInventory(createWorkspaceOpencodeClient(config, workspace), workspaceEngineLocation(workspace), providerId);
     },
+    reloadCatalog: async () => config.reloadManagedEngineCatalog ? config.reloadManagedEngineCatalog() : false,
     isBusy: (workspace) => workspaceEngineBusy(config, workspace),
     reload: async (workspace) => {
       await writeLegalworkRuntimeConfigFile(config, workspace.id);
@@ -2279,8 +2194,8 @@ function createRoutes(
     serializeWorkspace,
     resolveToyUiEnabled,
     resolveDevLogPath,
-    getOpenAiRealtimeVoiceCapability,
-    createOpenAiRealtimeVoiceCall,
+    getOpenAiRealtimeVoiceCapability: env => getOpenAiRealtimeVoiceCapability(config, env),
+    createOpenAiRealtimeVoiceCall: (env, input) => createOpenAiRealtimeVoiceCall(config, env, input),
   });
 
   registerOnboardingRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, onWorkspacesChanged, applyCheckpoint: onboardingApplyCheckpoint, serializeWorkspace: (workspace) => serializeWorkspace(workspace, "owner") });
@@ -2296,11 +2211,11 @@ function createRoutes(
       idleWorkspaceReloads = withRuntimeDb(config, async () => {
         await previousReload.catch(() => undefined);
       marketplaceReloadQueued = false;
-      const local = config.workspaces.filter((item) => item.workspaceType !== "remote");
-      for (const workspace of local) {
+      for (const workspace of config.workspaces) {
+        // LAWOSS (RAM 2 GB, #367 N9): neotvorení klienti sa len označia.
         if (deferDormantReload(config, workspace)) continue;
         try {
-          if (!(await workspaceEngineBusy(config, workspace))) { await reloadOpencodeEngine(config, workspace, { background: true }); continue; }
+          if (!(await workspaceEngineBusy(config, workspace))) { await reloadOpencodeEngine(config, workspace); continue; }
           await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
           emitReloadEvent(ctx.reloadEvents, workspace, "skills", { type: "skill", name: "LAWOSS Marketplace", action: "updated" });
         } catch { /* Best-effort: zastavený engine si pri štarte prečíta aktuálny stav. */ }
@@ -2325,7 +2240,6 @@ function createRoutes(
     ensureWritable,
     resolveWorkspace,
     serializeWorkspace: (workspace) => serializeWorkspace(workspace, "owner"),
-    startEngineActivation,
     onProjectDetailsSaved: (workspaceId, before, after) => noteProjectDetailsSaved(config, workspaceId, before, after),
     onProjectRenamed: (workspaceId, name) => noteProjectRenamed(config, workspaceId, name),
     onProjectRemoved: (workspaceId) => noteProjectRemoved(config, workspaceId),
@@ -2343,9 +2257,19 @@ function createRoutes(
     ensureWritable,
     requireClientScope,
     resolveWorkspace,
-    createWorkspaceOpencodeClient,
-    unwrapOpencodeResult,
+    resolveWorkspaceMetadata,
   });
+
+  registerToolOutputRoutes({ routes, config, jsonResponse, requireClientScope, resolveWorkspace });
+  registerBrowserRoutes({ routes, config, jsonResponse, requireClientScope, resolveWorkspace });
+  registerMcpOAuthRoutes({ routes, config, resolveWorkspace, requireClientScope, jsonResponse, recovery: mcpRecovery(config) });
+  registerEngineCredentialRoutes({ routes, config, jsonResponse, requireClientScope, ensureWritable, resolveWorkspace });
+  registerNativeCommandDefinitionRoutes({ routes, config, jsonResponse, requireClientScope, resolveWorkspace });
+  // Recovery must stay reachable when project files cannot be bootstrapped.
+  // Metadata resolution still checks registration and the authorized root.
+  registerEngineProjectRoutes({ routes, config, jsonResponse, requireClientScope, ensureWritable,
+    resolveWorkspace: async (config, id) => resolveWorkspaceMetadata(config, id),
+    onRetry: async workspace => { if (config.engineProjectTrustRequired) await writeLegalworkRuntimeConfigFile(config, workspace.id); } });
 
   registerBenchmarkRoutes({
     routes,
@@ -2474,14 +2398,22 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     let apiKey = body.apiKey;
-    if (typeof body.providerId === "string" && (typeof apiKey !== "string" || !apiKey.trim())) {
+    let baseURL = body.baseURL;
+    const runtime = await readRuntimeOpencodeConfig(config, workspace.id);
+    const owned = { ...runtime.providers };
+    const ownedProvider = typeof body.providerId === "string" && Object.hasOwn(owned, body.providerId)
+      && !(await orgChatEngineIds(config)).includes(body.providerId);
+    if (typeof body.providerId === "string" && (typeof baseURL !== "string" || !baseURL.trim())) {
+      if (ownedProvider) baseURL = providerBaseURL(owned[body.providerId]);
+    }
+    if (ownedProvider && typeof body.providerId === "string" && (typeof apiKey !== "string" || !apiKey.trim())) {
       const provider = (await readCustomProviders(workspace))[body.providerId];
       // Never forward a stored secret to a URL newly entered in the form.
-      if (typeof body.baseURL === "string" && providerBaseURL(provider) === body.baseURL.trim().replace(/\/+$/, "")) {
-        apiKey = await readStoredProviderApiKey(body.providerId, provider);
+      if (typeof baseURL === "string" && providerBaseURL(provider) === baseURL.trim().replace(/\/+$/, "")) {
+        apiKey = await readStoredProviderApiKey(config, body.providerId, provider, workspace);
       }
     }
-    return jsonResponse({ models: await discoverProviderModels(body.baseURL, apiKey) });
+    return jsonResponse({ models: await discoverProviderModels(baseURL, apiKey) });
   });
 
   addRoute(routes, "POST", "/workspace/:id/provider-model-refresh", "client", async (ctx) => {
@@ -2504,22 +2436,34 @@ function createRoutes(
       await readLegalworkConfig(workspaceAppFilesRoot(config, workspace)),
       await readLegalworkWorkspaceConfig(config, workspace.id),
     );
-    // Tool permissions come from the global row; the workspace row only
-    // contributes external_directory (see applyGlobalToolPermissions).
-    // LAWOSS: globálni vlastní poskytovatelia (GLOBAL_PROVIDERS_ID); riadok priečinka má prednosť.
-    const workspaceRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
+    // Host defaults and explicit project rules retain native order. Folder
+    // grants remain in this LegalWork project's row.
+    const owned = await readRuntimeOpencodeConfig(config, workspace.id);
+    // LAWOSS: globálni vlastní poskytovatelia (GLOBAL_PROVIDERS_ID); starý riadok priečinka má prednosť.
     const globalProviders = await readGlobalProviderMap(config);
-    const opencode = mergeOpencodeConfigs(
-      await readOpencodeConfig(workspaceAppFilesRoot(config, workspace)),
+    const projection = await readNativeWorkspaceConfig(config, workspace,
       applyGlobalToolPermissions(
-        Object.keys(globalProviders).length
-          ? { ...workspaceRuntime, provider: { ...repairRuntimeProviders(globalProviders).providers, ...repairRuntimeProviders(workspaceRuntime.provider ?? {}).providers } }
-          : workspaceRuntime,
+        Object.keys(globalProviders).length ? { ...owned, providers: { ...globalProviders, ...owned.providers } } : owned,
         await readGlobalToolPermissions(config),
       ),
     );
     const lastAudit = await readLastAudit(workspaceAppFilesRoot(config, workspace), workspace.id);
-    return jsonResponse({ opencode, legalwork, updatedAt: lastAudit?.timestamp ?? null });
+    return jsonResponse({ opencode: projection.opencode, providerDisplay: projection.providerDisplay,
+      authoredConfig: projection.authoredConfig, legalwork, updatedAt: lastAudit?.timestamp ?? null });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/research-databases", "host-token", async ctx => {
+    ensureWritable(config);
+    await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse({ item: await configureResearchDatabase(config, await readJsonBody(ctx.request)) });
+  });
+
+  // Agent discovery exposes destinations and vault references, never credentials.
+  addRoute(routes, "GET", "/workspace/:id/browser-connections", "client", async ctx => {
+    requireClientScope(ctx, "collaborator");
+    await resolveWorkspace(config, ctx.params.id);
+    const origin = new URL(ctx.request.url).searchParams.get("origin") ?? undefined;
+    return jsonResponse({ items: (await browserPasswords(config).list(origin)).map(({ id, label, origin, websites }) => ({ id, label, origin, websites })) });
   });
 
   addRoute(routes, "GET", "/workspace/:id/workflow-plugins/options", "host", async ctx => {
@@ -2538,12 +2482,15 @@ function createRoutes(
       if (installed.plugins[createdPluginId(input.name)]) throw new ApiError(409, "plugin_exists", "A plugin with this name already exists. Choose another name.");
       const plan = await planPluginCreation(config, workspace.path, input);
       await requireApproval(ctx, { workspaceId: workspace.id, action: "cloud_plugins.install", summary: `Create plugin ${input.name}`, paths: [globalOpencodeConfigDir(), globalSkillsDir()] });
-      return installPluginImport(config, workspace.id, workspace.path, plan, true);
+      return publishRuntimeConfigChanges(config, workspace.id, () => installPluginImport(config, workspace.id, workspace.path, plan, true));
     });
     await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "cloud_plugins.install", target: globalOpencodeConfigDir(), summary: `Created plugin ${input.name}`, timestamp: Date.now() });
+    // The shared files already contain every project's new definition. Native
+    // watchers update loaded locations; unopened locations read it on demand.
+    // Warming all projects here both repeats global work and races OAuth setup.
+    await syncRuntimeMcpToOpencodeEngine(config, workspace, undefined, true).catch(() => undefined);
     for (const target of config.workspaces) {
       for (const reason of ["skills", "mcp"] satisfies Array<"skills" | "mcp">) emitReloadEvent(ctx.reloadEvents, target, reason);
-      await syncRuntimeMcpToOpencodeEngine(config, target).catch(() => undefined);
     }
     return jsonResponse({ item });
   });
@@ -2807,13 +2754,13 @@ function createRoutes(
       paths: globalRemoval ? [globalOpencodeConfigDir(), globalSkillsDir()] : [legalworkConfigPath(workspaceAppFilesRoot(config, workspace)), join(workspaceAppFilesRoot(config, workspace), ".opencode")],
     });
 
-    const removed = await withPluginImportLock(() => removeCloudPlugin({
+    const removed = await withPluginImportLock(() => publishRuntimeConfigChanges(config, workspace.id, () => removeCloudPlugin({
       serverConfig: config,
       workspaceId: workspace.id,
       workspaceRoot: workspaceAppFilesRoot(config, workspace),
       pluginId,
       scope: globalRemoval ? "global" : "workspace",
-    }));
+    })));
 
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
@@ -2833,9 +2780,11 @@ function createRoutes(
       });
     }
 
+    // Publication above removes the definition everywhere. Native file watchers
+    // update loaded projects; unopened projects read the saved configuration.
+    // No project engine needs to start or reconnect for a library removal.
     for (const target of globalRemoval ? config.workspaces : [workspace]) {
       for (const reason of ["skills", "agents", "commands", "mcp"] satisfies Array<"skills" | "agents" | "commands" | "mcp">) emitReloadEvent(ctx.reloadEvents, target, reason);
-      await syncRuntimeMcpToOpencodeEngine(config, target).catch(() => undefined);
     }
     return jsonResponse({ item: removed });
   });
@@ -2878,11 +2827,12 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/authorized-folders", "client", async (ctx) => {
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    const runtime = await readRuntimeOpencodeConfig(config, workspace.id);
     const opencode = mergeOpencodeConfigs(
-      await readOpencodeConfig(workspaceAppFilesRoot(config, workspace)),
-      await readRuntimeOpencodeConfig(config, workspace.id),
+      await readOpencodeConfig(config, workspace),
+      runtime,
     );
-    const foldersConfig = readAuthorizedFoldersFromOpencodeConfig(opencode, workspaceAppFilesRoot(config, workspace));
+    const foldersConfig = readAuthorizedFoldersFromOpencodeConfig(opencode, workspace.path, runtime.projectPermissionApprovals);
     return jsonResponse(buildAuthorizedFoldersResponse(workspace, foldersConfig));
   });
 
@@ -2896,7 +2846,8 @@ function createRoutes(
     // LAWOSS: nový priečinok nesmie zasahovať do iného klienta ani do praxe (lawoss/linked-folders.ts); priečinok,
     // ktorý len vyzerá ako prax, prejde iba s potvrdením advokáta v aplikácii (`lawossConfirmedPracticeLike`).
     const confirmedPracticeLike = Array.isArray(body.lawossConfirmedPracticeLike) ? body.lawossConfirmedPracticeLike.filter((entry): entry is string => typeof entry === "string").slice(0, 50) : [];
-    await requireLinkableFolders(config, workspace, folders, readAuthorizedFoldersFromOpencodeConfig(mergeOpencodeConfigs(await readOpencodeConfig(workspaceAppFilesRoot(config, workspace)), await readRuntimeOpencodeConfig(config, workspace.id)), workspaceAppFilesRoot(config, workspace)).folders, confirmedPracticeLike);
+    const linkedRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
+    await requireLinkableFolders(config, workspace, folders, readAuthorizedFoldersFromOpencodeConfig(mergeOpencodeConfigs(await readOpencodeConfig(config, workspace), linkedRuntime), workspace.path, linkedRuntime.projectPermissionApprovals).folders, confirmedPracticeLike);
     const configPath = legalworkConfigPath(workspaceAppFilesRoot(config, workspace));
 
     await requireApproval(ctx, {
@@ -2906,22 +2857,27 @@ function createRoutes(
       paths: [configPath],
     });
 
-    const persistedOpencode = await readOpencodeConfig(workspaceAppFilesRoot(config, workspace));
-    const runtimeOpencode = await readRuntimeOpencodeConfig(config, workspace.id);
-    const existingOpencode = mergeOpencodeConfigs(persistedOpencode, runtimeOpencode);
-    const existingFoldersConfig = readAuthorizedFoldersFromOpencodeConfig(existingOpencode, workspaceAppFilesRoot(config, workspace));
-    const nextExternalDirectory = mergeAuthorizedFoldersIntoExternalDirectory(
-      folders,
-      existingFoldersConfig.hiddenEntries,
-    );
-
-    await writeRuntimeOpencodeConfig(config, workspace.id, (current) => ({
-      ...current,
-      permission: {
-        ...(ensurePlainObject(current.permission)),
-        external_directory: nextExternalDirectory ?? {},
-      },
-    }));
+    const updatedRuntime = await writeRuntimeOpencodeConfig(config, workspace.id, current => {
+      const remembered = new Set(rememberedProjectFolderRules(current).flatMap(rule => {
+        const folder = externalDirectoryKeyToAuthorizedFolder(rule.resource, rule.effect);
+        return folder ? [folder] : [];
+      }));
+      // Keeping a remembered folder does not turn its private approval into a
+      // second native config rule. Manual native grants retain their ownership.
+      const configured = folders.filter(folder => !remembered.has(folder) || (current.permissions ?? []).some(rule => rule.action === "external_directory" && externalDirectoryKeyToAuthorizedFolder(rule.resource, rule.effect) === folder));
+      const root = normalizeAuthorizedFolderPath(workspace.path), desired = new Set(folders);
+      return { ...current,
+        permissions: mergeAuthorizedFoldersIntoExternalDirectory(configured, current.permissions ?? [], workspace.path),
+        projectPermissionApprovals: current.projectPermissionApprovals?.flatMap(approval => {
+          if (!permissionPatternMatches("external_directory", approval.action)) return [approval];
+          const resources = approval.resources.filter(resource => {
+            const folder = externalDirectoryKeyToAuthorizedFolder(resource, "allow");
+            return folder === null || folder === root || desired.has(folder);
+          });
+          return resources.length ? [{ ...approval, resources }] : [];
+        }),
+      };
+    });
 
     const updatedAt = Date.now();
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
@@ -2936,13 +2892,11 @@ function createRoutes(
 
     emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
 
-    const updatedFoldersConfig = readAuthorizedFoldersFromOpencodeConfig({
-      permission: { external_directory: nextExternalDirectory ?? {} },
-    }, workspaceAppFilesRoot(config, workspace));
+    const updatedFoldersConfig = readAuthorizedFoldersFromOpencodeConfig(runtimeEngineConfiguration(updatedRuntime), workspace.path, updatedRuntime.projectPermissionApprovals);
 
     const response: AuthorizedFoldersUpdateResponse = {
       folders: updatedFoldersConfig.folders,
-      hiddenCount: Object.keys(updatedFoldersConfig.hiddenEntries).length,
+      hiddenCount: updatedFoldersConfig.hiddenRules.length,
       updatedAt,
     };
     return jsonResponse(response);
@@ -2963,23 +2917,27 @@ function createRoutes(
 
     const legalwork = await readLegalworkConfigForStatus(workspaceAppFilesRoot(config, workspace));
     const legacy = legacyRuntimeConfigFromLegalworkConfig(legalwork.data);
-    const user = userRuntimeConfigFromOpencodeConfig(await readOpencodeConfig(workspaceAppFilesRoot(config, workspace)));
+    const authored = await readJsoncFile(await resolveWorkspaceFilePath(workspaceAppFilesRoot(config, workspace), opencodeConfigPath(workspaceAppFilesRoot(config, workspace))), {} as Record<string, unknown>, { allowInvalid: true });
+    const user = userRuntimeConfigFromOpencodeConfig(authored.data);
     if (!legacy.keys.length && !user.keys.length) {
       return jsonResponse({ migrated: false, keys: [], legacyKeys: [], userOpencodeKeys: [], updatedAt: null, legacyError: legalwork.error });
     }
 
+    // Preserve the exact originals before the explicit import edits either file.
+    if (legacy.keys.length && !legalwork.error) await backupRuntimeConfigSource(config, workspace.id, legalworkConfigPath(workspace.path));
+    if (user.keys.length) await backupRuntimeConfigSource(config, workspace.id, opencodeConfigPath(workspace.path));
     // Connectors are shared by every workspace, so migrated MCP entries land
     // in the shared row; everything else stays with this workspace.
     const { mcp: legacyMcp, ...legacyRest } = legacy.config;
     const { mcp: userMcp, ...userRest } = user.config;
     await writeRuntimeOpencodeConfig(config, workspace.id, (current) => (
-      mergeLegacyRuntimeConfig(mergeLegacyRuntimeConfig(current, legacyRest), userRest)
+      mergeImportedRuntimeConfig(mergeImportedRuntimeConfig(current, legacyRest), userRest)
     ));
-    const migratedMcp = { ...(legacyMcp ?? {}), ...(userMcp ?? {}) };
+    const migratedMcp = { ...legacyMcp?.servers, ...userMcp?.servers };
     if (Object.keys(migratedMcp).length) {
       await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, (current) => ({
         ...current,
-        mcp: { ...runtimeMcpMap(current), ...migratedMcp },
+        mcp: { ...current.mcp, servers: { ...current.mcp?.servers, ...migratedMcp } },
       }));
     }
     if (legacy.keys.length && !legalwork.error) {
@@ -3019,37 +2977,40 @@ function createRoutes(
     const legalworkConfig = legalwork.data;
     const legacy = legacyRuntimeConfigFromLegalworkConfig(legalworkConfig);
     const rawOpencode = await readRawOpencodeConfig(await resolveWorkspaceFilePath(workspaceAppFilesRoot(config, workspace), opencodeConfigPath(workspaceAppFilesRoot(config, workspace))));
-    const persistedOpencode = await readOpencodeConfig(workspaceAppFilesRoot(config, workspace));
+    const persistedOpencode = await readOpencodeConfig(config, workspace);
     const globalOpencodePath = resolveOpencodeConfigFilePath("global", workspaceAppFilesRoot(config, workspace));
     const rawGlobalOpencode = await readRawOpencodeConfig(globalOpencodePath);
     const globalOpencode = (await readJsoncFile(globalOpencodePath, {} as Record<string, unknown>, { allowInvalid: true })).data;
     const effectiveRuntime = await buildLegalworkRuntimeConfigObject(config, workspace.id);
+    const projection = await readNativeWorkspaceConfig(config, workspace, runtime, [opencodeConfigPath(workspace.path), globalOpencodePath]);
     const user = userRuntimeConfigFromOpencodeConfig(persistedOpencode);
 
     return jsonResponse({
-      runtime,
+      runtime: publicNativeConfigSnapshot(runtime),
       runtimeKeys: runtimeConfigKeys(runtime),
-      effectiveRuntime,
+      effectiveRuntime: publicNativeConfigSnapshot(effectiveRuntime),
       sources: {
         projectOpencode: {
           path: opencodeConfigPath(workspaceAppFilesRoot(config, workspace)),
           exists: rawOpencode.exists,
           keys: userOpencodeConfigKeys(persistedOpencode),
-          config: persistedOpencode,
+          config: projection.sourceConfigs[opencodeConfigPath(workspace.path)]?.config,
+          status: projection.sourceConfigs[opencodeConfigPath(workspace.path)]?.status,
         },
         globalOpencode: {
           path: globalOpencodePath,
           exists: rawGlobalOpencode.exists,
           keys: userOpencodeConfigKeys(globalOpencode),
-          config: globalOpencode,
+          config: projection.sourceConfigs[globalOpencodePath]?.config,
+          status: projection.sourceConfigs[globalOpencodePath]?.status,
         },
         runtimeDatabase: {
           keys: runtimeConfigKeys(runtime),
-          config: runtime,
+          config: publicNativeConfigSnapshot(runtime),
         },
         injected: {
           keys: runtimeConfigKeys(effectiveRuntime),
-          config: effectiveRuntime,
+          config: publicNativeConfigSnapshot(effectiveRuntime),
         },
       },
       legacyLegalwork: {
@@ -3066,17 +3027,17 @@ function createRoutes(
     });
   });
 
-  addRoute(routes, "GET", "/workspace/:id/opencode-config", "client", async (ctx) => {
-    requireClientScope(ctx, "collaborator");
+  addRoute(routes, "GET", "/workspace/:id/opencode-config", "host", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const scope = normalizeOpencodeScope(ctx.url.searchParams.get("scope"));
     const configPath = resolveOpencodeConfigFilePath(scope, workspaceAppFilesRoot(config, workspace));
     const readablePath = scope === "project" ? await resolveWorkspaceFilePath(workspaceAppFilesRoot(config, workspace), configPath) : configPath;
     const result = await readRawOpencodeConfig(readablePath);
-    return jsonResponse({ path: configPath, exists: result.exists, content: result.content });
+    const generated = scope === "project" && (await engineProjectStatus(config, workspace)).projection.path === configPath;
+    return jsonResponse({ path: configPath, exists: result.exists, content: result.content, readOnly: generated });
   });
 
-  addRoute(routes, "POST", "/workspace/:id/opencode-config", "client", async (ctx) => {
+  addRoute(routes, "POST", "/workspace/:id/opencode-config", "host", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
@@ -3088,6 +3049,9 @@ function createRoutes(
     }
 
     const configPath = resolveOpencodeConfigFilePath(scope, workspaceAppFilesRoot(config, workspace));
+    if (scope === "project" && (await engineProjectStatus(config, workspace)).projection.path === configPath) {
+      throw new ApiError(409, "managed_configuration_read_only", "LegalWork generates this configuration from its settings. Change those settings, or put custom configuration in a separate authored OpenCode file.");
+    }
     const approvedPath = scope === "project" ? await resolveWorkspaceFilePath(workspaceAppFilesRoot(config, workspace), configPath) : configPath;
     await requireApproval(ctx, {
       workspaceId: workspace.id,
@@ -3436,7 +3400,7 @@ function createRoutes(
     const blockedMcpServers = [...memberConnectors]
       .filter((name) => !allowed.has(name) && !firmConnectors.has(name))
       .map((name) => name.replace(/[^a-zA-Z0-9_-]/g, "_"));
-    return jsonResponse({ orgName: view.orgName, permission: enforced, blockedMcpServers });
+    return jsonResponse({ orgName: view.orgName, permission: enforced, blockedMcpServers, allowedProviders: await orgEnabledProviders(config) });
   });
   addRoute(routes, "POST", "/org-policy/release", "client", async (ctx) => {
     requireClientScope(ctx, "owner");
@@ -3534,18 +3498,29 @@ function createRoutes(
     return jsonResponse({ ok: true, ...result });
   });
 
+  addRoute(routes, "GET", "/workspace/:id/legalmemory/permissions", "client", async ctx => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse(await listNativeLegalMemoryPermissions(config, workspace, ctx.request.signal));
+  });
+  addRoute(routes, "POST", "/workspace/:id/legalmemory/permissions", "client", async ctx => {
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBodyLimited(ctx.request, 16 * 1024);
+    return jsonResponse(await replyNativeLegalMemoryPermission(config, workspace, LegalMemoryPermissionReplySchema.parse(body), ctx.request.signal));
+  });
+
   // The caller's LegalMemory estate as a lazy file tree. The LegalWork server
-  // owns the configured appliance URL and reuses the engine's MCP bearer, so
-  // the renderer sees neither while each listing keeps the caller's ACLs.
+  // authorizes the project and connector; native OpenCode owns its resolved
+  // endpoint, credentials and OAuth refresh. The renderer receives only data.
   addRoute(routes, "POST", "/workspace/:id/legalmemory/tree/roots", "client", async (ctx) => {
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
-    if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
+    const legalMemory = await createNativeLegalMemoryClient(config, workspace, ctx.request.signal);
     try {
-      return jsonResponse(await fetchLegalMemoryTreeRoots(server, await engineAccessToken(server.name)));
+      return jsonResponse(await fetchLegalMemoryTreeRoots(legalMemory));
     } catch (error) {
-      throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "File tree failed");
+      throw legalMemoryRouteError(error, "legalmemory_tree_failed", "File tree failed");
     }
   });
 
@@ -3561,16 +3536,14 @@ function createRoutes(
       : 200;
     if (!sourceId) throw new ApiError(400, "invalid_source_id", "A source_id is required");
     if (path.length > 4096) throw new ApiError(400, "invalid_tree_path", "The folder path is too long");
-    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
-    if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
+    const legalMemory = await createNativeLegalMemoryClient(config, workspace, ctx.request.signal);
     try {
       return jsonResponse(await fetchLegalMemoryTreeChildren(
-        server,
+        legalMemory,
         { sourceId, path: path || undefined, offset, limit },
-        await engineAccessToken(server.name),
       ));
     } catch (error) {
-      throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "Folder listing failed");
+      throw legalMemoryRouteError(error, "legalmemory_tree_failed", "Folder listing failed");
     }
   });
 
@@ -3583,16 +3556,14 @@ function createRoutes(
       ? Math.min(100, Math.max(1, body.limit))
       : 100;
     if (!query) return jsonResponse({ files: [] });
-    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
-    if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
+    const legalMemory = await createNativeLegalMemoryClient(config, workspace, ctx.request.signal);
     try {
       return jsonResponse(await fetchLegalMemoryTreeSearch(
-        server,
+        legalMemory,
         { query, limit },
-        await engineAccessToken(server.name),
       ));
     } catch (error) {
-      throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "File search failed");
+      throw legalMemoryRouteError(error, "legalmemory_tree_failed", "File search failed");
     }
   });
 
@@ -3609,13 +3580,12 @@ function createRoutes(
     const documentId = typeof body.document_id === "string" ? body.document_id.trim() : "";
     if (!documentId) throw new ApiError(400, "invalid_document_id", "A document_id is required");
 
-    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
-    if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
+    const legalMemory = await createNativeLegalMemoryClient(config, workspace, ctx.request.signal);
     try {
-      const graph = await fetchLegalMemoryGraph(server, documentId, await engineAccessToken(server.name));
+      const graph = await fetchLegalMemoryGraph(legalMemory, documentId);
       return jsonResponse({ ok: true, graph });
     } catch (error) {
-      throw new ApiError(502, "legalmemory_graph_failed", error instanceof Error ? error.message : "Traversal failed");
+      throw legalMemoryRouteError(error, "legalmemory_graph_failed", "Traversal failed");
     }
   });
 
@@ -3635,16 +3605,13 @@ function createRoutes(
     const documentId = typeof body.document_id === "string" ? body.document_id.trim() : "";
     if (!documentId) throw new ApiError(400, "invalid_document_id", "A document_id is required");
 
-    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
-    if (!server) {
-      throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured for this workspace");
-    }
+    const legalMemory = await createNativeLegalMemoryClient(config, workspace, ctx.request.signal);
 
     let document: Awaited<ReturnType<typeof fetchLegalMemoryDocument>>;
     try {
-      document = await fetchLegalMemoryDocument(server, documentId, await engineAccessToken(server.name));
+      document = await fetchLegalMemoryDocument(legalMemory, documentId);
     } catch (error) {
-      throw new ApiError(502, "legalmemory_fetch_failed", error instanceof Error ? error.message : "LegalMemory download failed");
+      throw legalMemoryRouteError(error, "legalmemory_fetch_failed", "LegalMemory download failed");
     }
 
     const filename = safeExportFilename(document.filename);
@@ -3685,17 +3652,13 @@ function createRoutes(
     const folderName = safeExportFilename(requestedName || path.split("/").pop() || "");
     if (!folderName) throw new ApiError(400, "invalid_folder_name", "The folder name cannot be exported");
 
-    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
-    if (!server) {
-      throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured for this workspace");
-    }
-    const bearer = await engineAccessToken(server.name);
+    const legalMemory = await createNativeLegalMemoryClient(config, workspace, ctx.request.signal);
 
     let listing: Awaited<ReturnType<typeof collectLegalMemoryFolderFiles>>;
     try {
-      listing = await collectLegalMemoryFolderFiles(server, { sourceId, path }, bearer);
+      listing = await collectLegalMemoryFolderFiles(legalMemory, { sourceId, path });
     } catch (error) {
-      throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "Folder listing failed");
+      throw legalMemoryRouteError(error, "legalmemory_tree_failed", "Folder listing failed");
     }
 
     const relativeRoot = `${LEGALMEMORY_EXPORT_DIR}/${folderName}`;
@@ -3716,7 +3679,7 @@ function createRoutes(
           continue;
         }
         try {
-          const document = await fetchLegalMemoryDocument(server, entry.file.document_id, bearer);
+          const document = await fetchLegalMemoryDocument(legalMemory, entry.file.document_id);
           const target = join(workspace.path, relativeRoot, relativePath);
           await mkdir(dirname(target), { recursive: true });
           await writeFile(target, document.bytes);
@@ -4176,13 +4139,14 @@ function createRoutes(
     return {
       workspace, orgId, scope, tasks: await taskStore(config), recorder: config.recorder,
       sessions: async (limit) => {
-        const lists = await Promise.all([createWorkspaceOpencodeClient(config, workspace).session.list({ limit }).then(result => unwrapOpencodeResult(result, "/session")), historicalWorkspaceSessions(config, workspace)]);
-        return [...new Map(lists.flat().map(session => [session.id, session])).values()].map(session => ({ id: session.id, title: session.title ?? "", directory: session.directory ?? workspace.path, time: { updated: session.time?.updated ?? 0 } }));
+        return listEngineSessions(createWorkspaceOpencodeClient(config, workspace), { directory: workspaceEngineLocation(workspace).directory, limit });
       },
-      session: async (id) => unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.get({ sessionID: id }), "/session"),
+      session: async (id) => getWorkspaceEngineSession(createWorkspaceOpencodeClient(config, workspace), workspace, id),
       sessionMessages: async (id, limit, before) => {
-        const result = await createWorkspaceOpencodeClient(config, workspace).session.messages({ sessionID: id, limit, before });
-        return { messages: unwrapOpencodeResult(result, "/session/message"), nextBefore: result.response.headers.get("x-next-cursor") };
+        const client = createWorkspaceOpencodeClient(config, workspace);
+        await getWorkspaceEngineSession(client, workspace, id);
+        const result = await client.message.list({ sessionID: id, limit, ...(before ? { cursor: before } : { order: "desc" }) });
+        return { sessionID: id, messages: [...result.data].reverse(), nextBefore: result.cursor.next ?? null };
       },
     };
   };
@@ -4499,7 +4463,7 @@ function createRoutes(
   // Synced projects (project-sync.ts). The status reads without the folder,
   // so a project whose folder is missing can still say so.
   const syncedWorkspace = (id: string): WorkspaceInfo => {
-    const workspace = config.workspaces.find((entry) => entry.id === id && entry.workspaceType !== "remote");
+    const workspace = config.workspaces.find((entry) => entry.id === id);
     if (!workspace) throw new ApiError(404, "workspace_not_found", "Workspace not found");
     if (workspace.preset === "wiki") throw new ApiError(400, "wiki_project_sync", "Use wiki sharing for this folder.");
     return workspace;
@@ -4561,13 +4525,43 @@ function createRoutes(
     return jsonResponse({ items });
   });
 
+  addRoute(routes, "PATCH", "/workspace/:id/providers/:providerId/enabled", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const parsed = z.object({ enabled: z.boolean() }).safeParse(await readJsonBody(ctx.request));
+    if (!parsed.success) throw new ApiError(400, "invalid_provider_activation", "Choose whether to enable this provider.");
+    const { enabled } = parsed.data;
+    const allowed = enabled ? await orgEnabledProviders(config) : null;
+    if (allowed && !allowed.includes(ctx.params.providerId)) throw new ApiError(403, "org_policy_disallowed", "Your firm does not allow this provider.");
+    await writeRuntimeOpencodeConfig(config, workspace.id, (current) => ({
+      ...current,
+      providerActivation: { ...current.providerActivation, [ctx.params.providerId]: enabled ? "allow" : "deny" },
+    }));
+    await recordAudit(workspace.path, {
+      id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" },
+      action: "provider.activation", target: ctx.params.providerId,
+      summary: `${enabled ? "Enabled" : "Disabled"} provider`, timestamp: Date.now(),
+    });
+    emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(legalworkConfigPath(workspace.path)));
+    return jsonResponse({ updatedAt: Date.now() });
+  });
+
   addRoute(routes, "PATCH", "/workspace/:id/config", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
-    const opencode = body.opencode as Record<string, unknown> | undefined;
-    const legalwork = body.legalwork as Record<string, unknown> | undefined;
+    if (body.opencode !== undefined && !isRecord(body.opencode) || body.legalwork !== undefined && !isRecord(body.legalwork)) throw new ApiError(400, "invalid_payload", "opencode and legalwork changes must be objects.");
+    const opencode = isRecord(body.opencode) ? body.opencode : undefined;
+    const legalwork = isRecord(body.legalwork) ? body.legalwork : undefined;
+    const toolPermissionUpdates = legalwork?.toolPermissionRules === undefined ? undefined : nativeToolPermissionUpdatesSchema.safeParse(legalwork.toolPermissionRules);
+    if (toolPermissionUpdates && !toolPermissionUpdates.success) throw new ApiError(400, "invalid_tool_permission_rules", "Use ordered native rules matching each tool action. Folder grants belong to the selected project.");
+    if (toolPermissionUpdates?.success) await requireOrgPolicyToolsUnmanaged(config, Object.keys(toolPermissionUpdates.data).flatMap(action => [action, ...(action === "shell" ? ["bash"] : [])]));
+
+    if (opencode?.$legalworkReadOnlyProjection === true) {
+      throw new ApiError(400, "read_only_configuration_projection", "Save specific settings changes instead of submitting the connection display view.");
+    }
 
     if (!opencode && !legalwork) {
       throw new ApiError(400, "invalid_payload", "opencode or legalwork updates required");
@@ -4581,47 +4575,51 @@ function createRoutes(
     });
 
     if (opencode) {
-      const configPath = legalworkConfigPath(workspaceAppFilesRoot(config, workspace));
-      const nextOpencode = ensurePlainObject(opencode);
-      const { permission, provider, agent, ...topLevelUpdates } = nextOpencode;
-      const logicalUpdates: Record<string, unknown> = { ...topLevelUpdates };
-
-      const providerUpdate = ensurePlainObject(provider);
-      // Removing a provider is always possible; adding one the firm may not allow.
-      if (Object.values(providerUpdate).some((entry) => entry !== null)) {
-        await requireOrgPolicyAllows(config, "ai.chat.allowCustom");
-      }
+      const { providers, agents, ...topLevelUpdates } = opencode;
+      if (providers !== undefined && !isRecord(providers) || agents !== undefined && !isRecord(agents)) throw new ApiError(400, "invalid_native_configuration", "Provider and agent edits must be native definition maps.");
+      const providerUpdate = ensurePlainObject(providers), agentUpdate = ensurePlainObject(agents);
+      const validate = (value: unknown) => {
+        try { return Schema.decodeUnknownSync(Config.Info)(isRecord(value) ? Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) : value, { onExcessProperty: "error" }); }
+        catch { throw new ApiError(400, "invalid_native_configuration", "Save native OpenCode V2 settings. Legacy settings are accepted only by the explicit upgrade."); }
+      };
+      const nativeUpdates = validate(topLevelUpdates);
+      const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
+      const nextProviders = Object.keys(providerUpdate).length ? mergePrivateProviderEdits(currentRuntime.providers, providerUpdate) : currentRuntime.providers;
+      const nextAgents = Object.keys(agentUpdate).length ? mergeNativeFields(currentRuntime.agents, agentUpdate) : currentRuntime.agents;
+      // Validate the complete edit before changing refresh metadata or any row.
+      validate({ ...runtimeEngineConfiguration(currentRuntime), ...nativeUpdates, providers: nextProviders, agents: nextAgents });
+      if (Object.values(providerUpdate).some(entry => entry !== null)) await requireOrgPolicyAllows(config, "ai.chat.allowCustom");
+      if (nativeUpdates.permissions) await requireOrgPolicyToolsUnmanaged(config, nativeUpdates.permissions.flatMap(rule => [rule.action, ...(rule.action === "shell" ? ["bash"] : [])]));
+      // LAWOSS: nové povolenie priečinka len ako natívny zoznam (lawoss/linked-folders.ts).
+      const folderGrants = (rules: readonly { action: string; resource: string; effect: string }[] | undefined) =>
+        Object.fromEntries((rules ?? []).filter(rule => rule.action === "external_directory").map(rule => [rule.resource, rule.effect]));
+      if (nativeUpdates.permissions) await requireLinkableExternalDirectory(config, workspace, folderGrants(nativeUpdates.permissions), folderGrants(currentRuntime.permissions));
+      // LAWOSS: vlastní poskytovatelia sú globálni (GLOBAL_PROVIDERS_ID). Starý stav môže byť vo viacerých
+      // priečinkoch; rozdielny blok iného klienta alebo zmena adresy servera sa prepíše až po potvrdení
+      // (lawoss/provider-overwrite.ts); dovtedy sa nezapíše nič.
+      const legacyProviderRows: Array<LegacyProviderRow & { workspace: WorkspaceInfo }> = [];
+      let endpointConflicts: ReturnType<typeof endpointChangeConflicts> = [];
       if (Object.keys(providerUpdate).length) {
-        // LAWOSS: vlastní poskytovatelia sú globálni (GLOBAL_PROVIDERS_ID). `null` odstráni
-        // poskytovateľa z globálneho riadku aj zo starého riadku priečinka.
-        const globalRuntime = await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID);
-        const globalProviders = ensurePlainObject(globalRuntime.provider);
-        // Starý stav môže byť vo viacerých priečinkoch. Rozdielny blok iného klienta sa prepíše
-        // až po potvrdení (lawoss/provider-overwrite.ts); dovtedy sa nezapíše nič.
-        const legacyRows: (LegacyProviderRow & { workspace: WorkspaceInfo })[] = [];
-        const allRows: (LegacyProviderRow & { path?: string })[] = [];
+        const globalProviders = await readGlobalProviderMap(config);
+        const allRows: Array<LegacyProviderRow & { path?: string }> = [];
         for (const row of config.workspaces) {
-          const providers = ensurePlainObject((await readRuntimeOpencodeConfig(config, row.id)).provider);
+          const providers: Record<string, unknown> = { ...(await readRuntimeOpencodeConfig(config, row.id)).providers };
           allRows.push({ id: row.id, name: row.name, providers, path: row.path });
-          if (Object.keys(providerUpdate).some((id) => Object.hasOwn(providers, id))) {
-            legacyRows.push({ id: row.id, name: row.name, providers, workspace: row });
-          }
+          if (Object.keys(providerUpdate).some(id => Object.hasOwn(providers, id))) legacyProviderRows.push({ id: row.id, name: row.name, providers, workspace: row });
         }
-        const ownProviders = legacyRows.find((row) => row.id === workspace.id)?.providers ?? {};
-        const previous = Object.fromEntries(Object.keys(providerUpdate).map((id) => [
-          id,
-          Object.hasOwn(ownProviders, id) ? ownProviders[id] : globalProviders[id],
-        ]));
+        const ownProviders = legacyProviderRows.find(row => row.id === workspace.id)?.providers ?? {};
+        const previous = Object.fromEntries(Object.keys(providerUpdate).map(id => [id, Object.hasOwn(ownProviders, id) ? ownProviders[id] : globalProviders[id]]));
+        endpointConflicts = endpointChangeConflicts({ workspaceId: workspace.id, update: providerUpdate, globalProviders, workspaces: allRows });
         const providerConflicts = mergeProviderConflicts(
-          providerOverwriteConflicts({ workspaceId: workspace.id, update: providerUpdate, previous, rows: legacyRows }),
-          endpointChangeConflicts({ workspaceId: workspace.id, update: providerUpdate, globalProviders, workspaces: allRows }),
+          providerOverwriteConflicts({ workspaceId: workspace.id, update: providerUpdate, previous, rows: legacyProviderRows }),
+          endpointConflicts,
         );
         if (providerConflicts.length && body.confirmProviderOverwrite !== true) {
           throw new ApiError(409, "provider_conflict", "Another workspace has a different provider with the same id.", { providerConflicts });
         }
-        // Mark disconnections before deleting config: the engine may still
-        // return its old provider until the client finishes reloading it.
-        await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => {
+      }
+      if (Object.keys(providerUpdate).length) {
+        await writeLegalworkWorkspaceConfig(config, workspace.id, current => {
           const settings = readModelRefreshSettings(current.customProviderModelRefresh);
           for (const [id, provider] of Object.entries(providerUpdate)) {
             if (provider === null) settings[id] = { ...settings[id], enabled: false, disconnected: true, pendingReload: false };
@@ -4629,113 +4627,53 @@ function createRoutes(
           }
           return { ...current, customProviderModelRefresh: settings };
         });
-        const nextGlobal = mergeRuntimeProviderPatch(globalProviders, providerUpdate);
-        await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, (current) => ({
-          ...current,
-          provider: Object.keys(nextGlobal).length ? nextGlobal : undefined,
-        }));
-        // Globálny riadok je po každom zápise jediný zdroj: id z úpravy (aj nenulové)
-        // sa odstráni zo starého riadku priečinka, inak by starý blok prekryl nový.
-        for (const row of legacyRows) {
-          const legacyIds = Object.keys(providerUpdate).filter((id) => Object.hasOwn(row.providers, id));
-          const nextLocal = mergeRuntimeProviderPatch(
-            row.providers,
-            Object.fromEntries(legacyIds.map((id) => [id, null])),
-          );
-          const nextProvider = Object.keys(nextLocal).length ? nextLocal : undefined;
-          if (row.id === workspace.id) {
-            logicalUpdates.provider = nextProvider;
-            continue;
-          }
-          await writeRuntimeOpencodeConfig(config, row.id, (current) => ({ ...current, provider: nextProvider }));
+      }
+      // Native opencode.permissions belongs wholly to this project. The global
+      // Tool Permissions UI uses the separate typed command below.
+      if (Object.keys(providerUpdate).length) {
+        await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, current => ({ ...current,
+          providers: validate({ providers: mergePrivateProviderEdits(current.providers, providerUpdate) }).providers }));
+        // Globálny riadok je po každom zápise jediný zdroj: id z úpravy sa odstráni zo starého riadku
+        // iného priečinka, inak by starý blok prekryl nový.
+        for (const row of legacyProviderRows.filter(row => row.id !== workspace.id)) {
+          const legacyIds = Object.keys(providerUpdate).filter(id => Object.hasOwn(row.providers, id));
+          await writeRuntimeOpencodeConfig(config, row.id, current => ({ ...current,
+            providers: validate({ providers: mergePrivateProviderEdits(current.providers, Object.fromEntries(legacyIds.map(id => [id, null]))) }).providers }));
           const rowRoot = workspaceAppFilesRoot(config, row.workspace);
-          await recordAudit(rowRoot, {
-            id: shortId(),
-            workspaceId: row.id,
-            actor: ctx.actor ?? { type: "remote" },
-            action: "config.provider.overwrite",
-            target: legalworkConfigPath(rowRoot),
-            summary: `Provider ${legacyIds.join(", ")} replaced by the global provider from workspace ${workspace.name}`,
-            timestamp: Date.now(),
-          });
+          await recordAudit(rowRoot, { id: shortId(), workspaceId: row.id, actor: ctx.actor ?? { type: "remote" }, action: "config.provider.overwrite",
+            target: legalworkConfigPath(rowRoot), summary: `Provider ${legacyIds.join(", ")} replaced by the global provider from workspace ${workspace.name}`, timestamp: Date.now() });
         }
         // Klienti bez vlastného bloku dostanú audit, ak po potvrdení posielajú dáta na inú adresu servera.
-        const audited = new Set(legacyRows.map((row) => row.id));
-        for (const conflict of providerConflicts.filter((item) => item.reason === "endpoint_change")) {
-          for (const affected of conflict.workspaces.filter((item) => !audited.has(item.id))) {
-            const info = config.workspaces.find((item) => item.id === affected.id);
+        const audited = new Set(legacyProviderRows.map(row => row.id));
+        for (const conflict of endpointConflicts) {
+          for (const affected of conflict.workspaces.filter(item => !audited.has(item.id))) {
+            const info = config.workspaces.find(item => item.id === affected.id);
             if (!info) continue;
             audited.add(affected.id);
             const rowRoot = workspaceAppFilesRoot(config, info);
-            await recordAudit(rowRoot, {
-              id: shortId(),
-              workspaceId: affected.id,
-              actor: ctx.actor ?? { type: "remote" },
-              action: "config.provider.endpoint",
-              target: legalworkConfigPath(rowRoot),
-              summary: `Provider ${conflict.providerId} now uses a different server address, changed in workspace ${workspace.name}`,
-              timestamp: Date.now(),
-            });
+            await recordAudit(rowRoot, { id: shortId(), workspaceId: affected.id, actor: ctx.actor ?? { type: "remote" }, action: "config.provider.endpoint",
+              target: legalworkConfigPath(rowRoot), summary: `Provider ${conflict.providerId} now uses a different server address, changed in workspace ${workspace.name}`, timestamp: Date.now() });
           }
         }
       }
-
-      const agentUpdate = ensurePlainObject(agent);
-      if (Object.keys(agentUpdate).length) {
-        const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
-        logicalUpdates.agent = mergeRuntimeProviderPatch(
-          ensurePlainObject(currentRuntime.agent),
-          agentUpdate,
-        );
-      }
-
-      const permissionUpdate = ensurePlainObject(permission);
-      await requireOrgPolicyToolsUnmanaged(config, Object.keys(permissionUpdate));
-      if (Object.keys(permissionUpdate).length) {
-        const { external_directory: externalDirectoryUpdate, ...toolPermissionUpdate } = permissionUpdate;
-        // LAWOSS: nové povolenie priečinka len ako natívny zoznam (lawoss/linked-folders.ts).
-        await requireLinkableExternalDirectory(config, workspace, externalDirectoryUpdate, ensurePlainObject(ensurePlainObject((await readRuntimeOpencodeConfig(config, workspace.id)).permission).external_directory));
-
-        // Tool permissions are GLOBAL — one safety posture for every
-        // workspace — so they merge into the reserved global row. A `null`
-        // value in the patch removes that key (JSON cannot carry
-        // `undefined`); unmentioned keys are preserved as-is.
-        if (Object.keys(toolPermissionUpdate).length) {
-          const globalRuntime = await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID);
-          const nextGlobal = mergeRuntimeProviderPatch(
-            ensurePlainObject(globalRuntime.permission),
-            toolPermissionUpdate,
-          );
-          await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, (current) => ({
-            ...current,
-            permission: Object.keys(nextGlobal).length
-              ? (nextGlobal as RuntimeOpencodeConfig["permission"])
-              : undefined,
-          }));
-        }
-
-        // external_directory stays workspace-scoped: it is owned by the
-        // authorized-folders routes and describes this workspace's folders.
-        if (externalDirectoryUpdate !== undefined) {
-          const existingRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
-          const nextPermission = mergeRuntimeProviderPatch(
-            ensurePlainObject(existingRuntime.permission),
-            { external_directory: externalDirectoryUpdate },
-          );
-          logicalUpdates.permission = Object.keys(nextPermission).length ? nextPermission : undefined;
-        }
-      }
-
-      if (Object.keys(logicalUpdates).length || Object.prototype.hasOwnProperty.call(logicalUpdates, "permission")) {
-        await writeRuntimeOpencodeConfig(config, workspace.id, (current) => ({
-          ...current,
-          ...logicalUpdates,
-        }));
-      }
+      await writeRuntimeOpencodeConfig(config, workspace.id, current => ({ ...current, ...nativeUpdates,
+        ...(Object.keys(providerUpdate).length ? {
+          // LAWOSS: the edited ids leave this workspace's own row too (GLOBAL_PROVIDERS_ID is the single source).
+          providers: validate({ providers: mergePrivateProviderEdits(current.providers, Object.fromEntries(Object.keys(providerUpdate).map(id => [id, null]))) }).providers,
+          providerModelSelection: mergeProviderModelSelection(current.providerModelSelection, providerUpdate) } : {}),
+        ...(Object.keys(agentUpdate).length ? { agents: validate({ agents: mergeNativeFields(current.agents, agentUpdate) }).agents } : {}),
+      }));
     }
+    if (toolPermissionUpdates?.success) {
+      await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({ ...current,
+        permissions: mergeNativeToolPermissionRules(current.permissions ?? [], toolPermissionUpdates.data),
+      }));
+    }
+
     if (legalwork) {
-      await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => {
-        const next = { ...current, ...legalwork };
+      const { toolPermissionRules, ...workspaceUpdates } = legalwork;
+      if (Object.keys(workspaceUpdates).length) await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => {
+        const next = { ...current, ...workspaceUpdates };
         if (isRecord(legalwork.customProviderModelRefresh)) {
           const settings = readModelRefreshSettings(current.customProviderModelRefresh);
           for (const [id, entry] of Object.entries(legalwork.customProviderModelRefresh)) {
@@ -4757,8 +4695,8 @@ function createRoutes(
       timestamp: Date.now(),
     });
 
-    if (opencode) {
-      emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(legalworkConfigPath(workspaceAppFilesRoot(config, workspace))));
+    for (const target of toolPermissionUpdates?.success ? config.workspaces : opencode ? [workspace] : []) {
+      emitReloadEvent(ctx.reloadEvents, target, "config", buildConfigTrigger(legalworkConfigPath(workspaceAppFilesRoot(config, target))));
     }
 
     return jsonResponse({ updatedAt: Date.now() });
@@ -4771,6 +4709,7 @@ function createRoutes(
     readJsonBody,
     requireClientScope,
     resolveWorkspace,
+    resolveWorkspaceMetadata,
     // The app reloads after a key or sign-in changed: the firm's providers that use it come in with the rebuilt config.
     reloadOpencodeEngine: async (target, workspace) => {
       await writeLegalworkRuntimeConfigFile(target, target.workspaces?.[0]?.id ?? workspace.id).catch(() => undefined);
@@ -5036,7 +4975,33 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/skills/:name/composed", "client", async ctx => {
     requireClientScope(ctx, "viewer");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    return jsonResponse(await composedSkill(workspace.path, ctx.params.name));
+    const composed = await composedSkill(workspace.path, ctx.params.name);
+    return jsonResponse({ ...composed, chain: await Promise.all(composed.chain.map(skill => withResearchExperience(config, workspace.path, skill))) });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/skills/:name/research-experience", "client", async ctx => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const parsed = z.object({ directory: z.string().min(1), operation: researchExperienceAction, connectionId: z.string().uuid().optional(), websiteUrl: z.string().url().optional() }).strict().safeParse(await readJsonBodyLimited(ctx.request, 8192));
+    if (!parsed.success) throw new ApiError(400, "research_experience_invalid", "Use the loaded research skill and a valid experience operation.");
+    const { directory, operation, connectionId, websiteUrl } = parsed.data;
+    const installed = (await listSkills(workspace.path, true)).find(item => item.name === ctx.params.name);
+    if (!installed) throw new ApiError(404, "skill_not_found", "This research skill is no longer installed.");
+    const skill = { ...installed, ...await inspectSkillPackage(installed.path) };
+    if (connectionId || websiteUrl) requireClientScope(ctx, "collaborator");
+    const owner = connectionId && websiteUrl
+      ? await researchWebsiteExperienceOwner(config, workspace.path, skill, connectionId, websiteUrl)
+      : await researchExperienceOwner(config, workspace.path, skill);
+    if (!owner || skill.directory !== directory) throw new ApiError(409, "research_skill_changed", "Load the configured research skill again before accessing its experience log.");
+    if (operation.action !== "read") {
+      ensureWritable(config);
+      requireClientScope(ctx, "collaborator");
+      await requireOrgPolicyAllows(config, "skills.allowCustom");
+      await requireApproval(ctx, { workspaceId: workspace.id, action: "skills.upsert", summary: `Update research experience for ${skill.name}`, paths: [runtimeDbPath(config)] });
+    }
+    const result = await researchExperience(config, owner, skill, operation);
+    if (operation.action !== "read") await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "skills.upsert", target: runtimeDbPath(config), summary: `Updated research experience for ${skill.name}`, timestamp: Date.now() });
+    return jsonResponse(result);
   });
 
   addRoute(routes, "GET", "/workspace/:id/skills/:name/package-file", "client", async ctx => {
@@ -5247,7 +5212,7 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/mcp", "client", async (ctx) => {
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const items = await listMcp(config, workspace.id, workspaceAppFilesRoot(config, workspace));
+    const items = await listMcpDisplay(config, workspace);
     return jsonResponse({ items, engineSync: engineMcpSyncState(workspace.id) });
   });
 
@@ -5289,10 +5254,10 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const name = String(body.name ?? "");
-    const configPayload = body.config as Record<string, unknown> | undefined;
-    if (!configPayload) {
+    if (!isRecord(body.config)) {
       throw new ApiError(400, "invalid_payload", "MCP config is required");
     }
+    const configPayload = connectorCommandFields(body.config);
     await requireConnectorAllowed(config, name);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
@@ -5302,7 +5267,9 @@ function createRoutes(
     });
     const scope = body.preserveScope === true ? await existingMcpScope(config, workspace.id, name) : parseMcpScope(body.scope);
     if (!scope) throw new ApiError(404, "connector_not_found", "This connector is no longer available.");
-    const result = await addMcp(config, workspace.id, name, configPayload, scope);
+    const removals = mcpEditRemovalsSchema.safeParse(body);
+    if (!removals.success) throw new ApiError(400, "invalid_payload", "Connector removals must name header, environment or optional setting fields.");
+    const result = await addMcp(config, workspace.id, name, configPayload, scope, body.preserveScope === true ? removals.data : undefined);
     // Hot-add into the running engine so connect/auth works immediately,
     // without waiting for an engine instance rebuild.
     await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]).catch(() => undefined);
@@ -5321,7 +5288,7 @@ function createRoutes(
       name,
       action: result.action,
     });
-    const items = await listMcp(config, workspace.id, workspaceAppFilesRoot(config, workspace));
+    const items = await listMcpDisplay(config, workspace);
     return jsonResponse({ items });
   });
 
@@ -5330,6 +5297,9 @@ function createRoutes(
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const name = ctx.params.name ?? "";
+    if (!await existingMcpScope(config, workspace.id, name) && (await listMcp(config, workspace.id, workspace.path)).some(item => item.name === name)) {
+      throw new ApiError(409, "connector_configuration_owned", "This connector is defined in your OpenCode configuration. Change that authored definition to remove it.");
+    }
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "mcp.remove",
@@ -5338,7 +5308,7 @@ function createRoutes(
     });
     const removedScopes = await removeMcp(config, workspace.id, name);
     // A reload immediately after removal must also see the new shared config.
-    const primary = config.workspaces.find((item) => item.workspaceType !== "remote");
+    const primary = config.workspaces[0];
     if (primary) await writeLegalworkRuntimeConfigFile(config, primary.id);
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
@@ -5362,7 +5332,7 @@ function createRoutes(
         action: "removed",
       });
     }
-    const items = await listMcp(config, workspace.id, workspaceAppFilesRoot(config, workspace));
+    const items = await listMcpDisplay(config, workspace);
     return jsonResponse({ items });
   });
 
@@ -5386,11 +5356,19 @@ function createRoutes(
       summary,
       paths: [legalworkConfigPath(workspaceAppFilesRoot(config, workspace))],
     });
-    const updated = await setMcpEnabled(config, workspace.id, name, enabled);
-    if (!updated) {
-      throw new ApiError(404, "mcp_not_found", `MCP ${name} not found in workspace config`);
-    }
-    await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]);
+    await mcpRecovery(config).mutate(name, async () => {
+      const updated = await setMcpEnabled(config, workspace.id, name, enabled);
+      if (!updated) throw new ApiError(404, "mcp_not_found", `MCP ${name} not found in workspace config`);
+      await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]);
+      if (!enabled) {
+        // Native config watch is asynchronous. Finish earlier recovery first,
+        // then explicitly disable its cached transport before acknowledging.
+        // The released engine continues owning definition and OAuth reloads.
+        await createEngineClient(config, workspace).mcp.disconnect({ server: name, location: workspaceEngineLocation(workspace) }).catch(error => {
+          if (findApiError(error)?.status !== 404) throw error;
+        });
+      }
+    });
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
       workspaceId: workspace.id,
@@ -5406,7 +5384,7 @@ function createRoutes(
       name,
       action: "updated",
     });
-    const items = await listMcp(config, workspace.id, workspaceAppFilesRoot(config, workspace));
+    const items = await listMcpDisplay(config, workspace);
     return jsonResponse({ items });
   });
 
@@ -5417,12 +5395,11 @@ function createRoutes(
     const name = String(ctx.params.name ?? "").trim();
     validateMcpName(name);
 
-    const authStorePath = join(homedir(), ".config", "opencode", "mcp-auth.json");
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "mcp.auth.remove",
       summary: `Logout MCP ${name}`,
-      paths: [authStorePath],
+      paths: [],
     });
 
     // Best-effort disconnect so any active connection is torn down.
@@ -5434,9 +5411,15 @@ function createRoutes(
 
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
-      await mcpRecovery(config).mutate(name, async () => {
-        mcpRecovery(config).endAuth(name);
-        unwrapOpencodeResult(await opencode.mcp.auth.remove({ name }), `/mcp/${encodeURIComponent(name)}/auth`);
+      const server = (await opencode.mcp.list({ location: workspaceEngineLocation(workspace) })).data.find(server => server.name === name);
+      if (!server) throw new ApiError(404, "mcp_not_found", "The connector was not found.");
+      if (!server.integrationID) throw new ApiError(409, "mcp_integration_unavailable", "The connector has no credential integration.");
+      const integrationID = server.integrationID;
+      await mcpRecovery(config).mutate(integrationID, async () => {
+        mcpRecovery(config).endAuth(integrationID);
+        for (const credential of await engineCredentialMetadata(opencode, integrationID)) {
+          if (credential.active) await disconnectEngineCredential(opencode, integrationID, credential.id);
+        }
       });
     } catch (error) {
       // Treat missing credentials as a successful logout (idempotent).
@@ -5459,7 +5442,7 @@ function createRoutes(
       workspaceId: workspace.id,
       actor: ctx.actor ?? { type: "remote" },
       action: "mcp.auth.remove",
-      target: authStorePath,
+      target: name,
       summary: `Logged out MCP ${name}`,
       timestamp: Date.now(),
     });
@@ -5566,7 +5549,7 @@ function createRoutes(
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const sensitiveMode = parseWorkspaceExportSensitiveMode(ctx.url.searchParams.get("sensitive"));
-    const exportPayload = await exportWorkspace(workspace, { sensitiveMode });
+    const exportPayload = await exportWorkspace(config, workspace, { sensitiveMode });
     return jsonResponse(exportPayload);
   });
 
@@ -5675,7 +5658,7 @@ function createRoutes(
   return routes;
 }
 
-async function resolveWorkspace(config: ServerConfig, id: string, options: { bootstrap?: boolean } = {}): Promise<WorkspaceInfo> {
+function resolveWorkspaceMetadata(config: ServerConfig, id: string): WorkspaceInfo {
   const workspaceId = id.trim();
   const aliasWorkspaceId = workspaceId.startsWith("rem_") ? workspaceId.slice("rem_".length) : "";
   const workspace =
@@ -5684,6 +5667,15 @@ async function resolveWorkspace(config: ServerConfig, id: string, options: { boo
   if (!workspace) {
     throw new ApiError(404, "workspace_not_found", "Workspace not found");
   }
+  const path = resolve(workspace.path);
+  if (!config.authorizedRoots.some(root => path === resolve(root) || path.startsWith(resolve(root) + sep))) {
+    throw new ApiError(403, "workspace_unauthorized", "Workspace is not authorized");
+  }
+  return { ...workspace, path };
+}
+
+async function resolveWorkspace(config: ServerConfig, id: string, options: { bootstrap?: boolean } = {}): Promise<WorkspaceInfo> {
+  const workspace = resolveWorkspaceMetadata(config, id);
   const resolvedWorkspace = resolve(workspace.path);
   // A disconnected/moved project must not be silently recreated by bootstrap.
   try {
@@ -5712,14 +5704,16 @@ async function resolveWorkspace(config: ServerConfig, id: string, options: { boo
       const bootstrapFiles = async () => {
         const bootstrapWorkspace = { ...workspace, path: resolvedWorkspace };
         const appFilesRoot = workspaceAppFilesRoot(config, bootstrapWorkspace);
+        const bundledCore = config.engineConfigurationMode !== "managed";
         if (usesExternalWorkspaceAppFiles(bootstrapWorkspace)) {
           await ensureDir(appFilesRoot);
           await ensureWorkspaceFiles(appFilesRoot, bootstrapWorkspace.preset, {
             root: resolvedWorkspace,
             name: bootstrapWorkspace.displayName ?? bootstrapWorkspace.name,
+            bundledCore,
           });
         } else {
-          await ensureWorkspaceFilesForBootstrap(bootstrapWorkspace);
+          await ensureWorkspaceFilesForBootstrap(bootstrapWorkspace, { bundledCore });
         }
         await repairCommands(appFilesRoot);
       };
@@ -5912,10 +5906,15 @@ async function fetchRuntimeControl(path: string, init?: { method?: string; body?
   return json;
 }
 
-async function readOpencodeConfig(workspaceRoot: string): Promise<Record<string, unknown>> {
-  if (!(await exists(workspaceRoot))) return {};
-  const { data } = await readJsoncFile(await resolveWorkspaceFilePath(workspaceRoot, opencodeConfigPath(workspaceRoot)), {} as Record<string, unknown>, { allowInvalid: true });
-  return data;
+async function readOpencodeConfig(config: ServerConfig, workspace: WorkspaceInfo): Promise<Record<string, unknown>> {
+  if (config.engineConfigurationMode === "managed" || !resolveWorkspaceOpencodeConnection(config, workspace).baseUrl) return {};
+  if ((await engineProjectStatus(config, workspace)).state !== "ready") return {};
+  const entries = await createEngineClient(config, workspace).config.get({ location: workspaceEngineLocation(workspace) });
+  const documents = entries.flatMap(entry => entry.type === "document" ? [entry.info] : []);
+  let result: Record<string, unknown> = {};
+  for (const document of documents) result = mergeNativeFields(result, document);
+  result.policies = [...documents].reverse().flatMap(document => document.policies ?? []);
+  return runtimeEngineConfiguration(result);
 }
 
 async function readLegalworkConfig(workspaceRoot: string): Promise<Record<string, unknown>> {
@@ -5962,144 +5961,43 @@ function normalizeOpencodeDirectory(directory: string): string {
   return directory;
 }
 
-function buildOpencodeReloadUrl(baseUrl: string, directory?: string | null): string {
-  try {
-    const url = new URL(baseUrl);
-    url.pathname = "/instance/dispose";
-    url.search = "";
-    if (directory) {
-      url.searchParams.set("directory", directory);
-    }
-    return url.toString();
-  } catch {
-    throw new ApiError(400, "opencode_url_invalid", "OpenCode base URL is invalid");
-  }
-}
-
-function parseOpencodeErrorBody(input: string): unknown {
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-  try {
-    return JSON.parse(trimmed) as unknown;
-  } catch {
-    return trimmed;
-  }
-}
-
-async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo, options: { background?: boolean } = {}): Promise<void> {
-  // LAWOSS: explicitný reload (nastavenia klienta, poskytovateľ) klienta otvorí;
-  // hromadný reload na pozadí neotvoreného klienta len uvoľní (issue #367).
-  const budget = engineMcpBudgetFor(config);
-  const budgetScope = workspaceEngineScope(config, workspace);
-  if (!options.background && budget && budgetScope) await budget.adopt(budgetScope);
-  const connection = resolveWorkspaceOpencodeConnection(config, workspace);
-  const baseUrl = connection.baseUrl?.trim() ?? "";
-  if (!baseUrl) {
-    throw new ApiError(400, "opencode_unconfigured", "OpenCode base URL is missing for this workspace");
-  }
-
-  const directory = resolveOpencodeDirectory(workspace);
-  const targetUrl = buildOpencodeReloadUrl(baseUrl, directory);
-  const headers: Record<string, string> = {};
-  const auth = connection.authHeader ?? null;
-  if (auth) headers.Authorization = auth;
-
-  // LAWOSS: uvoľnenie nesmie prísť počas POST /mcp v tom istom priečinku (engine-mcp-budget.ts).
-  const response = await inEngineDirectoryLane({ baseUrl, directory: directory ?? "" }, async () => {
-    let answer: Response | undefined;
-    for (const delayMs of [0, 150, 300, 600]) {
-      if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
-      try {
-        answer = await fetch(targetUrl, { method: "POST", headers });
-        break;
-      } catch (error) {
-        // A refused connection cannot have reached the engine. Other transport
-        // failures may happen after dispose ran, so repeating the POST could
-        // interrupt a newly started task.
-        const cause = error instanceof Error ? error.cause : undefined;
-        const refused =
-          (error instanceof Error && "code" in error && (error.code === "ECONNREFUSED" || error.code === "ConnectionRefused")) ||
-          (cause instanceof Error && "code" in cause && (cause.code === "ECONNREFUSED" || cause.code === "ConnectionRefused"));
-        if (delayMs === 600 || !refused) {
-          throw new ApiError(503, "opencode_unavailable", "OpenCode engine is not ready", {
-            reason: error instanceof Error ? error.message : String(error),
-          });
+async function refreshManagedEngineLocation(config: ServerConfig, workspace: WorkspaceInfo, directory = workspaceEngineLocation(workspace).directory, configurationPublished = false): Promise<void> {
+  // The app-owned library file is authoritative. The native plugin reads this
+  // registered location and refreshes domains without resetting other projects.
+  if (!configurationPublished) await writeLegalworkRuntimeConfigFile(config, workspace.id);
+  const client = createEngineClient(config, workspace);
+  const refresh = async () => {
+    for (const delay of [0, 150, 300, 600]) {
+      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+      try { return await client.rpc.call({ rpcID: "legalwork.managed-settings", method: "refresh", input: {}, location: { directory } }); }
+      catch (error) {
+        let cause: unknown = error;
+        const seen = new Set<unknown>();
+        let refused = false;
+        while (cause instanceof Error && !seen.has(cause)) {
+          seen.add(cause);
+          if ("code" in cause && (cause.code === "ECONNREFUSED" || cause.code === "ConnectionRefused")) refused = true;
+          cause = cause.cause;
         }
+        // A refused socket cannot have admitted the refresh. Other failures
+        // may follow an accepted request, so do not repeat the mutation.
+        if (!refused || delay === 600) throw error;
       }
     }
-    if (!answer) throw new ApiError(503, "opencode_unavailable", "OpenCode engine is not ready");
-    return answer;
-  });
-  if (!response.ok) {
-    const body = parseOpencodeErrorBody(await response.text());
-    throw new ApiError(502, "opencode_reload_failed", "OpenCode reload failed", {
-      status: response.status,
-      body,
-    });
+  };
+  try { await refresh(); }
+  catch (error) {
+    const api = findApiError(error);
+    const details = api?.details;
+    if (api?.status !== 404 && !(isRecord(details) && isRpcError(details.detail) && details.detail.type === "rpc.unavailable")) throw error;
+    // Fresh locations activate external native registrations when their model
+    // catalog is read; public plugin/agent metadata alone does not do that.
+    await client.model.list({ location: { directory } });
+    await refresh();
   }
-
-  // LAWOSS: neaktívny klient sa len uvoľní; ďalšia požiadavka ho postaví z
-  // aktuálneho súboru a MCP spustí až jeho skutočné použitie (issue #367).
-  if (options.background && workspaceMcpDormant(config, workspace)) return;
-
-  // Re-register runtime-DB MCPs: dispose rebuilds engine state from disk
-  // configs (including the server-managed runtime config file for the
-  // primary workspace), but other workspaces' runtime MCPs only reach the
-  // engine through this dynamic push.
-  await awaitEngineInstance(baseUrl, auth, directory);
-  // LAWOSS: po hromadnej zmene (doplnok, nastavenia) má nová inštancia MCP zo súboru; POST by ich
-  // spustil druhýkrát a počas pomalého štartu sa prekrýval s ďalšou zmenou (N4, issue #367).
-  await syncRuntimeMcpToOpencodeEngine(config, workspace, undefined, { skipFileProvided: options.background }).catch(() => undefined);
 }
-
-// LAWOSS: aktivácia klienta (issue #367, N1 z testu alfa10). Engine má znova prečítať konfiguráciu priečinka,
-// ale `POST /instance/dispose` na ešte nepostavený priečinok ho najprv postaví (na čistom profile desiatky
-// sekúnd) a `GET /mcp` čaká na štart všetkých MCP. Ani jedno nesmie držať odpoveď okna: po krátkom čakaní
-// uvoľnenie dobehne na pozadí v poradí rozpočtu, MCP spustí až prvé skutočné použitie a bežiaci chat ostane.
-const ENGINE_ACTIVATION_WAIT_MS = 4_000;
-
-function engineActivationWaitMs(): number {
-  const parsed = Number(process.env.LAWOSS_ACTIVATE_ENGINE_WAIT_MS ?? ENGINE_ACTIVATION_WAIT_MS);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : ENGINE_ACTIVATION_WAIT_MS;
-}
-
-function startEngineActivation(config: ServerConfig, workspace: WorkspaceInfo): Promise<{ error?: unknown }> {
-  const work = withRuntimeDb(config, async () => {
-    const scope = workspaceEngineScope(config, workspace);
-    const budget = engineMcpBudgetFor(config);
-    if (!scope) return reloadOpencodeEngine(config, workspace);
-    await assertEngineListening(scope);
-    if (budget && budget.limit > 0) { await budget.reset(scope); return; }
-    if (!(await engineDirectoryBusy(scope))) await reloadOpencodeEngine(config, workspace);
-  });
-  return settleWithin(work, engineActivationWaitMs(), (error) => {
-    createServerLogger(config).log("warn", `Engine activation failed for workspace ${workspace.id}`, { "workspace.id": workspace.id, "error.message": error instanceof Error ? error.message : String(error) });
-  });
-}
-
-// Bez inštancie (`/global/health` ju nestavia): engine, ktorý ešte nepočúva, dostane chvíľu; nedostupný sa ohlási.
-async function assertEngineListening(scope: EngineScope): Promise<void> {
-  const url = new URL(scope.baseUrl);
-  url.pathname = "/global/health";
-  url.search = "";
-  for (const delayMs of [0, 150, 300, 600]) {
-    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
-    try {
-      const response = await fetch(url, { headers: scope.authHeader ? { Authorization: scope.authHeader } : {}, signal: AbortSignal.timeout(5_000) });
-      await response.arrayBuffer().catch(() => undefined);
-      return;
-    } catch (error) {
-      const cause = error instanceof Error ? error.cause : undefined;
-      const refused =
-        (error instanceof Error && "code" in error && (error.code === "ECONNREFUSED" || error.code === "ConnectionRefused")) ||
-        (cause instanceof Error && "code" in cause && (cause.code === "ECONNREFUSED" || cause.code === "ConnectionRefused"));
-      if (delayMs === 600 || !refused) {
-        throw new ApiError(503, "opencode_unavailable", "OpenCode engine is not ready", {
-          reason: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-  }
+async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo): Promise<void> {
+  await refreshManagedEngineLocation(config, workspace);
 }
 
 // Reload the engine instance of every other local workspace, one at a time and
@@ -6112,10 +6010,11 @@ function reloadIdleWorkspaceEngines(config: ServerConfig, origin: WorkspaceInfo)
   idleWorkspaceReloads = withRuntimeDb(config, async () => {
     await previousReload.catch(() => undefined);
     for (const workspace of otherLocalWorkspaces(config, origin)) {
+      // LAWOSS (RAM 2 GB, #367 N9): neotvorený klient sa len označí.
       if (deferDormantReload(config, workspace)) continue;
       try {
         if (await workspaceEngineBusy(config, workspace)) continue;
-        await reloadOpencodeEngine(config, workspace, { background: true });
+        await reloadOpencodeEngine(config, workspace);
       } catch {
         // Best-effort: the app repairs the workspace when it is opened.
       }
@@ -6149,7 +6048,7 @@ function applyOrgPolicyToEngines(config: ServerConfig): void {
   const state = orgPolicyReloads.get(config);
   if (!state || state.stopped) return;
   orgPolicyReloads.set(config, state);
-  for (const workspace of config.workspaces) if (workspace.workspaceType !== "remote") state.pending.add(workspace.id);
+  for (const workspace of config.workspaces) state.pending.add(workspace.id);
   state.attempts = 0;
   const run = () => {
     if(state.stopped)return;
@@ -6161,10 +6060,11 @@ function applyOrgPolicyToEngines(config: ServerConfig): void {
       let reloaded = false;
       for (const id of [...state.pending]) {
         const workspace = config.workspaces.find((candidate) => candidate.id === id);
+        // LAWOSS (RAM 2 GB, #367 N9): neotvorený klient sa len označí; jeho lokácia si pravidlá firmy prečíta pri otvorení.
         if (workspace && deferDormantReload(config, workspace)) { state.pending.delete(id); continue; }
         try {
           if (workspace && await workspaceEngineBusy(config, workspace)) continue;
-          if (workspace) await reloadOpencodeEngine(config, workspace, { background: true });
+          if (workspace) await reloadOpencodeEngine(config, workspace);
           state.pending.delete(id);
           reloaded = true;
         } catch {
@@ -6187,29 +6087,17 @@ function applyOrgPolicyToEngines(config: ServerConfig): void {
 // Whether a session in the workspace's engine instance is running (busy or
 // retrying). No answer counts as busy: never abort a task on a guess.
 async function workspaceEngineBusy(config: ServerConfig, workspace: WorkspaceInfo): Promise<boolean> {
-  const connection = resolveWorkspaceOpencodeConnection(config, workspace);
-  const baseUrl = connection.baseUrl?.trim();
-  if (!baseUrl) return true;
-  const url = new URL(baseUrl);
-  url.pathname = "/session/status";
-  url.search = "";
-  const directory = resolveOpencodeDirectory(workspace);
-  if (directory) url.searchParams.set("directory", directory);
-  const headers: Record<string, string> = {};
-  if (connection.authHeader) headers.Authorization = connection.authHeader;
   try {
-    const response = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
-    if (!response.ok) return true;
-    const statuses: unknown = await response.json();
-    return !isRecord(statuses) || Object.values(statuses).some((status) => !isRecord(status) || status.type !== "idle");
-  } catch {
-    return true;
-  }
+    const client = createEngineClient(config, workspace);
+    const active = await client.session.active({ signal: AbortSignal.timeout(10_000) });
+    const entries = await Promise.all(Object.keys(active).map(id => client.session.get({ sessionID: id }).catch(() => null)));
+    return entries.some(session => !session || resolve(session.location.directory) === resolve(workspaceEngineLocation(workspace).directory));
+  } catch { return true; }
 }
 
-// LAWOSS: rozpočet RAM 2 GB (issue #367). Inštancia enginu spustí všetky MCP
-// pri prvom dotyku MCP stavu. Tieto funkcie ich držia len pre otvorených
-// klientov (lawoss/engine-mcp-budget.ts); hromadné zmeny neaktívnych len uvoľnia.
+// LAWOSS: rozpočet RAM 2 GB (issue #367, ADR 0017), engine v2. Lokácia enginu postaví pri prvej
+// požiadavke svoje pluginy a všetky MCP a drží ich bez obmedzenia. Tieto funkcie ich držia len pre
+// otvorených klientov (lawoss/engine-mcp-budget.ts); hromadné zmeny neotvorených ich len označia.
 const engineMcpBudgets = new WeakMap<ServerConfig, EngineMcpBudget>();
 const inEngineDirectoryLane = createEngineDirectoryLanes();
 
@@ -6220,7 +6108,7 @@ function engineMcpBudgetFor(config: ServerConfig): EngineMcpBudget | null {
 function workspaceEngineScope(config: ServerConfig, workspace: WorkspaceInfo): EngineScope | null {
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const baseUrl = connection.baseUrl?.trim() ?? "";
-  const directory = resolveOpencodeDirectory(workspace);
+  const directory = normalizeOpencodeDirectory(workspaceEngineLocation(workspace).directory);
   return baseUrl && directory ? { baseUrl, authHeader: connection.authHeader ?? null, directory } : null;
 }
 
@@ -6231,9 +6119,9 @@ function workspaceMcpDormant(config: ServerConfig, workspace: WorkspaceInfo): bo
   return !!budget && !!scope && !budget.isActive(scope);
 }
 
-// LAWOSS (RAM 2 GB, #367 N9): hromadný reload na pozadí neotvoreného klienta inštanciu len označí.
-// Okamžité uvoľnenie viedlo k desiatkam studených štartov (bočný panel ich hneď postavil znova)
-// a k špičke enginu 1,2–1,4 GB; zastaraná inštancia sa uvoľní až pred jej ďalším MCP.
+// LAWOSS (RAM 2 GB, #367 N9): hromadný reload neotvoreného klienta lokáciu len označí. Lokácia,
+// ktorú engine ešte nepostavil, si pri otvorení prečíta nové súbory sama; postavená sa uvoľní
+// až pred ďalším MCP (refreshIfStale).
 function deferDormantReload(config: ServerConfig, workspace: WorkspaceInfo): boolean {
   if (!workspaceMcpDormant(config, workspace)) return false;
   const scope = workspaceEngineScope(config, workspace);
@@ -6241,51 +6129,62 @@ function deferDormantReload(config: ServerConfig, workspace: WorkspaceInfo): boo
   return true;
 }
 
-// Bežiaci chat v adresári? Neznáma odpoveď je „áno“: úlohu nikdy neprerušiť.
-async function engineDirectoryBusy(scope: EngineScope): Promise<boolean> {
-  const url = new URL(scope.baseUrl);
-  url.pathname = "/session/status";
-  url.search = "";
-  url.searchParams.set("directory", scope.directory);
-  const headers: Record<string, string> = {};
-  if (scope.authHeader) headers.Authorization = scope.authHeader;
-  try {
-    const response = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
-    if (!response.ok) return true;
-    const statuses: unknown = await response.json();
-    return !isRecord(statuses) || Object.values(statuses).some((status) => !isRecord(status) || status.type !== "idle");
-  } catch {
-    return true;
-  }
+function engineHeaders(scope: EngineScope): Record<string, string> {
+  return scope.authHeader ? { Authorization: scope.authHeader } : {};
 }
 
-// LAWOSS (#367 N9): krátka kontrola pre zastaraný neotvorený priečinok; inštancia, ktorá ešte
-// štartuje, neodpovie, a 10 s čakanie by zdržalo otvorenie klienta (engine-mcp-budget.ts staleBusy).
-async function engineDirectoryClearlyBusy(scope: EngineScope): Promise<boolean> {
-  const url = new URL(scope.baseUrl);
-  url.pathname = "/session/status";
-  url.search = "";
-  url.searchParams.set("directory", scope.directory);
-  const headers: Record<string, string> = {};
-  if (scope.authHeader) headers.Authorization = scope.authHeader;
+// Bežiaci chat v lokácii? Engine v2 vypíše bežiace chaty celého procesu (`/api/session/active`);
+// ich priečinok sa zistí z chatu (bez lokácie). Neznáma odpoveď je `unknown`: úlohu nikdy neprerušiť.
+async function engineDirectoryRunning(scope: EngineScope, timeoutMs: number, unknown: boolean): Promise<boolean> {
   try {
-    const response = await fetch(url, { headers, signal: AbortSignal.timeout(2_000) });
-    if (!response.ok) return false;
-    const statuses: unknown = await response.json();
-    return isRecord(statuses) && Object.values(statuses).some((status) => isRecord(status) && status.type !== "idle");
-  } catch {
+    const active = await fetch(new URL("/api/session/active", scope.baseUrl), { headers: engineHeaders(scope), signal: AbortSignal.timeout(timeoutMs) });
+    if (!active.ok) { await active.arrayBuffer().catch(() => undefined); return unknown; }
+    const body: unknown = await active.json();
+    if (!isRecord(body) || !isRecord(body.data)) return unknown;
+    for (const sessionID of Object.keys(body.data)) {
+      const response = await fetch(new URL(`/api/session/${encodeURIComponent(sessionID)}`, scope.baseUrl), { headers: engineHeaders(scope), signal: AbortSignal.timeout(timeoutMs) });
+      if (!response.ok) { await response.arrayBuffer().catch(() => undefined); return unknown; }
+      const session: unknown = await response.json();
+      const directory = isRecord(session) && isRecord(session.location) && typeof session.location.directory === "string" ? session.location.directory
+        : isRecord(session) && isRecord(session.data) && isRecord(session.data.location) && typeof session.data.location.directory === "string" ? session.data.location.directory : null;
+      if (directory === null) return unknown;
+      if (resolve(normalizeOpencodeDirectory(directory)) === resolve(scope.directory)) return true;
+    }
     return false;
+  } catch {
+    return unknown;
   }
 }
 
+const engineDirectoryBusy = (scope: EngineScope) => engineDirectoryRunning(scope, 10_000, true);
+// LAWOSS (#367 N9): krátka kontrola pre zastaraný neotvorený priečinok (engine-mcp-budget.ts staleBusy).
+const engineDirectoryClearlyBusy = (scope: EngineScope) => engineDirectoryRunning(scope, 2_000, false);
+
+// Engine v2: uvoľnenie lokácie zavrie jej pluginy a MCP procesy (`debug.location.evict`). Ďalšia
+// požiadavka ju postaví znova.
 async function disposeEngineDirectory(scope: EngineScope): Promise<void> {
-  const headers: Record<string, string> = {};
-  if (scope.authHeader) headers.Authorization = scope.authHeader;
   await inEngineDirectoryLane(scope, async () => {
-    const response = await fetch(buildOpencodeReloadUrl(scope.baseUrl, scope.directory), { method: "POST", headers, signal: AbortSignal.timeout(30_000) });
+    const url = new URL("/api/debug/location", scope.baseUrl);
+    url.searchParams.set("location[directory]", scope.directory);
+    const response = await fetch(url, { method: "DELETE", headers: engineHeaders(scope), signal: AbortSignal.timeout(30_000) });
     await response.arrayBuffer().catch(() => undefined);
-    if (!response.ok) throw new ApiError(502, "opencode_reload_failed", "OpenCode dispose failed", { status: response.status });
+    if (!response.ok) throw new ApiError(502, "opencode_reload_failed", "OpenCode location release failed", { status: response.status });
   });
+}
+
+// Engine spustí chat v lokácii chatu, nie v lokácii požiadavky. Neznámy priečinok ostane v požiadavke:
+// rozpočet tak nikdy nezavrie iný priečinok pre neistú odpoveď.
+async function engineSessionScope(scope: EngineScope, sessionId: string): Promise<EngineScope> {
+  try {
+    const response = await fetch(new URL(`/api/session/${encodeURIComponent(sessionId)}`, scope.baseUrl), { headers: engineHeaders(scope), signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) { await response.arrayBuffer().catch(() => undefined); return scope; }
+    const session: unknown = await response.json();
+    const location = isRecord(session) && isRecord(session.location) ? session.location : isRecord(session) && isRecord(session.data) && isRecord(session.data.location) ? session.data.location : null;
+    const directory = location && typeof location.directory === "string" ? location.directory.trim() : "";
+    return directory ? { ...scope, directory: normalizeOpencodeDirectory(directory) } : scope;
+  } catch {
+    return scope;
+  }
 }
 
 function installEngineMcpBudget(config: ServerConfig): () => void {
@@ -6296,224 +6195,56 @@ function installEngineMcpBudget(config: ServerConfig): () => void {
     busy: engineDirectoryBusy,
     staleBusy: engineDirectoryClearlyBusy,
     dispose: disposeEngineDirectory,
-    // Prvé použitie koreňa klienta zaregistruje jeho vlastné MCP; zdieľané má inštancia zo súboru.
-    initialize: async (scope) => {
-      const workspace = config.workspaces.find((candidate) => {
-        const own = workspaceEngineScope(config, candidate);
-        return own?.baseUrl === scope.baseUrl && own.directory === scope.directory;
-      });
-      if (workspace) await syncRuntimeMcpToOpencodeEngine(config, workspace, undefined, { skipFileProvided: true }).catch(() => undefined);
-    },
+    // Engine v2 číta MCP lokácie zo súborov konfigurácie sám; nič sa nedopĺňa.
     log: (message, fields) => logger.log("info", message, fields),
   });
   engineMcpBudgets.set(config, budget);
+  const previousAdmission = config.lawossEngineMcpAdmission;
+  config.lawossEngineMcpAdmission = async ({ method, path, directory, sessionID }) => {
+    const workspace = config.workspaces.find(candidate => {
+      const own = workspaceEngineScope(config, candidate);
+      return !!own && (resolve(own.directory) === resolve(directory) || isPathWithin(own.directory, directory));
+    });
+    const connection = workspace ? resolveWorkspaceOpencodeConnection(config, workspace) : null;
+    const baseUrl = connection?.baseUrl?.trim() ?? "";
+    return admitEngineMcp(config, method, path, baseUrl ? { baseUrl, authHeader: connection?.authHeader ?? null, directory: normalizeOpencodeDirectory(directory) } : null, sessionID);
+  };
   const sweep = setInterval(() => { void budget.sweep().catch(() => undefined); }, Math.min(60_000, Math.max(1_000, settings.idleMs / 4 || 60_000)));
   sweep.unref?.();
   return () => {
     clearInterval(sweep);
     budget.close();
     if (engineMcpBudgets.get(config) === budget) engineMcpBudgets.delete(config);
+    config.lawossEngineMcpAdmission = previousAdmission;
   };
 }
 
-async function admitEngineMcp(config: ServerConfig, method: string, path: string, scope: EngineScope | null): Promise<() => void> {
+async function admitEngineMcp(config: ServerConfig, method: string, path: string, scope: EngineScope | null, sessionID?: string): Promise<() => void> {
   const budget = engineMcpBudgetFor(config);
   if (!budget || !scope) return () => undefined;
-  if (!initializesEngineMcp(method, path)) {
-    // LAWOSS (#367 N9): zastaraná inštancia neotvoreného klienta sa uvoľní pred požiadavkou, ktorá číta
-    // jej konfiguráciu (modely, agenti, skilly). Zoznam chatov a udalosti ju nepotrebujú, a bočný panel
-    // by inak postupne uvoľnil všetkých klientov.
-    if (readsEngineConfig(path)) await budget.refreshIfStale(scope);
-    budget.touch(scope);
-    return () => undefined;
-  }
-  const sessionId = budget.limit > 0 ? engineSessionAction(method, path) : null;
-  return budget.admit(sessionId ? await engineSessionScope(scope, sessionId) : scope);
+  if (!initializesEngineMcp(method, path)) return () => undefined;
+  // LAWOSS (#367 N9): zastaraná lokácia neotvoreného klienta sa uvoľní pred požiadavkou, ktorá číta
+  // jej konfiguráciu (modely, agenti, skilly, príkazy).
+  if (readsEngineConfig(path)) await budget.refreshIfStale(scope);
+  const session = sessionID ?? (budget.limit > 0 ? engineSessionAction(method, path) : null);
+  return budget.admit(session ? await engineSessionScope(scope, session) : scope);
 }
 
-// Engine spustí chat v jeho priečinku, nie v priečinku požiadavky (engine-mcp-budget.ts). Neznámy
-// priečinok ostane v požiadavke: rozpočet tak nikdy nezavrie iný priečinok pre neistú odpoveď.
-async function engineSessionScope(scope: EngineScope, sessionId: string): Promise<EngineScope> {
-  const url = new URL(scope.baseUrl);
-  url.pathname = `/session/${sessionId}`;
-  url.search = "";
-  url.searchParams.set("directory", scope.directory);
-  try {
-    const headers: Record<string, string> = { "x-opencode-directory": buildOpencodeDirectoryHeader(scope.directory) };
-    if (scope.authHeader) headers.Authorization = scope.authHeader;
-    const response = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
-    if (!response.ok) { await response.arrayBuffer(); return scope; }
-    const session = sessionInfoSchema.safeParse(await response.json());
-    const directory = session.success ? session.data.directory?.trim() : "";
-    return directory ? { ...scope, directory: normalizeOpencodeDirectory(directory) } : scope;
-  } catch {
-    return scope;
-  }
-}
-
-function residentEngineMcpDirectory(config: ServerConfig, workspace: WorkspaceInfo | undefined, method: string, path: string, baseUrl: string, directory: string | null): string | null {
-  const reads = method === "GET" && (path === "/mcp" || path === "/command");
-  const root = reads && workspace?.workspaceType === "local" ? resolveOpencodeDirectory(workspace) : null;
-  const budget = engineMcpBudgetFor(config);
-  return (root && directory && budget?.residentWithin({ baseUrl, authHeader: null, directory }, root)) || directory;
-}
-
-// SDK požiadavky servera (prompt, príkazy) idú cez rovnaký rozpočet ako požiadavky z okna.
-async function budgetedEngineFetch(config: ServerConfig, workspaceId: string, request: Request, directory: string, send: (request: Request) => Promise<Response>): Promise<Response> {
-  const workspace = config.workspaces.find((candidate) => candidate.id === workspaceId);
-  const connection = workspace ? resolveWorkspaceOpencodeConnection(config, workspace) : null;
-  const baseUrl = connection?.baseUrl?.trim() ?? "";
-  const requested = new URL(request.url).searchParams.get("directory") || decodeOpencodeDirectoryHeader(request.headers.get("x-opencode-directory")) || directory;
-  const release = await admitEngineMcp(config, request.method, new URL(request.url).pathname, baseUrl ? { baseUrl, authHeader: connection?.authHeader ?? null, directory: requested } : null);
-  try {
-    return await send(request);
-  } finally {
-    release();
-  }
-}
-
-// The engine answers a workspace's MCP status only once that instance exists:
-// right after start the process may not even be listening yet, and after a
-// dispose the instance is rebuilt lazily on the next request while the
-// connections open during the dispose are dropped. Asking for the status on a
-// fresh connection, and asking again while the engine cannot be reached at
-// all, makes the registration that follows land on a live instance instead of
-// being recorded as "fetch failed". Any HTTP answer means the engine is there;
-// only a silent engine is waited for, and only up to the deadline.
-async function awaitEngineInstance(
-  baseUrl: string,
-  authHeader: string | null,
-  directory: string | null,
-  deadlineMs = 30_000,
-): Promise<void> {
-  const url = new URL(baseUrl);
-  url.pathname = "/mcp";
-  url.search = "";
-  if (directory) url.searchParams.set("directory", directory);
-  const headers: Record<string, string> = {};
-  if (authHeader) headers.Authorization = authHeader;
-  const deadline = Date.now() + deadlineMs;
-  while (Date.now() < deadline) {
-    try {
-      await abortable(
-        sharedEngineResponse(url.toString(), (signal) => fetch(url, { headers, signal })),
-        AbortSignal.timeout(20_000),
-      );
-      return;
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, engineMcpSyncRetryDelayMs()));
-    }
-  }
-}
-
-// Push runtime-DB MCP entries into the running OpenCode engine via its dynamic
-// add endpoint, so adds/toggles take effect without waiting for an engine
-// instance rebuild. Best-effort: callers treat engine sync as advisory and
-// swallow failures; outcomes are recorded per workspace (engineMcpSyncState)
-// and logged so failures aren't silent.
-async function syncRuntimeMcpToOpencodeEngine(
-  config: ServerConfig,
-  workspace: WorkspaceInfo,
-  onlyNames?: string[],
-  options: { skipFileProvided?: boolean } = {},
-): Promise<void> {
-  if (await localWorkspaceUnavailable(workspace)) return;
-  // LAWOSS: POST /mcp by v neotvorenom klientovi spustil všetky MCP (issue #367).
-  if (workspaceMcpDormant(config, workspace)) return;
-  const connection = resolveWorkspaceOpencodeConnection(config, workspace);
-  const baseUrl = connection.baseUrl?.trim() ?? "";
-  if (!baseUrl) return;
-
-  const fileProvided = options.skipFileProvided ? await engineFileMcpEntries(config) : {};
-  const entries = Object.entries(await allowedMemberConnectors(config, await runtimeMcpMapForWorkspace(config, workspace.id))).filter(
-    ([name, mcpConfig]) => (!onlyNames || onlyNames.includes(name)) && !isDeepStrictEqual(fileProvided[name], mcpConfig),
-  );
-  if (entries.length === 0) return;
-
-  const url = new URL(baseUrl);
-  url.pathname = "/mcp";
-  url.search = "";
-  const directory = resolveOpencodeDirectory(workspace);
-  if (directory) url.searchParams.set("directory", directory);
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (connection.authHeader) headers.Authorization = connection.authHeader;
-
-  // Keep going past per-entry failures: one dead or invalid MCP must not
-  // block re-registration of every entry after it (e.g. legalwork-ui) on
-  // each engine reload.
+// Publish changed shared definitions and refresh the native location after a
+// typed settings update. The released engine owns initial config discovery,
+// connector startup and OAuth; startup does not push duplicate definitions.
+// Outcomes remain visible through engineMcpSyncState for actionable failures.
+async function syncRuntimeMcpToOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo, onlyNames?: string[], configurationPublished = false): Promise<void> {
+  if (await localWorkspaceUnavailable(workspace) || !resolveWorkspaceOpencodeConnection(config, workspace).baseUrl) return;
+  const names = Object.keys(await allowedMemberConnectors(config, await runtimeMcpMapForWorkspace(config, workspace.id))).filter(name => !onlyNames || onlyNames.includes(name));
+  if (!names.length) return;
   const failures: EngineMcpSyncFailure[] = [];
-  await inEngineDirectoryLane({ baseUrl, directory: directory ?? "" }, async () => {
-    for (const [name, mcpConfig] of entries) {
-      const failure = await mcpRecovery(config).mutate(name, () => postMcpEntryWithRetry(url, headers, name, mcpConfig));
-      if (failure) failures.push(failure);
-    }
-  });
-
-  recordEngineMcpSyncResult(workspace.id, {
-    syncedNames: entries.map(([name]) => name),
-    failures,
-    // A full sync covered every runtime entry, so its result replaces any
-    // previously recorded failures (e.g. for since-removed MCPs).
-    replace: !onlyNames,
-  });
-
-  if (failures.length > 0) {
-    const names = failures.map((failure) => failure.name).join(", ");
-    createServerLogger(config).log("warn", `Engine MCP sync failed for workspace ${workspace.id}: ${names}`, {
-      "workspace.id": workspace.id,
-      "mcp.failed": names,
-    });
-    throw new ApiError(502, "opencode_mcp_sync_failed", `Failed to register MCPs with the engine: ${names}`, {
-      failures,
-    });
+  try { await refreshManagedEngineLocation(config, workspace, workspaceEngineLocation(workspace).directory, configurationPublished); }
+  catch (error) {
+    for (const name of names) failures.push({ name, message: error instanceof Error ? error.message : String(error) });
   }
-}
-
-// LAWOSS: MCP, ktoré každá nová inštancia už má zo súboru runtime konfigurácie.
-// Opätovný POST by ich engine spustil druhýkrát (nový proces, starý až potom zavrie).
-async function engineFileMcpEntries(config: ServerConfig): Promise<Record<string, unknown>> {
-  try {
-    const parsed: unknown = JSON.parse(await readFile(legalworkRuntimeConfigFilePath(config), "utf8"));
-    return isRecord(parsed) && isRecord(parsed.mcp) ? parsed.mcp : {};
-  } catch {
-    return {};
-  }
-}
-
-// POST one MCP entry to the engine, retrying once on 5xx/network errors
-// (the engine is often mid-rebuild right after a dispose). 4xx responses
-// are not retried — they won't change.
-async function postMcpEntryWithRetry(
-  url: URL,
-  headers: Record<string, string>,
-  name: string,
-  mcpConfig: Record<string, unknown>,
-): Promise<EngineMcpSyncFailure | null> {
-  let failure: EngineMcpSyncFailure | null = null;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, engineMcpSyncRetryDelayMs()));
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ name, config: mcpConfig }),
-        // Releasing the connector lock on an HTTP timeout leaves the engine's
-        // handshake running, able to overwrite a later disable or disconnect.
-      });
-      if (response.ok) return null;
-      failure = { name, status: response.status, body: parseOpencodeErrorBody(await response.text()) };
-      if (response.status < 500) return failure;
-    } catch (error) {
-      failure = { name, message: error instanceof Error ? error.message : String(error) };
-    }
-  }
-  return failure;
-}
-
-// Read lazily so tests can shrink the delay at runtime.
-function engineMcpSyncRetryDelayMs(): number {
-  const parsed = Number(process.env.LEGALWORK_MCP_SYNC_RETRY_DELAY_MS ?? "750");
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 750;
+  recordEngineMcpSyncResult(workspace.id, { syncedNames: names, failures, replace: !onlyNames });
+  if (failures.length) throw new ApiError(502, "opencode_mcp_sync_failed", `Failed to register MCPs with the engine: ${names.join(", ")}`, { failures });
 }
 
 export type EngineMcpSyncFailure = { name: string; status?: number; body?: unknown; message?: string };
@@ -6546,29 +6277,8 @@ export function engineMcpSyncState(workspaceId: string): EngineMcpSyncState | nu
   return engineMcpSyncStateByWorkspace.get(workspaceId) ?? null;
 }
 
-// Re-push every workspace's runtime-DB MCPs into the engine. Used at startup:
-// the runtime config file injected via OPENCODE_CONFIG covers workspaces[0]
-// only, so other workspaces' runtime MCPs are invisible to the engine until
-// something re-syncs them. Best-effort.
-export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig): Promise<void> {
-  for (const workspace of config.workspaces) {
-    // Constructing an engine instance runs plugins that create .opencode.
-    // A disconnected folder must stay missing until the user restores it.
-    if (await localWorkspaceUnavailable(workspace)) continue;
-    // LAWOSS: neotvorený klient dostane svoje MCP pri prvom použití (issue #367).
-    if (workspaceMcpDormant(config, workspace)) continue;
-    // Right after start the engine is still building instances; registering
-    // into a half-built one is recorded as a failure the UI then shows.
-    const connection = resolveWorkspaceOpencodeConnection(config, workspace);
-    if (connection.baseUrl?.trim()) {
-      await awaitEngineInstance(connection.baseUrl.trim(), connection.authHeader ?? null, resolveOpencodeDirectory(workspace));
-    }
-    await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
-  }
-}
-
 async function localWorkspaceUnavailable(workspace: WorkspaceInfo): Promise<boolean> {
-  return workspace.workspaceType !== "remote" && !(await stat(workspace.path).catch(() => null))?.isDirectory();
+  return !(await stat(workspace.path).catch(() => null))?.isDirectory();
 }
 
 function parseMcpScope(value: unknown): McpScope {
@@ -6578,7 +6288,7 @@ function parseMcpScope(value: unknown): McpScope {
 }
 
 function otherLocalWorkspaces(config: ServerConfig, origin: WorkspaceInfo): WorkspaceInfo[] {
-  return config.workspaces.filter((workspace) => workspace.id !== origin.id && workspace.workspaceType !== "remote");
+  return config.workspaces.filter((workspace) => workspace.id !== origin.id);
 }
 
 // Local workspaces share one managed engine, so a shared connector is
@@ -6618,36 +6328,18 @@ async function disconnectSharedMcpFromOtherWorkspaces(
 // Counterpart of syncRuntimeMcpToOpencodeEngine for removals: tell the engine
 // to drop the MCP's client so deleted MCPs stop serving tools immediately
 // instead of lingering until the next engine restart. Failures reach the UI.
-async function disconnectMcpFromOpencodeEngine(
-  config: ServerConfig,
-  workspace: WorkspaceInfo,
-  name: string,
-): Promise<void> {
-  if (await localWorkspaceUnavailable(workspace)) return;
-  // LAWOSS: v neotvorenom klientovi MCP nebeží; POST by ich naopak spustil (issue #367).
-  if (workspaceMcpDormant(config, workspace)) return;
-  const connection = resolveWorkspaceOpencodeConnection(config, workspace);
-  const baseUrl = connection.baseUrl?.trim() ?? "";
-  if (!baseUrl) return;
-
-  const url = new URL(baseUrl);
-  url.pathname = `/mcp/${encodeURIComponent(name)}/disconnect`;
-  url.search = "";
-  const directory = resolveOpencodeDirectory(workspace);
-  if (directory) url.searchParams.set("directory", directory);
-  const headers: Record<string, string> = {};
-  if (connection.authHeader) headers.Authorization = connection.authHeader;
-
+async function disconnectMcpFromOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo, name: string): Promise<void> {
+  if (await localWorkspaceUnavailable(workspace) || !resolveWorkspaceOpencodeConnection(config, workspace).baseUrl) return;
   await mcpRecovery(config).mutate(name, async () => {
     mcpRecovery(config).endAuth(name);
-    const response = await fetch(url, { method: "POST", headers });
-    if (!response.ok && response.status !== 404) {
-      const body = parseOpencodeErrorBody(await response.text());
-      throw new ApiError(502, "opencode_mcp_disconnect_failed", `Failed to disconnect MCP ${name} from the engine`, {
-        status: response.status,
-        body,
-      });
-    }
+    const client = createEngineClient(config, workspace);
+    await client.mcp.disconnect({ server: name, location: workspaceEngineLocation(workspace) }).catch(error => {
+      const apiError = findApiError(error);
+      if (apiError?.status !== 404) throw error;
+    });
+    // Refresh removes the registered definition too; a stale dynamic entry must
+    // not reconnect after its managed source has been deleted.
+    await refreshManagedEngineLocation(config, workspace);
   });
 }
 
@@ -6673,11 +6365,12 @@ async function requireApproval(
 }
 
 async function exportWorkspace(
+  config: ServerConfig,
   workspace: WorkspaceInfo,
   options?: { sensitiveMode?: WorkspaceExportSensitiveMode },
 ) {
   const sensitiveMode = options?.sensitiveMode ?? "auto";
-  const rawOpencode = await readOpencodeConfig(workspace.path);
+  const rawOpencode = await readOpencodeConfig(config, workspace);
   let opencode = sanitizePortableOpencodeConfig(rawOpencode);
   const legalwork = sanitizeLegalworkTemplateConfig(await readLegalworkConfig(workspace.path));
   const skills = await listSkills(workspace.path, false);
@@ -6854,17 +6547,11 @@ async function materializeBlueprintSessions(config: ServerConfig, workspace: Wor
   const created: Array<{ templateId: string; sessionId: string; title: string }> = [];
   const opencode = createWorkspaceOpencodeClient(config, workspace);
   for (const template of templates) {
-    const result = unwrapOpencodeResult(await opencode.session.create({ title: template.title }), "/session");
-    const sessionId =
-      result && typeof result === "object" && "id" in result && typeof result.id === "string" ? result.id.trim() : "";
-    if (!sessionId) {
-      throw new ApiError(502, "opencode_failed", "OpenCode session did not return an id");
-    }
-    seedOpencodeSessionMessages({
-      sessionId,
+    const session = await createSeededOpencodeSession({ client: opencode, workspaceId: workspace.id, templateId: template.id, title: template.title,
       workspaceRoot: resolveOpencodeDirectory(workspace) ?? workspace.path,
       messages: template.messages,
     });
+    const sessionId = session.id;
     created.push({ templateId: template.id, sessionId, title: template.title });
   }
 

@@ -37,7 +37,9 @@ const desktopRoot = resolve(__dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
 
 /** Vstupné skripty, ktoré po importe spustia server alebo UI; overujú sa len staticky. */
-export const ENTRY_POINTS = new Set(["cli.js", "toy-ui.js"]);
+export const ENTRY_POINTS = new Set(["cli.js", "toy-ui.js",
+  // Upstream v0.3.0: worker processes started by their parent with a private IPC channel or `--worker` argument.
+  "agent-sandbox/raw-http-node-worker.js", "tool-image-raster-worker.js"]);
 /**
  * Moduly, ktoré server nenačítava: upstream ich zbalí do reťazca pre izolované prostredie
  * (`scripts/gen-web-worker-code.ts` → `agent-sandbox/web-worker-code.ts`), ich závislosti
@@ -48,7 +50,8 @@ export const SANDBOX_ONLY = new Set(["agent-sandbox/web-worker.js"]);
 /** Súbory, ktoré electron-builder z `server/dist` do asar archívu nedá alebo ktoré sa nemajú spúšťať. */
 export function isImportable(relativePath) {
   const path = relativePath.split(sep).join("/");
-  if (!path.endsWith(".js") || path.endsWith(".test.js")) return false;
+  // Upstream v0.3.0 test drivers/support (`*.test-driver.js`, `*.test-support.js`) run only under tests.
+  if (!path.endsWith(".js") || /\.test(?:-driver|-support)?\.js$/.test(path)) return false;
   if (path.startsWith("opencode-plugins/")) return false;
   return !ENTRY_POINTS.has(path) && !SANDBOX_ONLY.has(path);
 }

@@ -11,9 +11,11 @@ import { z } from "zod";
 import type { WikiGraphResponse, WikiAsset, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiPage, WikiRegistration, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput } from "@legalwork/types/wiki";
 import type { ServerConfig } from "../types.js";
 import { ApiError } from "../errors.js";
+import { publishRegisteredEngineProjects } from "../project-engine-registration.js";
 import { workspaceIdForPath } from "../workspaces.js";
 import { markdownData, markdownWithData, parseWikiPage, resolveWikiLinks } from "./markdown.js";
 import { createWikiStarterFiles } from "./templates.js";
+import { legalResearchWikiFiles } from "./legal-research-template.js";
 import { WikiGraphIndex } from "./graph.js";
 import { patchWikiProperties, type WikiPropertiesPatch } from "./properties.js";
 import { assertWikiFoldersIndependent, canonicalFolderPath } from "./workspace-safety.js";
@@ -29,6 +31,7 @@ export const wikiTeamSyncSchema = z.object({ kind: z.literal("team"), wikiId: z.
 export const wikiSyncSchema = z.union([wikiTeamSyncSchema, legacySyncSchema]);
 const registrationSchema = z.object({
   id: z.string().uuid(), name: z.string().min(1).max(200), root: z.string().min(1),
+  purpose: z.literal("legal-research").optional(),
   workspaceId: z.string().min(1), allowInProjects: z.boolean(), projectWorkspaceIds: z.array(z.string().min(1).max(200)).max(1000).nullable().optional(), sync: wikiSyncSchema.nullable(),
 });
 const deletedWikiSchema = z.object({ wiki: registrationSchema, deletedAt: z.number() });
@@ -126,6 +129,8 @@ export class WikiStore {
         CREATE TABLE IF NOT EXISTS wiki_history_view_links (historyId TEXT PRIMARY KEY,snapshot TEXT NOT NULL,metadata TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS wiki_history_changes (historyId TEXT PRIMARY KEY,added INTEGER,removed INTEGER);
         CREATE TABLE IF NOT EXISTS wiki_folders (root TEXT PRIMARY KEY,id TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS wiki_defaults (purpose TEXT PRIMARY KEY,id TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS wiki_research_structure (wiki TEXT PRIMARY KEY,version INTEGER NOT NULL,language TEXT NOT NULL,country TEXT);
         CREATE INDEX IF NOT EXISTS wiki_history_path ON wiki_history(wiki,path,createdAt DESC);`);
       return db;
     })();
@@ -133,11 +138,14 @@ export class WikiStore {
   }
   async close(): Promise<void> { if (this.database) (await this.database).close(); this.database = undefined; this.indexes.clear(); for (const state of this.graphs.values()) state.watcher?.close(); this.graphs.clear(); this.inventoryRevisions.clear(); }
 
-  private registerWorkspace(wiki: WikiRegistration): void {
+  private registerWorkspace(wiki: WikiRegistration): boolean {
+    let changed = false;
     if (!this.config.workspaces.some((workspace) => workspace.id === wiki.workspaceId)) {
       this.config.workspaces.push({ id: wiki.workspaceId, name: wiki.name, path: wiki.root, preset: "wiki", workspaceType: "local" });
+      changed = true;
     }
-    if (!this.config.authorizedRoots.includes(wiki.root)) this.config.authorizedRoots.push(wiki.root);
+    if (!this.config.authorizedRoots.includes(wiki.root)) { this.config.authorizedRoots.push(wiki.root); changed = true; }
+    return changed;
   }
   async list(): Promise<WikiRegistration[]> {
     try {
@@ -146,7 +154,9 @@ export class WikiStore {
       if (warning) throw new Error(warning);
       const items = z.array(registrationSchema).parse(data.wikis ?? []);
       await assertWikiFoldersIndependent(items, this.config.workspaces);
-      for (const wiki of items) this.registerWorkspace(wiki);
+      let changed = false;
+      for (const wiki of items) changed = this.registerWorkspace(wiki) || changed;
+      if (changed) await publishRegisteredEngineProjects(this.config);
       return items;
     } catch (error) {
       if (missing(error)) return [];
@@ -180,6 +190,72 @@ export class WikiStore {
     } finally { await rm(temporary, { force: true }); }
   }
   async create(input: WikiCreateInput): Promise<WikiRegistration> {
+    return this.createWithFiles(input);
+  }
+  /** Release migration, also used for first-run installs. A durable marker
+   * preserves renames, local edits and deliberate removal across restarts. */
+  async ensureLegalResearch(language: "en" | "de", country?: string): Promise<{ wiki: WikiRegistration | null; created: boolean; updated?: boolean }> {
+    if (this.config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
+    return serial(`${this.path}:legal-research`, async () => {
+      const items = await this.list(), deleted = await this.deleted(), db = await this.db();
+      const marker = z.object({ id: z.string().uuid() }).optional().parse(db.all("SELECT id FROM wiki_defaults WHERE purpose='legal-research'")[0]);
+      if (marker) {
+        const wiki = items.find(wiki => wiki.id === marker.id) ?? null;
+        return { wiki, created: false, ...(wiki ? { updated: await this.ensureResearchStructure(wiki, language, country) } : {}) };
+      }
+      // Recover a completed registration if a process stopped before recording
+      // the marker. Never adopt an unrelated wiki merely because its title matches.
+      const existing = items.find(wiki => wiki.purpose === "legal-research" && !wiki.sync);
+      const removed = deleted.find(item => item.wiki.purpose === "legal-research" && !item.wiki.sync);
+      const initialized = existing ?? removed?.wiki;
+      if (initialized) {
+        db.run("INSERT INTO wiki_defaults(purpose,id) VALUES('legal-research',?)", [initialized.id]);
+        return { wiki: existing ?? null, created: false, ...(existing ? { updated: await this.ensureResearchStructure(existing, language, country) } : {}) };
+      }
+      const seed = legalResearchWikiFiles(language, country);
+      const wiki = await this.createWithFiles({ name: seed.name }, { purpose: "legal-research", files: seed.files });
+      db.run("INSERT INTO wiki_defaults(purpose,id) VALUES('legal-research',?)", [wiki.id]);
+      await this.ensureResearchStructure(wiki, language, country);
+      return { wiki, created: true };
+    });
+  }
+  /** Add navigation once; only untouched v1 starter files may be replaced. */
+  private async ensureResearchStructure(wiki: WikiRegistration, language: "en" | "de", country?: string): Promise<boolean> {
+    if (wiki.sync) return false;
+    return serial(`${this.path}:${wiki.id}`, async () => {
+      const db = await this.db();
+      const state = z.object({ version: z.number(), language: z.enum(["en", "de"]), country: z.string().nullable() }).optional().parse(db.all("SELECT version,language,country FROM wiki_research_structure WHERE wiki=?", [wiki.id])[0]);
+      const selectedCountry = state?.country ?? (country && country !== "OTHER" ? country : null);
+      if (state?.version === 2 && state.country === selectedCountry) return false;
+      let home: string | null = null;
+      try { home = (await this.fileBytes(wiki, "Wiki.md", WIKI_MAX_PAGE_BYTES)).toString("utf8"); }
+      catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; }
+      const oldHome = { en: "4f8b851fde89c08760989429feb234110591eff9fec8411f9159c9c03422811d", de: "1118b349f315c6d29145b1604a97bcb468cc6ea8c167d4caaf573eeec99661cd" };
+      const oldGuidance = "ff10dee3f9a6e874f208c0aba57ac4a6cf78177b2239b71e283e31751e12f590";
+      const seededLanguage = home ? markdownData(home).data.research_language : undefined;
+      const locale = state?.language ?? (home && hash(home) === oldHome.de || seededLanguage === "de" ? "de" : home && hash(home) === oldHome.en || seededLanguage === "en" ? "en" : language);
+      const seed = legalResearchWikiFiles(locale, selectedCountry ?? undefined);
+      const initialFiles = legalResearchWikiFiles(locale).files;
+      let changed = false;
+      for (const [path, source] of Object.entries(seed.files)) {
+        // A country chosen after first launch adds its landing pages only.
+        if (state?.version === 2 && Object.hasOwn(initialFiles, path)) continue;
+        let current: string | null = null;
+        try { current = (await this.fileBytes(wiki, path, WIKI_MAX_PAGE_BYTES)).toString("utf8"); }
+        catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; }
+        const legacy = current !== null && (path === "AGENTS.md" ? hash(current) === oldGuidance : path === "Wiki.md" && Object.values(oldHome).includes(hash(current)));
+        if (current !== null && !legacy) continue;
+        // Deleted original control files are deliberate, not migration holes.
+        if (current === null && (path === "Wiki.md" || path === "AGENTS.md")) continue;
+        const content = path === "Wiki.md" ? markdownWithData(source, { name: wiki.name }) : source;
+        await this.writePage(wiki.id, path, content, current === null ? "" : hash(current), "write");
+        changed = true;
+      }
+      db.run("INSERT OR REPLACE INTO wiki_research_structure(wiki,version,language,country) VALUES(?,2,?,?)", [wiki.id, locale, selectedCountry]);
+      return changed;
+    });
+  }
+  private async createWithFiles(input: WikiCreateInput, seed?: { purpose: "legal-research"; files: Record<string, string> }): Promise<WikiRegistration> {
     return serial(this.path, async () => {
       const name = input.name.trim();
       if (!name || name.length > 200) throw new ApiError(400, "invalid_wiki_name", "Give the wiki a name of at most 200 characters.");
@@ -202,14 +278,19 @@ export class WikiStore {
       const knownFolder = z.object({ id: z.string().uuid() }).optional().parse(db.all("SELECT id FROM wiki_folders WHERE root=?", [canonicalRoot])[0]);
       const id = knownFolder?.id ?? newId;
       db.run("INSERT OR REPLACE INTO wiki_folders(root,id) VALUES(?,?)", [canonicalRoot, id]);
-      const wiki: WikiRegistration = { id, name, root: canonicalRoot, workspaceId: workspaceIdForPath(canonicalRoot), allowInProjects: true, sync: input.sync ?? null };
-      for (const [path, content] of Object.entries(input.attach ? {} : createWikiStarterFiles(input.template ?? "blank", name))) {
+      const purpose = seed?.purpose ?? (!input.attach && input.template === "legal-research" ? "legal-research" : undefined);
+      const wiki: WikiRegistration = { id, name, root: canonicalRoot, workspaceId: workspaceIdForPath(canonicalRoot), allowInProjects: true, sync: input.sync ?? null, ...(purpose ? { purpose } : {}) };
+      for (const [path, content] of Object.entries(seed ? seed.files : input.attach ? {} : createWikiStarterFiles(input.template ?? "blank", name, input))) {
         const target = await this.safePath(wiki, path, true);
         try { await writeFile(target, path === "Wiki.md" ? markdownWithData(content, { name }) : content, { flag: "wx" }); }
         catch (error) { if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error; }
       }
       await this.saveRegistrations([...items, wiki]);
+      if (!seed && purpose === "legal-research") {
+        db.run("INSERT OR REPLACE INTO wiki_research_structure(wiki,version,language,country) VALUES(?,2,?,?)", [wiki.id, input.language ?? "en", input.country && input.country !== "OTHER" ? input.country : null]);
+      }
       this.registerWorkspace(wiki);
+      await publishRegisteredEngineProjects(this.config);
       return wiki;
     });
   }
@@ -233,6 +314,7 @@ export class WikiStore {
       if (!wiki) throw new ApiError(404, "wiki_not_found", "This wiki is no longer registered.");
       await this.saveRegistrations(items.filter((item) => item.id !== id));
       this.unregisterWorkspace(wiki);
+      await publishRegisteredEngineProjects(this.config);
     });
   }
 
@@ -255,6 +337,7 @@ export class WikiStore {
       }
       await this.saveRegistrations(items.filter(item => item.id !== id), [...deleted, { wiki, deletedAt: Date.now() }]);
       this.unregisterWorkspace(wiki);
+      await publishRegisteredEngineProjects(this.config);
     });
   }
 
@@ -269,6 +352,7 @@ export class WikiStore {
       await assertWikiFoldersIndependent([...items, entry.wiki], this.config.workspaces);
       await this.saveRegistrations([...items, entry.wiki], deleted.filter(item => item.wiki.id !== id));
       this.registerWorkspace(entry.wiki);
+      await publishRegisteredEngineProjects(this.config);
       return entry.wiki;
     });
   }
@@ -610,6 +694,66 @@ export class WikiStore {
   }
   async write(id: string, path: string, content: string, baseRevision?: string): Promise<WikiDocument> {
     return serial(`${this.path}:${id}`, () => this.writePage(id, path, content, baseRevision, "write"));
+  }
+  /** One human review publishes the page and its staged source files. Assets
+   * precede the page, so readers never see a page with half-copied sources. */
+  async writeContribution(id: string, path: string, content: string, baseRevision: string, attachments: { path: string; data: Buffer }[]) {
+    if (!attachments.length) return this.write(id, path, content, baseRevision);
+    return serial(`${this.path}:${id}`, async () => {
+      const wiki = await this.get(id);
+      if (!isMarkdown(wikiPath(path)) || Buffer.byteLength(content) > WIKI_MAX_PAGE_BYTES)
+        throw new ApiError(400, "invalid_wiki_page", "Choose a Markdown page of up to 2 MB.");
+      let previous: Buffer | null = null;
+      try { previous = await this.fileBytes(wiki, path, WIKI_MAX_PAGE_BYTES); }
+      catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; }
+      // Recover a completed write if updating the project's draft status failed.
+      const alreadyPublished = previous !== null && hash(previous) === hash(content);
+      if (!alreadyPublished) this.conflict(baseRevision, previous === null ? null : hash(previous));
+      const missingAssets: { path: string; data: Buffer }[] = [];
+      let total = 0;
+      for (const asset of attachments) {
+        wikiPath(asset.path);
+        total += asset.data.length;
+        if (isMarkdown(asset.path) || asset.path === path || total > WIKI_MAX_ASSET_BYTES)
+          throw new ApiError(400, "invalid_wiki_attachment", "Choose source files totalling up to 100 MB.");
+        try {
+          const current = await this.fileBytes(wiki, asset.path, WIKI_MAX_ASSET_BYTES);
+          if (hash(current) !== hash(asset.data)) throw new ApiError(409, "wiki_attachment_exists", "A different source file already exists at this destination. Keep the draft and choose a different filename.");
+        } catch (error) {
+          if (!(error instanceof ApiError && error.status === 404)) throw error;
+          missingAssets.push(asset);
+        }
+      }
+      const written: typeof missingAssets = [];
+      const createdFolders = new Set<string>();
+      try {
+        for (const asset of missingAssets) {
+          const parts = asset.path.split("/");
+          for (let i = 1; i < parts.length; i++) {
+            const folder = parts.slice(0, i).join("/");
+            if (!await lstat(await this.safePath(wiki, folder)).catch(error => { if (missing(error)) return null; throw error; })) createdFolders.add(folder);
+          }
+          // Create-only semantics also protect files changed outside this process.
+          await this.atomicWrite(wiki, asset.path, asset.data, "");
+          written.push(asset);
+        }
+        if (alreadyPublished) return { path, content, revision: hash(content), updatedAt: (await stat(await this.safePath(wiki, path))).mtimeMs };
+        return await this.writePage(id, path, content, baseRevision, "write");
+      } catch (error) {
+        let published = false;
+        try { published = hash(await this.fileBytes(wiki, path, WIKI_MAX_PAGE_BYTES)) === hash(content); }
+        catch { /* The original error is reported below. */ }
+        if (!published) {
+          for (const asset of written.reverse()) {
+            if (hash(await this.fileBytes(wiki, asset.path, WIKI_MAX_ASSET_BYTES)) === hash(asset.data)) await rm(await this.safePath(wiki, asset.path));
+          }
+          for (const folder of [...createdFolders].reverse()) await rmdir(await this.safePath(wiki, folder)).catch(cleanup => {
+            if (!missing(cleanup) && !(cleanup instanceof Error && "code" in cleanup && cleanup.code === "ENOTEMPTY")) throw cleanup;
+          });
+        }
+        throw error;
+      }
+    });
   }
   async updateProperties(id: string, path: string, patch: WikiPropertiesPatch, baseRevision: string): Promise<WikiDocument> {
     wikiPath(path);

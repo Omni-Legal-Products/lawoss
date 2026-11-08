@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListView as ProviderListResponse } from "../src/app/types";
 import {
   composerModelState,
   modelReadiness,
@@ -15,7 +15,7 @@ const providerList = (connected: string[], models: Record<string, string[]>): Pr
       name: id === "anthropic" ? "Anthropic" : id,
       env: [],
       source: "api",
-      models: Object.fromEntries(ids.map((modelId) => [modelId, { id: modelId, name: modelId, capabilities: { toolcall: true } }])),
+      models: Object.fromEntries(ids.map((modelId) => [modelId, { id: modelId, name: modelId, capabilities: { tools: true } }])),
     })),
     connected,
     default: {},

@@ -1,18 +1,16 @@
-import { z } from "zod";
-import type { Agent, PermissionConfig } from "@opencode-ai/sdk/v2";
+import type { AgentInfo } from "@opencode/client";
+import { Config } from "@opencode/schema/config";
+import { Schema } from "effect";
+import { permissionPatternMatches } from "../agent-sandbox/permissions.js";
+type PermissionConfig = Array<NonNullable<(typeof Config.Info.Type)["permissions"]>[number]>;
 
 export const PROJECT_TASK_AGENT = "legalwork-scheduled-project";
 export const ALL_PROJECTS_TASK_AGENT = "legalwork-scheduled-all";
 
 /** Background reviews read data directly and must not take over the user's UI. */
-export function allProjectTaskPermissions(input: unknown = {}): PermissionConfig {
-  const global = permissionSchema.parse(input);
-  const permissions: Exclude<PermissionConfig, string> = typeof global === "string" ? { "*": global } : { ...global };
-  for (const tool of ["legalwork_ui_snapshot", "legalwork_ui_list_actions", "legalwork_ui_execute_action"]) {
-    delete permissions[tool];
-    permissions[tool] = "deny";
-  }
-  return permissions;
+export function allProjectTaskPermissions(input: PermissionConfig = []): PermissionConfig {
+  const permissions = Schema.decodeUnknownSync(Config.Info)({ permissions: input }).permissions ?? [];
+  return [...permissions, ...["legalwork_ui_snapshot", "legalwork_ui_list_actions", "legalwork_ui_execute_action"].map(action => ({ action, resource: "*", effect: "deny" } satisfies PermissionConfig[number]))];
 }
 
 // These tools resolve the project from the engine's trusted execution context.
@@ -25,34 +23,27 @@ export const PROJECT_TASK_TOOLS = new Set([
   "legalwork_schedule_clock", "legalwork_schedule_projects", "legalwork_schedule_project_list", "legalwork_schedule_project_read",
   "legalwork_recordings_list", "legalwork_recording_read",
   "todowrite", "question",
+  // Native Code Mode routes only the separately permitted child tools.
+  "execute",
 ]);
 
-const actionSchema = z.enum(["allow", "ask", "deny"]);
-const permissionSchema = z.union([actionSchema, z.record(z.string(), z.union([actionSchema, z.record(z.string(), actionSchema)]))]);
-
-function matches(pattern: string, name: string) {
-  return new RegExp(`^${pattern.split("*").map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`).test(name);
-}
-
 /** Preserve the user's existing denials and approval rules for allowed tools. */
-export function projectTaskPermissions(input: unknown = {}): PermissionConfig {
-  const global = permissionSchema.parse(input);
-  const permissions: Exclude<PermissionConfig, string> = { "*": "deny" };
+export function projectTaskPermissions(input: PermissionConfig = []): PermissionConfig {
+  const global = Schema.decodeUnknownSync(Config.Info)({ permissions: input }).permissions ?? [];
+  const permissions: PermissionConfig = [{ action: "*", resource: "*", effect: "deny" }];
   for (const tool of PROJECT_TASK_TOOLS) {
-    if (typeof global === "string") { permissions[tool] = global; continue; }
-    let action: Exclude<PermissionConfig, string>[string] = "allow";
-    for (const [name, value] of Object.entries(global)) if (matches(name, tool)) action = value;
-    permissions[tool] = action;
+    const rules = global.filter(rule => permissionPatternMatches(tool, rule.action));
+    permissions.push({ action: tool, resource: "*", effect: "allow" }, ...rules.map(rule => ({ ...rule, action: tool })));
   }
   return permissions;
 }
 
 /** Do not silently run unrestricted when an external or stale engine lacks our agent. */
-export function hasProjectTaskBoundary(agent: Pick<Agent, "name" | "permission"> | undefined) {
-  if (agent?.name !== PROJECT_TASK_AGENT) return false;
+export function hasProjectTaskBoundary(agent: Pick<AgentInfo, "id" | "permissions"> | undefined) {
+  if (agent?.id !== PROJECT_TASK_AGENT) return false;
   let boundary = -1;
-  agent.permission.forEach((rule, index) => { if (rule.permission === "*" && rule.pattern === "*" && rule.action === "deny") boundary = index; });
+  agent.permissions.forEach((rule, index) => { if (rule.action === "*" && rule.resource === "*" && rule.effect === "deny") boundary = index; });
   // The engine appends access to its tool-output folder. No native file/shell
   // tool is permitted here, so this supporting permission cannot expose data.
-  return boundary >= 0 && agent.permission.slice(boundary + 1).every(rule => rule.action === "deny" || rule.permission === "external_directory" || PROJECT_TASK_TOOLS.has(rule.permission));
+  return boundary >= 0 && agent.permissions.slice(boundary + 1).every(rule => rule.effect === "deny" || rule.action === "external_directory" || PROJECT_TASK_TOOLS.has(rule.action));
 }

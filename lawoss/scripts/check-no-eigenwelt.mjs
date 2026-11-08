@@ -159,7 +159,7 @@ export const ALLOWED = {
 export const STRUCTURE = [
   {
     file: "apps/server/src/managed-opencode.ts",
-    must: [/import \{ lawossEngineEnv \} from "\.\/lawoss\/engine-network\.js";/, /const lawossEnv = lawossEngineEnv\(options\.inheritEnvironment === false \? \{\} : process\.env\);/, /\.\.\.options\.env,\s*\.\.\.lawossEnv,/],
+    must: [/import \{ lawossEngineEnv \} from "\.\/lawoss\/engine-network\.js";/, /const lawossEnv = lawossEngineEnv\(options\.inheritEnvironment === false \? \{\} : process\.env\);/, /\.\.\.lawossEnv,\s*\.\.\.\(options\.service \? \{\} : \{ OPENCODE_PASSWORD: password \}\),/],
     why: "Engine musí dostať poistky LAWOSS ako posledné (bez sťahovania katalógu, zdieľania a aktualizácie).",
   },
   {
@@ -203,7 +203,9 @@ export const STRUCTURE = [
     file: "apps/app/src/lawoss/feature-flags.ts",
     must: [
       /export const isAnalyticsChoiceHidden = \(\): boolean => true;/,
-      ...["ai-plans", "firm-hub", "trial-notice", "premium-upsell", "eigenwelt-account", "eigenwelt-sign-in", "eigenwelt-trial", "wiki-team", "shared-projects", "calendar-subscription"].map(
+      ...["ai-plans", "firm-hub", "trial-notice", "premium-upsell", "eigenwelt-account", "eigenwelt-sign-in", "eigenwelt-trial", "wiki-team", "shared-projects", "calendar-subscription",
+        // Upstream v0.3.0: osobný Assistant vyžaduje predplatné Eigenwelt Plus/Pro.
+        "assistant"].map(
         (surface) => new RegExp(`HIDDEN_COMMERCIAL_SURFACES[\\s\\S]*"${surface}",[\\s\\S]*\\]\\);\\s*\\n\\s*export const isCommercialSurfaceHidden`),
       ),
       /HIDDEN_SETTINGS_TABS[\s\S]*"account",/,

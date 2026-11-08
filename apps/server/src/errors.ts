@@ -30,6 +30,17 @@ export function projectFileError(projectPath: string, error: unknown, platform: 
     `Cannot access project "${basename(projectPath)}".\nFolder: ${projectPath}\n${recovery}`, { path: projectPath, reason });
 }
 
+/** The published engine client wraps fetch failures in ClientError.cause. */
+export function findApiError(error: unknown): ApiError | undefined {
+  const seen = new Set<unknown>();
+  while (error instanceof Error && !seen.has(error)) {
+    if (error instanceof ApiError) return error;
+    seen.add(error);
+    error = error.cause;
+  }
+  return undefined;
+}
+
 export function formatError(err: ApiError): ApiErrorBody {
   return {
     code: err.code,

@@ -1,3 +1,4 @@
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import { diagnosticFields, OkfDiagnostic, type DiagnosticFields } from "../../../../../lawoss/okf/diagnostics";
 import { isManagedDeadline } from "../../../../../lawoss/okf/deadline-workflow.ts";
 import { INBOX_FOLDERS } from "../../../../../lawoss/okf/inputs";
@@ -556,7 +557,7 @@ export function okfScopeKey(scope: OkfScope): string {
   return JSON.stringify([scope.practiceRoot ? pathIdentity(scope.practiceRoot) : null, scope.members.map(m => [m.workspace.id, pathIdentity(m.workspace.path), m.prefix.normalize("NFC"), m.workspace.workspaceType ?? "local", ...(m.nested?.length ? [[...m.nested].sort()] : [])]).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
 }
 export function excludedWorkspaceIds(workspaces: readonly RouteWorkspace[], scope: OkfScope | null): string[] {
-  return workspaces.filter(w => !scope?.members.some(m => m.workspace.id === w.id || (w.workspaceType !== "remote" && within(m.workspace.path, w.path)))).map(w => w.id).sort();
+  return workspaces.filter(w => !scope?.members.some(m => m.workspace.id === w.id || (!isRetiredRemoteWorkspace(w) && within(m.workspace.path, w.path)))).map(w => w.id).sort();
 }
 /** `inner` je `outer` alebo leží v ňom; veľkosť písmen podľa platformy ako `officeOf`. */
 const within = (outer: string, inner: string): boolean => {
@@ -573,7 +574,7 @@ const joinPath = (prefix: string, path: string): string => !prefix ? path : !pat
  */
 export function okfScope(workspaces: readonly RouteWorkspace[], anchor: RouteWorkspace | null, practiceRoot?: string | null): OkfScope | null {
   if (!anchor) return null;
-  const local = (w: RouteWorkspace) => w.workspaceType !== "remote" && Boolean(w.path);
+  const local = (w: RouteWorkspace) => !isRetiredRemoteWorkspace(w) && Boolean(w.path);
   const member = (workspace: RouteWorkspace, prefix: string): OkfScopeMember => {
     const nested = local(workspace) ? nestedPaths(workspaces.filter(local), workspace) : [];
     return { workspace, prefix, ...(nested.length ? { nested } : {}) };
@@ -848,10 +849,10 @@ export function officeWorkspace(connection: OkfConnection | null): RouteWorkspac
 
 /** Nejvzdálenější registrovaná lokální složka, která `active` obsahuje; jinak `active` samo. */
 export function officeOf(workspaces: readonly RouteWorkspace[], active: RouteWorkspace | null): RouteWorkspace | null {
-  if (!active?.path || active.workspaceType === "remote") return active;
+  if (!active?.path || isRetiredRemoteWorkspace(active)) return active;
   const inner = normalizeDirectoryPath(active.path);
   const ancestors = workspaces.filter((w) => {
-    if (w.id === active.id || !w.path || w.workspaceType === "remote") return false;
+    if (w.id === active.id || !w.path || isRetiredRemoteWorkspace(w)) return false;
     const outer = normalizeDirectoryPath(w.path);
     return inner.startsWith(outer.endsWith("/") ? outer : `${outer}/`);
   });

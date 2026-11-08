@@ -10,8 +10,10 @@ import {
   closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, readGlobalToolPermissions, readRuntimeOpencodeConfigText, writeRuntimeOpencodeConfig,
 } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
-import { LAWOSS_MEMORY_TOOL, fileChangeRule, withLawossToolDefaults } from "./tool-permission-defaults.js";
+import { LAWOSS_MEMORY_TOOL, fileChangeRule, fileChangeRules, withLawossToolDefaultRules, withLawossToolDefaults } from "./tool-permission-defaults.js";
+import { permissionAction, type NativePermissionRule } from "../agent-sandbox/permissions.js";
 import { writeYoloMode } from "./yolo-mode.js";
+import { engineSettings, hasBundledPlugin } from "./test-support/native-config.js";
 
 /**
  * Alfa 2 (N-13, N-21, double card): on a clean profile, outside YOLO, a change waits for one card;
@@ -66,86 +68,91 @@ function shell(config: ServerConfig, reply: () => "allow" | "deny" | "always" | 
   return { asked, run };
 }
 
+test("engine v2: defaults are native rules placed first; firm-decided actions get none", () => {
+  expect(withLawossToolDefaultRules([])).toEqual([{ action: "edit", resource: "*", effect: "ask" }, { action: "shell", resource: "*", effect: "ask" }]);
+  expect(withLawossToolDefaultRules([{ action: "edit", resource: "*", effect: "allow" }])).toEqual([{ action: "shell", resource: "*", effect: "ask" }, { action: "edit", resource: "*", effect: "allow" }]);
+  expect(withLawossToolDefaultRules([{ action: "*", resource: "*", effect: "allow" }]).map(rule => rule.action)).toEqual(["edit", "shell", "*"]);
+  // Firm policy names the v1 tool `bash`; v2 calls it `shell`.
+  expect(withLawossToolDefaultRules([], ["bash"])).toEqual([{ action: "edit", resource: "*", effect: "ask" }]);
+});
+
+test("engine v2: lawoss_file_change rules follow the edit rules in effect", () => {
+  const rule = (action: string, effect: "allow" | "deny" | "ask", resource = "*") => ({ action, resource, effect });
+  expect(fileChangeRules([], false)).toEqual([rule("lawoss_file_change", "ask")]);
+  expect(fileChangeRules([rule("edit", "allow")], false)).toEqual([rule("lawoss_file_change", "ask")]);
+  expect(fileChangeRules([rule("edit", "deny")], true)).toEqual([rule("lawoss_file_change", "deny")]);
+  expect(fileChangeRules([rule("*", "deny")], true)).toEqual([rule("lawoss_file_change", "deny")]);
+  expect(fileChangeRules([rule("*", "deny"), rule("edit", "ask")], false)).toEqual([rule("lawoss_file_change", "ask")]);
+  expect(fileChangeRules([rule("edit", "ask"), rule("edit", "deny", "Zmluvy/*")], true)).toEqual([rule("lawoss_file_change", "allow"), rule("lawoss_file_change", "deny", "Zmluvy/*")]);
+  expect(fileChangeRules([], true)).toEqual([rule("lawoss_file_change", "allow")]);
+});
+
+type Rule = NativePermissionRule;
+/** Engine v2 file: ordered native rules (`permissions`), agents with their own rules (`agents`), `plugins`. */
 async function engineFile(config: ServerConfig) {
-  await writeLegalworkRuntimeConfigFile(config, "ws_1");
-  const parsed: { permission: Record<string, unknown>; agent: Record<string, { permission?: Record<string, unknown> }>; plugin?: string[] } =
-    JSON.parse(await readFile(legalworkRuntimeConfigFilePath(config), "utf8"));
-  return parsed;
+  const built = await engineSettings(config, "ws_1");
+  return { permissions: [...built.permissions ?? []], agents: Object.fromEntries(Object.entries(built.agents ?? {}).map(([id, agent]) => [id, { permissions: [...agent.permissions ?? []] }])),
+    plugins: [...built.plugins ?? []] };
 }
-
-test("unset edit and bash ask; the lawyer's own rule, a wildcard and a firm-style removal keep precedence", () => {
-  expect(withLawossToolDefaults({})).toEqual({ edit: "ask", bash: "ask" });
-  expect(withLawossToolDefaults({ edit: "allow", webfetch: "deny" })).toEqual({ bash: "ask", edit: "allow", webfetch: "deny" });
-  // Later rules win in the engine: a lawyer's `*` comes after the defaults and overrides them.
-  expect(Object.keys(withLawossToolDefaults({ "*": "allow" }))).toEqual(["edit", "bash", "*"]);
-  expect(withLawossToolDefaults({ bash: { "*": "ask", "rm *": "deny" } }).bash).toEqual({ "*": "ask", "rm *": "deny" });
-  // A tool the firm rules on gets no default: the firm's rule applies as before (org-policy-engine.ts).
-  expect(withLawossToolDefaults({}, ["bash"])).toEqual({ edit: "ask" });
-});
-
-test("lawoss_files has its own rule: a forbidden edit stays forbidden, otherwise it asks, YOLO allows", () => {
-  expect(fileChangeRule({}, false)).toBe("ask");
-  // An explicit edit allow does not silence moves and the Trash outside YOLO.
-  expect(fileChangeRule({ edit: "allow" }, false)).toBe("ask");
-  expect(fileChangeRule({ edit: "deny" }, false)).toBe("deny");
-  expect(fileChangeRule({ edit: "deny" }, true)).toBe("deny");
-  expect(fileChangeRule({ "*": "deny" }, true)).toBe("deny");
-  expect(fileChangeRule({ "*": "deny", edit: "ask" }, false)).toBe("ask");
-  expect(fileChangeRule({ edit: { "*": "ask", "Zmluvy/*": "deny" } }, true)).toEqual({ "*": "allow", "Zmluvy/*": "deny" });
-  expect(fileChangeRule({}, true)).toBe("allow");
-});
+/** Like the engine: the last matching rule wins, nothing matching asks. */
+const evaluate = (rules: readonly Rule[], action: string) => permissionAction(rules, action, "*", "ask");
+const lastIndex = (rules: readonly Rule[], action: string) => rules.reduce((found, rule, index) => rule.action === action ? index : found, -1);
+const rules = (permissions: Rule[]) => () => ({ permissions });
 
 test("the engine file carries the lawoss_files rule after any wildcard, for chats and scheduled runs", async () => {
   const { config } = await setup();
-  expect((await engineFile(config)).permission.lawoss_file_change).toBe("ask");
-  // A broad allow of the lawyer's still leaves file changes asking, also in the copied scheduled map.
-  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "allow", edit: "allow" } }));
+  expect(evaluate((await engineFile(config)).permissions, "lawoss_file_change")).toBe("ask");
+  // A broad allow of the lawyer's still leaves file changes asking, also in the copied scheduled rules.
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, rules([{ action: "*", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }]));
   const broad = await engineFile(config);
-  const keys = Object.keys(broad.permission);
-  expect(keys.indexOf("lawoss_file_change")).toBeGreaterThan(keys.indexOf("*"));
-  const scheduled = broad.agent["legalwork-scheduled-all"]?.permission ?? {};
-  expect(scheduled.lawoss_file_change).toBe("ask");
-  expect(Object.keys(scheduled).indexOf("lawoss_file_change")).toBeGreaterThan(Object.keys(scheduled).indexOf("*"));
+  expect(lastIndex(broad.permissions, "lawoss_file_change")).toBeGreaterThan(lastIndex(broad.permissions, "*"));
+  expect(evaluate(broad.permissions, "lawoss_file_change")).toBe("ask");
+  const scheduled = broad.agents["legalwork-scheduled-all"]?.permissions ?? [];
+  expect(evaluate(scheduled, "lawoss_file_change")).toBe("ask");
+  expect(lastIndex(scheduled, "lawoss_file_change")).toBeGreaterThan(lastIndex(scheduled, "*"));
   await writeYoloMode(config, true);
-  expect((await engineFile(config)).agent.legalwork?.permission?.lawoss_file_change).toBe("allow");
+  const yolo = await engineFile(config);
+  expect(evaluate([...yolo.permissions, ...yolo.agents.legalwork?.permissions ?? []], "lawoss_file_change")).toBe("allow");
 });
 
 test("reading case memory (lawoss_memory) needs no card; the lawyer's own rule and a later wildcard still win", async () => {
   const { config } = await setup();
   const clean = await engineFile(config);
-  expect(clean.permission[LAWOSS_MEMORY_TOOL]).toBe("allow");
-  expect((clean.plugin ?? []).some((spec) => spec.includes("lawoss-memory-tools"))).toBe(true);
-  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { [LAWOSS_MEMORY_TOOL]: "deny" } }));
-  expect((await engineFile(config)).permission[LAWOSS_MEMORY_TOOL]).toBe("deny");
-  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "deny" } }));
-  const keys = Object.keys((await engineFile(config)).permission);
-  expect(keys.indexOf("*")).toBeGreaterThan(keys.indexOf(LAWOSS_MEMORY_TOOL));
+  expect(evaluate(clean.permissions, LAWOSS_MEMORY_TOOL)).toBe("allow");
+  expect(await hasBundledPlugin(clean.plugins, "lawoss-memory-tools")).toBe(true);
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, rules([{ action: LAWOSS_MEMORY_TOOL, resource: "*", effect: "deny" }]));
+  expect(evaluate((await engineFile(config)).permissions, LAWOSS_MEMORY_TOOL)).toBe("deny");
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, rules([{ action: "*", resource: "*", effect: "deny" }]));
+  const denied = (await engineFile(config)).permissions;
+  expect(lastIndex(denied, "*")).toBeGreaterThan(lastIndex(denied, LAWOSS_MEMORY_TOOL));
+  expect(evaluate(denied, LAWOSS_MEMORY_TOOL)).toBe("deny");
 });
 
 test("a clean profile asks in the engine file, in Settings and for scheduled all-projects runs; stored allow is respected", async () => {
   const { config } = await setup();
   expect(await readRuntimeOpencodeConfigText(config, GLOBAL_TOOL_PERMISSIONS_ID)).toBeNull();
-  // Settings and the firm check read this map: the quick toggles show "ask" as on.
-  expect(await readGlobalToolPermissions(config)).toEqual({ edit: "ask", bash: "ask" });
+  // Settings and the firm check read these rules: the quick toggles show "ask" as on.
+  expect(await readGlobalToolPermissions(config)).toEqual([{ action: "edit", resource: "*", effect: "ask" }, { action: "shell", resource: "*", effect: "ask" }]);
   const clean = await engineFile(config);
-  expect(clean.permission).toMatchObject({ edit: "ask", legalwork_shell: "ask", bash: "deny" });
-  // Scheduled "all projects" runs inherit the map: a run that changes files waits for a card.
-  expect(clean.agent["legalwork-scheduled-all"]?.permission).toMatchObject({ edit: "ask", legalwork_shell: "ask" });
-  // Outside YOLO the chat agent carries only the managed-tool guards, no allow of its own.
-  expect(clean.agent.legalwork?.permission).toEqual({ bash: "deny", webfetch: "deny", websearch: "deny" });
+  expect(evaluate(clean.permissions, "edit")).toBe("ask");
+  expect(evaluate(clean.permissions, "shell")).toBe("ask");
+  // Scheduled "all projects" runs inherit the rules: a run that changes files waits for a card.
+  expect(evaluate(clean.agents["legalwork-scheduled-all"]?.permissions ?? [], "edit")).toBe("ask");
 
   // A switch the lawyer turned off is an explicit allow and stays.
-  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { edit: "allow", bash: "allow" } }));
-  expect((await engineFile(config)).permission).toMatchObject({ edit: "allow", legalwork_shell: "allow" });
-  // "Default" removes the key: asking again.
-  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: {} }));
-  expect((await engineFile(config)).permission).toMatchObject({ edit: "ask", legalwork_shell: "ask" });
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, rules([{ action: "edit", resource: "*", effect: "allow" }, { action: "shell", resource: "*", effect: "allow" }]));
+  const allowed = (await engineFile(config)).permissions;
+  expect([evaluate(allowed, "edit"), evaluate(allowed, "shell")]).toEqual(["allow", "allow"]);
+  // "Default" removes the rule: asking again.
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, rules([]));
+  expect(evaluate((await engineFile(config)).permissions, "edit")).toBe("ask");
 
-  // YOLO (chat agent only) still removes the asking without rewriting the row.
+  // YOLO (chat agent only) still removes the asking without rewriting the shared rules.
   await writeYoloMode(config, true);
   const yolo = await engineFile(config);
-  expect(yolo.agent.legalwork?.permission).toMatchObject({ edit: "allow", legalwork_shell: "allow" });
-  expect(yolo.permission).toMatchObject({ edit: "ask", legalwork_shell: "ask" });
+  const chat = [...yolo.permissions, ...yolo.agents.legalwork?.permissions ?? []];
+  expect([evaluate(chat, "edit"), evaluate(chat, "shell")]).toEqual(["allow", "allow"]);
+  expect(evaluate(yolo.permissions, "edit")).toBe("ask");
 });
 
 test("one rename on this computer is one card; a decline changes nothing and a new request asks again", async () => {
@@ -200,7 +207,7 @@ test("a rule refuses without a card and reads as a rule; YOLO on a clean profile
   const { matter, config } = await setup();
   await writeFile(join(matter, "zmluva.txt"), "text");
   const { asked, run } = shell(config, () => "allow");
-  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { edit: "deny" } }));
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, rules([{ action: "edit", resource: "*", effect: "deny" }]));
   await expect(run("mv zmluva.txt 01_Zmluva.txt")).rejects.toMatchObject({ code: "sandbox_permission_denied", message: expect.stringContaining("not a one-time decision") });
   expect(asked).toEqual([]);
 

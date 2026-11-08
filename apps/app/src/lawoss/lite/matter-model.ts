@@ -6,7 +6,7 @@
  * poskytovateľov a rovnakých pravidiel ako composer a krok AI v onboardingu.
  */
 import { useMemo } from "react";
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListView as ProviderListResponse } from "@/app/types";
 import type { ModelRef } from "@/app/types";
 import { createClient } from "@/app/lib/opencode";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";

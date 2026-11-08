@@ -62,7 +62,15 @@ async function sidecarFixture(t, platform, arch) {
   const config = parse(await readFile(new URL("../electron-builder.yml", import.meta.url), "utf8"));
   const filter = config[platformKey].extraResources.find((entry) => entry.to === "sidecars").filter;
   const expected = [];
-  for (const base of ["opencode", "legalwork-orchestrator", "versions.json"]) {
+  // Engine v2 (LegalWork derivative) ships in `opencode-engine/<artifact>/<target>`, not as a sidecar.
+  const engineTarget = `${platform === "win32" ? "windows" : platform}-${arch}`;
+  const engineDirectory = path.join(resources, "opencode-engine");
+  await mkdir(path.join(engineDirectory, "artifact-fixture", engineTarget), { recursive: true });
+  await mkdir(path.join(engineDirectory, "artifact-fixture", "other-target"), { recursive: true });
+  await mkdir(path.join(engineDirectory, "stale-artifact"), { recursive: true });
+  await writeFile(path.join(engineDirectory, "artifact-fixture", engineTarget, `opencode${suffix}`), "verified engine fixture");
+  const verified = [];
+  for (const base of ["legalwork-orchestrator", "versions.json"]) {
     const target = `${base}-${triple}${suffix}`;
     const alias = base === "versions.json" ? base : `${base}${suffix}`;
     assert.ok(filter.includes(target), `packaging config must include ${target}`);
@@ -75,7 +83,15 @@ async function sidecarFixture(t, platform, arch) {
   const pruned = [];
   const sdkChecks = [];
   const module = { exports: {} };
-  vm.runInNewContext(await readFile(new URL("../scripts/electron-after-pack.cjs", import.meta.url), "utf8"), {
+  // The hook loads the fixed engine selection with `import()`, which a vm context cannot resolve; supply it.
+  const modules = {
+    "@legalwork/opencode-release/selection": { opencodeEngineSelection: { kind: "derivative", artifactId: "artifact-fixture" },
+      verifySelectedOpencodeEngine: async (file, options) => { verified.push([file, options]); } },
+    "@legalwork/opencode-release": { opencodeReleaseTarget: () => engineTarget },
+  };
+  const hook = (await readFile(new URL("../scripts/electron-after-pack.cjs", import.meta.url), "utf8")).replaceAll("await import(", "await lawossImport(");
+  vm.runInNewContext(hook, {
+    lawossImport: async (name) => { if (!Object.hasOwn(modules, name)) throw new Error(`Unexpected hook import: ${name}`); return modules[name]; },
     module,
     process: { env: {} },
     require(name) {
@@ -96,7 +112,7 @@ async function sidecarFixture(t, platform, arch) {
       appOutDir: root, electronPlatformName: platform, arch: contextArch,
       packager: { appInfo: { productFilename: "LAWOSS" } },
     }),
-    resources, sidecars, expected, signed, pruned, triple, suffix,
+    resources, sidecars, expected, signed, pruned, triple, suffix, verified, engineDirectory, engineTarget,
   };
 }
 
@@ -107,7 +123,12 @@ for (const platform of ["darwin", "linux", "win32"]) for (const arch of ["arm64"
       await fixture.run(archForm === "numeric" ? Arch[arch] : arch);
       assert.deepEqual(fixture.pruned, [[fixture.resources, platform, arch]]);
       assert.deepEqual((await readdir(fixture.sidecars)).sort(), fixture.expected.sort());
-      for (const base of ["opencode", "legalwork-orchestrator", "versions.json"]) {
+      // The selected derivative engine is verified for this target; other targets and artifacts are pruned.
+      // The hook's arguments come from the vm realm; compare their values.
+      assert.deepEqual(JSON.parse(JSON.stringify(fixture.verified)), [[path.join(fixture.engineDirectory, "artifact-fixture", fixture.engineTarget, `opencode${fixture.suffix}`), { target: fixture.engineTarget }]]);
+      assert.deepEqual(await readdir(fixture.engineDirectory), ["artifact-fixture"]);
+      assert.deepEqual(await readdir(path.join(fixture.engineDirectory, "artifact-fixture")), [fixture.engineTarget]);
+      for (const base of ["legalwork-orchestrator", "versions.json"]) {
         const alias = base === "versions.json" ? base : `${base}${fixture.suffix}`;
         assert.equal(await readFile(path.join(fixture.sidecars, alias), "utf8"),
           `target contents: ${base}-${fixture.triple}${fixture.suffix}`);

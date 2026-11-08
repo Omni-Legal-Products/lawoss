@@ -20,6 +20,7 @@ import { syntheticHostConfig } from "../test-support/host-config.js";
 import { ProtectedDocumentTools } from "./document-tools.js";
 import { ProtectedAiTransport } from "./transport.js";
 import { ProtectedVmEngine, type ProtectedVmBroker } from "./vm-engine.js";
+import { nativeRow } from "../test-support/native-config.js";
 
 const enabled = process.env.LAWOSS_PROTECTED_VM_TEST === "1";
 async function sha256(file: string): Promise<string> {
@@ -205,7 +206,7 @@ function retirementProbe() {
       await Bun.sleep(10);
     }
     const tools = await ProtectedDocumentTools.open({ documents, workspace, sources: [{ id: prepared.id, hash: prepared.hash }] });
-    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({ provider: { fixture: { npm: "@ai-sdk/openai-compatible", options: { baseURL: provider.url.origin + "/v1", apiKey: "SYNTHETIC-HOST-ONLY-KEY" }, models: { synthetic: {} } } } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => nativeRow({ provider: { fixture: { npm: "@ai-sdk/openai-compatible", options: { baseURL: provider.url.origin + "/v1", apiKey: "SYNTHETIC-HOST-ONLY-KEY" }, models: { synthetic: {} } } } }));
     const operationId = randomUUID();
     // These private test-owned bundle bytes remain immutable for the operation.
     // Measure them once; source ownership/content is still rechecked on every dispatch.

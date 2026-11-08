@@ -91,6 +91,18 @@ for (const target of targets) {
   };
 }
 
+// The server executable resolves its own content-addressed engine bundle.
+const { opencodeReleaseTarget } = await import("@legalwork/opencode-release");
+const { opencodeEngineSelection, stageSelectedOpencodeEngine } = await import("@legalwork/opencode-release/selection");
+for (const target of targets) {
+  const [os, arch] = target.id.split("-");
+  const engineTarget = opencodeReleaseTarget(os === "windows" ? "win32" : os, arch);
+  await stageSelectedOpencodeEngine({
+    binary: join(serverDir, "opencode-engine", opencodeEngineSelection.artifactId, engineTarget, os === "windows" ? "opencode.exe" : "opencode"),
+    directory: join(outdir, "opencode-engine", opencodeEngineSelection.artifactId, engineTarget), target: engineTarget,
+  });
+}
+
 const manifest = {
   version: orchestratorVersion,
   generatedAt,

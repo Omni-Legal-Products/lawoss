@@ -16,6 +16,7 @@ import type { ServerConfig } from "../types.js";
 import { issueWikiAgentTicket } from "../wiki/agent-access.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
 import { WIKI_AGENT_TICKET_ENV } from "./engine-agent-contract.js";
+import { nativeRow } from "./test-support/native-config.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 const toolPart = z.object({ type: z.literal("tool"), tool: z.string(), state: z.object({ status: z.string(), output: z.string().optional(), error: z.string().optional() }).passthrough() }).passthrough();
@@ -41,7 +42,7 @@ test.skipIf(!binary)("chat prípadu prijme prvú správu cez front a jeho nástr
     authorizedRoots: [clientA, clientB], agentSandboxEnabled: true, readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
   };
   // Advokát povolil príkazy a čítanie bez otázky; ide o priečinok, nie o povolenia.
-  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "allow", read: "allow", edit: "allow", webfetch: "allow" } }));
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => nativeRow({ permission: { bash: "allow", read: "allow", edit: "allow", webfetch: "allow" } }));
 
   // Model na skúšku: v prvom kroku zavolá spravovaný shell (`pwd`) a `read` s relatívnou cestou.
   const model = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {

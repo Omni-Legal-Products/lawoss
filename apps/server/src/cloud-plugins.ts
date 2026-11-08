@@ -6,14 +6,15 @@ import { dirname, resolve } from "node:path";
 import type { ServerConfig } from "./types.js";
 import { ApiError } from "./errors.js";
 import { parseFrontmatter, buildFrontmatter } from "./frontmatter.js";
-import { addMcp, removeMcp } from "./mcp.js";
+import { addMcp } from "./mcp.js";
 import { ensureDir } from "./utils.js";
 import { globalOpencodeConfigDir, globalSkillsDir } from "./workspace-files.js";
-import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { connectorConfigVariables } from "./connector-config.js";
 import { isPathWithin } from "./lawoss/path-within.js";
 import { readContentHash, readProvenance, withContentHash, withProvenance, type PluginProvenance } from "./lawoss/plugin-provenance.js";
 import { pluginResourceNamespaces, pluginResourceRecordIds, prunePluginResourceNamespace, referencedResourceEntries } from "./lawoss/plugin-resource-cleanup.js";
+import { nativeMcpDefinition } from "./native-mcp-config.js";
 import type { PluginImportProvenance, PluginImportHistory, PluginImportReadiness, PluginImportRequirement } from "@legalwork/types/plugin-import";
 import { provenanceSchema, importStateSchema, importHistorySchema } from "./plugin-import-state.js";
 
@@ -395,31 +396,32 @@ function mcpCommandFromConfig(config: Record<string, unknown>): string[] {
 
 export function normalizePluginMcpConfig(input: unknown): Record<string, unknown> | null {
   if (!isRecord(input)) return null;
-  const requestedEnabled = typeof input.enabled === "boolean"
-    ? input.enabled
-    : typeof input.disabled === "boolean"
-      ? !input.disabled
-      : true;
+  const requestedEnabled = typeof input.disabled === "boolean" ? !input.disabled : typeof input.enabled === "boolean" ? input.enabled : true;
   const enabled = requestedEnabled && connectorConfigVariables(input).length === 0;
+  const timeout = typeof input.timeout === "number" ? { startup: input.timeout, catalog: input.timeout, execution: input.timeout } : isRecord(input.timeout) ? input.timeout : undefined;
+  const controls = Object.fromEntries(["protocol", "codemode"].flatMap(key => input[key] === undefined ? [] : [[key, input[key]]]));
   const url = readString(input.url);
   if (url) {
-    const config: Record<string, unknown> = { type: "remote", url, enabled, ...(typeof input.timeout === "number" ? { timeout: input.timeout } : {}) };
+    const config: Record<string, unknown> = { type: "remote", url, ...controls, disabled: !enabled, ...(timeout === undefined ? {} : { timeout }) };
     const headers = readStringRecord(input.headers);
     if (headers) config.headers = headers;
-    if (isRecord(input.oauth)) config.oauth = input.oauth;
+    if (isRecord(input.oauth)) config.oauth = Object.fromEntries(Object.entries({ client_id: input.oauth.client_id ?? input.oauth.clientId, client_secret: input.oauth.client_secret ?? input.oauth.clientSecret,
+      scope: input.oauth.scope, callback_port: input.oauth.callback_port ?? input.oauth.callbackPort, redirect_uri: input.oauth.redirect_uri ?? input.oauth.redirectUri }).filter(([, value]) => value !== undefined));
     if (input.oauth === false) config.oauth = false;
     if (input.oauth === true) config.oauth = {};
-    return config;
+    return { ...nativeMcpDefinition(config) };
   }
 
   const command = mcpCommandFromConfig(input);
   if (command.length > 0) {
-    const config: Record<string, unknown> = { type: "local", command, enabled, ...(typeof input.cwd === "string" ? { cwd: input.cwd } : {}), ...(typeof input.timeout === "number" ? { timeout: input.timeout } : {}) };
-    const timeout = typeof input.startup_timeout_sec === "number" ? input.startup_timeout_sec * 1000 : input.timeout;
-    if (typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0) config.timeout = Math.min(timeout, 300_000);
+    // LAWOSS: a Codex `startup_timeout_sec` sets the native startup budget (capped at five minutes).
+    const startupMs = typeof input.startup_timeout_sec === "number" ? input.startup_timeout_sec * 1000 : undefined;
+    const startup = startupMs !== undefined && Number.isFinite(startupMs) && startupMs > 0 ? Math.min(startupMs, 300_000) : undefined;
+    const localTimeout = startup === undefined ? timeout : { ...(timeout ?? { catalog: startup, execution: startup }), startup };
+    const config: Record<string, unknown> = { type: "local", command, ...controls, disabled: !enabled, ...(typeof input.cwd === "string" ? { cwd: input.cwd } : {}), ...(localTimeout === undefined ? {} : { timeout: localTimeout }) };
     const environment = readStringRecord(input.environment) ?? readStringRecord(input.env);
     if (environment) config.environment = environment;
-    return config;
+    return { ...nativeMcpDefinition(config) };
   }
 
   return null;
@@ -468,9 +470,9 @@ function pluginMcpConfigsFromPayload(object: CloudPluginConfigObject, namespace:
 
 /** Three-way update: source defaults can change without replacing connection setup. */
 export function mergeConnectorSetup(next: Record<string, unknown>, current: Record<string, unknown>, previous?: Record<string, unknown>): Record<string, unknown> {
-  const baseline = previous ?? next;
+  const baseline = previous ? normalizePluginMcpConfig(previous) ?? next : next;
   const changedEndpoint = previous ? next.url !== previous.url : next.url !== current.url && !connectorConfigVariables(next.url).length;
-  if (next.type !== baseline.type || changedEndpoint || next.type !== current.type) return { ...next, enabled: false };
+  if (next.type !== baseline.type || changedEndpoint || next.type !== current.type) return { ...next, disabled: true };
   const merge = (defaults: Record<string, unknown>, old: Record<string, unknown>, configured: Record<string, unknown>): Record<string, unknown> => {
     const result: Record<string, unknown> = {};
     for (const key of new Set([...Object.keys(defaults), ...Object.keys(old), ...Object.keys(configured)])) {
@@ -482,8 +484,8 @@ export function mergeConnectorSetup(next: Record<string, unknown>, current: Reco
     return result;
   };
   const result = merge(next, baseline, current);
-  if (typeof current.enabled === "boolean") result.enabled = current.enabled;
-  if (connectorConfigVariables(result).length) result.enabled = false;
+  if (typeof current.disabled === "boolean") result.disabled = current.disabled;
+  if (connectorConfigVariables(result).length) result.disabled = true;
   return result;
 }
 
@@ -740,6 +742,16 @@ function cloudPluginMcpNameFromPath(path: string): string | null {
   return OPENCODE_MCP_NAME_RE.test(name) ? name : null;
 }
 
+/** A package owns only these exact connector names in its installed scope.
+ * Remove the set in one update so concurrent per-name writes cannot restore it. */
+async function removePluginMcps(config: ServerConfig, registryId: string, names: string[]) {
+  if (!names.length) return;
+  const removed = new Set(names);
+  await writeRuntimeOpencodeConfig(config, registryId, current => ({ ...current,
+    mcp: { ...current.mcp, servers: Object.fromEntries(Object.entries(current.mcp?.servers ?? {}).filter(([name]) => !removed.has(name))) },
+  }));
+}
+
 /**
  * MCPs the plugins installed in a workspace brought along. They belong to
  * that workspace like the plugin does, not to the shared connector row.
@@ -784,7 +796,7 @@ export async function installCloudPlugin(input: {
   const resourceRoot = resolveWorkspaceInstallPath(input.workspaceRoot, `.opencode/plugin-resources/${resourceNamespace}`, input.global);
   const cloudImports = await readInstalledCloudPlugins(input.serverConfig, input.workspaceId);
   const existing = cloudImports.plugins[input.resolved.plugin.id];
-  const previousMcp = input.preserveConnectorSetup ? (await readRuntimeOpencodeConfig(input.serverConfig, input.workspaceId)).mcp ?? {} : {};
+  const previousMcp = input.preserveConnectorSetup ? (await readRuntimeOpencodeConfig(input.serverConfig, input.workspaceId)).mcp?.servers ?? {} : {};
   const connectorDefaults: Record<string, Record<string, unknown>> = {};
   const files: CloudImportedPluginFile[] = [];
 
@@ -799,7 +811,8 @@ export async function installCloudPlugin(input: {
         connectorDefaults[config.name] = input.resolved.plugin.connectorDefaults?.[config.name] ?? config.config;
         const previousConfig = previousMcp[config.name];
         const merged = existing && previousConfig ? mergeConnectorSetup(config.config, previousConfig, existing.connectorDefaults?.[config.name]) : config.config;
-        const connection = input.disabledMcpNames?.has(config.name) ? { ...merged, enabled: false } : merged;
+        // LAWOSS: a connector the lawyer turned off stays off (engine v2: `disabled: true`).
+        const connection = input.disabledMcpNames?.has(config.name) ? { ...merged, disabled: true } : merged;
         // Plugins are installed per workspace, so the MCPs they bring stay with it.
         await addMcp(input.serverConfig, input.workspaceId, config.name, connection, input.global ? "global" : "workspace");
         files.push({
@@ -857,7 +870,7 @@ export async function installCloudPlugin(input: {
     const name = file.objectType === "mcp" && !nextPaths.has(file.path) ? cloudPluginMcpNameFromPath(file.path) : null;
     return name ? [name] : [];
   });
-  for (const name of removedMcpNames) await removeMcp(input.serverConfig, input.workspaceId, name);
+  await removePluginMcps(input.serverConfig, input.workspaceId, removedMcpNames);
 
   const imported: CloudImportedPlugin = {
     ...(input.resolved.plugin.provenance ? { provenance: input.resolved.plugin.provenance } : {}),
@@ -925,14 +938,18 @@ export async function removeCloudPlugin(input: {
   const global = input.global === true || imported.scope === "global";
 
   for (const file of imported.files) if (file.path.startsWith(".opencode/")) await assertPluginDestination(input.workspaceRoot, file.path, global);
-  for (const file of imported.files) {
+  const mcpNames: string[] = [];
+  await Promise.all(imported.files.map(async (file) => {
     const mcpName = file.objectType === "mcp" ? cloudPluginMcpNameFromPath(file.path) : null;
     if (mcpName) {
-      await removeMcp(input.serverConfig, registryId, mcpName);
-      continue;
+      mcpNames.push(mcpName);
+      return;
     }
     await removePluginWorkspaceFile(input.workspaceRoot, file.path, global);
-  }
+  }));
+  await removePluginMcps(input.serverConfig, registryId, mcpNames);
+  // LAWOSS: a global Marketplace plugin registered its MCPs in the shared connector row (addMcp "global").
+  if (global && registryId !== GLOBAL_MCP_ID) await removePluginMcps(input.serverConfig, GLOBAL_MCP_ID, mcpNames);
 
   await writeInstalledCloudPlugins(input.serverConfig, registryId, current => {
     const plugins = { ...current.plugins };

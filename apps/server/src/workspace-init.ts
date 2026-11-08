@@ -83,7 +83,7 @@ async function ensureWorkspaceLegalworkConfig(
  * versions it is a no-op (and a core file the user deletes simply comes back). Files for
  * OTHER skills are never touched. Returns the reload reasons for any files written.
  */
-async function ensureCoreOpencodeFiles(workspaceRoot: string): Promise<ReloadReason[]> {
+export async function ensureCoreOpencodeFiles(workspaceRoot: string): Promise<ReloadReason[]> {
   const reasons = new Set<ReloadReason>(await retireLegacyReview(workspaceRoot));
   const stampPath = join(workspaceRoot, ".opencode", ".legalwork-core");
   const prev = (await exists(stampPath)) ? (await readFile(stampPath, "utf8")).trim() : "";
@@ -120,8 +120,10 @@ async function ensureOpencodeConfig(workspaceRoot: string): Promise<boolean> {
 export async function ensureWorkspaceFiles(
   workspaceRoot: string,
   presetInput: string,
-  workspaceMetadata: { root: string; name?: string | null } = { root: workspaceRoot },
+  // LAWOSS: `root`/`name` describe the client folder when app files live outside it.
+  options: { bundledCore?: boolean; root?: string; name?: string | null } = {},
 ): Promise<EnsureWorkspaceFilesResult> {
+  const workspaceMetadata = { root: options.root ?? workspaceRoot, name: options.name };
   const preset = normalizePreset(presetInput);
   if (!workspaceRoot.trim()) {
     throw new ApiError(400, "invalid_workspace_path", "workspace path is required");
@@ -144,7 +146,7 @@ export async function ensureWorkspaceFiles(
   const reloadReasons = new Set<ReloadReason>();
   if (await ensureOpencodeConfig(workspaceRoot)) reloadReasons.add("config");
   const legalworkConfigChanged = await ensureWorkspaceLegalworkConfig(workspaceRoot, preset, workspaceMetadata);
-  for (const reason of await ensureCoreOpencodeFiles(workspaceRoot)) reloadReasons.add(reason);
+  if (options.bundledCore !== false) for (const reason of await ensureCoreOpencodeFiles(workspaceRoot)) reloadReasons.add(reason);
   return {
     changed: legalworkConfigChanged || reloadReasons.size > 0,
     reloadReasons: Array.from(reloadReasons),
@@ -158,9 +160,10 @@ export async function ensureWorkspaceFiles(
  */
 export async function ensureWorkspaceFilesForBootstrap(
   workspace: WorkspaceFileBootstrapTarget,
+  options: { bundledCore?: boolean } = {},
 ): Promise<EnsureWorkspaceFilesResult> {
   if (usesExternalWorkspaceAppFiles(workspace)) return NO_WORKSPACE_FILE_CHANGES;
-  return ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
+  return ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", options);
 }
 
 export async function readRawOpencodeConfig(path: string): Promise<{ exists: boolean; content: string | null }> {

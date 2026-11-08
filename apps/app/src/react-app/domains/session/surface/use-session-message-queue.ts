@@ -1,3 +1,4 @@
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { reconcileQueuedOrder } from "./queued-order";
 import { useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -35,6 +36,7 @@ function hydrateDraft(entry: SessionQueue["entries"][number], editToken?: string
 /** Queue state is shared; only the edit buffer and its stashed composer belong
  * to this window. A lease pauses delivery while a queued item is being edited. */
 export function useSessionMessageQueue(client: LegalworkServerClient, workspaceId: string, sessionId: string) {
+  const metadataInterval = useMetadataPolling(client.baseUrl, 5000);
   const queryClient = useQueryClient();
   const key = ["session-message-queue", client.baseUrl, workspaceId, sessionId];
   const claim = useRef<{ id: string; token: string } | null>(null);
@@ -43,7 +45,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
     const queue = await client.sessionMessageQueue(workspaceId, sessionId, queryClient.getQueryData<SessionQueue>(key));
     const previous = queryClient.getQueryData<SessionQueue>(key);
     return previous && previous.revision > queue.revision ? previous : queue;
-  }, refetchInterval: query => query.state.data?.entries.length ? 1000 : 5000 });
+  }, refetchInterval: query => query.state.data?.entries.length ? 1000 : metadataInterval });
   const latest = useRef(query.data); latest.current = query.data;
   const apply = useCallback((queue: SessionQueue) => {
     if (!latest.current || queue.revision >= latest.current.revision) latest.current = queue;
@@ -62,7 +64,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
   }, [client.baseUrl, workspaceId, sessionId]);
   useEffect(() => {
     if (!query.data) return;
-    const items = query.data.entries.filter(entry => entry.status !== "sending").map(entry => hydrateDraft(entry, claim.current?.token));
+    const items = query.data.entries.filter(entry => entry.status !== "sending" && entry.status !== "accepted").map(entry => hydrateDraft(entry, claim.current?.token));
     useComposerStateStore.setState(state => ({ queuedDrafts: { ...state.queuedDrafts, [sessionId]: items }, pausedQueues: { ...state.pausedQueues, [sessionId]: query.data.paused } }));
   }, [query.data, sessionId]);
   useEffect(() => {
@@ -79,10 +81,15 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
     };
   }, [client.baseUrl, workspaceId, sessionId]);
   return {
-    ready: query.isSuccess, error: query.error,
+    ready: query.isSuccess, error: query.error, state: query.data,
     // LAWOSS (N-A7-17): the panel explains a pause the server set after an app restart.
     restartPause: query.data?.paused && query.data.pauseReason === "stop" ? query.data.restartPause : undefined,
-    enqueue: async (draft: ComposerDraft, send: (input: Omit<QueueInput, "execution">) => Promise<void>, preparedEditor?: ComposerSessionState) => {
+    reserve: (draft: ComposerDraft, editor?: ComposerSessionState) => {
+      const signature = JSON.stringify([draft, editor]);
+      if (!submission.current || submission.current.signature !== signature) submission.current = { signature, id: crypto.randomUUID() };
+      return editor?.queuedDraftId ?? submission.current.id;
+    },
+    enqueue: async (draft: ComposerDraft, send: (input: Omit<QueueInput, "execution">) => Promise<void>, preparedEditor?: ComposerSessionState, reservedId?: string) => {
       const editor = preparedEditor ?? useComposerStateStore.getState().sessions[sessionId];
       const snapshot = await snapshotQueuedDraft(draft, editor);
       const signature = JSON.stringify(snapshot);
@@ -91,8 +98,10 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
         useComposerStateStore.getState().recoverQueuedEdit(sessionId);
         throw new Error(t("composer.queue_edit_recovered"));
       }
-      if (!submission.current || submission.current.signature !== signature) submission.current = { signature, id: crypto.randomUUID() };
-      try { await send({ id: current?.id ?? submission.current.id, draft: snapshot, ...(current ? { editToken: current.token } : {}) }); }
+      if (!reservedId && (!submission.current || submission.current.signature !== signature)) submission.current = { signature, id: crypto.randomUUID() };
+      const id = current?.id ?? reservedId ?? submission.current?.id;
+      if (!id) throw new Error("Missing queue submission ID");
+      try { await send({ id, draft: snapshot, ...(current ? { editToken: current.token } : {}) }); }
       catch (error) {
         if (current && error instanceof LegalworkServerError && error.status === 409) {
           claim.current = null;
@@ -111,7 +120,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
       claim.current = { id, token };
       const entry = state.entries.find(item => item.id === id);
       if (!entry) return;
-      useComposerStateStore.setState(current => ({ queuedDrafts: { ...current.queuedDrafts, [sessionId]: state.entries.filter(item => item.status !== "sending").map(item => hydrateDraft(item, token)) } }));
+      useComposerStateStore.setState(current => ({ queuedDrafts: { ...current.queuedDrafts, [sessionId]: state.entries.filter(item => item.status !== "sending" && item.status !== "accepted").map(item => hydrateDraft(item, token)) } }));
       useComposerStateStore.getState().editQueuedDraft(sessionId, id);
     },
     cancelEdit: async () => {
@@ -123,7 +132,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
     remove: (id: string) => update({ type: "remove", id, revision: latest.current?.revision ?? 0 }),
     reorder: async (ids: string[]) => {
       const action = (state: SessionQueue | undefined): QueueAction => ({ type: "reorder",
-        ids: reconcileQueuedOrder(ids, state?.entries.filter(entry => entry.status !== "sending").map(entry => entry.id) ?? ids),
+        ids: reconcileQueuedOrder(ids, state?.entries.filter(entry => entry.status !== "sending" && entry.status !== "accepted").map(entry => entry.id) ?? ids),
         revision: state?.revision ?? 0 });
       try { return await update(action(latest.current)); }
       catch (error) {

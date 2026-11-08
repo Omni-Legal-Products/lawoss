@@ -7,7 +7,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { LegalWorkExtensionsPreview } from "./legalwork-extensions-preview.js";
+import ExtensionsPreview from "./legalwork-extensions-preview.js";
+import { nativePluginTools } from "./native-plugin-test-support.js";
 import { withFileEditorHandoff } from "../file-editor-handoff.js";
 
 const roots: string[] = [];
@@ -25,6 +26,8 @@ afterEach(async () => {
 });
 
 const SESSION = "ses_m004";
+// OpenCode 2: the real Plugin.define setup with the native test runtime; tools ask through ctx.permission.assert.
+const LegalWorkExtensionsPreview = () => nativePluginTools(ExtensionsPreview, { sessionID: SESSION });
 const PROFILE = "Spisy/M005-syn-neakceptovany-modul/PRACOVNY-PROFIL.md";
 const CONTRACT = "Spisy/M005-syn-neakceptovany-modul/01-zmluva.docx";
 
@@ -150,11 +153,13 @@ describe("a rejected or impossible card changes nothing", () => {
     }
   });
 
-  test("without approval requests or without a selected document nothing is written", async () => {
+  test("the native card is asked before the write, and without a selected document nothing is written", async () => {
+    // OpenCode 2 always offers native approval requests: the card is recorded before the editor write leaves.
     let actions = await withBridge(surface("md", PROFILE));
     const plugin = await LegalWorkExtensionsPreview();
-    await expect(plugin.tool.inapp_md_replace_text.execute({ path: PROFILE, search: "a", replacement: "b" }, { sessionID: SESSION })).rejects.toThrow("approval");
-    expect(writesSent(actions)).toEqual([]);
+    await plugin.tool.inapp_md_replace_text.execute({ path: PROFILE, search: "a", replacement: "b" }, { sessionID: SESSION });
+    expect(plugin.runtime.permissions).toContainEqual(expect.objectContaining({ action: "edit" }));
+    expect(writesSent(actions)).toHaveLength(1);
     actions = await withBridge(null);
     const { cards, context } = approver();
     await expect(plugin.tool.inapp_docx_suggest_change.execute({ paraId: "p1", search: "a", replaceWith: "b" }, context)).rejects.toThrow("No Word document is selected");

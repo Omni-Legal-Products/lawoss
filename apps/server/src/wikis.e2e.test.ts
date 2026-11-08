@@ -228,9 +228,9 @@ describe("Wiki HTTP API", () => {
     const privateTask = scheduled.parse(await (await request(`/workspace/${wiki.workspaceId}/scheduled-tasks`, "owner", "POST", input)).json()).task;
     const projectTask = scheduled.parse(await (await request(`/workspace/${project.id}/scheduled-tasks`, "collaborator", "POST", input)).json()).task;
     const db = new Database(join(root, "inbox-fixture.sqlite"));
-    db.exec("CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, time_updated INTEGER, time_archived INTEGER); CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);");
-    db.query("INSERT INTO session VALUES (?, ?, ?, NULL)").run("private-chat", wiki.root, Date.now());
-    db.query("INSERT INTO session VALUES (?, ?, ?, NULL)").run("project-chat", project.path, Date.now());
+    db.exec("CREATE TABLE session_v2 (id TEXT PRIMARY KEY, directory TEXT, time_updated INTEGER, time_archived INTEGER); CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT, type TEXT, time_created INTEGER, data TEXT);");
+    db.query("INSERT INTO session_v2 VALUES (?, ?, ?, NULL)").run("private-chat", wiki.root, Date.now());
+    db.query("INSERT INTO session_v2 VALUES (?, ?, ?, NULL)").run("project-chat", project.path, Date.now());
     const previousDb = process.env.OPENCODE_DB;
     process.env.OPENCODE_DB = join(root, "inbox-fixture.sqlite");
     const tasks = z.object({ tasks: z.array(z.object({ id: z.string(), workspaceId: z.string() })) });
@@ -240,11 +240,15 @@ describe("Wiki HTTP API", () => {
       expect(tasks.parse(await (await request("/scheduled-tasks", "owner")).json()).tasks.map(item => item.id)).toContain(privateTask.id);
       expect(projects.parse(await (await request("/scheduled-tasks/projects", "owner")).json()).projects.map(item => item.id)).toContain(wiki.workspaceId);
       expect(inbox.parse(await (await request("/session-inbox", "owner")).json()).sessions.map(item => item.sessionId)).toContain("private-chat");
+      const groupBatch = `/session-groups/events?${new URLSearchParams({ cursors: JSON.stringify({ [wiki.workspaceId]: null, [project.id]: null }) })}`;
+      const groups = z.object({ items: z.array(z.object({ workspaceId: z.string() })) });
+      expect(groups.parse(await (await request(groupBatch, "owner")).json()).items.map(item => item.workspaceId)).toContain(wiki.workspaceId);
       const actors: Array<"collaborator"> = ["collaborator"];
       for (const actor of actors) {
         expect(tasks.parse(await (await request("/scheduled-tasks", actor)).json()).tasks.map(item => item.id)).toEqual([projectTask.id]);
         expect(projects.parse(await (await request("/scheduled-tasks/projects", actor)).json()).projects.map(item => item.id)).toEqual([project.id]);
         expect(inbox.parse(await (await request("/session-inbox", actor)).json()).sessions.map(item => item.sessionId)).toEqual(["project-chat"]);
+        expect(groups.parse(await (await request(groupBatch, actor)).json()).items.map(item => item.workspaceId)).toEqual([project.id]);
         expect((await request(`/workspace/${wiki.workspaceId}/scheduled-tasks/${privateTask.id}`, actor)).status).toBe(404);
       }
       expect((await request(`/workspace/${wiki.workspaceId}/scheduled-tasks`, "collaborator", "POST", input)).status).toBe(404);
@@ -287,15 +291,19 @@ describe("Wiki HTTP API", () => {
     const serverReady = new Promise<void>(resolve => { ready = resolve; });
     const engine = Bun.serve({ port: 0, fetch: async req => {
       const path = new URL(req.url).pathname;
-      if (path === "/agent") return Response.json([{ name: "legalwork-scheduled-project", permission: [{ permission: "*", pattern: "*", action: "deny" }] }]);
-      if (path === "/session/status") return Response.json({});
-      if (path === `/session/${sessionId}`) return Response.json({ id: sessionId, directory: project.path, time: {} });
-      if (path === `/session/${sessionId}/prompt_async`) {
+      if (path === "/api/model") return Response.json({ data: [] });
+      if (path === "/api/agent") return Response.json({ data: [{ id: "legalwork-scheduled-project", permissions: [{ action: "*", resource: "*", effect: "deny" }] }] });
+      if (path === "/api/session/active") return Response.json({ data: {} });
+      if (path === `/api/session/${sessionId}/inbox`) return Response.json({ data: [] });
+      if (path === `/api/session/${sessionId}/message`) return Response.json({ data: [], cursor: {} });
+      if (path === `/api/session/${sessionId}` && req.method === "GET") return Response.json({ data: { id: sessionId, projectID: "project", location: { directory: project.path }, time: { created: 1, updated: 1 } } });
+      if (path === `/api/session/${sessionId}/prompt`) {
         await serverReady;
         privateReadStatus = (await fetch(`${restartedBase}/wikis/${wiki.id}/page?path=Instructions.md`, { headers })).status;
-        return new Response(null, { status: 204 });
+        const body = await req.json(); return Response.json({ data: { id: body.id, type: "user", text: body.text, time: { created: Date.now() } } });
       }
-      return Response.json({});
+      if (req.method === "PATCH" || path === `/api/session/${sessionId}/agent`) return new Response(null, { status: 204 });
+      return Response.json({ message: "Unexpected native wiki fixture call" }, { status: 404 });
     } });
     try {
       project.baseUrl = `http://127.0.0.1:${engine.port}`;
@@ -420,15 +428,19 @@ describe("Wiki HTTP API", () => {
     const serverReady = new Promise<void>(resolve => { ready = resolve; });
     const engine = Bun.serve({ port: 0, fetch: async req => {
       const path = new URL(req.url).pathname;
-      if (path === "/agent") return Response.json([{ name: "legalwork-scheduled-project", permission: [{ permission: "*", pattern: "*", action: "deny" }] }]);
-      if (path === "/session/status") return Response.json({});
-      if (path === `/session/${sessionId}`) return Response.json({ id: sessionId, directory: project.path, time: {} });
-      if (path === `/session/${sessionId}/prompt_async`) {
+      if (path === "/api/model") return Response.json({ data: [] });
+      if (path === "/api/agent") return Response.json({ data: [{ id: "legalwork-scheduled-project", permissions: [{ action: "*", resource: "*", effect: "deny" }] }] });
+      if (path === "/api/session/active") return Response.json({ data: {} });
+      if (path === `/api/session/${sessionId}/inbox`) return Response.json({ data: [] });
+      if (path === `/api/session/${sessionId}/message`) return Response.json({ data: [], cursor: {} });
+      if (path === `/api/session/${sessionId}` && req.method === "GET") return Response.json({ data: { id: sessionId, projectID: "project", location: { directory: project.path }, time: { created: 1, updated: 1 } } });
+      if (path === `/api/session/${sessionId}/prompt`) {
         await serverReady;
         privateReadStatus = (await fetch(`${restartedBase}/wikis/${wiki.id}/page?path=Instructions.md`, { headers })).status;
-        return new Response(null, { status: 204 });
+        const body = await req.json(); return Response.json({ data: { id: body.id, type: "user", text: body.text, time: { created: Date.now() } } });
       }
-      return Response.json({});
+      if (req.method === "PATCH" || path === `/api/session/${sessionId}/agent`) return new Response(null, { status: 204 });
+      return Response.json({ message: "Unexpected native wiki fixture call" }, { status: 404 });
     } });
     try {
       project.baseUrl = `http://127.0.0.1:${engine.port}`;
@@ -443,7 +455,7 @@ describe("Wiki HTTP API", () => {
       stops.push(() => server.stop());
       restartedBase = `http://127.0.0.1:${server.port}`;
       ready();
-      for (let attempt = 0; attempt < 200 && store.runs(task.id)[0]?.status !== "sent"; attempt++) await Bun.sleep(10);
+      for (let attempt = 0; attempt < 200 && (store.runs(task.id)[0]?.status !== "sent" || privateReadStatus === undefined); attempt++) await Bun.sleep(10);
       expect(store.runs(task.id)[0]?.status).toBe("sent");
       // The private wiki stays closed to the scheduled prompt. Since #168 the prior runtime
       // credential is also revoked by the restart (403); before it the downgraded scope gave 404.

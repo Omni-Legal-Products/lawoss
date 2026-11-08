@@ -4,6 +4,7 @@
  * registrovaného priečinka sa číta nezávisle od vybraného projektu (ohraničene, s cache), takže meno klienta
  * sa pri prepnutí výberu nemení.
  */
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
@@ -59,7 +60,7 @@ const NO_CARDS: ReadonlyMap<string, RootCard> = new Map();
  * prehľad OKF (`refreshKey`, napr. zmenená karta vybraného klienta), a periodicky pre nevybrané priečinky.
  */
 export function useRootCards(connection: OkfConnection | null, refreshKey?: unknown): ReadonlyMap<string, RootCard> {
-  const projects = useMemo(() => (connection?.workspaces ?? []).filter((w) => w.workspaceType !== "remote" && Boolean(w.path)).slice(0, MAX_CARD_READS), [connection?.workspaces]);
+  const projects = useMemo(() => (connection?.workspaces ?? []).filter((w) => !isRetiredRemoteWorkspace(w) && Boolean(w.path)).slice(0, MAX_CARD_READS), [connection?.workspaces]);
   const key = projects.map((w) => `${w.id}\u0000${w.path}`).join("\u0001");
   const client = connection?.client ?? null;
   const query = useQuery({

@@ -1,20 +1,28 @@
 name: DOCX interoperability
 on:
   pull_request:
-    branches: [dev, codex/projects-akte-workspace]
-    paths:
-      - 'apps/app/src/react-app/domains/session/artifacts/**'
-      - 'apps/app/tests/docx-*.test.ts'
-      - 'apps/app/scripts/docx-*'
-      - 'apps/app/scripts/fixtures/**'
-      - 'patches/@eigenpal*'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/ci-docx.yml'
+    branches: [dev, codex/projects-akte-workspace, codex/opencode-v2-migration]
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docx: ${{ steps.scope.outputs.docx }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/ci-scope
+        id: scope
   docx:
+    needs: changes
+    if: needs.changes.outputs.docx == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

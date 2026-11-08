@@ -4,13 +4,13 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { DocumentProcessingPanel } from "../src/react-app/domains/session/panel/document-processing-panel";
 import { documentClientIdentity } from "../src/react-app/domains/session/panel/document-processing";
 import { t } from "../src/i18n";
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { expect, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 import { createClient, preflightOpencodeDirectory } from "../src/app/lib/opencode";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { documentExecutionDirectory, preflightDocumentGeneration } from "../src/react-app/domains/session/panel/native-document-preflight";
 import { generationPrompt, submitDocumentTask } from "../src/react-app/domains/session/panel/document-processing";
+import { sendSessionPrompt } from "../src/app/lib/system-reminder";
 
 const root = { id: "root", path: "case/a.pdf", workspaceId: "remote-runtime", hash: "a".repeat(64), status: "readable" as const, complete: true, pageCount: 1, readablePages: 1, updatedAt: 1, provenance: { sourcePath: "case/a.pdf", depth: 0 } };
 const child = { ...root, id: "child", provenance: { ...root.provenance, parentId: "root", depth: 1, attachmentName: "attachment.pdf" } };
@@ -22,15 +22,23 @@ async function transportTest(run: (fixture: { base: string; calls: string[]; sta
     const url = new URL(request.url), path = url.pathname;
     calls.push(`${request.method} ${path}`);
     expect(request.headers.get("authorization")).toBe("Bearer fixture-token");
-    if (path.includes("/opencode/")) expect(decodeURIComponent(url.searchParams.get("directory") ?? request.headers.get("x-opencode-directory") ?? "")).toBe("/registered/root/work");
+    // LAWOSS v2: the native client scopes engine reads with `location[directory]` (session lists with `directory`).
+    const scoped = url.searchParams.get("location[directory]") ?? url.searchParams.get("directory") ?? request.headers.get("x-opencode-directory");
+    if (path.includes("/opencode/") && scoped !== null) expect(decodeURIComponent(scoped)).toBe("/registered/root/work");
     if (path.endsWith("/snapshot")) {
       // Engine page order uses creation time and then ID, returned chronologically.
+      // LAWOSS v2: the server returns the native snapshot (session with location, native messages).
       const limit = Number(url.searchParams.get("limit") ?? 20);
-      const messages = [...state.snapshot.messages].sort((a, b) => a.info.time.created - b.info.time.created || a.info.id.localeCompare(b.info.id)).slice(-limit);
-      return Response.json({ item: { session: { id: "created" }, todos: [], ...state.snapshot, messages } });
+      const messages = [...state.snapshot.messages].sort((a, b) => a.time.created - b.time.created || a.id.localeCompare(b.id)).slice(-limit);
+      return Response.json({ item: { session: { id: "created", projectID: "fixture", location: { directory: "/registered/root/work" }, title: "Generation", cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, time: { created: 1, updated: 1 } }, todos: [], ...state.snapshot, messages } });
     }
-    if (path.endsWith("/provider")) return Response.json({ all: [{ id: "chosen", name: "Chosen", source: "api", models: { selected: { id: "selected", providerID: "chosen", name: "Selected", capabilities: { toolcall: state.tools }, limit: { context: 10000, output: 1000 } } } }], connected: state.connected ? ["chosen"] : [], default: {} });
-    if (path.endsWith("/session") && request.method === "GET") return state.engine ? Response.json([]) : Response.json({ code: "engine_unavailable", message: "engine unavailable" }, { status: 503 });
+    // LAWOSS v2 native catalogue: providers, models, default, integrations and connectors.
+    if (path.endsWith("/opencode/api/provider")) return Response.json({ data: state.connected ? [{ id: "chosen", name: "Chosen", integrationID: "chosen" }] : [] });
+    if (path.endsWith("/opencode/api/model")) return Response.json({ data: [{ id: "selected", providerID: "chosen", name: "Selected", capabilities: { tools: state.tools }, limit: { context: 10000, output: 1000 } }] });
+    if (path.endsWith("/opencode/api/model/default")) return Response.json({ data: null });
+    if (path.endsWith("/opencode/api/integration")) return Response.json({ data: [{ id: "chosen", name: "Chosen", connections: [{ type: "credential", method: "api" }], methods: [] }] });
+    if (path.endsWith("/opencode/api/mcp")) return Response.json({ data: [] });
+    if (path.endsWith("/opencode/api/session") && request.method === "GET") return state.engine ? Response.json({ data: [], cursor: { next: null } }) : Response.json({ code: "engine_unavailable", message: "engine unavailable" }, { status: 503 });
     if (path.endsWith("/files/list")) { expect(url.searchParams.get("path")).toBe("work"); return Response.json({ path: "work", entries: [], truncated: false }); }
     if (path.endsWith("/lawoss/documents")) return Response.json({ documents: [root, child, { ...root, id: "sibling", path: "other/b.pdf" }], nextOffset: null, untrusted: true });
     if (path.endsWith("/read")) {
@@ -47,7 +55,8 @@ async function transportTest(run: (fixture: { base: string; calls: string[]; sta
     }
     if (path.endsWith("/session") && request.method === "POST") { bodies.push(await request.text()); const count = calls.filter(call => call === "POST /workspace/remote-runtime/opencode/session").length; return Response.json({ id: count === 1 ? "created" : `created-${count}`, directory: "/registered/root/work" }); }
     if (request.method === "PATCH" && /\/session\/created(?:-\d+)?$/.test(path)) return Response.json({ id: "created" });
-    if (path.endsWith("/prompt_async")) { bodies.push(await request.json()); return state.failSend ? Response.json({ code: "billing", message: "billing unavailable" }, { status: 402 }) : new Response(null, { status: 204 }); }
+    // LAWOSS v2: the app dispatches prompts through the server's session queue route.
+    if (path.endsWith("/dispatch") && request.method === "POST") { bodies.push(await request.json()); return state.failSend ? Response.json({ code: "billing", message: "billing unavailable" }, { status: 402 }) : Response.json({ accepted: true }); }
     return Response.json({ code: "unexpected", message: path }, { status: 500 });
   } });
   try { await run({ base: `http://127.0.0.1:${server.port}`, calls, state, bodies }); }
@@ -115,7 +124,7 @@ test("native immediate SDK create/send retries the created chat, scoped root ref
   const task = {
     pending, preflight: () => preflightDocumentGeneration(input),
     create: () => provision(input),
-    send: async (sessionID: string) => { const response = await input.sdk.session.promptAsync({ sessionID, parts: [{ type: "text", text: generationPrompt("cs", input.request.sources) }], model: input.model, agent: "selected-agent", variant: "selected-variant" }); if (response.error) throw new Error(JSON.stringify(response.error)); },
+    send: async (sessionID: string) => { await sendSessionPrompt(input.sdk, { sessionID, parts: [{ type: "text", text: generationPrompt("cs", input.request.sources) }], model: input.model, agent: "selected-agent", variant: "selected-variant" }); },
   };
   state.failSend = true;
   await expect(submitDocumentTask(task)).rejects.toThrow("billing");
@@ -125,9 +134,11 @@ test("native immediate SDK create/send retries the created chat, scoped root ref
   expect(calls).not.toContain("POST /workspace/remote-runtime/opencode/session");
   expect(calls.indexOf("GET /workspace/remote-runtime/opencode/session")).toBeLessThan(calls.indexOf("GET /workspace/remote-runtime/files/list"));
   expect(calls.indexOf("GET /workspace/remote-runtime/files/list")).toBeLessThan(calls.indexOf("POST /workspace/remote-runtime/lawoss/documents/generation"));
-  const send = bodies[2] as { parts: Array<{ text: string }>; model: unknown; agent: string; variant: string };
-  expect(send.model).toEqual(input.model); expect(send.agent).toBe("selected-agent"); expect(send.variant).toBe("selected-variant");
-  expect(send.parts[0].text).toContain("case/a.pdf"); expect(send.parts[0].text).not.toContain("other/b.pdf");
+  // LAWOSS v2: the server dispatch carries the native model reference with its variant and the prompt text.
+  const send = bodies[2] as { kind: string; text: string; model: unknown; agent: string };
+  expect(send.kind).toBe("prompt");
+  expect(send.model).toEqual({ id: input.model.modelID, providerID: input.model.providerID, variant: "selected-variant" }); expect(send.agent).toBe("selected-agent");
+  expect(send.text).toContain("case/a.pdf"); expect(send.text).not.toContain("other/b.pdf");
 }));
 
 test("explicit working directory is lexical scoped, Windows compatible and remote root preserved", () => {
@@ -138,11 +149,7 @@ test("explicit working directory is lexical scoped, Windows compatible and remot
 });
 
 
-test("unregistered SDK client cannot silently probe the overridden/cache path", async () => transportTest(async ({ base, calls }) => {
-  const raw = createOpencodeClient({ baseUrl: base });
-  expect(() => preflightOpencodeDirectory(raw, "/registered/root/work")).toThrow();
-  expect(calls).toEqual([]);
-}));
+// Engine v2: preflight is a plain native `session.list({ directory })`; the 1.x registered-transport guard is gone.
 
 import { submitBoundDocumentGeneration, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, hasProtectedDocumentSession, observeDocumentGeneration, reconcileDocumentGeneration, readDocumentGenerationSnapshot, clearDocumentGenerationsForTest } from "../src/react-app/domains/session/panel/document-generation-lifecycle";
 import { useSessionActivityStore } from "../src/react-app/domains/session/status/session-activity-store";
@@ -171,11 +178,11 @@ test("accepted204 stays bound across new panel/reload, repeat does not create, n
   const options = {
     key, metadata, preflight: () => preflightDocumentGeneration(input),
     create: () => provision(input),
-    send: async (sessionID: string, messageID: string) => { const response = await input.sdk.session.promptAsync({ sessionID, messageID, parts: [{ type: "text", text: "selected task" }], model: input.model }); if (response.error) throw new Error(JSON.stringify(response.error)); },
+    send: async (sessionID: string, messageID: string) => { await sendSessionPrompt(input.sdk, { sessionID, messageID, parts: [{ type: "text", text: "selected task" }], model: input.model }); },
   };
   try {
     expect(await submitBoundDocumentGeneration(options)).toBe("created");
-    __applySessionSyncEventForTest(sync, { type: "session.status", properties: { sessionID: "created", status: { type: "busy" } } } as any);
+    __applySessionSyncEventForTest(sync, { type: "session.status", data: { sessionID: "created", status: { type: "busy" } } } as any);
     expect(getDocumentGeneration(key)?.phase).toBe("running");
     // Clear the runtime registry and reload its actual persisted association, not the pending HTTP closure.
     clearDocumentGenerationsForTest(true);
@@ -190,26 +197,26 @@ test("accepted204 stays bound across new panel/reload, repeat does not create, n
     expect(reloadedPanel).toContain('value="work"');
     expect(await submitBoundDocumentGeneration({ ...options })).toBe("created");
     expect(calls.filter(call => call === "POST /workspace/remote-runtime/lawoss/documents/generation")).toHaveLength(1);
-    expect(calls.filter(call => call.endsWith("/prompt_async"))).toHaveLength(1);
-    __applySessionSyncEventForTest(sync, { type: "session.error", properties: { sessionID: "created", error: { name: "APIError", data: { message: "late provider failure" } } } } as any);
+    expect(calls.filter(call => call.endsWith("/dispatch"))).toHaveLength(1);
+    __applySessionSyncEventForTest(sync, { type: "session.execution.failed", data: { sessionID: "created", error: { type: "provider", message: "late provider failure" } } } as any);
     expect(getDocumentGeneration(key)?.phase).toBe("error");
     expect(await submitBoundDocumentGeneration({ ...options })).toBe("created");
     expect(calls.filter(call => call === "POST /workspace/remote-runtime/lawoss/documents/generation")).toHaveLength(1);
-    expect(calls.filter(call => call.endsWith("/prompt_async"))).toHaveLength(2);
+    expect(calls.filter(call => call.endsWith("/dispatch"))).toHaveLength(2);
     // Reload recovery can also reconcile actual snapshot completion; a stale idle-only snapshot cannot.
     reconcileDocumentGeneration(key, { status: { type: "idle" }, messages: [] } as any);
     applyDocumentGenerationRunStatus(key, { type: "idle" });
     expect(getDocumentGeneration(key)?.phase).not.toBe("completed");
-    __applySessionSyncEventForTest(sync, { type: "session.status", properties: { sessionID: "created", status: { type: "busy" } } } as any);
-    __applySessionSyncEventForTest(sync, { type: "session.idle", properties: { sessionID: "created" } } as any);
+    __applySessionSyncEventForTest(sync, { type: "session.status", data: { sessionID: "created", status: { type: "busy" } } } as any);
+    __applySessionSyncEventForTest(sync, { type: "session.idle", data: { sessionID: "created" } } as any);
     expect(getDocumentGeneration(key)?.phase).toBe("completed");
     // A later manual turn's error cannot rewrite the already-terminal scoped generation.
     reconcileDocumentGeneration(key, { status: { type: "idle" }, messages: [{ info: { role: "assistant", error: { name: "APIError" }, time: { created: Date.now() + 10, completed: Date.now() + 10 } }, parts: [] }] } as any);
     expect(getDocumentGeneration(key)?.phase).toBe("completed");
-    __applySessionSyncEventForTest(sync, { type: "session.error", properties: { sessionID: "created", error: { name: "APIError", data: { message: "unrelated later turn" } } } } as any);
+    __applySessionSyncEventForTest(sync, { type: "session.execution.failed", data: { sessionID: "created", error: { type: "provider", message: "unrelated later turn" } } } as any);
     expect(getDocumentGeneration(key)?.phase).toBe("completed");
     expect(await submitBoundDocumentGeneration(options)).toBe("created");
-    expect(calls.filter(call => call.endsWith("/prompt_async"))).toHaveLength(2);
+    expect(calls.filter(call => call.endsWith("/dispatch"))).toHaveLength(2);
     expect(await submitBoundDocumentGeneration({ ...options, newGeneration: true })).toBe("created-2");
     expect(calls.filter(call => call === "POST /workspace/remote-runtime/lawoss/documents/generation")).toHaveLength(2);
   } finally {
@@ -245,7 +252,7 @@ test("a failed legacy binding remains history while the protected transport prov
     expect(getDocumentGeneration(legacyKey)).toMatchObject({sessionId: "legacy-general-session", phase: "error"});
     expect(protectedKey).not.toBe(legacyKey);
     const options = {key: protectedKey, metadata: protectedMetadata, preflight: () => preflightDocumentGeneration(input), create: () => provision(input),
-      send: async (sessionID: string, messageID: string) => {const result = await input.sdk.session.promptAsync({sessionID, messageID, parts: [{type: "text", text: "Selected protected document task"}], model: input.model, agent: "legalwork", variant: "high"}); if (result.error) throw new Error(JSON.stringify(result.error));}};
+      send: async (sessionID: string, messageID: string) => {await sendSessionPrompt(input.sdk, {sessionID, messageID, parts: [{type: "text", text: "Selected protected document task"}], model: input.model, agent: "legalwork", variant: "high"});}};
     state.failSend = true;
     await expect(submitBoundDocumentGeneration(options)).rejects.toThrow("billing");
     clearDocumentGenerationsForTest(true);
@@ -258,7 +265,7 @@ test("a failed legacy binding remains history while the protected transport prov
     expect(await submitBoundDocumentGeneration(options)).toBe("created");
     expect(getDocumentGeneration(legacyKey)).toMatchObject({sessionId: "legacy-general-session", phase: "error"});
     expect(calls.filter(call => call.endsWith("/lawoss/documents/generation"))).toHaveLength(1);
-    expect(calls.filter(call => call.endsWith("/prompt_async"))).toHaveLength(2);
+    expect(calls.filter(call => call.endsWith("/dispatch"))).toHaveLength(2);
     expect(calls.some(call => call.includes("/session/legacy-general-session/"))).toBe(false);
   } finally {
     clearDocumentGenerationsForTest();
@@ -286,68 +293,76 @@ test("accepted native message correlation survives skew/reload, ignores tool ste
   const options = {
     key, metadata, preflight: () => preflightDocumentGeneration(input),
     create: () => provision(input),
-    send: async (sessionID: string, messageID: string) => { const result = await input.sdk.session.promptAsync({ sessionID, messageID, parts: [{ type: "text", text: "task" }], model: input.model }); if (result.error) throw new Error(JSON.stringify(result.error)); },
+    send: async (sessionID: string, messageID: string) => { await sendSessionPrompt(input.sdk, { sessionID, messageID, parts: [{ type: "text", text: "task" }], model: input.model }); },
   };
   const read = () => readDocumentGenerationSnapshot(key, async () => (await input.legalwork.getSessionSnapshot(input.workspaceId, "created", { limit: 20 })).item);
-  const assistant = (parentID: string, finish: string, skew: number, error?: object, summary = false) => ({ info: { id: `assistant-${parentID}`, sessionID: "created", role: "assistant", parentID, summary, finish, time: { created: Date.now() + skew, completed: Date.now() + skew }, ...(error ? { error } : {}) }, parts: [] });
+  // LAWOSS v2: an assistant turn belongs to the engine-visible user message before it (no assistant `parentID`).
+  // A compaction summary is its own message type, not an assistant turn.
+  const assistant = (parentID: string, finish: string, skew: number, error?: object, summary = false) => {
+    const created = Date.now() + skew;
+    const reply = summary
+      ? { id: `assistant-${parentID}`, type: "compaction", reason: "auto", summary: "Synthetic summary", time: { created, completed: created } }
+      : { id: `assistant-${parentID}`, type: "assistant", agent: "legalwork", model: { id: "selected", providerID: "chosen" }, content: [], ...(finish ? { finish } : {}), time: { created, completed: created }, ...(error ? { error } : {}) };
+    return [{ id: parentID, type: "user", text: "task", time: { created: created - 1 } }, reply];
+  };
   try {
     await submitBoundDocumentGeneration(options);
-    const firstID = (bodies.at(-1) as any).messageID;
+    const firstID = (bodies.at(-1) as any).id; // LAWOSS v2: dispatch `id` is the native message ID.
     expect(firstID).toMatch(/^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
     expect(getDocumentGeneration(key)?.messageId).toBe(firstID);
     expect(renderPanel()).toContain(t("documents.run_active"));
     for (const finish of ["tool-calls", "unknown", ""]) {
-      state.snapshot = { status: { type: "idle" }, messages: [assistant(firstID, finish, 1000)] };
+      state.snapshot = { status: { type: "idle" }, messages: assistant(firstID, finish, 1000) };
       reconcileDocumentGeneration(key, await read());
       expect(getDocumentGeneration(key)?.phase).toBe("accepted");
     }
-    state.snapshot = { status: { type: "idle" }, messages: [assistant(firstID, "stop", 1000, undefined, true)] };
+    state.snapshot = { status: { type: "idle" }, messages: assistant(firstID, "stop", 1000, undefined, true) };
     reconcileDocumentGeneration(key, await read());
     expect(getDocumentGeneration(key)?.phase).toBe("accepted");
     await submitBoundDocumentGeneration(options);
-    expect(calls.filter(call => call.endsWith("/prompt_async"))).toHaveLength(1);
+    expect(calls.filter(call => call.endsWith("/dispatch"))).toHaveLength(1);
     // The server can read idle before handoff and messages after a tool step.
     // A later real native error must remain observable after that snapshot.
     const sync = { workspaceId: metadata.projectId, baseUrl: input.baseUrl, legalworkToken: "fixture-token" };
     __createWorkspaceSessionSyncForTest(sync);
     const release = observeDocumentGeneration(key, metadata.projectId);
-    __applySessionSyncEventForTest(sync, { type: "session.error", properties: { sessionID: "created", error: { name: "APIError", data: { message: "background" } } } } as any);
+    __applySessionSyncEventForTest(sync, { type: "session.execution.failed", data: { sessionID: "created", error: { type: "provider", message: "background" } } } as any);
     expect(getDocumentGeneration(key)?.phase).toBe("error");
     release(); __disposeWorkspaceSessionSyncForTest(sync);
     await submitBoundDocumentGeneration(options);
-    const secondID = (bodies.at(-1) as any).messageID;
+    const secondID = (bodies.at(-1) as any).id;
     expect(secondID > firstID).toBe(true);
     expect(calls.filter(call => call === "POST /workspace/remote-runtime/lawoss/documents/generation")).toHaveLength(1);
-    state.snapshot = { status: { type: "idle" }, messages: [assistant(firstID, "stop", 1000, { name: "APIError" }), assistant("manual-turn", "stop", 1000, { name: "APIError" })] };
+    state.snapshot = { status: { type: "idle" }, messages: [...assistant(firstID, "stop", 1000, { name: "APIError" }), ...assistant("manual-turn", "stop", 1000, { name: "APIError" })] };
     reconcileDocumentGeneration(key, await read());
     expect(getDocumentGeneration(key)?.phase).toBe("accepted");
     // Engine clock behind: reload still associates a terminal failure exactly.
-    state.snapshot.messages.push(...Array.from({ length: 30 }, (_, index) => assistant(`older-page-${index}`, "stop", -2000, { name: "APIError" })), assistant(secondID, "stop", -1000, { name: "APIError" }));
+    state.snapshot.messages.push(...Array.from({ length: 30 }, (_, index) => assistant(`older-page-${index}`, "stop", -2000, { name: "APIError" })).flat(), ...assistant(secondID, "stop", -1000, { name: "APIError" }));
     clearDocumentGenerationsForTest(true);
     reconcileDocumentGeneration(key, await read());
     expect(getDocumentGeneration(key)?.phase).toBe("error");
     expect(renderPanel()).toContain(t("documents.retry_generation"));
     expect(renderPanel()).not.toContain(t("documents.run_active"));
     await submitBoundDocumentGeneration(options);
-    const aheadID = (bodies.at(-1) as any).messageID;
-    state.snapshot = { status: { type: "idle" }, messages: [assistant(aheadID, "stop", 1000, { name: "APIError" })] };
+    const aheadID = (bodies.at(-1) as any).id;
+    state.snapshot = { status: { type: "idle" }, messages: assistant(aheadID, "stop", 1000, { name: "APIError" }) };
     clearDocumentGenerationsForTest(true);
     reconcileDocumentGeneration(key, await read());
     expect(getDocumentGeneration(key)?.phase).toBe("error");
     expect(renderPanel()).toContain(t("documents.retry_generation"));
     expect(renderPanel()).not.toContain(t("documents.run_active"));
     await submitBoundDocumentGeneration(options);
-    const thirdID = (bodies.at(-1) as any).messageID;
+    const thirdID = (bodies.at(-1) as any).id;
     expect(thirdID > aheadID).toBe(true);
     // Bounded transcript can contain old rows never seen before; parent identity still rejects them.
-    state.snapshot = { status: { type: "idle" }, messages: Array.from({ length: 20 }, (_, index) => assistant(`old-outside-watermark-${index}`, "stop", 1000, { name: "APIError" })) };
+    state.snapshot = { status: { type: "idle" }, messages: Array.from({ length: 20 }, (_, index) => assistant(`old-outside-watermark-${index}`, "stop", 1000, { name: "APIError" })).flat() };
     reconcileDocumentGeneration(key, await read());
     expect(getDocumentGeneration(key)?.phase).toBe("accepted");
-    state.snapshot = { status: { type: "idle" }, messages: [assistant(thirdID, "stop", -1000)] };
+    state.snapshot = { status: { type: "idle" }, messages: assistant(thirdID, "stop", -1000) };
     const stale = await read();
     __createWorkspaceSessionSyncForTest(sync);
     const releaseStatus = ensureWorkspaceSessionSync({ ...sync, onSessionStatus: update => { if (update.sessionId === "created") applyDocumentGenerationRunStatus(key, update.status); } });
-    __applySessionSyncEventForTest(sync, { type: "session.status", properties: { sessionID: "created", status: { type: "busy" } } } as any);
+    __applySessionSyncEventForTest(sync, { type: "session.status", data: { sessionID: "created", status: { type: "busy" } } } as any);
     reconcileDocumentGeneration(key, stale);
     releaseStatus(); __disposeWorkspaceSessionSyncForTest(sync);
     expect(getDocumentGeneration(key)?.phase).toBe("running");
@@ -358,8 +373,8 @@ test("accepted native message correlation survives skew/reload, ignores tool ste
     expect(renderPanel()).toContain(t("documents.new_generation"));
     expect(renderPanel()).not.toContain(t("documents.run_active"));
     await submitBoundDocumentGeneration({ ...options, newGeneration: true });
-    const fourthID = (bodies.at(-1) as any).messageID;
-    state.snapshot = { status: { type: "idle" }, messages: [assistant(fourthID, "stop", 1000)] };
+    const fourthID = (bodies.at(-1) as any).id;
+    state.snapshot = { status: { type: "idle" }, messages: assistant(fourthID, "stop", 1000) };
     clearDocumentGenerationsForTest(true);
     reconcileDocumentGeneration(key, await read());
     expect(getDocumentGeneration(key)?.phase).toBe("completed");

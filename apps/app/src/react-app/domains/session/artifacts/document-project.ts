@@ -14,8 +14,8 @@ type ProjectEndpoint = Pick<DocumentProject, "client" | "workspaceId"> & { isRem
 export async function resolveDocumentProject(sessionId: string): Promise<DocumentProject> {
   const connection = await resolveLegalworkConnection();
   const client = createLegalworkServerClient({ baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken, hostToken: connection.resolvedHostToken });
-  const list = isDesktopRuntime() ? await workspaceBootstrap() : await client.listWorkspaces();
-  return findDocumentProject(sessionId, list.workspaces ?? [], workspace => resolveWorkspaceEndpoint(workspace, { baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken }));
+  const workspaces = isDesktopRuntime() && connection.source === "desktop-runtime" ? (await workspaceBootstrap()).workspaces ?? [] : (await client.listWorkspaces()).items;
+  return findDocumentProject(sessionId, workspaces, workspace => resolveWorkspaceEndpoint(workspace, { baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken }));
 }
 
 /** LAWOSS: a case chat runs in the case subfolder of its client (session-directory.ts), so the

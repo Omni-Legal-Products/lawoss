@@ -45,10 +45,13 @@ const placeholders = (value: string): string[] =>
  * Everything else matching English is an untranslated string.
  */
 const GERMAN_KEEPS_ENGLISH = new Set<string>([
+  // The shared browser-login card uses the same German words and loanword.
+  "browser_password_request.optional", "settings.browser_passwords.label", "settings.browser_passwords.website",
   "plugin_create.kind", "plugin_create.name",
   "composer.plugin_pill", // Plugin is the same product term in both languages.
   "workspace.overview", // Home is the shared navigation label in both languages.
   "content_search.sessions", "tasks.sessions_count", // LAWOSS terms: "Chats" is the same word in English and German.
+  "assistant.name", "assistant.icon_panda", "assistant.icon_otter", // Identical German and English nouns.
   "scheduled.name", // Identical German and English noun.
   "projects.schema.priority_normal", "projects.schema.budget", // Identical German and English terms.
   "review.status", // Identical German and English noun.

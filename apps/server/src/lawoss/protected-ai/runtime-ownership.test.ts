@@ -12,6 +12,7 @@ import { LawossDocuments } from "../documents/service.js";
 import { syntheticHostConfig } from "../test-support/host-config.js";
 import { protectedRuntimeForSession, protectedSessionResponse, registerProtectedRuntime } from "./dispatch.js";
 import { ProtectedDocumentRuntime } from "./runtime.js";
+import { nativeRow } from "../test-support/native-config.js";
 
 test("two listener runtimes route to the live owner, recover the newest checkpoint and never restore the same session twice", async () => {
   const { config, root } = await syntheticHostConfig();
@@ -48,7 +49,7 @@ test("two listener runtimes route to the live owner, recover the newest checkpoi
     listeners.push(listener); return { ...listener, documents };
   };
   try {
-    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({ provider: { fixture: { npm: "@ai-sdk/openai-compatible", options: { baseURL: "http://127.0.0.1:47831/v1" }, models: { fixture: {} } } } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => nativeRow({ provider: { fixture: { npm: "@ai-sdk/openai-compatible", options: { baseURL: "http://127.0.0.1:47831/v1" }, models: { fixture: {} } } } }));
     const first = makeListener(), standby = makeListener();
     await standby.runtime.initialize(); // Listener B predates A's new actual session.
     await writeFile(join(root, "selected.txt"), "SYNTHETIC-SELECTED-ORIGINAL");

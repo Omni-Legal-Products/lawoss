@@ -67,9 +67,14 @@ export function createDiagnosticRedactor(messageBodies: string[] = []) {
     if (Array.isArray(value)) return value.map(item => clean(item, depth + 1));
     if (!isRecord(value)) return value;
     const chat = value.role === "user" || value.role === "assistant" || value.role === "system";
+    const nativeText = ["user", "synthetic", "system", "skill", "compaction"].includes(String(value.type));
     return Object.fromEntries(Object.entries(value).map(([name, item]) => [name.length >= 20 ? scrub(name) : name,
       secretKey.test(name.replace(/[-_\s]/g, "")) ? "<redacted>"
         : chat && ["content", "text", "parts", "reasoning", "system", "structured", "summary"].includes(name) ? OMITTED
+          : nativeText && ["text", "summary", "description", "native", "metadata"].includes(name) ? OMITTED
+            : value.type === "user" && name === "files" ? clean(Array.isArray(item) ? item.map(attachment) : [], depth + 1)
+              : value.type === "assistant" && ["native", "metadata"].includes(name) ? OMITTED
+                : value.type === "assistant" && name === "content" ? clean(nativeAssistantContent(item), depth + 1)
           : clean(item, depth + 1),
     ]));
   };
@@ -84,7 +89,58 @@ function messageInfo(value: Record<string, unknown>) {
   return pick(value, ["id", "sessionID", "parentID", "role", "time", "agent", "mode", "model", "modelID", "providerID", "variant", "path", "cost", "tokens", "finish", "error"]);
 }
 function attachment(value: unknown) {
-  return pick(record(value), ["id", "sessionID", "messageID", "type", "mime", "filename"]);
+  return pick(record(value), ["id", "sessionID", "messageID", "type", "mime", "filename", "name"]);
+}
+function toolContent(value: unknown) {
+  return Array.isArray(value) ? value.map(item => {
+    const content = record(item);
+    return content.type === "text" ? pick(content, ["type", "text"]) : attachment(content);
+  }) : [];
+}
+function nativeAssistantContent(value: unknown) {
+  return Array.isArray(value) ? value.map(item => {
+    const content = record(item);
+    if (content.type === "text" || content.type === "reasoning") return {
+      ...pick(content, ["type", "time"]), text: OMITTED,
+      originalBytes: typeof content.originalBytes === "number" ? content.originalBytes
+        : typeof content.text === "string" ? Buffer.byteLength(content.text) : 0,
+    };
+    if (content.type !== "tool") return { type: content.type, detailsOmitted: true };
+    const state = record(content.state);
+    return { ...pick(content, ["type", "id", "name", "executed", "time"]), state: {
+      ...pick(state, ["status", "input", "metadata", "error"]),
+      ...(Array.isArray(state.content) ? { content: toolContent(state.content) } : {}),
+    } };
+  }) : [];
+}
+/** V2 stores complete messages; assistant tool calls are entries inside content, not a part table. */
+function nativeMessageInfo(value: Record<string, unknown>) {
+  const base = pick(value, ["id", "type", "time", "agent", "model", "previous", "projectID", "location", "subpath", "cost", "tokens", "finish", "rawFinish", "error", "retry", "snapshot", "outcome", "status", "reason", "skill", "name"]);
+  if (value.type === "assistant") return { ...base, content: nativeAssistantContent(value.content) };
+  if (value.type === "shell") return { ...base, ...pick(value, ["shellID", "command", "exit", "output"]) };
+  if (value.type === "user") return { ...base, text: OMITTED, files: Array.isArray(value.files) ? value.files.map(attachment) : [] };
+  if (["synthetic", "system", "skill", "compaction"].includes(String(value.type))) return { ...base, text: OMITTED };
+  return base;
+}
+function collectNativeMessageBodies(value: Record<string, unknown>, bodies: string[]) {
+  for (const body of [value.text, value.summary, value.description, value.title]) if (typeof body === "string") bodies.push(body);
+  if (value.type === "assistant" && Array.isArray(value.content)) for (const item of value.content) {
+    const content = record(item);
+    if ((content.type === "text" || content.type === "reasoning") && typeof content.text === "string") bodies.push(content.text);
+  }
+}
+
+function nativeEventData(type: string, data: Record<string, unknown>) {
+  // Opaque native/provider data, instruction deltas and app metadata can contain whole conversations.
+  const base = pick(data, ["sessionID", "projectID", "parentID", "messageID", "assistantMessageID", "inboxID", "id", "ordinal", "time", "started", "at", "agent", "model", "previous", "location", "subpath", "version", "cost", "tokens", "source", "finish", "rawFinish", "error", "attempt", "reason", "inputID", "executed", "delivery", "idle", "snapshot", "files", "to"]);
+  if (type.startsWith("session.tool.")) return { ...base, ...pick(data, ["name", "input", "metadata"]),
+    ...(type === "session.tool.input.ended" ? { text: data.text } : {}),
+    ...(Array.isArray(data.content) ? { content: toolContent(data.content) } : {}) };
+  if (type === "session.message.content.updated") return { ...base, content: nativeAssistantContent(data.content) };
+  if (type.startsWith("session.shell.")) return { ...base,
+    shell: pick(record(data.shell), ["id", "command", "status", "exit", "time"]), ...pick(data, ["output"]) };
+  if (type === "session.inbox.enqueued") return { ...base, item: pick(record(data.item), ["id", "type", "delivery", "time"]) };
+  return base;
 }
 function partInfo(value: Record<string, unknown>) {
   const base = pick(value, ["id", "sessionID", "messageID", "type"]);
@@ -107,16 +163,17 @@ function partInfo(value: Record<string, unknown>) {
     default: return { ...base, detailsOmitted: true };
   }
 }
-function eventInfo(row: Record<string, unknown>) {
+function eventInfo(row: Record<string, unknown>, native = false) {
   const data = parse(row.data);
   const infoTime = record(record(data.info).time);
   const part = record(data.part);
   const partTime = record(part.time);
   const toolTime = record(record(part.state).time);
-  const timestamp = [data.time, infoTime.updated, infoTime.completed, infoTime.created, toolTime.end, toolTime.start, partTime.end, partTime.start]
+  const timestamp = [typeof row.created === "number" && row.created > 0 ? row.created : undefined, data.time, infoTime.updated, infoTime.completed, infoTime.created, toolTime.end, toolTime.start, partTime.end, partTime.start]
     .find(value => typeof value === "number" && Number.isFinite(value));
   const type = String(row.type);
-  const payload = type.startsWith("session.") ? { sessionID: data.sessionID, info: sessionInfo(record(data.info)) }
+  const payload = native ? nativeEventData(type.replace(/\.\d+$/, ""), data)
+    : type.startsWith("session.") ? { sessionID: data.sessionID, info: sessionInfo(record(data.info)) }
     : type.startsWith("message.part.") ? { sessionID: data.sessionID, time: data.time, part: partInfo(record(data.part)) }
       : type.startsWith("message.updated.") ? { sessionID: data.sessionID, info: messageInfo(record(data.info)) }
         : pick(data, ["sessionID", "messageID", "partID", "time"]);
@@ -151,13 +208,34 @@ export async function collectSupportDiagnostics(config: ServerConfig, now = Date
       db.run("PRAGMA busy_timeout = 1000", []);
       db.run("BEGIN", []); // one consistent view, including committed WAL records
       const tables = new Set(db.all("SELECT name FROM sqlite_master WHERE type = 'table'").map(row => row.name));
+      const native = tables.has("session_v2");
+      const sessionTable = native ? "session_v2" : "session";
+      sources.engineSchema = native ? "native-v2" : tables.has("session") ? "legacy-v1" : "unrecognized";
       // Message bodies are read only to remove exact copies from logs / tool output. They are never serialized.
       if (tables.has("part")) {
         for (const row of db.iterate("SELECT json_extract(data, '$.text') AS text FROM part WHERE json_valid(data) AND json_extract(data, '$.type') IN ('text', 'reasoning')")) {
           if (typeof row.text === "string") messageBodies.push(row.text);
         }
       }
-      const recent = db.all(`SELECT * FROM session WHERE time_updated >= ? ORDER BY time_updated DESC, id DESC LIMIT ${MAX_SESSIONS + 1}`, [String(since)]);
+      if (native && tables.has("session_message")) {
+        for (const row of db.iterate("SELECT type,data FROM session_message WHERE json_valid(data)")) {
+          collectNativeMessageBodies({ ...parse(row.data), type: row.type }, messageBodies);
+        }
+        // Some durable events have no surviving message projection (e.g. an older compaction).
+        if (tables.has("event")) for (const row of db.iterate("SELECT type,data FROM event WHERE json_valid(data)")) {
+          const type = String(row.type).replace(/\.\d+$/, "");
+          if (type.startsWith("session.tool.") || type.startsWith("session.shell.")) continue;
+          const data = parse(row.data);
+          collectNativeMessageBodies({ ...data, type: "assistant" }, messageBodies);
+          const payload = record(record(data.item).payload);
+          collectNativeMessageBodies(payload, messageBodies);
+        }
+      }
+      if (tables.has(sessionTable)) for (const row of db.iterate(`SELECT title FROM ${sessionTable}`)) {
+        if (typeof row.title === "string") messageBodies.push(row.title);
+      }
+      const recent = tables.has(sessionTable)
+        ? db.all(`SELECT * FROM ${sessionTable} WHERE time_updated >= ? ORDER BY time_updated DESC, id DESC LIMIT ${MAX_SESSIONS + 1}`, [String(since)]) : [];
       truncation.sessions = recent.length > MAX_SESSIONS;
       for (const row of recent.slice(0, MAX_SESSIONS)) sessions.push({
         ...pick(row, ["id", "project_id", "workspace_id", "parent_id", "directory", "path", "version", "agent", "time_created", "time_updated", "time_compacting", "time_archived", "cost", "tokens_input", "tokens_output", "tokens_reasoning", "tokens_cache_read", "tokens_cache_write"]),
@@ -166,14 +244,15 @@ export async function collectSupportDiagnostics(config: ServerConfig, now = Date
       if (sessions.length) {
         const ids = sessions.map(row => String(row.id));
         const placeholders = ids.map(() => "?").join(",");
-        for (const [table, target] of [["message", messages], ["part", parts], ["event", events]] satisfies Array<[string, Record<string, unknown>[]]>) {
+        for (const [table, target] of (native ? [["session_message", messages], ["event", events]] : [["message", messages], ["part", parts], ["event", events]]) satisfies Array<[string, Record<string, unknown>[]]>) {
           if (!tables.has(table)) { sources[table] = "missing"; continue; }
           const event = table === "event";
-          const rows = db.all(`SELECT * FROM ${table} WHERE ${event ? "aggregate_id" : "session_id"} IN (${placeholders}) AND json_valid(data) ${event ? "" : "AND time_updated >= ?"} ORDER BY ${event ? "seq" : "time_created"} DESC, id DESC LIMIT ${MAX_RECORDS + 1}`, event ? ids : [...ids, String(since)]);
+          const period = event ? native ? "AND (created = 0 OR created >= ?)" : "" : "AND time_updated >= ?";
+          const rows = db.all(`SELECT * FROM ${table} WHERE ${event ? "aggregate_id" : "session_id"} IN (${placeholders}) AND json_valid(data) ${period} ORDER BY ${event || native ? "seq" : "time_created"} DESC, id DESC LIMIT ${MAX_RECORDS + 1}`, period ? [...ids, String(since)] : ids);
           truncation[table] = rows.length > MAX_RECORDS;
           for (const row of rows.slice(0, MAX_RECORDS).reverse()) {
             if (event) {
-              const entry = eventInfo(row);
+              const entry = eventInfo(row, native);
               if (entry.timestamp === null || entry.timestamp >= since) target.push(entry);
               continue;
             }
@@ -183,8 +262,8 @@ export async function collectSupportDiagnostics(config: ServerConfig, now = Date
               const summary = record(data.summary);
               for (const body of [data.system, summary.title, summary.body]) if (typeof body === "string") messageBodies.push(body);
             }
-            target.push({ ...pick(row, ["id", "session_id", "message_id", "time_created", "time_updated"]),
-              ...(table === "message" ? messageInfo(data) : partInfo(data)) });
+            target.push({ ...pick(row, ["id", "session_id", "message_id", "seq", "time_created", "time_updated"]),
+              ...(native ? nativeMessageInfo({ ...data, type: row.type }) : table === "message" ? messageInfo(data) : partInfo(data)) });
           }
         }
       }

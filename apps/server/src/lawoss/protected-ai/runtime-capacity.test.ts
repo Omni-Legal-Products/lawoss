@@ -12,6 +12,7 @@ import { LawossDocuments } from "../documents/service.js";
 import { syntheticHostConfig } from "../test-support/host-config.js";
 import { ProtectedDocumentRuntime } from "./runtime.js";
 import type { ProtectedVmOpen } from "./vm-engine.js";
+import { nativeRow } from "../test-support/native-config.js";
 
 test.each(["session", "message"])("a third operation drains the held %s body naturally before idle eviction without disturbing busy workers", async readKind => {
   const { config, root } = await syntheticHostConfig();
@@ -56,7 +57,7 @@ test.each(["session", "message"])("a third operation drains the held %s body nat
       } };
     } });
   try {
-    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({ provider: { fixture: { npm: "@ai-sdk/openai-compatible", options: { baseURL: "http://127.0.0.1:47831/v1" }, models: { fixture: {} } } } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => nativeRow({ provider: { fixture: { npm: "@ai-sdk/openai-compatible", options: { baseURL: "http://127.0.0.1:47831/v1" }, models: { fixture: {} } } } }));
     await writeFile(join(root, "selected.txt"), "SYNTHETIC-CAPACITY-SOURCE"); const [source] = await documents.prepare(workspace, ["selected.txt"]);
     for (let i = 0; i < 200; i++) { if ((await documents.list(workspace))[0]?.status === "readable") break; await Bun.sleep(10); }
     const input = { workspaceId: workspace.id, providerId: "fixture", modelId: "fixture", sources: [{ id: source.id, hash: source.hash }] };

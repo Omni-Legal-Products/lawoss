@@ -1,7 +1,7 @@
 import { scheduleTaskSync, startTaskSyncTimer } from "./task-sync.js";
 import { startProjectSyncTimer } from "./project-sync.js";
 import { acquireRuntimeDbLifetime } from "./runtime-db-lifecycle.js";
-import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
@@ -38,6 +38,7 @@ import { ReviewStore } from "./reviews/storage.js";
 import { registerLocalProject } from "./routes/workspaces.js";
 import { taskStore } from "./task-store.js";
 import { createProjectSyncFirstFailureTiming, type ProjectSyncFirstFailureTiming } from "./test-support/project-sync-first-failure-timing.js";
+import * as taskSync from "./task-sync.js";
 import type { RecorderBridge, ServerConfig, WorkspaceInfo } from "./types.js";
 
 const ORG = "org_kanzlei";
@@ -67,6 +68,12 @@ afterEach(async () => {
     throw error;
   }
   observer?.cleanupExit(false, cleanups.length);
+});
+beforeEach(() => {
+  // These tests use a fake project platform. Record the handoff to task sync
+  // without starting a real HTTP round after this fixture has been removed.
+  const scheduled = spyOn(taskSync, "scheduleTaskSync").mockImplementation(() => {});
+  cleanups.push(async () => { scheduled.mockRestore(); });
 });
 
 const ALL = { documents: true, notes: true, tasks: true, recordings: false, metadata: true, reviews: true };
@@ -603,7 +610,7 @@ describe("project sync between computers", () => {
       await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
       expect((await runProjectSync(owner.config, { platform })).error).toBeNull();
       await new Promise((resolve) => setTimeout(resolve, 650));
-      expect(requests.filter((url) => url.includes("/api/projects"))).toEqual([]);
+      expect(requests).toEqual([]);
     } finally {
       fetchSpy.mockRestore();
     }
@@ -1379,6 +1386,7 @@ describe("project sync between computers", () => {
 
     // Taking tasks out of the scope keeps them here again.
     await runProjectSync(owner.config, { platform });
+    expect(taskSync.scheduleTaskSync).toHaveBeenCalledWith(owner.config);
     await saveProjectSyncSettings(owner.config, akte, settings({ scope: { ...ALL, tasks: false } }));
     expect(tasks.getTask(task.id)?.sync.orgId).toBeNull();
     tasks.patchTask(task.id, { title: "Frist prüfen (lokal)" }, actor);

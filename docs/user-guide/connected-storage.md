@@ -34,6 +34,6 @@ If another person changes the source, a save can report a conflict. Keep your lo
 
 ## Team storage
 
-The **Local / Team** selector, when available, separates installed connections from connections shared by your firm. Admins can share a connection and choose whether everyone receives it automatically or members add it themselves with **Add to Memory Drive**. Removing it from one workspace differs from removing the team's connection. Team features depend on sign-in, entitlements and role. Local connection credentials belong to the worker running the connection; do not assume a remote worker uses your computer's credentials.
+The **Local / Team** selector, when available, separates installed connections from connections shared by your firm. Admins can share a connection and choose whether everyone receives it automatically or members add it themselves with **Add to Memory Drive**. Removing it from one workspace differs from removing the team's connection. Team features depend on sign-in, entitlements and role. Local connection credentials belong to the LegalWork installation running the connection. A separately operated LegalWork server has its own credentials.
 
 Related: [Files](files-documents.md), [Integrations and LegalMemory](integrations.md), [Permissions](settings-privacy.md).

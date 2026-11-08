@@ -44,6 +44,8 @@ export type WikiSyncStatus = {
 export type WikiRegistration = {
   id: string;
   name: string;
+  /** Knowledge-base purpose, independent of its title or creation entry point. */
+  purpose?: "legal-research";
   root: string;
   workspaceId: string;
   allowInProjects: boolean;
@@ -103,10 +105,14 @@ export type WikiDocument = {
   path: string; content: string; revision: string; updatedAt: number;
 };
 export type WikiRevision = { id: string; path: string; createdAt: number; action: "write" | "delete" | "restore"; size: number; changes?: import("./line-diff.js").LineChanges | null };
+export type WikiStarterTemplate = "firm" | "blank" | "legal-research";
 export type WikiCreateInput = {
   name: string;
   root?: string;
-  template?: "firm" | "blank";
+  template?: WikiStarterTemplate;
+  /** Language and initial jurisdiction for the legal research starter. */
+  language?: "en" | "de";
+  country?: string;
   /** Attach an existing folder without seeding local starter content. */
   attach?: boolean;
   sync?: WikiSyncSettings | null;

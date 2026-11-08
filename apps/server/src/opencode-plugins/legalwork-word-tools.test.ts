@@ -1,23 +1,32 @@
-import { isOpenWordFilePipelineCall } from "./legalwork-word-tools-shared.js";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
-import * as pluginModule from "./legalwork-word-tools.js";
-import { describe, expect, setSystemTime, test } from "bun:test";
-import {
-  LegalWorkWordTools,
-} from "./legalwork-word-tools.js";
+import LegalWorkWordTools, { isOpenWordFilePipelineCall } from "./legalwork-word-tools.js";
+import { nativePluginTestRuntime, nativeToolBefore } from "./native-plugin-test-support.js";
 
 const OPEN_DOCUMENT = "/Users/lawyer/Matter/NDA Example.docx";
 
-/** What the model sees: the fixed system text and the reminder on a new user message. */
-async function modelContext(plugin: Awaited<ReturnType<typeof LegalWorkWordTools>>) {
-  const system: { system: string[] } = { system: [] };
-  await plugin["experimental.chat.system.transform"](null, system);
-  const message: { message: { id: string }; parts: object[] } = { message: { id: "msg_test" }, parts: [] };
-  await plugin["chat.message"]({ sessionID: "ses_word" }, message);
-  return {
-    system: system.system.join("\n"),
-    reminder: message.parts.map((part) => String(Reflect.get(part, "text"))).join("\n"),
-  };
+const runtimes: Array<ReturnType<typeof nativePluginTestRuntime>> = [];
+afterEach(async () => { for (const runtime of runtimes.splice(0)) await runtime.close(); });
+
+async function wordRuntime() {
+  const runtime = nativePluginTestRuntime();
+  runtimes.push(runtime);
+  await runtime.start(LegalWorkWordTools);
+  return runtime;
+}
+
+/** Native admission persists changed state without rewriting the fixed system text. */
+async function modelContext(runtime: Awaited<ReturnType<typeof wordRuntime>>) {
+  const system: { system: Array<{ type: string; text: string }> } = { system: [] };
+  await runtime.hook("session", "context", system);
+  const start = runtime.prompts.length;
+  await runtime.hook("session", "prompt", { sessionID: "ses_word", messageID: "msg_test", prompt: { text: "Edit the document" }, delivery: "steer" });
+  return { system: system.system.map(part => part.text).join("\n"), reminder: runtime.prompts.slice(start).map(message => message.text).join("\n") };
+}
+
+function contentText(content: unknown): string {
+  if (typeof content === "string") return content;
+  return Array.isArray(content) ? content.map(part => part?.type === "text" ? part.text : "").join("\n") : "";
 }
 
 describe("LegalWork Word tools", () => {
@@ -49,7 +58,7 @@ describe("LegalWork Word tools", () => {
     );
 
     try {
-      const plugin = await LegalWorkWordTools({ directory: "/Users/lawyer/Matter" });
+      const plugin = await wordRuntime();
       const { system, reminder } = await modelContext(plugin);
 
       expect(reminder).toContain("You are working inside Microsoft Word right now");
@@ -90,19 +99,20 @@ describe("LegalWork Word tools", () => {
     );
 
     try {
-      const plugin = await LegalWorkWordTools({ directory: "/Users/lawyer/Matter" });
+      const plugin = await wordRuntime();
       expect((await modelContext(plugin)).reminder).toContain("NDA Example.docx");
       // Past the short cache for a connected pane.
       setSystemTime(new Date(Date.now() + 10_000));
       pane = "failing";
-      const failed = { output: "read" };
-      await plugin["tool.execute.after"]({ sessionID: "ses_word" }, failed);
-      expect(failed.output).toBe("read");
+      const failed = { content: "read" };
+      await plugin.hook("tool", "execute.after", { sessionID: "ses_word", status: "completed", result: failed });
+      expect(failed.content).toBe("read");
 
       pane = "closed";
-      const closed = { output: "read" };
-      await plugin["tool.execute.after"]({ sessionID: "ses_word" }, closed);
-      expect(closed.output).toContain("no longer connected");
+      const closed = { content: "read" };
+      const event = { sessionID: "ses_word", status: "completed", result: closed };
+      await plugin.hook("tool", "execute.after", event);
+      expect(contentText(event.result.content)).toContain("no longer connected");
     } finally {
       setSystemTime();
       globalThis.fetch = originalFetch;
@@ -143,17 +153,12 @@ describe("LegalWork Word tools", () => {
     );
 
     try {
-      const plugin = await LegalWorkWordTools({ directory: "/Users/lawyer/Matter" });
-      const call = { args: { command: 'node .opencode/skills/docx-edit/assets/docx-agent.mjs inspect "NDA Example.docx"' } };
-      await expect(plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_word_guard" }, call)).rejects.toThrow(
-        "open in Microsoft Word",
-      );
+      const runtime = await wordRuntime();
+      const input = { command: 'node .opencode/skills/docx-edit/assets/docx-agent.mjs inspect "NDA Example.docx"' };
+      await expect(nativeToolBefore(runtime, "shell", input, "ses_word_guard")).rejects.toThrow("open in Microsoft Word");
       expect(sessions.length).toBeGreaterThan(0);
+      // Every pane check asks as the calling chat (OpenCode 2 always names it).
       expect(sessions.every((session) => session === "ses_word_guard")).toBe(true);
-      // Without its chat the check cannot ask the server, so it finds no pane.
-      sessions.length = 0;
-      await plugin["tool.execute.before"]({ tool: "bash" }, call);
-      expect(sessions).toHaveLength(0);
     } finally {
       globalThis.fetch = originalFetch;
       if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
@@ -165,8 +170,8 @@ describe("LegalWork Word tools", () => {
   test("blocks a docx-redliner task targeting the open document", () => {
     expect(
       isOpenWordFilePipelineCall(
-        "task",
-        { subagent_type: "docx-redliner", prompt: "Redline NDA Example.docx" },
+        "subagent",
+        { agent: "docx-redliner", prompt: "Redline NDA Example.docx" },
         OPEN_DOCUMENT,
       ),
     ).toBe(true);
@@ -175,7 +180,7 @@ describe("LegalWork Word tools", () => {
   test("matches a URL-encoded document URL", () => {
     expect(
       isOpenWordFilePipelineCall(
-        "bash",
+        "shell",
         { command: 'node docx-agent.mjs inspect "NDA Example.docx"' },
         "file:///Users/lawyer/Matter/NDA%20Example.docx",
       ),
@@ -185,7 +190,7 @@ describe("LegalWork Word tools", () => {
   test("allows the file pipeline for another workspace document", () => {
     expect(
       isOpenWordFilePipelineCall(
-        "bash",
+        "shell",
         { command: 'node .opencode/skills/docx-edit/assets/docx-agent.mjs inspect "Other NDA.docx"' },
         OPEN_DOCUMENT,
       ),
@@ -194,7 +199,7 @@ describe("LegalWork Word tools", () => {
 
   test("allows unrelated shell work while Word is connected", () => {
     expect(
-      isOpenWordFilePipelineCall("bash", { command: "pnpm test" }, OPEN_DOCUMENT),
+      isOpenWordFilePipelineCall("shell", { command: "pnpm test" }, OPEN_DOCUMENT),
     ).toBe(false);
   });
 });
@@ -225,7 +230,7 @@ describe("routing an unqualified edit request to the live document", () => {
     );
 
     try {
-      const plugin = await LegalWorkWordTools({ directory: "/Users/lawyer/Matter" });
+      const plugin = await wordRuntime();
       const { reminder } = await modelContext(plugin);
 
       // "Rename X to Y" names no file; the model read it as a workspace-wide
@@ -242,18 +247,4 @@ describe("routing an unqualified edit request to the live document", () => {
   });
 });
 
-describe("plugin module surface", () => {
-  // opencode volá KAŽDÝ export modulu pluginu ako plugin (`server(input)`).
-  // Helper exportovaný vedľa pluginu preto bežal s PluginInput enginu —
-  // rovnaká pasca, ktorá v legalwork-skill-tools zhodila štart enginu.
-  test("every export loads as a plugin entry point", async () => {
-    const pluginInput = { directory: process.cwd(), worktree: process.cwd() };
-    const entries: Array<[string, unknown]> = Object.entries(pluginModule);
-    expect(entries.length).toBeGreaterThan(0);
-    for (const [name, entry] of entries) {
-      if (typeof entry !== "function") throw new Error(`${name}: plugin export is not a function`);
-      const hooks: unknown = await entry(pluginInput);
-      if (!hooks || typeof hooks !== "object") throw new Error(`${name}: plugin returned no hooks`);
-    }
-  });
-});
+// OpenCode 2 loads only the default `Plugin.define` export; the v1 rule "every export is a plugin" no longer applies.

@@ -8,6 +8,7 @@ import { closeOrgPolicyRuntime } from "../org-policy.js";
 import { syntheticHostConfig } from "./test-support/host-config.js";
 import { runPublicAiPrompt } from "./ai-public-context.js";
 import constants from "../../../../constants.json" with {type: "json"};
+import { nativeRow } from "./test-support/native-config.js";
 const pinnedVersion = constants.opencodeVersion.trim().replace(/^v/, "");
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 
@@ -46,7 +47,7 @@ test.skipIf(!binary)("native public text uses an empty isolated engine and exact
   };
   const approvals = new ApprovalService({mode: "auto", timeoutMs: 10000}, approve);
   try {
-    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: receiver.url.origin + "/v1", apiKey: "SYNTHETIC_TARGET_KEY"}, models: {fixture: {limit: {context: 100000, output: 4000}}}}}}));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () =>nativeRow({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: receiver.url.origin + "/v1", apiKey: "SYNTHETIC_TARGET_KEY"}, models: {fixture: {limit: {context: 100000, output: 4000}}}}}}));
     await writeRuntimeOpencodeConfig(config, GLOBAL_PERSONALIZATION_ID, () => ({personalization: {customInstructions: "PRIVATE-PERSONALIZATION-CANARY", personality: "default"}}));
     const input = {providerId: "fixture", modelId: "fixture", text: "PUBLIC-TEXT-CANARY"};
     const result = await runPublicAiPrompt(config, approvals, input, binary, pinnedVersion);

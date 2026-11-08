@@ -31,6 +31,7 @@ type ConnectedProvider = {
   editableAsCustom?: boolean;
   /** LAWOSS: popis zdroja namiesto `providerSourceLabel` (predplatné ChatGPT namiesto „Vlastné“). */
   sourceLabel?: string;
+  configurationReadOnly?: boolean;
 };
 
 /** One of the firm's chat providers, by its engine id; `key` says whose key it uses. */
@@ -141,13 +142,13 @@ export function AiSettingsView(props: AiSettingsViewProps) {
                     <SettingsStatusBadge label="Cloud" tone="neutral" className="min-h-6 px-2" />
                   ) : null}
                 </div>
-                {firm ? <FirmItemNote /> : <p className="text-xs text-dls-secondary">{provider.sourceLabel ?? providerSourceLabel(provider.source) ?? provider.id}</p>}
+                {firm ? <FirmItemNote /> : <p className="text-xs text-dls-secondary">{provider.configurationReadOnly ? t("provider_auth.authored_readonly") : provider.sourceLabel ?? providerSourceLabel(provider.source) ?? provider.id}</p>}
               </div>
             </div>
             {/* The firm's key is not the member's to disconnect. */}
             {!props.cloudProviderIds?.has(provider.id) && firm?.key !== "firm" && (
               (provider.source === "env" && props.onReplaceProviderKey) ||
-              (provider.editableAsCustom && props.onEditProvider) || props.onRefreshProvider ||
+              (provider.editableAsCustom && props.onEditProvider) || (!provider.configurationReadOnly && props.onRefreshProvider) ||
               props.canDisconnectProvider(provider.source)
             ) ? (
               <ProviderActionsMenu name={provider.name} disabled={props.busy || props.providerAuthBusy || props.disconnectingProviderId !== null}>
@@ -175,7 +176,7 @@ export function AiSettingsView(props: AiSettingsViewProps) {
                     {t("settings.edit")}
                   </DropdownMenuItem>
                 ) : null}
-                {props.onRefreshProvider ? (
+                {!provider.configurationReadOnly && props.onRefreshProvider ? (
                   <DropdownMenuItem
                     onClick={() => void props.onRefreshProvider?.(provider.id)}
                     disabled={props.busy || props.providerAuthBusy || props.disconnectingProviderId !== null}

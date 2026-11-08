@@ -4,6 +4,7 @@
  * alebo subjektu znamená, že klient je najbližší nadradený zaregistrovaný pracovný priestor s kartou
  * klienta. Nič nezapisuje; pravdivosť overí server pri zápise (profil onboardingu, plán veci).
  */
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import type { LegalworkServerClient, LegalworkWorkspaceInfo } from "@/app/lib/legalwork-server";
 import { parseFrontmatter } from "../../../../../lawoss/okf/src/frontmatter";
 
@@ -17,7 +18,7 @@ const ENTITY_CARDS = ["matter.md", "spis.md", "project.md", "projekt.md", "subje
 
 const slashed = (path: string): string => path.replaceAll("\\", "/").replace(/\/+$/, "");
 const baseName = (path: string): string => slashed(path).split("/").pop() ?? path;
-const isLocal = (workspace: OpenClientWorkspace): boolean => workspace.workspaceType !== "remote" && Boolean(workspace.path);
+const isLocal = (workspace: OpenClientWorkspace): boolean => !isRetiredRemoteWorkspace(workspace) && Boolean(workspace.path);
 const fallbackTitle = (workspace: OpenClientWorkspace): string =>
   workspace.displayName?.trim() || workspace.name?.trim() || baseName(workspace.path);
 

@@ -38,6 +38,17 @@ export const connectorStatusSchema = z.object({
   })),
 });
 export type ConnectorStatus = z.infer<typeof connectorStatusSchema>;
+export const connectorCalendarColorSchema = z.string().regex(/^#[0-9a-f]{6}$/i).transform(value => value.toLowerCase()).nullable().catch(null);
+export const connectorCalendarListSchema = z.object({
+  calendars: z.array(z.object({ id: z.string(), name: z.string(), color: connectorCalendarColorSchema.optional() })), nextPageToken: z.string().nullish(),
+});
+export const connectorCalendarEventsSchema = z.object({
+  events: z.array(z.object({
+    id: z.string(), title: z.string(), start: z.string().nullable(), end: z.string().nullable(), allDay: z.boolean(),
+    description: z.string().default(""), location: z.string().default(""), status: z.string(), webUrl: z.string().nullable(),
+    recurringEventId: z.string().nullish(), recurring: z.boolean().optional(),
+  })), nextPageToken: z.string().nullish(),
+});
 export function connectorIsConnected(connector: ConnectorStatus["connectors"][number]) {
   const active = connector.active ?? (connector.id !== "outlook" && connector.id !== "outlook-calendar");
   return active && connector.connections.length === 1 && !connector.connections[0].needsReconnect;

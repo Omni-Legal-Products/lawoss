@@ -143,7 +143,7 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
     <p className="text-xs text-muted-foreground">{t("connectors.local_vault")}</p>
   </div>;
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5 [overflow-wrap:anywhere]">
       {presentation === "panel" && <header className="space-y-2">
         <h2 className="flex items-center gap-2 text-base font-semibold">
           {iconSrc ? <img src={iconSrc} alt="" className="size-5 shrink-0 object-contain" /> : <Icon className="size-4" />}
@@ -187,7 +187,7 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
         {sharedOutlookAccount && connections.length === 1 && <div className="space-y-2 pt-1">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="min-w-0 flex-1 text-sm text-muted-foreground">{t(connector?.active ? "connectors.activation_active" : "connectors.activation_available")}</p>
-            <Button variant={connector?.active ? "outline" : "default"} size="sm" disabled={Boolean(busy) || !client} onClick={() => void run("activate", async () => {
+            <Button className="h-auto min-h-8 max-w-full whitespace-normal py-1.5" variant={connector?.active ? "outline" : "default"} size="sm" disabled={Boolean(busy) || !client} onClick={() => void run("activate", async () => {
               if (client) { await client.connectorActivation(id, connections[0].id, !connector?.active); await refresh(); }
             })}>{t(connector?.active ? "connectors.deactivate" : "connectors.activate", { name: definition.name })}</Button>
           </div>

@@ -7,6 +7,7 @@ import { removeSyntheticTestDir } from "./lawoss/test-support/inspect-cleanup.js
 import { startServer } from "./server.js";
 import { buildWorkspaceInfos } from "./workspaces.js";
 import type { ServerConfig } from "./types.js";
+import { nativeRow } from "./lawoss/test-support/native-config.js";
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { while (cleanup.length) await cleanup.pop()?.(); });
 // Windows refuses renaming A while anything holds a descendant open; content created after
@@ -94,8 +95,7 @@ test("remote projects, files, aliases and foreign symlink targets cannot reconne
   await symlink(f.b, join(f.root, "alias"));
   for (const target of [join(f.root, "not-dir"), join(f.root, "alias"), "relative/path"])
     expect((await f.request(target)).ok).toBe(false);
-  f.config.workspaces[0]!.workspaceType = "remote";
-  expect((await f.request()).ok).toBe(false); expect(f.config.workspaces[0]?.path).toBe(f.a);
+  // LAWOSS v2: upstream removed remote workspaces (workspaceType is always "local").
   expect(await readFile(join(f.b, "source.pdf"), "utf8")).toBe("%PDF-original");
 });
 
@@ -206,7 +206,7 @@ test.each(["relative", "absolute"])("reused old folder never supplies another ca
   const f=await fixture();const vault=join(f.root,"vault");await mkdir(vault);await writeFile(join(vault,"note.md"),"independent vault");await writeFile(join(f.a,"_memory.md"),"SHARED-ANCHOR ORIGINAL-MATTER-MEMORY");
   const { externalMemoryProfilePath }=await import("./lawoss/workspace-app-files.js");const profile=externalMemoryProfilePath(f.config,f.config.workspaces[0]!);if(!profile)throw new Error("missing profile location");await mkdir(join(profile,".."),{recursive:true});
   await writeFile(profile,JSON.stringify({version:1,matterId:"original",roots:[{id:"client",path:kind==="relative"?".":f.a}],sources:[{id:"memory",root:"client",path:"_memory.md",role:"case_memory",required:true,writable:false,anchors:["SHARED-ANCHOR"]}]}));
-  const {writeRuntimeOpencodeConfig}=await import("./runtime-opencode-config-store.js");await writeRuntimeOpencodeConfig(f.config,"stable",()=>({permission:{external_directory:{[`${f.a}/*`]:"allow",[`${f.root}/*`]:"allow",[`${vault}/*`]:"allow"}}}));
+  const {writeRuntimeOpencodeConfig}=await import("./runtime-opencode-config-store.js");await writeRuntimeOpencodeConfig(f.config,"stable",()=>nativeRow({permission:{external_directory:{[`${f.a}/*`]:"allow",[`${f.root}/*`]:"allow",[`${vault}/*`]:"allow"}}}));
   await rename(f.a,f.b);expect((await f.request()).ok).toBe(true);await mkdir(f.a);await writeFile(join(f.a,"_memory.md"),"SHARED-ANCHOR UNRELATED-NEW-A-MEMORY");
   const base=`http://127.0.0.1:${f.server.port}`;const host={"X-LegalWork-Host-Token":"host","Content-Type":"application/json"};
   expect((await fetch(`${base}/workspaces/local`,{method:"POST",headers:host,body:JSON.stringify({folderPath:f.a,registerExisting:true,appFiles:"outside",name:"Unrelated"})})).status).toBe(201);
@@ -218,9 +218,9 @@ test.each(["relative", "absolute"])("reused old folder never supplies another ca
 
 test("failed host persistence restores project-owned memory grants", async () => {
   const f=await fixture();const {writeRuntimeOpencodeConfig,readRuntimeOpencodeConfig,runtimeExternalDirectory}=await import("./runtime-opencode-config-store.js");
-  const rules={[`${f.a}/*`]:"allow"};await writeRuntimeOpencodeConfig(f.config,"stable",()=>({permission:{external_directory:rules}}));
+  const rules={[`${f.a}/*`]:"allow"};await writeRuntimeOpencodeConfig(f.config,"stable",()=>nativeRow({permission:{external_directory:rules}}));
   f.config.reconnectHostWorkspace=async()=>{throw new Error("host storage failed")};await rename(f.a,f.b);expect((await f.request()).ok).toBe(false);
-  expect(runtimeExternalDirectory(await readRuntimeOpencodeConfig(f.config,"stable"))).toEqual(rules);expect(f.config.workspaces[0]?.path).toBe(f.a);
+  expect(runtimeExternalDirectory(await readRuntimeOpencodeConfig(f.config,"stable"))).toEqual(nativeRow({permission:{external_directory:rules}}).permissions ?? []);expect(f.config.workspaces[0]?.path).toBe(f.a);
 });
 
 test("reconnect captures native archived-zero and genuinely archived history as well as SQL-null history, preserving restart and future-foreign isolation",async()=>{

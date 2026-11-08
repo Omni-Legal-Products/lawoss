@@ -11,13 +11,19 @@ legalwork-server --workspace /path/to/workspace --approval auto
 
 `legalwork-server` ships as a compiled binary, so Bun is not required at runtime.
 
-Or from source with Bun 1.4.2+ (older runtimes can truncate FTPS transfers):
+For development, use the Node.js version in `.nvmrc` (or an updated Node.js
+22 release, at least 22.15) and the repository's existing pnpm/Bun build tools:
 
 ```bash
 pnpm --filter legalwork-server dev -- \
   --workspace /path/to/workspace \
   --approval auto
 ```
+
+This builds the server's JavaScript and runs it with your existing Node.js.
+After building, `pnpm --filter legalwork-server start -- ...` starts the same
+server without rebuilding. Bun remains a build and test tool; this does not
+install or bundle another runtime, and Electron still runs its embedded server.
 
 The server logs the client token and host token on boot when they are auto-generated.
 
@@ -174,8 +180,8 @@ their operator; the setting cannot control those processes.
 Catalog redirects are rejected and failures never fall back to a third-party
 URL. For development, `OPENCODE_MODELS_URL` may target a loopback server. Remote
 catalog overrides must use `https://platform.eigenweltlabs.com`. The standalone
-orchestrator router uses Eigenwelt directly; without a LegalWork settings server,
-operators can disable its catalog updates with `OPENCODE_DISABLE_MODELS_FETCH=1`.
+orchestrator-managed engine uses its LegalWork settings server. Operators of
+external engines can disable catalog updates with `OPENCODE_DISABLE_MODELS_FETCH=1`.
 
 Deploy the model-api mirror before releasing this client. The catalog switch
 does not affect model inference, custom provider discovery, Eigenwelt billing

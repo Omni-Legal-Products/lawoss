@@ -124,7 +124,8 @@ test("failed table initialization closes its native handle and permits a correct
   await writeFile(f.path, "not a SQLite database");
   await expect(readRuntimeOpencodeConfig(f.config, "fixture")).rejects.toThrow();
   expect(await runtimeDbHandles(f.path)).toBe(0); await rm(f.path);
-  expect(await readRuntimeOpencodeConfig(f.config, "fixture")).toEqual({}); expect(await runtimeDbHandles(f.path)).toBe(0);
+  // Engine v2: an empty native row still declares its configuration version.
+  expect(await readRuntimeOpencodeConfig(f.config, "fixture")).toEqual({ configurationVersion: 2 }); expect(await runtimeDbHandles(f.path)).toBe(0);
 });
 
 test("all resources close even when one close rejects, and the error remains visible", async () => {

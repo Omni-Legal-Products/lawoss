@@ -1,3 +1,4 @@
+import { verifiedTestEngine } from "../opencode-candidate.test-support.js";
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -52,12 +53,11 @@ afterEach(() => {
 
 test.skipIf(process.platform === "win32")("createManagedOpencodeServer bez timeoutMs použije limit z engineStartTimeoutMs", async () => {
   dir = mkdtempSync(join(tmpdir(), "engine-start-timeout-"));
-  const bin = join(dir, "fake-opencode");
-  writeFileSync(bin, SILENT_OPENCODE, "utf8");
-  chmodSync(bin, 0o755);
+  // Engine v2: the managed engine must be a verified candidate of the pinned derivative.
+  const { bin, candidateBuild } = await verifiedTestEngine(dir, () => SILENT_OPENCODE);
   process.env[ENGINE_START_TIMEOUT_ENV] = "1000";
   const start = Date.now();
-  await expect(createManagedOpencodeServer({ bin, cwd: dir })).rejects.toThrow(/after 1000ms/);
+  await expect(createManagedOpencodeServer({ bin, candidateBuild, cwd: dir })).rejects.toThrow(/after 1000ms/);
   expect(Date.now() - start).toBeLessThan(8000);
 }, 20000);
 
@@ -67,7 +67,7 @@ test("produkčné volania createManagedOpencodeServer nepredávajú pevný timeo
   const root = join(import.meta.dir, "..");
   const offenders: string[] = [];
   for await (const file of new Bun.Glob("**/*.ts").scan(root)) {
-    if (file.includes(".test.")) continue;
+    if (file.includes(".test.") || file.includes(".test-support.")) continue;
     const source = await Bun.file(join(root, file)).text();
     for (const call of source.matchAll(/createManagedOpencodeServer\(\{[\s\S]*?\}\)/g)) {
       if (/timeoutMs:\s*[\d_]+/.test(call[0])) offenders.push(file);

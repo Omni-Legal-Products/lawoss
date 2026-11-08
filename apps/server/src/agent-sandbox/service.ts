@@ -11,16 +11,16 @@ import { globalOpencodeConfigDir } from "../workspace-files.js";
 import { ApprovalService } from "../approvals.js";
 import { onOrgPolicyChange } from "../org-policy.js";
 import { orgPolicyPermissions } from "../org-policy-engine.js";
-import { applyYoloPermissions, yoloExternalDirectory, yoloModeActive } from "../lawoss/yolo-mode.js";
+import { applyYoloNativeRules, yoloModeActive, yoloNativeExternalDirectory } from "../lawoss/yolo-mode.js";
 import type { Actor, ApprovalRequest, ServerConfig, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
 import {
   GLOBAL_TOOL_PERMISSIONS_ID, onRuntimeOpencodeConfigWrite, readGlobalToolPermissions,
-  readRuntimeOpencodeConfig, runtimeExternalDirectory, runtimeStorageDir,
+  readRuntimeOpencodeConfig, runtimeExternalDirectory, runtimeStorageDir, applyGlobalToolPermissions,
 } from "../runtime-opencode-config-store.js";
 import { VmSandbox, validateMounts, type SandboxMount, type SandboxResult } from "./vm.js";
-import { permissionAction, permissionPatternMatches, type PermissionAction } from "./permissions.js";
-import { effectiveSandbox, onSandboxSettingsChange, writeSandboxNetworkMode, type NetworkMode } from "./settings.js";
+import { permissionAction, permissionPatternMatches, type PermissionAction, type NativePermissionRule } from "./permissions.js";
+import { effectiveSandbox, onSandboxSettingsChange, sandboxSettingsWorkspace, writeSandboxNetworkMode, type NetworkMode } from "./settings.js";
 import { runHostCommand } from "./host.js";
 import { brokerRequest, prepareOutboundRequest, type OutboundRequest } from "./network.js";
 import { webRequest, webResult, type WebInput } from "./web.js";
@@ -32,10 +32,12 @@ import { buildWikiFilePolicy, wikiContentPath, wikiSafeSandboxMounts } from "../
 import { linkableFolders } from "../lawoss/linked-folders.js";
 import { joinSessionFolder } from "../lawoss/session-ownership.js";
 import { canonicalFolderPath } from "../wiki/workspace-safety.js";
+import { rawHttpRequest, type RawHttpInput, type RawHttpNetwork } from "./raw-http.js";
+import { rememberedProjectFolderRules, projectPermissionEffect } from "../project-permission-approvals.js";
 
 // LAWOSS: `folder` (set by the server, never by the model) is the chat's folder below the workspace root; it defaults the working directory.
-export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; folder?: string[]; skills?: string[]; write: boolean; timeoutMs: number };
-export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction };
+export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; folder?: string[]; skills?: string[]; write: boolean; timeoutMs: number | null; capture?: "complete" };
+export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction; session?: boolean };
 type PermissionStep = { permission: string; pattern: string; override?: PermissionAction };
 
 // LAWOSS (alfa 2, N-21): a rule and a one-time decline read differently to the model.
@@ -48,16 +50,15 @@ function restrictive(actions: PermissionAction[]): PermissionAction {
   return actions.includes("deny") ? "deny" : actions.includes("ask") ? "ask" : "allow";
 }
 
-function wholeCommandAction(permissions: Record<string, unknown>, tool: string): PermissionAction {
+function wholeCommandAction(permissions: readonly NativePermissionRule[], tool: string): PermissionAction {
   const rules: AgentPermissionRule[] = [];
   // A script can run arbitrary descendants and inspect every mounted file.
   // Conservatively apply scoped restrictions to the whole command. Matching
   // only the outer command would let `python script.py` bypass inner rules.
-  for (const [name, rule] of Object.entries(permissions)) {
-    if (!permissionPatternMatches(tool, name)) continue;
-    for (const [pattern, value] of Object.entries(rule && typeof rule === "object" ? rule : { "*": rule })) {
-      rules.push({ permission: name, pattern, action: value === "allow" || value === "ask" ? value : "deny" });
-    }
+  const nativeTool = tool === "bash" ? "shell" : tool;
+  for (const rule of permissions) {
+    if (!permissionPatternMatches(nativeTool, rule.action)) continue;
+    rules.push({ permission: tool, pattern: rule.resource, action: rule.effect });
   }
   return wholeAgentAction(rules, tool);
 }
@@ -81,15 +82,16 @@ function agentAction(rules: AgentPermissionRule[], permission: string, pattern: 
   return action;
 }
 
-export function authorizedFolders(entries: Record<string, unknown>): string[] {
+export function authorizedFolders(entries: readonly NativePermissionRule[]): string[] {
   const folders: string[] = [];
-  for (const [pattern, action] of Object.entries(entries)) {
+  for (const { resource: pattern, effect: action } of entries) {
     if (action !== "allow" || !pattern.endsWith("/*")) continue;
     let folder = pattern.slice(0, -2) || "/";
     if (folder.startsWith("~/")) folder = join(homedir(), folder.slice(2));
     if (!isAbsolute(folder) || /[*?]/.test(folder)) continue;
     // Re-evaluate the ordered rules, so a later denial revokes an old grant.
-    if (permissionAction({ external_directory: entries }, "external_directory", `${folder}/__sandbox__`, "deny") !== "allow") continue;
+    const expanded = entries.map(rule => ({ ...rule, resource: rule.resource.startsWith("~/") ? join(homedir(), rule.resource.slice(2)) : rule.resource }));
+    if (permissionAction(expanded, "external_directory", `${folder}/__sandbox__`, "deny") !== "allow") continue;
     folders.push(folder);
   }
   return [...new Set(folders)];
@@ -97,20 +99,28 @@ export function authorizedFolders(entries: Record<string, unknown>): string[] {
 
 export class AgentSandboxService {
   private active = new Map<AbortController, Promise<void>>();
+  private stopping = false;
   private clearRemembered: Array<() => void>;
   constructor(readonly config: ServerConfig, readonly approvals: ApprovalService,
-    readonly backend: Pick<VmSandbox, "run" | "prepare" | "status"> = new VmSandbox()) {
+    readonly backend: Pick<VmSandbox, "run" | "prepare" | "status"> = new VmSandbox(),
+    private readonly rawHttpSend?: RawHttpNetwork["send"]) {
     this.clearRemembered = [
-      onRuntimeOpencodeConfigWrite((config, id) => { if (config === this.config) approvals.forgetRemembered(id === GLOBAL_TOOL_PERMISSIONS_ID ? undefined : id); }),
-      onSandboxSettingsChange(async config => { if (config === this.config) approvals.forgetRemembered(); }),
-      onOrgPolicyChange(config, scopes => { if (scopes.has("engine")) approvals.forgetRemembered(); }),
+      onRuntimeOpencodeConfigWrite((config, id, change) => { if (config === this.config && change?.permissionsChanged) approvals.forgetRemembered(id === GLOBAL_TOOL_PERMISSIONS_ID ? undefined : id); }),
+      onSandboxSettingsChange(async (config, id) => { if (config === this.config) approvals.forgetRemembered(sandboxSettingsWorkspace(id)); }),
+      onOrgPolicyChange(config, scopes => {
+        if (!scopes.has("engine")) return;
+        for (const controller of this.active.keys()) controller.abort(new Error("Organization policy changed. Try again with the current permissions."));
+        approvals.forgetRemembered();
+      }),
     ];
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
+    this.stopping = true;
     this.clearRemembered.splice(0).forEach(unsubscribe => unsubscribe());
-    this.approvals.forgetRemembered();
+    const pending = [...this.active.values()];
     for (const controller of this.active.keys()) controller.abort(new Error("LegalWork is stopping."));
+    await Promise.all(pending);
   }
 
   async setNetworkMode(mode: NetworkMode): Promise<void> {
@@ -160,12 +170,14 @@ export class AgentSandboxService {
         if (this.config.readOnly) throw new ApiError(403, "read_only", "Unprotected commands cannot guarantee read-only access. Enable sandboxing first.");
         // LAWOSS: on this computer a command can read, change, go online and leave the project whatever
         // it declares, so one card covers all of it (earlier: a separate card for each capability).
+        // Upstream v2 asks no separate host-folder card; the folder step only denies or joins this one card.
+        const folderRules = runtimeExternalDirectory(runtime);
         await askOnce([
           { permission: "bash", pattern: command.command, override: commandAction("bash") },
           { permission: "read", pattern: "*", override: commandAction("read") },
           { permission: "edit", pattern: "*", override: commandAction("edit") },
           { permission: "webfetch", pattern: "*", override: commandAction("webfetch") },
-          { permission: "external_directory", pattern: "*", override: restrictive([wholeCommandAction({ external_directory: await yoloModeActive(this.config) ? yoloExternalDirectory(runtimeExternalDirectory(runtime)) : runtimeExternalDirectory(runtime) }, "external_directory"), wholeAgentAction(agentRules, "external_directory")]) },
+          { permission: "external_directory", pattern: "*", override: restrictive([wholeCommandAction(await yoloModeActive(this.config) ? yoloNativeExternalDirectory(folderRules) : folderRules, "external_directory"), wholeAgentAction(agentRules, "external_directory")]) },
         ], `Run this command on this computer?\n\n${command.command}\n\nSandboxing is off, so this one approval covers everything the command does: reading and changing files, contacting websites and accessing folders outside the project.`, [workspace.path], { command: command.command, hostWide: true });
         if (command.skills?.length) {
           const skills = await listSkills(workspace.path, true);
@@ -177,21 +189,27 @@ export class AgentSandboxService {
         }
         const cwd = command.workdir || joinSessionFolder(workspace, command.folder ?? [], workspace.path);
         if (!isAbsolute(cwd)) throw new ApiError(400, "command_directory", "Use an absolute folder path on this computer.");
-        return { ...await withFileEditorHandoff(command, () => { signal.throwIfAborted(); return runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, signal }); }), sandbox: "host" };
+        return { ...await withFileEditorHandoff({ ...command, signal }, () => { signal.throwIfAborted(); return runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, capture: command.capture, signal }); }), sandbox: "host" };
       }
       await ask("bash", command.command, `Run this command in the protected environment?\n\n${command.command}`, [workspace.path], commandAction("bash"));
       const writeAction = commandAction("edit");
       const externalRules = runtimeExternalDirectory(runtime);
-      const sources = [...new Set(await Promise.all([workspace.path, ...await linkableFolders(this.config, workspace, authorizedFolders(externalRules)), ...projectGrants.map(grant => grant.root)].map(source => ownWiki ? realpath(source).catch(() => { throw new ApiError(403, "wiki_project_mount_unavailable", "A shared folder is unavailable. Review this chat's project access."); }) : Promise.resolve(source))))];
-      if (sources.length > 1 && Object.entries(externalRules).some(([pattern, action]) => pattern !== "*" && action === "deny")) {
+      const folderPermissions = { ...runtime, permissions, projectPermissionApprovals: [...runtime.projectPermissionApprovals ?? [],
+        ...agentRules.filter(rule => rule.session && rule.permission === "external_directory" && rule.action === "allow")
+          .map(rule => ({ action: rule.permission, resources: [rule.pattern] }))] };
+      const rememberedFolders = rememberedProjectFolderRules(folderPermissions);
+      const sources = [...new Set(await Promise.all([workspace.path, ...await linkableFolders(this.config, workspace, [...authorizedFolders(externalRules), ...authorizedFolders(rememberedFolders)]), ...projectGrants.map(grant => grant.root)].map(source => ownWiki ? realpath(source).catch(() => { throw new ApiError(403, "wiki_project_mount_unavailable", "A shared folder is unavailable. Review this chat's project access."); }) : Promise.resolve(source))))];
+      if (sources.length > 1 && externalRules.some(rule => rule.resource !== "*" && rule.effect === "deny")) {
         throw new ApiError(403, "sandbox_directory_scope", "A scoped folder denial cannot be enforced by sharing the whole folder. Choose narrower authorized folders.");
       }
       // An allowed parent can contain a child that still requires approval.
       // The guest can read every exposed file, so ask before sharing it.
-      const folderAction = Object.entries(externalRules).some(([pattern, action]) => pattern !== "*" && action === "ask") ? "ask" : "allow";
+      const folderAction = externalRules.some(rule => rule.resource !== "*" && rule.effect === "ask") ? "ask" : "allow";
       for (const source of sources.slice(1)) {
+        const resource = `${source}/__sandbox__`;
+        const effect = projectPermissionEffect(folderPermissions, "external_directory", [resource], permissionAction(permissions, "external_directory", resource));
         await ask("external_directory", `${source}/__sandbox__`, "Allow this command to access all files in this authorized folder, including files covered by individual folder rules?", [source],
-          restrictive([folderAction, ...agentRules.filter((rule) => permissionPatternMatches("external_directory", rule.permission) && rule.pattern !== "*").map((rule) => rule.action)]));
+          restrictive([folderAction, effect, ...agentRules.filter((rule) => permissionPatternMatches("external_directory", rule.permission) && rule.pattern !== "*").map((rule) => rule.action)]));
       }
       const mounts: SandboxMount[] = sources.map((source, index) => ({ source,
         target: index === 0 ? "/workspace" : `/authorized/${index - 1}`, writable: command.write }));
@@ -230,8 +248,8 @@ export class AgentSandboxService {
       }
       const cwd = sandboxPaths(command.workdir || posix.join("/workspace", ...command.folder ?? []), safeMounts);
       if (!cwd.startsWith("/")) throw new ApiError(400, "sandbox_directory", "Use /workspace or an authorized sandbox folder.");
-      const result = await withFileEditorHandoff(command, () => { executionSignal.throwIfAborted(); return this.backend.run({ command: sandboxPaths(command.command, safeMounts), cwd, mounts: safeMounts,
-        timeoutMs: command.timeoutMs, signal: executionSignal,
+      const result = await withFileEditorHandoff({ ...command, signal: executionSignal }, () => { executionSignal.throwIfAborted(); return this.backend.run({ command: sandboxPaths(command.command, safeMounts), cwd, mounts: safeMounts,
+        timeoutMs: command.timeoutMs, capture: command.capture, signal: executionSignal,
         // Scoped tool/agent rules require the request broker even in allow mode.
         networkMode: networkMode === "allow" && commandAction("webfetch") !== "allow" ? "approve" : networkMode,
         authorizeNetwork,
@@ -285,38 +303,51 @@ export class AgentSandboxService {
       });
   }
 
+  /** Code Mode's raw Fetch shares policy/revocation, without page-broker content limits. */
+  async rawHttp(workspace: WorkspaceInfo, input: RawHttpInput & { sessionID: string }, actor: Actor, parentSignal: AbortSignal,
+    agentRules: AgentPermissionRule[] = [], lineage: string[] = [input.sessionID], network?: RawHttpNetwork) {
+    return this.withPolicy(workspace, { sessionID: input.sessionID, description: `${input.method} ${input.url}` }, actor, parentSignal, agentRules, lineage,
+      async ({ settings, signal, authorizeNetwork }) => rawHttpRequest(input, request => authorizeNetwork(request, true), signal,
+        { allowPrivate: !settings.enabled || settings.networkMode === "allow", network, send: this.rawHttpSend }));
+  }
+
   private async withPolicy<T>(workspace: WorkspaceInfo, operation: { sessionID?: string; description?: string }, actor: Actor,
     parentSignal: AbortSignal, agentRules: AgentPermissionRule[], lineage: string[], work: (scope: {
       settings: Awaited<ReturnType<typeof effectiveSandbox>>;
-      permissions: Record<string, unknown>;
+      permissions: readonly NativePermissionRule[];
       signal: AbortSignal;
       ask: (permission: string, pattern: string, summary: string, paths: string[], override?: PermissionAction, reviewable?: boolean, network?: ApprovalRequest["network"]) => Promise<void>;
       askOnce: (steps: PermissionStep[], summary: string, paths: string[], card?: Pick<ApprovalRequest, "command" | "hostWide">) => Promise<void>;
-      authorizeNetwork: (request: OutboundRequest) => Promise<boolean>;
+      authorizeNetwork: (request: OutboundRequest, completeReview?: boolean) => Promise<boolean>;
     }) => Promise<T>): Promise<T> {
+    if (this.stopping) throw new ApiError(503, "server_stopping", "LegalWork is stopping.");
     const controller = new AbortController();
     let stopped: () => void = () => {};
     this.active.set(controller, new Promise<void>((resolve) => { stopped = resolve; }));
     const signal = AbortSignal.any([parentSignal, controller.signal]);
-    const unsubscribe = onRuntimeOpencodeConfigWrite((config, id) => {
+    const unsubscribe = onRuntimeOpencodeConfigWrite((config, id, change) => {
       if (config === this.config && (id === workspace.id || id === GLOBAL_TOOL_PERMISSIONS_ID)) {
-        this.approvals.forgetRemembered(workspace.id);
         controller.abort(new Error("Permissions changed. Try again with the current permissions."));
+        if (change?.permissionsChanged) this.approvals.forgetRemembered(workspace.id);
       }
     });
     let dependencies: string[] | undefined;
     const unsubscribeSandbox = onSandboxSettingsChange(async (config, id) => {
       if (config !== this.config || (dependencies && !dependencies.includes(id))) return;
-      this.approvals.forgetRemembered(workspace.id);
       controller.abort(new Error("Sandbox settings changed. Try again with the current settings."));
+      this.approvals.forgetRemembered(workspace.id);
       await this.active.get(controller);
     });
     const unsubscribePolicy = onOrgPolicyChange(this.config, (scopes) => {
-      if (scopes.has("engine")) { this.approvals.forgetRemembered(workspace.id); controller.abort(new Error("Organization policy changed. Try again with the current permissions.")); }
+      if (scopes.has("engine")) { controller.abort(new Error("Organization policy changed. Try again with the current permissions.")); this.approvals.forgetRemembered(workspace.id); }
     });
     try {
-      const { permission: permissions } = await orgPolicyPermissions(this.config, applyYoloPermissions(await readGlobalToolPermissions(this.config), await yoloModeActive(this.config)));
+      const runtime = await readRuntimeOpencodeConfig(this.config, workspace.id);
+      const nativePermissions = applyGlobalToolPermissions(runtime, await readGlobalToolPermissions(this.config)).permissions ?? [];
+      // LAWOSS: YOLO Mode overlay on the managed shell's own read (lawoss/yolo-mode.ts).
+      const { permission: permissions } = await orgPolicyPermissions(this.config, applyYoloNativeRules(nativePermissions, await yoloModeActive(this.config)));
       const settings = await effectiveSandbox(this.config, workspace.id, lineage);
+      const root = await realpath(workspace.path);
       dependencies = settings.dependencies;
       signal.throwIfAborted();
       // A rule decides without asking; a denial never reaches a card.
@@ -330,9 +361,11 @@ export class AgentSandboxService {
           action: `sandbox.${permission}`, summary, paths, sessionID: operation.sessionID, description: operation.description,
           ...(network ? { network } : {}), ...card }, signal, true,
           // LAWOSS: a card that covers this whole computer (folders of other clients too) is never remembered.
-          operation.sessionID && !card.hostWide ? JSON.stringify([workspace.id, operation.sessionID, permission, key, paths, network, permissions, agentRules, settings.enabled, settings.networkMode]) : undefined);
+          operation.sessionID && !card.hostWide ? JSON.stringify([root, actor, this.config.readOnly, permission, key, paths, network, permissions,
+            agentRules.map(({ session: _, ...rule }) => rule), settings.enabled, settings.networkMode]) : undefined);
         // LAWOSS: a one-time decline is not a rule; the model may show a new card on a later explicit request.
         // No answer (timeout) or a cancelled card is reported as such, not as the user's decision.
+        if (!result.allowed && result.reason === "approval_storage_unavailable") throw new ApiError(503, "approval_storage_unavailable", "LegalWork's approval storage is unavailable. No access was granted.");
         if (!result.allowed) throw result.reason === "denied" ? new ApiError(403, "sandbox_permission_declined", PERMISSION_DECLINED_MESSAGE)
           : result.reason === "timeout" ? new ApiError(403, "sandbox_permission_timeout", PERMISSION_TIMEOUT_MESSAGE)
           : new ApiError(403, "sandbox_permission_cancelled", PERMISSION_CANCELLED_MESSAGE);
@@ -352,19 +385,21 @@ export class AgentSandboxService {
         if (asking.length) await confirm(asking[0].permission, asking.map(({ permission, pattern }) => [permission, pattern]), summary, paths, undefined, card);
         signal.throwIfAborted();
       };
-      const authorizeNetwork = async (request: OutboundRequest) => {
+      const authorizeNetwork = async (request: OutboundRequest, completeReview = false) => {
         signal.throwIfAborted();
         if (settings.enabled && settings.networkMode === "block") throw new ApiError(403, "sandbox_network_blocked", "All sandbox network traffic is blocked in Settings.");
         const bytes = Buffer.from(request.bodyBase64, "base64");
         const text = bytes.toString("utf8");
         const bodyFormat = Buffer.from(text).equals(bytes) && !/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(text) ? "text" : "base64";
         const body = bodyFormat === "text" ? text : `Base64: ${request.bodyBase64}`;
-        // The approval is bound to the in-memory immutable request. A changed
+        // The approval is bound to the exact immutable request. A changed
         // body, URL or header necessarily produces a separate request.
-        const preview = `${request.method} ${request.url}\n\nHeaders:\n${JSON.stringify(request.headers, null, 2)}\n\nBody (${request.bodyBytes} bytes):\n${body}\n\nRequest SHA-256: ${request.sha256}`;
+        const preview = completeReview ? `${request.method} ${request.url}\n\nRequest SHA-256: ${request.sha256}`
+          : `${request.method} ${request.url}\n\nHeaders:\n${JSON.stringify(request.headers, null, 2)}\n\nBody (${request.bodyBytes} bytes):\n${body}\n\nRequest SHA-256: ${request.sha256}`;
         const action = permissionAction(permissions, "webfetch", request.url);
-        await ask("webfetch", request.url, preview, [], settings.enabled && settings.networkMode === "approve" ? restrictive(["ask", action]) : action, preview.length <= 16000, { url: request.url, method: request.method, headers: request.headers,
-          body: bodyFormat === "text" ? text : request.bodyBase64, bodyFormat, bodyBytes: request.bodyBytes });
+        await ask("webfetch", request.url, preview, [], settings.enabled && settings.networkMode === "approve" ? restrictive(["ask", action]) : action, completeReview || preview.length <= 16000, { url: request.url, method: request.method, headers: request.headers,
+          body: bodyFormat === "text" ? text : request.bodyBase64, bodyFormat, bodyBytes: request.bodyBytes,
+          ...(completeReview ? { complete: true, sha256: request.sha256 } : {}) });
         return true;
       };
       return await work({ settings, permissions, signal, ask, askOnce, authorizeNetwork });

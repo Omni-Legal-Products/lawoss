@@ -75,7 +75,8 @@ describe("N-A7-12: Upraviť len pri poskytovateľovi s vlastnou adresou", () => 
 
   test("Nastavenia používajú háčik a hláška je preložená", () => {
     const route = readFileSync(join(import.meta.dir, "../src/react-app/shell/settings-route.tsx"), "utf8");
-    expect(route).toContain("...lawossProviderRow(provider),");
+    // Engine v2: upravovateľnosť hlási server (`editableAsCustom`); LAWOSS dopĺňa popis predplatného ChatGPT.
+    expect(route).toContain("sourceLabel: lawossProviderRow(provider).sourceLabel,");
     expect(route).not.toContain('editableAsCustom: provider.source === "custom"');
     expect(route).not.toContain("Couldn't load configuration");
     expect(route).toContain('t("lawoss.providers.edit_unavailable", { name: resolveProviderDisplayName(providerId) })');

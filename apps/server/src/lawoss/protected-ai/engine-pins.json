@@ -1,23 +1,23 @@
 {
-  "engineVersion": "1.18.29",
-  "repository": "anomalyco/opencode",
-  "releaseId": 383062420,
+  "engineVersion": "2.1.4-legalwork.http-policy.3",
+  "repository": "legalwork-derivative:anomalyco/opencode@68bc26b7da1990ce10ffecfbc1e09eb13aa5d824",
+  "releaseId": "recipe-sha256:6e091b7f5aa124f687826b0812a46c73ed622dfc05904b9d4470e76ed50f8c8a",
   "architectures": {
     "arm64": {
-      "id": 545047606,
-      "name": "opencode-linux-arm64.tar.gz",
-      "size": 60343887,
-      "sha256": "70baf769395ca4e7a68924026530c390eace194f3b7e4919d4efcb2aa2eed3c0",
-      "binarySize": 184199312,
-      "binarySha256": "e94d9ebec16ce2611eae94026afe8ec87f2e2dcc66db40bc4f889955b026eb75"
+      "target": "linux-arm64",
+      "name": "opencode-2.1.4-legalwork.http-policy.3-linux-arm64.tar.gz",
+      "size": 112935272,
+      "sha256": "52d2a6eb73d54abf4ad7591188743d235ccad9f60025dde944c83d979b4f0f02",
+      "binarySize": 236309496,
+      "binarySha256": "d53dffc2bcd9250a49b72faca4d0f6b166f007992e08e73c706dcba89eee7673"
     },
     "x64": {
-      "id": 545047611,
-      "name": "opencode-linux-x64-baseline.tar.gz",
-      "size": 60527414,
-      "sha256": "03a3f2f063e23477e3e4c3a738eb389f56c5a6ecf54d6a5a6d91caab557f042d",
-      "binarySize": 184666240,
-      "binarySha256": "ca6c0e1f42be3120595bf6848937e7586ec862c87fa7aa111e89c7cc6e9a4650"
+      "target": "linux-x64-baseline",
+      "name": "opencode-2.1.4-legalwork.http-policy.3-linux-x64-baseline.tar.gz",
+      "size": 114147038,
+      "sha256": "50fc241d5c3a18a2317cc9874aefacaa38bc5b401289280ed90b8a749f03dc88",
+      "binarySize": 240556208,
+      "binarySha256": "639468c3dff3346643dcf81fee8b5aa017c42cf23939222aeb3e755aadf65842"
     }
   }
 }

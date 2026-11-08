@@ -5,11 +5,13 @@ Open in LegalWork: [Home](legalwork://app/home), [Account](legalwork://app/setti
 ## Set up the app
 
 1. Install and open the desktop app for your operating system. On macOS, move LegalWork to Applications before launching it. Keep the installed app in a stable location so OS permission grants keep working.
-2. Follow the welcome screens. Folder access, audio setup and Office setup can require separate permissions. Skip optional capabilities you do not need and configure them later in Settings.
+2. Follow the welcome screens. Folder access, audio setup and Office setup can require separate permissions. On **Your legal research**, select your country and the databases you want LegalWork to use, then save each login in its secure card. See [research database setup](integrations.md#research-databases). Skip optional capabilities you do not need and configure them later in Settings.
 3. Open **Settings > AI Providers** and connect a provider, or use **Settings > Account** for your firm's Eigenwelt sign-in. Enter credentials in the connection form, not in a chat. An Eigenwelt account and a separately connected model provider are different connections.
 4. Add or select a local folder from the sidebar. This is the workspace where the assistant reads files and saves outputs. Use **Settings > Permissions** to authorize additional folders when needed.
 5. Choose **New Chat**, select an available model, and state the task. Attach a file or mention a workspace file with `@`. For example: "Read this agreement and identify the termination provisions, citing the clauses."
 6. Review the assistant's output and any permission request. Open output file links in the document panel. A chat response is not proof that a file was saved: check the named output and any tool errors.
+
+Opening a project does not require a separate setup approval. LegalWork loads the project's settings and available tools automatically. Firm policies, allowed folders and permissions for individual actions still apply. Install skills, workflows and connectors through LegalWork, and manage access in Settings.
 
 ## Set up meeting recording
 

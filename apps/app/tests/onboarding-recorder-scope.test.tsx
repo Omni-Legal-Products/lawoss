@@ -53,11 +53,11 @@ const featureSteps: { feature: RecorderFeature; step: number; heading: string }[
   { feature: "dictation", step: 4, heading: "Dictate anywhere" },
 ];
 for (const { feature, step, heading } of featureSteps) {
-  test(`${feature} has its own progress point in the six-step onboarding`, () => {
+  test(`${feature} has its own progress point in the seven-step onboarding`, () => {
     const html = renderToStaticMarkup(<RecorderFlow feature={feature} demo loading={false}
       meetingRequirements={[]} dictationRequirements={[]} onBack={() => {}} onDone={() => {}} />);
     expect(html).toContain(heading);
-    expect(html).toContain('aria-valuemax="6"');
+    expect(html).toContain('aria-valuemax="7"');
     expect(html).toContain(`aria-valuenow="${step}"`);
   });
 }

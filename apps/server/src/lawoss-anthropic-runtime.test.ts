@@ -9,10 +9,11 @@ import { buildLegalworkRuntimeConfigObject } from "./legalwork-runtime-config.js
 describe("LAWOSS: Anthropic v runtime konfigurácii enginu", () => {
   test("auth plugin je zapísaný a Anthropic nie je medzi zakázanými poskytovateľmi", async () => {
     const config = await buildLegalworkRuntimeConfigObject();
-    const plugins = Array.isArray(config.plugin) ? config.plugin : [];
+    const plugins = Array.isArray(config.plugins) ? config.plugins : [];
     expect(plugins).toContain("opencode-anthropic-auth");
-    const disabled = Array.isArray(config.disabled_providers) ? config.disabled_providers : [];
-    expect(disabled).toContain("opencode");
-    expect(disabled).not.toContain("anthropic");
+    // Engine v2: a disabled provider is a native `provider.use` denial.
+    const policies = Array.isArray(config.policies) ? config.policies : [];
+    expect(policies).toContainEqual({ action: "provider.use", resource: "opencode", effect: "deny" });
+    expect(policies).not.toContainEqual({ action: "provider.use", resource: "anthropic", effect: "deny" });
   });
 });

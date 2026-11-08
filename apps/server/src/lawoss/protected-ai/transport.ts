@@ -26,7 +26,7 @@ const envelope = z.strictObject({
   temperature: z.number().optional(), top_p: z.number().optional(), max_tokens: z.number().int().positive().optional(), max_completion_tokens: z.number().int().positive().optional(),
   presence_penalty: z.number().optional(), frequency_penalty: z.number().optional(), seed: z.number().int().optional(), stop: z.union([z.string(), z.array(z.string())]).optional(), parallel_tool_calls: z.boolean().optional(),
 });
-const customProvider = z.object({npm: z.literal("@ai-sdk/openai-compatible"), options: z.object({baseURL: z.url(), apiKey: z.string().optional()}), models: z.record(z.string(), z.unknown())});
+const customProvider = /* Engine v2 provider block (v1: npm/options). */ z.object({package: z.literal("@opencode/ai/providers/openai-compatible"), settings: z.object({baseURL: z.url(), apiKey: z.string().optional()}), models: z.record(z.string(), z.unknown())});
 const measurementSchema = z.record(z.string(), z.string());
 
 /** Host-only identity for profile binding; credentials are intentionally omitted. */
@@ -46,14 +46,14 @@ async function targetCredential(config: ServerConfig, providerId: string, modelI
       throw new ApiError(403, "protected_ai_provider_unsupported", "The selected organization model is unsupported by the confined transport.");
     baseURL = organization.source.baseURL;
     if (organization.key.by === "firm") apiKey = await orgPolicySecret(config, organization.key.secretRef) ?? "";
-    else if (organization.key.by === "member" && custom.success) apiKey = custom.data.options.apiKey ?? "";
+    else if (organization.key.by === "member" && custom.success) apiKey = custom.data.settings.apiKey ?? "";
     else apiKey = "";
     if (!apiKey) throw new ApiError(403, "protected_ai_account_missing", "The current organization model account is unavailable.");
   } else {
     if ((await appliedOrgPolicy(config, "ai.chat.allowCustom"))?.value === false)
       throw new ApiError(403, "org_policy_denied", "The organization does not permit custom model connections.");
     if (!custom.success || !Object.hasOwn(custom.data.models, modelId)) throw new ApiError(409, "protected_ai_provider_unsupported", "Select a configured OpenAI-compatible provider and model.");
-    baseURL = custom.data.options.baseURL; apiKey = custom.data.options.apiKey ?? "";
+    baseURL = custom.data.settings.baseURL; apiKey = custom.data.settings.apiKey ?? "";
   }
   const url = new URL(baseURL);
   const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);

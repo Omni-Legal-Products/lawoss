@@ -125,26 +125,11 @@ if (typeof document === "undefined") {
       expect(requests.at(-1)).toEqual({url:"/workspace/selected/files/list?path=Dokumenty",authorization:"Bearer local-auth",hostToken:"local-host"});
     });
   });
-  test("remote nullish bearer precedence and explicit remote host capability reach only the owning server", async () => {
-    await fixture(async (baseUrl, requests) => {
-      const remote: RouteWorkspace = { ...local, id: " rem_worker ", workspaceType: "remote", legalworkHostUrl: ` ${baseUrl} `, legalworkClientToken: " client-auth ", legalworkHostToken: "host-auth", legalworkWorkspaceId: " server-id " };
-      for (const [fields, authorization] of [
-        [{ legalworkToken: " direct-auth " }, "Bearer direct-auth"],
-        [{ legalworkToken: undefined }, "Bearer client-auth"],
-        [{ legalworkToken: "" }, undefined],
-        [{ legalworkToken: undefined, legalworkClientToken: "" }, undefined],
-        [{ legalworkToken: undefined, legalworkClientToken: undefined }, "Bearer host-auth"],
-        [{ legalworkToken: null, legalworkClientToken: null }, "Bearer host-auth"],
-      ] satisfies Array<[Partial<RouteWorkspace>, string | undefined]>) {
-        const endpoint = resolveWorkspaceEndpoint({ ...remote, ...fields }, { baseUrl: "http://wrong-local", token: "wrong-local", hostToken: "never-borrow-local-host" });
-        expect(endpoint?.isRemote).toBe(true);
-        await endpoint?.client.listWorkspaceDirectory(endpoint.workspaceId, "Dokumenty");
-        expect(requests.at(-1)).toEqual({ url: "/workspace/server-id/files/list?path=Dokumenty", authorization, hostToken: "host-auth" });
-      }
-      const fallback = resolveWorkspaceEndpoint({ ...remote, legalworkWorkspaceId: " " }, { baseUrl: "http://wrong-local", token: "wrong-local", hostToken: "never-borrow-local-host" });
-      await fallback?.client.listWorkspaceDirectory(fallback.workspaceId, "Dokumenty");
-      expect(requests.at(-1)?.url).toBe("/workspace/worker/files/list?path=Dokumenty");
-    });
+  // Upstream v0.3.0 retired remote agent workspaces: an archived remote record never resolves, so it cannot
+  // borrow the local server or its host capability.
+  test("retired remote records never resolve an endpoint or borrow the local host capability", () => {
+    const remote = { ...local, id: " rem_worker ", workspaceType: "remote" } as unknown as RouteWorkspace;
+    expect(resolveWorkspaceEndpoint(remote, { baseUrl: "http://local", token: "local-auth", hostToken: "never-borrow-local-host" })).toBeNull();
   });
   test("missing workspace and empty chosen bases disconnect without borrowing fallback servers", () => {
     expect(resolveWorkspaceEndpoint(null, { baseUrl: "http://local", token: "auth" })).toBeNull();

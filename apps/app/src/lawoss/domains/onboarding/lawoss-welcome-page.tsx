@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import {
   createContext,
   useCallback,
@@ -520,7 +521,7 @@ export async function chooseClient(api: Pick<WelcomeApi, "updateOnboardingProfil
   const list = await api.listWorkspaces();
   const root = normalizeDirectoryPath(clientRoot);
   const practice = normalizeDirectoryPath(profile?.officeRoot);
-  if (!list.items.some(workspace => workspace.workspaceType !== "remote" && sameFolder(workspace.path,clientRoot)) || (practice && root !== practice && !root.startsWith(`${practice}/`))) throw new Error("client_workspace_unavailable");
+  if (!list.items.some(workspace => !isRetiredRemoteWorkspace(workspace) && sameFolder(workspace.path,clientRoot)) || (practice && root !== practice && !root.startsWith(`${practice}/`))) throw new Error("client_workspace_unavailable");
   if (sameFolder(clientRoot, profile?.clientRoot)) return null;
   return api.updateOnboardingProfile({ clientRoot, step: "matter" });
 }

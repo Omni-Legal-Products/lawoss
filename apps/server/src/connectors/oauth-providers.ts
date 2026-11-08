@@ -9,7 +9,7 @@ export function connectorOAuthProvider(id: string, client: ConnectorOAuthClientI
   const provider = connectionProvider(id);
   const readOnly = !writeIds.includes(provider);
   const googleScopes: Record<string, string[]> = {
-    gmail: ["https://www.googleapis.com/auth/gmail.readonly", ...readOnly ? [] : ["https://www.googleapis.com/auth/gmail.compose"]],
+    gmail: [readOnly ? "https://www.googleapis.com/auth/gmail.readonly" : "https://www.googleapis.com/auth/gmail.modify"],
     "google-calendar": ["https://www.googleapis.com/auth/calendar.calendarlist.readonly", `https://www.googleapis.com/auth/calendar.events${readOnly ? ".readonly" : ""}`],
     "google-drive": [`https://www.googleapis.com/auth/drive${readOnly ? ".readonly" : ""}`],
   };
@@ -27,7 +27,7 @@ export function connectorOAuthProvider(id: string, client: ConnectorOAuthClientI
   const tenant = client.tenantId || (provider === "onedrive-personal" ? "consumers" : "common");
   const endpoint = `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0`;
   const microsoftScopes: Record<string, string[]> = {
-    outlook: ["User.Read", `Mail.Read${readOnly ? "" : "Write"}`, ...readOnly ? [] : ["Mail.Send"], `Calendars.Read${writeIds.includes("outlook-calendar") ? "Write" : ""}`],
+    outlook: ["User.Read", `Mail.Read${readOnly ? "" : "Write"}`, ...readOnly ? [] : ["Mail.Send"], `MailboxSettings.Read${readOnly ? "" : "Write"}`, `Calendars.Read${writeIds.includes("outlook-calendar") ? "Write" : ""}`],
     onedrive: [`Files.Read${readOnly ? "" : "Write"}.All`], "onedrive-personal": [`Files.Read${readOnly ? "" : "Write"}.All`], "sharepoint-files": ["Sites.Read.All", `Files.Read${readOnly ? "" : "Write"}.All`],
   };
   const permissions = microsoftScopes[provider];

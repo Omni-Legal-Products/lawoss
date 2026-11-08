@@ -2,6 +2,7 @@ import { createCanvas, loadImage, DOMMatrix, GlobalFonts, Path2D } from "@napi-r
 import { pdfAsset } from "./pdf-assets.js";
 import type { OcrContent, OcrPage } from "../ocr/types.js";
 import { pdfQuoteRegions } from "./highlights.js";
+import { ApiError } from "../errors.js";
 
 export type RenderedPage = { image: OcrPage; nativeText: string; highlights?: OcrContent["regions"][number]["box"][] };
 export type RenderedDocument = { pageCount: number; page: (number: number, signal: AbortSignal, quote?: string) => Promise<RenderedPage>; close: () => Promise<void> };
@@ -98,15 +99,20 @@ export async function openDocument(bytes: Uint8Array, kind: "pdf" | "image"): Pr
 }
 
 /** Text-only extraction avoids image rendering and OCR for searchable PDFs. */
-export async function extractPdfText(bytes: Uint8Array, signal: AbortSignal): Promise<string[]> {
-  return (await inspectPdfText(bytes, signal)).map(page => page.text);
+export async function extractPdfText(bytes: Uint8Array, signal: AbortSignal, selectedPages?: number[]) {
+  const result = await inspectPdfPages(bytes, signal, false, selectedPages);
+  return { pageCount: result.pageCount, pages: result.pages.map(({ page, text }) => ({ page, text })) };
 }
 
 /** Native text is sufficient only when no visual additions need recognition.
  * Images, drawn paths and annotations can carry handwritten amendments even on
  * an otherwise searchable page. Text length alone cannot establish coverage. */
 export type PdfPageCoverage = { page: number; nativeTextCoverage: "complete" | "missing" | "damaged"; visualReasons: Array<"images" | "drawn-paths" | "shading" | "annotations"> };
-export async function inspectPdfText(bytes: Uint8Array, signal: AbortSignal): Promise<Array<PdfPageCoverage & { text: string; needsOcr: boolean }>> {
+export async function inspectPdfText(bytes: Uint8Array, signal: AbortSignal, inspectVisualAdditions = true): Promise<Array<PdfPageCoverage & { text: string; needsOcr: boolean }>> {
+  return (await inspectPdfPages(bytes, signal, inspectVisualAdditions)).pages;
+}
+
+async function inspectPdfPages(bytes: Uint8Array, signal: AbortSignal, inspectVisualAdditions: boolean, selectedPages?: number[]) {
   const { getDocument, OPS } = await loadRenderer();
   const loading = getDocument({ data: new Uint8Array(bytes), verbosity: 0, stopAtErrors: true, useSystemFonts: true, useWorkerFetch: false, BinaryDataFactory });
   const abort = () => { void loading.destroy(); };
@@ -115,25 +121,30 @@ export async function inspectPdfText(bytes: Uint8Array, signal: AbortSignal): Pr
     signal.throwIfAborted();
     const pdf = await loading.promise;
     if (pdf.numPages > 1000) throw new Error("PDFs must contain at most 1000 pages.");
+    const selected = [...new Set(selectedPages ?? Array.from({ length: pdf.numPages }, (_, i) => i + 1))].sort((a, b) => a - b);
+    if (selected.some(page => !Number.isInteger(page) || page < 1 || page > pdf.numPages))
+      throw new ApiError(400, "pdf_page", `This PDF has ${pdf.numPages} pages. Choose existing page numbers.`);
     const pages: Array<PdfPageCoverage & { text: string; needsOcr: boolean }> = []; let size = 0;
-    for (let i = 1; i <= pdf.numPages; i++) {
+    for (const i of selected) {
       signal.throwIfAborted();
       const page = await pdf.getPage(i), content = await page.getTextContent();
       const text = content.items.map(item => "str" in item ? item.str + (item.hasEOL ? "\n" : " ") : "").join("");
       size += text.length;
-      if (size > 2_000_000) throw new Error("PDF text exceeds 2 million characters.");
+      if (size > 2_000_000) throw new ApiError(400, "pdf_text_size", "PDF text exceeds 2 million characters. Read fewer pages.");
+      const nativeTextCoverage = !text.trim() ? "missing" : /[\uFFFD\u0000-\u0008\u000B\u000E-\u001F]/u.test(text) ? "damaged" : "complete";
+      // LAWOSS: text-only reads (extractPdfText) never inspect visuals; their caller keeps only page and text.
+      if (!inspectVisualAdditions) { pages.push({ page: i, text, nativeTextCoverage, visualReasons: [], needsOcr: !text.trim() }); page.cleanup(); continue; }
       const [operators, annotations] = await Promise.all([page.getOperatorList(), page.getAnnotations()]);
       const visualReasons: PdfPageCoverage["visualReasons"] = [];
       if (operators.fnArray.some(op => [OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintImageMaskXObject].includes(op))) visualReasons.push("images");
       if (operators.fnArray.includes(OPS.constructPath)) visualReasons.push("drawn-paths");
       if (operators.fnArray.includes(OPS.shadingFill)) visualReasons.push("shading");
       if (annotations.some(annotation => annotation.subtype !== "Link")) visualReasons.push("annotations");
-      const nativeTextCoverage = !text.trim() ? "missing" : /[\uFFFD\u0000-\u0008\u000B\u000E-\u001F]/u.test(text) ? "damaged" : "complete";
       // Paths can be borders or handwriting. Keep their review gate separate
       // from text extraction; only a human inspecting these bytes can decide.
       pages.push({ page: i, text, nativeTextCoverage, visualReasons, needsOcr: nativeTextCoverage !== "complete" || visualReasons.length > 0 }); page.cleanup();
     }
-    return pages;
+    return { pageCount: pdf.numPages, pages };
   } finally { signal.removeEventListener("abort", abort); await loading.destroy(); }
 }
 

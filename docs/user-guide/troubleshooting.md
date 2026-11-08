@@ -4,9 +4,15 @@ Open in LegalWork: [Updates](legalwork://app/settings/updates), [AI Providers](l
 
 Start with the exact error, current workspace, platform and action that failed. Check whether the failure is in the app UI, its worker, a model provider or a connected service. A successful connection test for one does not test the others.
 
+After an engine upgrade, LegalWork copies your saved chat history into the new engine database before making chats available. It keeps the original database and a separate history backup. Development builds migrate their own saved development profile; they do not import the installed app's history. If an upgrade reports a history migration error or existing chats cannot be found, keep the profile intact and export diagnostics. Resetting your profile is not required to recover the saved chats.
+
 | Symptom | What to check |
 | --- | --- |
 | No model available | Connect a provider in AI Providers; check disabled-provider filters, the account's available models, key source and any provider error. |
+| New project or wiki cannot start a task | Read the project setup error. Retry setup after resolving it; the project must publish its engine configuration before accepting a task. |
+| Project says its settings cannot be accessed or updated | Reconnect its drive or cloud folder and make sure LegalWork can write to that project's hidden `.opencode` folder. Then click **Refresh** in the project notice. Other projects remain available; there is no need to reset the app or approve project automation. |
+| Message delivery is unconfirmed or paused | Inspect the linked chat before retrying. Resolve the displayed cause, then resume the queued message explicitly. A lost response does not prove the message was rejected. |
+| Older chat reports missing migration data | Keep the recovery copies and contact support. Do not delete the app database or reset permissions to bypass the recovery error. |
 | Model request fails | Read the provider's authentication, quota, rate-limit or context-size error. Check the selected model/account and retry when appropriate; reconnecting storage will not fix a provider quota. |
 | File cannot be found or accessed | Confirm the workspace/worker and path. Check Permissions, remote-worker role, and source/provider permissions. An attachment in another workspace may not be present here. |
 | Connector card is visible but tools are absent | Complete sign-in, enable/connect the integration, check its status and accept any required engine reload. Verify credentials on the worker that runs it. |

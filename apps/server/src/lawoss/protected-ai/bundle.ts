@@ -44,7 +44,7 @@ export function protectedGuestBundleFactory(config: ServerConfig, options: {runt
       const engineManifest = JSON.parse(await readFile(join(directory, "protected-opencode-manifest.json"), "utf8"));
       if (engineManifest.schemaVersion !== 1 || engineManifest.engineVersion !== pins.engineVersion || engineManifest.architecture !== architecture
         || engineManifest.repository !== pins.repository || engineManifest.releaseId !== pins.releaseId
-        || engineManifest.asset?.id !== pin.id || engineManifest.asset?.sha256 !== pin.sha256
+        || engineManifest.asset?.name !== pin.name || engineManifest.asset?.sha256 !== pin.sha256
         || engineManifest.binary?.sha256 !== pin.binarySha256 || engineManifest.binary?.size !== pin.binarySize
         || engineManifest.versionProof?.version !== pins.engineVersion || engineManifest.versionProof?.binarySha256 !== pin.binarySha256
         || engineManifest.versionProof?.environment !== "linux-bookworm-guest") throw new Error("The reviewed guest engine or execution proof is missing.");

@@ -14,6 +14,8 @@ export const HIDDEN_SETTINGS_TABS: ReadonlySet<string> = new Set<string>([
   "account",
   // Ich lokálny prepis reči; LAWOSS použije vlastné riešenie.
   "recorder",
+  // Osobný Asistent upstreamu je súčasť predplatného Eigenwelt (CommercialSurface "assistant").
+  "assistant",
 ]);
 
 /** Navigačné položky, ktoré nepatria do LAWOSS rozhrania. */
@@ -132,6 +134,8 @@ export const isLegalQuantsHidden = (): boolean => !isLegalworkSourceEnabled();
  * onboardingu). Pripojenie vlastného modelu (Anthropic, OpenRouter, …) ostáva.
  * Spec 0017 (S5) natrvalo: `wiki-team` je zdieľanie a pripojenie tímovej wiki, `shared-projects`
  * sekcia Zdieľané projekty a `calendar-subscription` odber kalendára (odkaz vydáva Eigenwelt).
+ * `assistant` je osobný Asistent upstreamu v0.3.0 (súčasť predplatného Eigenwelt Plus/Pro, úvodné okno,
+ * ponuka plánov, položka bočného panela); bez účtu Eigenwelt by ukázal len výzvu na predplatné.
  */
 type CommercialSurface =
   | "ai-plans"
@@ -143,7 +147,8 @@ type CommercialSurface =
   | "eigenwelt-trial"
   | "wiki-team"
   | "shared-projects"
-  | "calendar-subscription";
+  | "calendar-subscription"
+  | "assistant";
 
 const HIDDEN_COMMERCIAL_SURFACES: ReadonlySet<CommercialSurface> = new Set<CommercialSurface>([
   "ai-plans",
@@ -156,6 +161,7 @@ const HIDDEN_COMMERCIAL_SURFACES: ReadonlySet<CommercialSurface> = new Set<Comme
   "shared-projects",
   "calendar-subscription",
   "eigenwelt-trial",
+  "assistant",
 ]);
 
 export const isCommercialSurfaceHidden = (surface: CommercialSurface): boolean =>

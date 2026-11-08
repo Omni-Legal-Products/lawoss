@@ -45,6 +45,8 @@ type PendingExecution = {
   clientKey: string;
   resolve: (result: OfficeToolExecutionResult) => void;
   timer: ReturnType<typeof setTimeout>;
+  delivered: boolean;
+  unsubscribe: () => void;
 };
 
 type PollWaiter = {
@@ -125,7 +127,9 @@ export class OfficeToolRelay {
     tool: string,
     args: Record<string, unknown>,
     timeoutMs?: number,
+    signal?: AbortSignal,
   ): Promise<OfficeToolExecutionResult> {
+    if (signal?.aborted) return Promise.resolve({ ok: false, error: "Office action cancelled before delivery." });
     const host = hostForTool(tool);
     const key = this.routeKey(workspaceId, host);
     if (!key) {
@@ -149,24 +153,28 @@ export class OfficeToolRelay {
 
     return new Promise<OfficeToolExecutionResult>((resolve) => {
       const timer = setTimeout(() => {
-        this.pending.delete(request.id);
-        const queue = this.queues.get(key);
-        if (queue) {
-          this.queues.set(
-            key,
-            queue.filter((entry) => entry.id !== request.id),
-          );
-        }
-        resolve({
+        this.complete(workspaceId, request.id, {
           ok: false,
-          error: `The Office pane did not answer within ${Math.round(timeout / 1000)}s. The document may be busy or the pane was closed.`,
+          error: `The Office pane did not answer within ${Math.round(timeout / 1000)}s. The document may be busy or the pane was closed. Inspect the live document before retrying a change.`,
         });
       }, timeout);
-      this.pending.set(request.id, { request, workspaceId, clientKey: key, resolve, timer });
+      const cancel = () => {
+        const pending = this.pending.get(request.id);
+        if (!pending) return;
+        this.complete(workspaceId, request.id, { ok: false, error: pending.delivered
+          ? "Office action cancelled after delivery. The Office.js batch may already have applied changes and cannot be rolled back by cancellation. Inspect the live document before retrying."
+          : "Office action cancelled before delivery; the queued request was removed." });
+      };
+      const pending: PendingExecution = { request, workspaceId, clientKey: key, resolve, timer, delivered: false,
+        unsubscribe: () => signal?.removeEventListener("abort", cancel) };
+      this.pending.set(request.id, pending);
+      signal?.addEventListener("abort", cancel, { once: true });
+      if (signal?.aborted) { cancel(); return; }
 
       const waiter = this.waiters.get(key)?.shift();
       if (waiter) {
         clearTimeout(waiter.timer);
+        pending.delivered = true;
         waiter.resolve([request]);
         return;
       }
@@ -200,6 +208,10 @@ export class OfficeToolRelay {
     const queue = this.queues.get(key) ?? [];
     if (queue.length > 0) {
       this.queues.set(key, []);
+      for (const request of queue) {
+        const pending = this.pending.get(request.id);
+        if (pending) pending.delivered = true;
+      }
       return Promise.resolve(queue);
     }
 
@@ -239,6 +251,9 @@ export class OfficeToolRelay {
     if (!entry || entry.workspaceId !== workspaceId) return false;
     clearTimeout(entry.timer);
     this.pending.delete(requestId);
+    entry.unsubscribe();
+    const queue = this.queues.get(entry.clientKey);
+    if (queue) this.queues.set(entry.clientKey, queue.filter(request => request.id !== requestId));
     entry.resolve(result);
     return true;
   }

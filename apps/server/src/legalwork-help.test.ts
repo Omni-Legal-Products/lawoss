@@ -9,7 +9,8 @@ import { z } from "zod";
 import { CORE_OPENCODE_FILES } from "./core-skills.js";
 import { listSkills } from "./skills.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
-import { LegalWorkCapabilitiesKnowledge } from "./opencode-plugins/legalwork-capabilities-knowledge.js";
+import LegalWorkCapabilitiesKnowledge from "./opencode-plugins/legalwork-capabilities-knowledge.js";
+import { nativePluginTestRuntime } from "./opencode-plugins/native-plugin-test-support.js";
 import { readSkillPackageFile, skillPackageDirectory } from "./skill-package.js";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -176,16 +177,19 @@ describe("bundled LegalWork help", () => {
   });
 
   test("the product-help router refers to an installed, valid skill", async () => {
-    const plugin = await LegalWorkCapabilitiesKnowledge();
-    const output: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"](null, output);
-    await withWorkspace(async (root) => {
-      await ensureWorkspaceFiles(root, "starter");
-      const skills = await listSkills(root, false);
-      const help = skills.find((skill) => skill.name === "legalwork-help");
-      expect(help).toBeDefined();
-      if (!help) throw new Error("Product help was not installed");
-      expect(output.system.join("\n")).toContain(help.name);
-    });
+    const plugin = nativePluginTestRuntime();
+    try {
+      await plugin.start(LegalWorkCapabilitiesKnowledge);
+      const output: { sessionID: string; agent: string; system: Array<{ type: "text"; text: string }> } = { sessionID: "help", agent: "build", system: [] };
+      await plugin.hook("session", "context", output);
+      await withWorkspace(async (root) => {
+        await ensureWorkspaceFiles(root, "starter");
+        const skills = await listSkills(root, false);
+        const help = skills.find((skill) => skill.name === "legalwork-help");
+        expect(help).toBeDefined();
+        if (!help) throw new Error("Product help was not installed");
+        expect(output.system.map(part => part.text).join("\n")).toContain(help.name);
+      });
+    } finally { await plugin.close(); }
   });
 });

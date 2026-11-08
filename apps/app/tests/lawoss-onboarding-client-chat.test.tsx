@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListView as ProviderListResponse } from "../src/app/types";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingPlanRequest, OnboardingSuggestion } from "../src/lawoss/domains/onboarding/api";
 import { BatchView, ChatUnavailableView, FoundView } from "../src/lawoss/domains/onboarding/found-screen";
 import { FOUND_TEXT, foundText } from "../src/lawoss/domains/onboarding/found-text";
@@ -23,7 +23,7 @@ const props = { text: foundText("sk"), busy: false, selected: [] as string[], sc
 // Čiastočný SDK zoznam: len polia, ktoré čítajú pomocníci zoznamu poskytovateľov (ako lawoss-matter-model-gap).
 const providerList = (connected: string[], models: Record<string, string[]>): ProviderListResponse =>
   ({
-    all: Object.entries(models).map(([id, ids]) => ({ id, name: id, env: [], source: "api", models: Object.fromEntries(ids.map((modelId) => [modelId, { id: modelId, name: modelId, capabilities: { toolcall: true } }])) })),
+    all: Object.entries(models).map(([id, ids]) => ({ id, name: id, env: [], source: "api", models: Object.fromEntries(ids.map((modelId) => [modelId, { id: modelId, name: modelId, capabilities: { tools: true } }])) })),
     connected,
     default: {},
   }) as unknown as ProviderListResponse;

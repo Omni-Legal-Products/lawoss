@@ -43,6 +43,7 @@ export type ShellConfig = {
   collapseProjectSessions: boolean;
   navOrder: ShellNavKey[];
   navNewChat: boolean;
+  navAssistant: boolean;
   navTasks: boolean;
   navWorkflows: boolean;
   navRecorder: boolean;
@@ -105,6 +106,7 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   projectSessions: true,
   collapseProjectSessions: true,
   navNewChat: true,
+  navAssistant: true,
   navTasks: true,
   navWorkflows: true,
   navRecorder: true,

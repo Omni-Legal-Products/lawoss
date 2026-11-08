@@ -46,7 +46,7 @@ test("network settings API authenticates, validates, persists and respects read-
     // or tool permission into consent to enable sandboxing.
     for (const networkMode of networkModeSchema.options) {
       await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({
-        permission: { bash: "allow", edit: "ask" }, sandboxNetworkMode: networkMode,
+        permissions: [{ action: "shell", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "ask" }], sandboxNetworkMode: networkMode,
       }));
       expect(await (await fetch(base + "/sandbox/status", { headers: hostHeaders })).json()).toMatchObject({
         enabled: false, available: null, networkMode,
@@ -69,9 +69,14 @@ test("network settings API authenticates, validates, persists and respects read-
     await mkdir(folder);
     config.workspaces.push({ id: "matter", name: "Matter", path: folder, preset: "starter", workspaceType: "local" });
     config.authorizedRoots.push(folder);
-    const engine = Bun.serve({ port: 0, fetch: (request) => new URL(request.url).pathname === "/agent"
-      ? Response.json([{ name: "build", permission: [{ permission: "*", pattern: "*", action: "allow" }] }])
-      : Response.json({ id: new URL(request.url).pathname.split("/").pop(), directory: folder }) });
+    const engine = Bun.serve({ port: 0, fetch(request) {
+      const path = new URL(request.url).pathname, location = { directory: folder };
+      if (path === "/api/agent") return Response.json({ location, data: [{ id: "build", permissions: [{ action: "*", resource: "*", effect: "allow" }] }] });
+      if (path === "/api/model") return Response.json({ location, data: [] });
+      if (path === "/api/config") return Response.json([]);
+      if (path.startsWith("/api/session/")) return Response.json({ data: { id: path.split("/").pop(), agent: "build", location } });
+      return new Response("Unknown native fixture route", { status: 404 });
+    } });
     config.opencodeBaseUrl = engine.url.origin;
     const sessionPath = base + "/workspace/matter/sandbox/session/chat-1";
     expect((await fetch(sessionPath, { method: "PATCH", headers: { authorization: "Bearer client", "content-type": "application/json" }, body: JSON.stringify({ settings: { enabled: true, networkMode: "block" } }) })).status).toBe(401);
@@ -99,7 +104,7 @@ test("network settings API authenticates, validates, persists and respects read-
       await fetch(base + "/org-policy/release", { method: "POST", headers: hostHeaders, body: JSON.stringify({ key: "sandbox" }) });
       globalThis.fetch = realFetch;
     }
-    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "ask", read: "allow" } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "shell", resource: "*", effect: "ask" }, { action: "read", resource: "*", effect: "allow" }] }));
     const commands = Array.from({ length: 10 }, (_, index) => fetch(base + "/workspace/matter/sandbox/execute", {
       method: "POST", headers: { authorization: "Bearer client", "content-type": "application/json" },
       body: JSON.stringify({ command: "echo test", agent: "build", sessionID: `chat-${index}`, description: "Read a public source" }),

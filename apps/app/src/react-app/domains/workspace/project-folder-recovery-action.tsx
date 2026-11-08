@@ -1,3 +1,4 @@
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -16,7 +17,7 @@ export function ProjectFolderRecoveryAction({ client, workspaceId, error }: { cl
   const [busy, setBusy] = useState(false);
   const [typed, setTyped] = useState<string | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
-  if (!available || !workspace || workspace.workspaceType === "remote") return null;
+  if (!available || !workspace || isRetiredRemoteWorkspace(workspace)) return null;
   const recover = async () => {
     setBusy(true); setFailure(null);
     try {

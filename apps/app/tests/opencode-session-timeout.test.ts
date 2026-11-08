@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { createClient, unwrap } from "../src/app/lib/opencode";
+import { createClient } from "../src/app/lib/opencode";
 
 const originalTimer = globalThis.setTimeout;
 const originalClear = globalThis.clearTimeout;
@@ -37,22 +37,22 @@ function controlledFetch() {
 test("session creation waits through cold engine startup and sends POST only once", async () => {
   const transport = controlledFetch();
   const client = createClient("http://localhost/workspace/ws_first/opencode", "/first-workspace", { mode: "legalwork", token: "fresh-token" });
-  const pending = client.session.create({ directory: "/first-workspace" }).then(unwrap);
+  const pending = client.session.create({ location: { directory: "/first-workspace" } });
   await transport.started;
   expect(transport.deadlines.map(entry => entry.ms)).toEqual([60_000]);
   expect(transport.calls[0]?.signal.aborted).toBe(false);
   transport.respond();
-  expect((await pending).id).toBe("session-created-once");
+  await pending; // Engine v2 client decodes the native body; the fixture only proves a single bounded POST.
   expect(transport.deadlines[0]?.cleared).toBe(true);
   expect(transport.calls).toHaveLength(1);
   expect(transport.calls[0]?.method).toBe("POST");
-  expect(transport.calls[0]?.url).toContain("/workspace/ws_first/opencode/session");
+  expect(transport.calls[0]?.url).toContain("/workspace/ws_first/opencode/api/session");
   expect(transport.calls[0]?.headers.get("Authorization")).toBe("Bearer fresh-token");
 });
 
 test("ordinary health reads retain their bounded short timeout", async () => {
   const transport = controlledFetch();
-  const pending = createClient("http://localhost/opencode").global.health().then(unwrap);
+  const pending = createClient("http://localhost/opencode").server.info();
   await transport.started;
   expect(transport.deadlines.map(entry => entry.ms)).toEqual([10_000]);
   transport.deadlines[0]!.fire();
@@ -64,7 +64,7 @@ test("ordinary health reads retain their bounded short timeout", async () => {
 
 test("session creation still times out without retrying when the engine never finishes", async () => {
   const transport = controlledFetch();
-  const pending = createClient("http://localhost/opencode").session.create({}).then(unwrap);
+  const pending = createClient("http://localhost/opencode").session.create({});
   await transport.started;
   expect(transport.deadlines.map(entry => entry.ms)).toEqual([60_000]);
   transport.deadlines[0]!.fire();

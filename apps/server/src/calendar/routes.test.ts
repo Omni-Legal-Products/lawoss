@@ -7,7 +7,8 @@ test("calendar HTTP auth, receipt creation, aggregation, override history and re
   const root = await mkdtemp(join(tmpdir(), "calendar-http-")), script = join(root, "check.mjs");
   const serverSource = new URL("../server.ts", import.meta.url).href;
   await writeFile(script, `
-    import { mkdir, writeFile } from "node:fs/promises";
+    import { mkdir, readFile, writeFile } from "node:fs/promises";
+    import { createHash } from "node:crypto";
     import { join } from "node:path";
     import assert from "node:assert/strict";
     const { startServer } = await import(${JSON.stringify(serverSource)});
@@ -33,6 +34,8 @@ test("calendar HTTP auth, receipt creation, aggregation, override history and re
       assert.equal((await call(path, "POST", { title: "Invalid", start: "2026-02-30" })).status, 400);
       const result = await call(path + "/calculate", "POST", { skill: "de-civil-deadlines", input: { rule: "de-zpo-period", region: "NW", triggerDate: "2026-01-31", duration: 1, unit: "months", source: "Synthetic court service record" } });
       assert.equal(result.status, 200); const receipt = (await result.json()).calculation;
+      const executedCode = await readFile(join(root, "opencode", "skills", "de-civil-deadlines", "calculate.mjs"));
+      assert.equal(receipt.codeHash, createHash("sha256").update(executedCode).digest("hex"));
       const saved = await call(path, "POST", { title: "Appeal", start: receipt.deadlineDay, timeZone: receipt.timeZone, calculationId: receipt.id, attachmentPaths: ["Order.pdf"] });
       assert.equal(saved.status, 200); const item = (await saved.json()).item;
       assert.equal(item.provenance.kind, "calculated");

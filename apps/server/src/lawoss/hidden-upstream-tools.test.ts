@@ -8,7 +8,8 @@ import { legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from 
 import { GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
-import { appendLawossToolDenials, LAWOSS_DENIED_UPSTREAM_TOOLS, LAWOSS_LOAD_WIKI_TOOLS } from "./hidden-upstream-tools.js";
+import { engineSettings, hasBundledPlugin } from "./test-support/native-config.js";
+import { appendLawossToolDenials, LAWOSS_DENIED_UPSTREAM_TOOLS, LAWOSS_LOAD_WIKI_TOOLS, lawossToolDenialRules } from "./hidden-upstream-tools.js";
 
 const roots: string[] = [];
 let previousDb: string | undefined;
@@ -52,62 +53,75 @@ async function readRuntimeConfig(config: ServerConfig): Promise<Record<string, u
   return parsed;
 }
 
-function permissionOf(value: unknown): Record<string, unknown> {
-  if (!isRecord(value) || !isRecord(value.permission)) throw new Error("permission config missing");
-  return value.permission;
+type Rule = { action: string; resource: string; effect: "allow" | "deny" | "ask" };
+const isRule = (value: unknown): value is Rule => isRecord(value) && typeof value.action === "string" && typeof value.resource === "string"
+  && (value.effect === "allow" || value.effect === "deny" || value.effect === "ask");
+
+/** Engine v2: ordered native rules (`permissions`). */
+function rulesOf(value: unknown): Rule[] {
+  if (!isRecord(value) || !Array.isArray(value.permissions) || !value.permissions.every(isRule)) throw new Error("permissions missing");
+  return value.permissions;
 }
 
 test("S1: runtime config nenačíta plugin wiki", async () => {
   expect(LAWOSS_LOAD_WIKI_TOOLS).toBe(false);
   const config = await setup();
-  await writeLegalworkRuntimeConfigFile(config, "ws_1");
-  const plugins = (await readRuntimeConfig(config)).plugin;
-  if (!Array.isArray(plugins)) throw new Error("plugin list missing");
-  expect(plugins.some((spec) => typeof spec === "string" && spec.includes("legalwork-wiki-tools"))).toBe(false);
+  const plugins = (await engineSettings(config, "ws_1")).plugins;
+  expect(await hasBundledPlugin(plugins, "legalwork-wiki-tools")).toBe(false);
   // Ostatné pribalené pluginy ostávajú.
-  expect(plugins.some((spec) => typeof spec === "string" && spec.includes("legalwork-calendar-tools"))).toBe(true);
+  expect(await hasBundledPlugin(plugins, "legalwork-calendar-tools")).toBe(true);
+  expect(await hasBundledPlugin(plugins, "lawoss-view-tools")).toBe(true);
 });
 
 test("S2: zapisujúce nástroje upstreamu sú zamietnuté aj pri širokom povolení používateľa", async () => {
   const config = await setup();
   await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, (current) => ({
     ...current,
-    permission: { legalwork_calendar_create: "allow", "wiki_*": "allow", "*": "allow", bash: "ask" },
+    permissions: [
+      { action: "legalwork_calendar_create", resource: "*", effect: "allow" },
+      { action: "wiki_*", resource: "*", effect: "allow" },
+      { action: "*", resource: "*", effect: "allow" },
+      { action: "shell", resource: "*", effect: "ask" },
+    ],
   }));
-  await writeLegalworkRuntimeConfigFile(config, "ws_1");
-  const parsed = await readRuntimeConfig(config);
-  const permission = permissionOf(parsed);
-  const keys = Object.keys(permission);
+  const parsed: Record<string, unknown> = { ...(await engineSettings(config, "ws_1")) };
+  const rules = rulesOf(parsed);
+  const lastIndex = (action: string) => rules.reduce((found, rule, index) => rule.action === action ? index : found, -1);
   for (const tool of LAWOSS_DENIED_UPSTREAM_TOOLS) {
-    expect(permission[tool]).toBe("deny");
     // Za pravidlami používateľa: engine berie posledné zhodné pravidlo.
-    expect(keys.indexOf(tool)).toBeGreaterThan(keys.indexOf("*"));
+    expect(lastIndex(tool)).toBeGreaterThan(lastIndex("*"));
+    expect(rules[lastIndex(tool)]?.effect).toBe("deny");
   }
   // Upstream pravidlo pokynov projektu ostáva posledné.
-  expect(keys.at(-1)).toBe("legalwork_project_set_instructions");
+  expect(rules.at(-1)?.action).toBe("legalwork_project_set_instructions");
   // Vyhodnotenie ako v engine: zástupné znaky zachytia nástroje wiki aj pohľadov.
   for (const tool of ["legalwork_calendar_create", "legalwork_schedule_delete", "legalwork_project_set_metadata", "wiki_write", "wiki_suggest"]) {
-    expect(permissionAction(permission, tool, "*")).toBe("deny");
+    expect(permissionAction(rules, tool, "*")).toBe("deny");
   }
-  expect(permissionAction(permission, "view_create", "*")).toBe("allow");
+  expect(permissionAction(rules, "view_create", "*")).toBe("allow");
   // Čítanie a ostatné nástroje sa nemenia.
-  expect(permissionAction(permission, "legalwork_calendar_list", "*")).toBe("allow");
-  expect(permissionAction(permission, "bash", "*")).toBe("ask");
+  expect(permissionAction(rules, "legalwork_calendar_list", "*")).toBe("allow");
+  expect(permissionAction(rules, "shell", "*")).toBe("ask");
 
   // Plánovaný beh nad všetkými projektami dedí zamietnutia (jeho pravidlá idú v engine až za globálnymi).
-  const agents = parsed.agent;
+  const agents = parsed.agents;
   if (!isRecord(agents)) throw new Error("agents missing");
-  const scheduled = permissionOf(agents["legalwork-scheduled-all"]);
+  const scheduled = rulesOf(agents["legalwork-scheduled-all"]);
   for (const tool of ["legalwork_schedule_create", "wiki_write"]) {
     expect(permissionAction(scheduled, tool, "*")).toBe("deny");
   }
-  expect(permissionAction(permissionOf(agents["legalwork-scheduled-project"]), "legalwork_calendar_update", "*")).toBe("deny");
+  expect(permissionAction(rulesOf(agents["legalwork-scheduled-project"]), "legalwork_calendar_update", "*")).toBe("deny");
 });
 
-test("zamietnutie presunie existujúci kľúč na koniec", () => {
+test("zamietnutie ide za pravidlo používateľa aj vo v2", () => {
+  const rules: Rule[] = [{ action: "wiki_*", resource: "*", effect: "allow" }, { action: "*", resource: "*", effect: "allow" }, ...lawossToolDenialRules()];
+  expect(permissionAction(rules, "wiki_read", "*")).toBe("deny");
+});
+
+test("v1 mapa: zamietnutie presunie existujúci kľúč na koniec", () => {
   const permission: Record<string, unknown> = { "wiki_*": "allow", "*": "allow" };
   appendLawossToolDenials(permission);
   const keys = Object.keys(permission);
   expect(keys.indexOf("wiki_*")).toBeGreaterThan(keys.indexOf("*"));
-  expect(permissionAction(permission, "wiki_read", "*")).toBe("deny");
+  expect(permission["wiki_*"]).toBe("deny");
 });

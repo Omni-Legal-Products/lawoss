@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { AiGuidance } from "../ai/guidance";
 import { useEffect, useState } from "react";
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListView as ProviderListResponse } from "@/app/types";
 import { preferRealWorkspace } from "../../home-workspace";
 import { CircleAlert, CircleCheck, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";

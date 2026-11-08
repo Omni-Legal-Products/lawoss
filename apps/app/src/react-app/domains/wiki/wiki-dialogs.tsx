@@ -15,6 +15,8 @@ import { toast } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { t } from "@/i18n";
 import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
+import { useLocale } from "@/i18n/use-locale";
+import { useLocal } from "@/react-app/kernel/local-provider";
 import { wikiNewPagePath } from "./wiki-model";
 import { joinedTeamWikiIds, wikiSharingError, wikiSharingInput, wikiSharingValid } from "./wiki-sharing";
 
@@ -65,11 +67,13 @@ function LocalFolderField(props: { value: string; onChange: (value: string) => v
 }
 
 export function CreateWikiDialog(props: { client: LegalworkServerClient; serverUrl: string; wikis: WikiVault[]; onClose: () => void; onCreate: (input: WikiCreateInput) => Promise<void>; onJoin: (input: { wikiId: string; root?: string }) => Promise<void> }) {
+  const language = useLocale() === "de" ? "de" : "en";
+  const { prefs } = useLocal();
   const [tab, setTab] = useState<"create" | "join">("create");
   const [shared, setShared] = useState(false);
   const [name, setName] = useState("");
   const [root, setRoot] = useState("");
-  const [template, setTemplate] = useState<"firm" | "blank">("firm");
+  const [template, setTemplate] = useState<NonNullable<WikiCreateInput["template"]>>("firm");
   const [sharing, setSharing] = useState<WikiSharingInput>(wikiSharingInput());
   const [joinId, setJoinId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -82,7 +86,7 @@ export function CreateWikiDialog(props: { client: LegalworkServerClient; serverU
     setBusy(true); setError(null);
     try {
       if (tab === "join") await props.onJoin({ wikiId: joinId, ...(root.trim() ? { root: root.trim() } : {}) });
-      else await props.onCreate({ name: name.trim(), ...(root.trim() ? { root: root.trim() } : {}), template, ...(shared ? { sharing } : {}) });
+      else await props.onCreate({ name: name.trim(), ...(root.trim() ? { root: root.trim() } : {}), template, ...(template === "legal-research" ? { language, ...(prefs.researchCountry ? { country: prefs.researchCountry } : {}) } : {}), ...(shared ? { sharing } : {}) });
     } catch (err) { setError(shared || tab === "join" ? wikiSharingError(err) : wikiError(err)); }
     finally { setBusy(false); }
   };
@@ -107,7 +111,8 @@ export function CreateWikiDialog(props: { client: LegalworkServerClient; serverU
                 </div>
               </fieldset>}
               {shared ? <div className="space-y-4"><TeamNotice loading={team.isLoading} error={team.error} team={team.data} retry={() => void team.refetch()} />{team.data ? <AudienceFields team={team.data} value={sharing} onChange={setSharing} disabled={busy} /> : null}</div> : null}
-              <label className="grid gap-2 text-sm font-medium">{t("wiki.starter")}<select className={wikiSelectClass} value={template} disabled={busy} onChange={(event) => setTemplate(event.target.value === "blank" ? "blank" : "firm")}><option value="firm">{t("wiki.firm_starter")}</option><option value="blank">{t("wiki.blank_starter")}</option></select></label>
+              <label className="grid gap-2 text-sm font-medium">{t("wiki.starter")}<select className={wikiSelectClass} value={template} disabled={busy} onChange={(event) => { const value = event.target.value; if (value === "firm" || value === "blank" || value === "legal-research") setTemplate(value); }}><option value="firm">{t("wiki.firm_starter")}</option><option value="legal-research">{t("wiki.research_starter")}</option><option value="blank">{t("wiki.blank_starter")}</option></select></label>
+              {template === "legal-research" ? <p className="text-xs leading-relaxed text-muted-foreground">{t("wiki.research_starter_hint")}</p> : null}
             </TabsContent>
             <TabsContent value="join" keepMounted className="space-y-4">
               <TeamNotice loading={team.isLoading} error={team.error} team={team.data} retry={() => void team.refetch()} />

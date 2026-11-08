@@ -5,10 +5,13 @@ description: Answer how-to questions about LegalWork using its bundled manual. U
 
 # LegalWork help
 
+For an action request to set up any website login, use legalwork_browser_request_password directly with the user-supplied website_url or a known catalogue provider. Ask for the sign-in URL if missing. The existing secure card checks saved logins. No manual lookup is needed before the card.
+
 For an ordinary how-to question, read the matching page with `legalwork_skill_read`, then answer. This skill and that page are normally sufficient. Use the exact package reference: `name="legalwork-help", path="references/email.md"` for Gmail or Outlook setup. Do not read the index, screen map or localization guide first when the topic is already clear.
 
 | Question | Read |
 | --- | --- |
+| Personal Assistant, proactive updates, scratchpad, morning briefings, daily chats or custom instructions | [assistant.md](references/assistant.md) |
 | Gmail or Outlook email | [email.md](references/email.md) |
 | What is a workflow, create/run workflows or install skills | [skills-workflows.md](references/skills-workflows.md) |
 | Calendar, deadlines, reminders or subscriptions | [calendar.md](references/calendar.md) |
@@ -22,12 +25,13 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Tasks, inbox or notifications | [tasks-intake.md](references/tasks-intake.md) |
 | Files, document editors or saving outputs | [files-documents.md](references/files-documents.md) |
 | Cloud drives or network storage | [connected-storage.md](references/connected-storage.md) |
+| Website logins, the general legal-research skill, research databases, country suggestions, beck-online, Lexis, Westlaw, CourtListener setup or learned website experience | [integrations.md](references/integrations.md) |
 | Connectors, plugins, browser or Computer Use | [integrations.md](references/integrations.md) |
-| Wiki | [wiki.md](references/wiki.md) |
+| Wiki, Legal Research / Rechtliche Recherche, research starter selection, jurisdiction/area browsing, proposed folders, consent to file findings or staged research contributions | [wiki.md](references/wiki.md) |
 | Save, copy, rename, export or reopen dashboards and reports | [dashboards.md](references/dashboards.md) |
 | Evaluations | [evaluations.md](references/evaluations.md) |
 | Word, Excel or PowerPoint add-ins | [office-addins.md](references/office-addins.md) |
-| Account, language, appearance, permissions, secrets or privacy | [settings-privacy.md](references/settings-privacy.md) |
+| Browser passwords, inline sign-in card, automatic password filling, account, language, appearance, permissions, secrets or privacy | [settings-privacy.md](references/settings-privacy.md) |
 | Setup | [getting-started.md](references/getting-started.md) |
 | Errors, updates or recovery | [troubleshooting.md](references/troubleshooting.md) |
 

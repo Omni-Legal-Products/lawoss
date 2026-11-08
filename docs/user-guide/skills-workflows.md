@@ -36,6 +36,6 @@ For document-by-document tables, read [Tabular Review](reviews.md). The native p
 
 Use the library's supported import controls for a skill/workflow package or repository, and export a workflow as a ZIP when you need its reusable files. The **Team** view and sharing actions are available when the firm's connection and permissions allow them. Sharing a library item is different from sharing the source matter documents. Inspect imported instructions and resource files before running them against a matter.
 
-Bundled skills, including `legalwork-help`, are installed with the app and refreshed when the bundled version changes. Save a separately named custom skill for firm-specific adaptations instead of relying on modifications to an app-managed copy.
+Bundled skills, including `legalwork-help`, are installed centrally with the app and refreshed when the bundled version changes. New projects do not need their own copies. Save a separately named custom skill for firm-specific adaptations instead of relying on modifications to an app-managed copy.
 
 Related: [Tasks](tasks-intake.md), [Scheduled tasks](scheduled-tasks.md), [Tabular Review](reviews.md), [Integrations](integrations.md), [Files](files-documents.md).

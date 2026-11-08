@@ -1,4 +1,6 @@
 export const shellEn = {
+  // Upstream v0.3.0 replaced this with the Assistant hint; LAWOSS Home without a client creates one.
+  "home.new_project_hint": "A new client will be created when you send.",
   "lawoss.yolo.title": "YOLO Mode",
   "lawoss.yolo.description": "The agent works with files and commands on its own, without asking.",
   "lawoss.yolo.state_off": "Off. The agent asks before actions according to the rules below.",
@@ -735,6 +737,7 @@ export const shellEn = {
 type SlavicPluralKey = "lawoss.lite.due_in_days_few" | "lawoss.lite.due_in_days_many" | "lawoss.practice.clients_few" | "lawoss.practice.clients_many";
 
 export const shellCs = {
+  "home.new_project_hint": "Po odeslání bude přidán nový klient.",
   "lawoss.yolo.title": "YOLO Mode",
   "lawoss.yolo.description": "Agent pracuje se soubory a příkazy sám, bez ptaní.",
   "lawoss.yolo.state_off": "Vypnuto. Agent se před akcemi ptá podle pravidel níže.",
@@ -1472,6 +1475,7 @@ export const shellCs = {
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
+  "home.new_project_hint": "Nový klient sa pridá po odoslaní správy.",
   "lawoss.yolo.title": "YOLO Mode",
   "lawoss.yolo.description": "Agent pracuje so súbormi a príkazmi sám, bez pýtania.",
   "lawoss.yolo.state_off": "Vypnuté. Agent sa pred úkonmi pýta podľa pravidiel nižšie.",
@@ -2209,6 +2213,7 @@ export const shellSk = {
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
+  "home.new_project_hint": "Beim Senden wird ein neuer Mandant erstellt.",
   "lawoss.yolo.title": "YOLO Mode",
   "lawoss.yolo.description": "Der Agent arbeitet selbständig mit Dateien und Befehlen, ohne zu fragen.",
   "lawoss.yolo.state_off": "Aus. Der Agent fragt vor Aktionen nach den Regeln unten.",

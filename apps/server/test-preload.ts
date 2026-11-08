@@ -1,6 +1,6 @@
 import { mock } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import * as os from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +16,9 @@ execFileSync("node", [fileURLToPath(new URL("../../scripts/gen-core-skills.mjs",
  * home folder once at startup, so homedir() is replaced rather than HOME.
  */
 const home = mkdtempSync(join(os.tmpdir(), "legalwork-server-test-home-"));
+// Native plugin fixtures live under the repo so normal dependency resolution
+// applies. A clean checkout has no ignored scratch directory yet.
+mkdirSync(new URL("../../.legalwork/scratch/", import.meta.url), { recursive: true });
 const homedir = () => home;
 mock.module("node:os", () => ({ ...os, homedir, default: { ...os, homedir } }));
 

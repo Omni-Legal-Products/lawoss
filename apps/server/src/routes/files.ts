@@ -7,7 +7,7 @@ import { statWithAdvancedMtime } from "../lawoss/advance-mtime.js";
 import { readWorkspaceText } from "../lawoss/workspace-text.js";
 import { projectFileLinkSchema, projectFileSourceSchema, projectFilePath } from "../project-file-schema.js";
 import { workspaceViewFiles } from "../views/repository.js";
-import { isViewFile, copyViewFile } from "../views/schema.js";
+import { isViewFile, copyViewFile, StoredViewSchema } from "../views/schema.js";
 import { importProjectFile, renameProjectFileEntry, projectFileParent, readProjectFileLinks, updateProjectFileLinks } from "../project-file-links.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -200,6 +200,7 @@ type ArtifactTargetInput = {
 };
 
 function artifactPreviewForPath(path: string): string {
+  if (isViewFile(path)) return "view";
   const lowered = path.toLowerCase();
   if (/\.(md|markdown|mdx)$/.test(lowered)) return "markdown";
   if (/\.(csv|tsv|xlsx|xls|ods)$/.test(lowered)) return "sheet";
@@ -320,12 +321,16 @@ export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, inp
       size = info.size;
       updatedAt = info.mtimeMs;
     }
+    const view = existsFile && isViewFile(relativePath)
+      ? StoredViewSchema.safeParse(await workspaceViewFiles(workspaceRoot).read(relativePath).then(bytes => JSON.parse(bytes.toString())).catch(() => null))
+      : null;
     const next = {
       id: key,
       kind: "file",
       value: relativePath,
       name: basename(relativePath),
       preview: artifactPreviewForPath(relativePath),
+      ...(view?.success ? { documentType: view.data.mode } : {}),
       confidence,
       reason,
       exists: existsFile,

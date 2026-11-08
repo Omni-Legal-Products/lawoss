@@ -1,3 +1,4 @@
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import { DiagnosticMessage } from "../../i18n/diagnostic-message";
 import { okfRawFilesQueryOptions } from "../../okf/raw-files";
 import { revalidateScopeTarget } from "../../okf/scope-target";
@@ -95,7 +96,7 @@ export function SpisPage() {
         <>
           <div className="mb-5 space-y-2">
             <p className="break-all text-sm">{text("selectedMatter", { title: cockpit.matter.title, reference: cockpit.matter.matterRef ?? text("noReference") })}<br />{workspace?.path} · {(local?.selected ?? cockpit.matter).path || text("workspaceRoot")}</p>
-            <Button disabled={!data || !workspace || !canActOnSource(data,workspace.id) || openingSession || !connection?.client || !workspace || workspace.workspaceType === "remote" || Boolean(query.error)} onClick={() => void openTask()}>{openingSession ? text("openingConversation") : text("openTask")}</Button>
+            <Button disabled={!data || !workspace || !canActOnSource(data,workspace.id) || openingSession || !connection?.client || !workspace || isRetiredRemoteWorkspace(workspace) || Boolean(query.error)} onClick={() => void openTask()}>{openingSession ? text("openingConversation") : text("openTask")}</Button>
             {sessionError ? <p role="alert">{sessionError}</p> : null}
           </div>
           <MatterCockpit cockpit={cockpit} now={now} raw={raw.data ?? {}} scopePaths={data?.inputs.find((i) => i.path === cockpit.matter.path)?.scopePaths} />

@@ -62,6 +62,7 @@ import {
 } from "./panel";
 import { WorkspaceIcon } from "../../../design-system/workspace-icon";
 import { OrgPolicyBanner } from "../../connections/org-policy-ui";
+import { AssistantFlowerIcon } from "../../session/sidebar/assistant-appearance";
 
 export function getSettingsTabIcon(tab: SettingsTab) {
   switch (tab) {
@@ -71,6 +72,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
       return TableProperties;
     case "account":
       return UserCircle;
+    case "assistant":
+      return AssistantFlowerIcon;
     case "personalisation":
       return Sparkles;
     case "notifications":
@@ -126,6 +129,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return t("review.title");
     case "account":
       return t("settings.tab_account");
+    case "assistant":
+      return t("assistant.title");
     case "personalisation":
       return t("settings.tab_personalisation");
     case "notifications":
@@ -183,6 +188,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return t("settings.tab_description_ai");
     case "account":
       return t("settings.tab_description_account");
+    case "assistant":
+      return t("assistant.settings_description");
     case "personalisation":
       return t("settings.tab_description_personalisation");
     case "notifications":
@@ -246,12 +253,12 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   // Account leads: it is the firm's sign-in, plan and billing home.
-  const tabs: SettingsTab[] = ["account", "ai", "tabular-review", "extensions", "personalisation", "appearance", "notifications", "safety", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["account", "ai", "assistant", "notifications", "tabular-review", "extensions", "personalisation", "appearance", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
-  // Placed right after AI Providers.
-  if (isDesktopRuntime()) tabs.splice(2, 0, "office-addins");
+  // Keep Account, AI Providers and Assistant first.
+  if (isDesktopRuntime()) tabs.splice(3, 0, "office-addins");
   // Recorder models/settings are desktop-only (local transcription engine).
-  if (isDesktopRuntime()) tabs.splice(2, 0, "recorder");
+  if (isDesktopRuntime()) tabs.splice(3, 0, "recorder");
   if (developerMode) tabs.push("debug");
   // LAWOSS: účet a recorder sú komerčné plochy upstreamu — skryté, nie zmazané.
   return liteSettingsTabs(hideCommercialTabs(tabs), currentUiMode()); // LAWOSS-lite: jen AI, kancelář, vzhled

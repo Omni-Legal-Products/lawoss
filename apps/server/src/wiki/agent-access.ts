@@ -7,18 +7,24 @@ import { z } from "zod";
 import type { Actor, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
 import { ENGINE_CONNECTION_REFUSED } from "../lawoss/engine-agent-contract.js";
+import { reviewExecutionActor } from "../reviews/execution-actor.js";
+import { reviewWorkerClaims } from "../reviews/worker.js";
 
 /** `allProjects` is recorded only by the scheduled runner for an all-projects task, never from a request. */
-type SessionOrigin = { directory: string; scope: TokenScope; generation: string; allProjects?: boolean; scheduledProjects?: "all" | string[] };
+type SessionOrigin = { sessionId: string; directory: string; scope: TokenScope; generation: string; allProjects?: boolean; scheduledProjects?: "all" | string[] };
+export const SessionAuthoritySchema = z.object({ scope: z.enum(["owner", "collaborator", "viewer"]), scheduledProjects: z.union([z.literal("all"), z.array(z.string())]).optional(), sourceSessionId: z.string().optional() });
+export type SessionAuthority = z.infer<typeof SessionAuthoritySchema>;
 type SessionLookup = (workspace: WorkspaceInfo, sessionId: string, directory: string, signal: AbortSignal) => Promise<unknown>;
-type RuntimeAccess = { token: string; ticket?: string; spentTicket?: string; spentNonce?: string; ticketWindowEnds?: number; ticketWindowClosed?: boolean; owners: number; credentialScope?: TokenScope; sessions: Map<string, SessionOrigin>; parents: Map<string, string>; revoked: Set<string>; lookup?: SessionLookup };
+type ReviewWorkerAccess = { workspace: WorkspaceInfo; directory: string; claimId: string; scope: "owner" | "collaborator" };
+type RuntimeAccess = { token: string; ticket?: string; spentTicket?: string; spentNonce?: string; ticketWindowEnds?: number; ticketWindowClosed?: boolean; owners: number; credentialScope?: TokenScope; sessions: Map<string, SessionOrigin>; parents: Map<string, string>; revoked: Set<string>;
+  reviewWorkers: Map<string, ReviewWorkerAccess>; reservedWorkers: Set<string>; changed?: (sessionId: string, origin: SessionOrigin | null) => void; lookup?: SessionLookup };
 const runtimes = new WeakMap<ServerConfig, RuntimeAccess>();
 const sessionSchema = z.object({ id: z.string().min(1).max(200), directory: z.string().min(1), parentID: z.string().min(1).max(200).optional() });
 
 function runtime(config: ServerConfig): RuntimeAccess {
   let access = runtimes.get(config);
   if (!access) {
-    access = { owners: 0, token: randomBytes(32).toString("hex"), sessions: new Map(), parents: new Map(), revoked: new Set() };
+    access = { owners: 0, token: randomBytes(32).toString("hex"), sessions: new Map(), parents: new Map(), revoked: new Set(), reviewWorkers: new Map(), reservedWorkers: new Set() };
     runtimes.set(config, access);
   }
   return access;
@@ -39,6 +45,37 @@ function revokeProjectTree(config: ServerConfig, sessionId: string) {
 /** The server supplies its authenticated, directory-pinned engine client. */
 export function configureWikiAgentSessionLookup(config: ServerConfig, lookup: SessionLookup): void {
   runtime(config).lookup = lookup;
+}
+
+/** Durable internal dispatches observe later human scope changes and revocations. */
+export function observeWikiAgentSessions(config: ServerConfig, changed: NonNullable<RuntimeAccess["changed"]>): void {
+  runtime(config).changed = changed;
+}
+
+export function currentWikiAgentSession(config: ServerConfig, sessionId: string): SessionOrigin | undefined {
+  return runtime(config).sessions.get(sessionId);
+}
+
+/** One server-created inference attempt, with no general workspace or inherited authority. */
+export async function grantReviewWorkerAccess(config: ServerConfig, input: {
+  workspace: WorkspaceInfo; sessionId: string; claimId: string; actor: Actor; signal: AbortSignal;
+}): Promise<() => void> {
+  const actor = reviewExecutionActor(input.actor), access = runtime(config);
+  input.signal.throwIfAborted();
+  const directory = await realpath(input.workspace.directory || input.workspace.path);
+  const registered = config.workspaces.find(workspace => workspace.id === input.workspace.id);
+  if (!registered || await realpath(registered.directory || registered.path) !== directory)
+    throw new ApiError(403, "wiki_agent_workspace_denied", "This inference workspace is unavailable.");
+  reviewWorkerClaims(config).get(input.workspace, input.sessionId, input.claimId);
+  if (access.sessions.has(input.sessionId) || access.reservedWorkers.has(input.sessionId))
+    throw new ApiError(403, "review_worker_access_invalid", "This inference session already has an origin.");
+  input.signal.throwIfAborted();
+  access.reservedWorkers.add(input.sessionId);
+  access.reviewWorkers.set(input.sessionId, { workspace: { ...input.workspace }, directory, claimId: input.claimId, scope: actor.scope });
+  const revoke = () => { access.reviewWorkers.delete(input.sessionId); reviewWorkerClaims(config).remove(input.sessionId); };
+  input.signal.addEventListener("abort", revoke, { once: true });
+  if (input.signal.aborted) { revoke(); input.signal.throwIfAborted(); }
+  return () => { revoke(); input.signal.removeEventListener("abort", revoke); };
 }
 
 /** The server's view of the ephemeral, narrow credential; only the engine's plugins hold it elsewhere. */
@@ -106,9 +143,12 @@ export async function grantWikiAgentSession(config: ServerConfig, input: {
   scope: TokenScope;
   allProjects?: boolean;
   scheduledProjects?: "all" | string[];
-}): Promise<void> {
+}, beforeCommit?: () => void): Promise<void> {
   if (!input.sessionId || input.sessionId.length > 200) throw new ApiError(403, "wiki_agent_session_invalid", "The agent session is unknown.");
+  if (runtime(config).reservedWorkers.has(input.sessionId))
+    throw new ApiError(403, "review_worker_access_invalid", "An inference worker cannot become a general chat.");
   const directory = await realpath(input.directory).catch(() => null);
+  beforeCommit?.();
   if (!directory) {
     // A remote engine may use a directory absent on this host. Its ordinary
     // session can proceed, but no private wiki grant may survive that change.
@@ -116,6 +156,7 @@ export async function grantWikiAgentSession(config: ServerConfig, input: {
     revokeProjectTree(config, input.sessionId);
     access.sessions.delete(input.sessionId);
     access.revoked.add(input.sessionId);
+    access.changed?.(input.sessionId, null);
     return;
   }
   const access = runtime(config);
@@ -132,10 +173,11 @@ export async function grantWikiAgentSession(config: ServerConfig, input: {
   const unchanged = previous?.scope === input.scope && JSON.stringify(previous.scheduledProjects) === JSON.stringify(input.scheduledProjects);
   if (previous && !unchanged || access.parents.has(input.sessionId)) revokeProjectTree(config, input.sessionId);
   access.parents.delete(input.sessionId);
-  access.sessions.set(input.sessionId, { directory, scope: input.scope, scheduledProjects: input.scheduledProjects,
+  access.sessions.set(input.sessionId, { sessionId: input.sessionId, directory, scope: input.scope, scheduledProjects: input.scheduledProjects,
     generation: unchanged ? previous.generation : randomBytes(16).toString("hex"),
     ...(input.allProjects ? { allProjects: true } : {}) });
   access.revoked.delete(input.sessionId);
+  access.changed?.(input.sessionId, access.sessions.get(input.sessionId)!);
 }
 
 /** Human UI reads may reopen an existing chat before its next prompt registers it. */
@@ -163,6 +205,7 @@ export function revokeWikiAgentSession(config: ServerConfig, sessionId: string):
   const access = runtime(config);
   access.sessions.delete(sessionId);
   access.revoked.add(sessionId);
+  access.changed?.(sessionId, null);
   revokeProjectTree(config, sessionId);
   forgetWikiProjectAccess(config, sessionId);
 }
@@ -177,7 +220,7 @@ async function inheritedOrigin(config: ServerConfig, access: RuntimeAccess, sess
   const visited = new Set<string>();
   let id: string | undefined = sessionId;
   while (id && visited.size < 64) {
-    if (visited.has(id) || access.revoked.has(id) || signal.aborted) return;
+    if (visited.has(id) || access.revoked.has(id) || access.reservedWorkers.has(id) || signal.aborted) return;
     visited.add(id);
     const session = sessionSchema.safeParse(await lookup(source, id, directory, signal).catch(() => null));
     if (!session.success || session.data.id !== id || await realpath(session.data.directory).catch(() => null) !== directory || signal.aborted) return;
@@ -192,6 +235,7 @@ async function inheritedOrigin(config: ServerConfig, access: RuntimeAccess, sess
 }
 
 function narrowWikiPath(method: string, pathname: string): boolean {
+  if (method === "POST" && /^\/assistant\/(?:delegate|follow-up|session-control|save-report|scratchpad|briefing)$/.test(pathname)) return true;
   // Recording reads inherit the authenticated session's scope. The library
   // routes separately require owner access, including after a scope downgrade.
   if (method === "GET" && /^\/recorder\/recordings(?:\/[^/]+)?$/.test(pathname)) return true;
@@ -217,10 +261,16 @@ const READ = ["GET"], WRITE = ["POST"], RECORDS = ["GET", "POST", "PATCH", "PUT"
  * Engine proxy, approvals, configuration, tokens, MCP and the Office pane's own relay are absent.
  */
 const WORKSPACE_TOOL_ROUTES: readonly ToolRule[] = [
-  { methods: READ, route: /^(?:storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|skills|skills\/[^/]+\/(?:composed|package-file))$/ },
-  { methods: WRITE, route: /^(?:storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|skills|skills\/(?!hub\/)[^/]+\/resources)$/ },
+  { methods: READ, route: /^(?:browser-connections|storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|skills|skills\/[^/]+\/(?:composed|package-file))$/ },
+  { methods: WRITE, route: /^(?:pdf\/read|storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|skills|skills\/(?!hub\/)[^/]+\/(?:resources|research-experience))$/ },
   { methods: READ, route: /^sandbox\/session\/([^/]+)$/, ownSession: true },
-  { methods: WRITE, route: /^sandbox\/(?:execute|web)$/ },
+  { methods: WRITE, route: /^sandbox\/(?:execute|command|web|http)$/ },
+  // Upstream v0.3.0: saved tool output, history images and original images of this chat only.
+  { methods: READ, route: /^sessions\/([^/]+)\/(?:history-images|tool-image-originals|tool-output\/authorize)$/, ownSession: true },
+  { methods: WRITE, route: /^sessions\/([^/]+)\/(?:history-images\/read|tool-image-originals\/(?:capture|read|crop|export))$/, ownSession: true },
+  // Upstream v0.3.0: a review worker reads its contract and submits its answer for its own chat.
+  { methods: READ, route: /^reviews\/workers\/([^/]+)\/contract$/, ownSession: true },
+  { methods: WRITE, route: /^reviews\/workers\/([^/]+)\/submit$/, ownSession: true },
   // LAWOSS: lawoss_files (lawoss/file-operations.ts); the change itself is bound to this chat below.
   { methods: WRITE, route: /^lawoss\/files\/(?:plan|apply)$/ },
   { methods: ["GET", "POST"], route: /^wiki-suggestions$/ },
@@ -229,7 +279,8 @@ const WORKSPACE_TOOL_ROUTES: readonly ToolRule[] = [
   { methods: READ, route: /^ui-views(?:\/[^/]+)?$/ },
   { methods: READ, route: /^office-tools\/status$/ },
   { methods: WRITE, route: /^office-tools\/execute$/ },
-  { methods: RECORDS, route: /^(?:tasks|reviews|calendar|email-drafts|calendar-drafts|lawoss\/documents)(?:\/.+)?$/ },
+  // Review settings stay human-only and the worker routes above keep their own methods (upstream v0.3.0).
+  { methods: RECORDS, route: /^(?:tasks|reviews(?!\/(?:settings|workers)(?:\/|$))|calendar|email-drafts|calendar-drafts|lawoss\/documents)(?:\/.+)?$/ },
   // Editing a saved schedule could rewrite what an all-projects run does, so only reads and new tasks.
   { methods: READ, route: /^scheduled-tasks(?:\/.+)?$/ },
   { methods: WRITE, route: /^scheduled-tasks(?:\/preview)?$/ },
@@ -310,7 +361,9 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   actor: Actor;
   directory: string;
   sessionId: string;
+  originSessionId: string;
   generation: string;
+  reviewWorker?: true;
   workspaceId: string | null;
   allProjects: boolean;
   scheduledProjects?: "all" | string[];
@@ -325,7 +378,7 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   const url = new URL(request.url), pathname = url.pathname;
   const tokenHash = createHash("sha256").update(access.token).digest("hex");
   if (engineWideRoute(request.method, pathname))
-    return { directory: "", sessionId: "", generation: "", workspaceId: null, allProjects: false,
+    return { directory: "", sessionId: "", originSessionId: "", generation: "", workspaceId: null, allProjects: false,
       actor: { type: "remote", clientId: "wiki-agent:engine", scope: "collaborator", tokenHash } };
   const tool = toolRoute(request.method, url);
   if (!narrowWikiPath(request.method, pathname) && !tool)
@@ -337,10 +390,31 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   try { decoded = claimed ? decodeURIComponent(claimed) : null; } catch { /* Invalid encoded claims fail closed. */ }
   const directory = decoded ? await realpath(decoded).catch(() => null) : null;
   if (!directory) throw new ApiError(403, "wiki_agent_directory_mismatch", "The wiki request does not match this session's working directory.");
+  if (access.reservedWorkers.has(sessionId)) {
+    const worker = access.reviewWorkers.get(sessionId);
+    if (!worker) throw new ApiError(403, "wiki_agent_session_unknown", "This inference attempt is no longer active.");
+    const route = pathname.match(/^\/workspace\/([^/]+)\/reviews\/workers\/([^/]+)\/(contract|submit)$/);
+    if (!route || !(request.method === "GET" && route[3] === "contract" || request.method === "POST" && route[3] === "submit"))
+      throw new ApiError(403, "wiki_agent_endpoint_denied", "An inference worker can only read its contract and submit its answer.");
+    if (decodeURIComponent(route[2]!) !== sessionId)
+      throw new ApiError(403, "wiki_agent_session_mismatch", "Use review submission only for this worker chat.");
+    if (decodeURIComponent(route[1]!) !== worker.workspace.id)
+      throw new ApiError(403, "wiki_agent_workspace_denied", "Use only this inference attempt's workspace.");
+    if (directory !== worker.directory)
+      throw new ApiError(403, "wiki_agent_directory_mismatch", "This inference attempt belongs to another directory.");
+    reviewWorkerClaims(config).get(worker.workspace, sessionId, worker.claimId);
+    return { directory, sessionId, originSessionId: sessionId, generation: worker.claimId, reviewWorker: true, workspaceId: worker.workspace.id, allProjects: false,
+      actor: { type: "remote", clientId: `review-worker:${sessionId}`, scope: worker.scope, tokenHash } };
+  }
   const origin = access.sessions.get(sessionId) ?? await inheritedOrigin(config, access, sessionId, directory, request.signal);
   if (!origin) throw new ApiError(403, "wiki_agent_session_unknown", CHAT_NOT_REGISTERED);
   if (directory !== origin.directory)
     throw new ApiError(403, "wiki_agent_directory_mismatch", "The wiki request does not match this session's working directory.");
+  if (pathname.startsWith("/assistant/")) {
+    const source = z.object({ sourceSessionId: z.string() }).safeParse(await request.clone().json().catch(() => null));
+    if (!source.success || source.data.sourceSessionId !== sessionId)
+      throw new ApiError(403, "wiki_agent_session_mismatch", "Use this chat's own delegation context.");
+  }
   const own = await ownWorkspaceFor(config, directory);
   const clientRoot = own ? await realpath(own.directory || own.path) : directory;
   // The shared process credential cannot distinguish a normal chat from a scheduled
@@ -355,7 +429,7 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
       throw new ApiError(403, "wiki_agent_session_mismatch", "Use this route only for this chat.");
     if (tool.workspaceId !== undefined && own?.id !== tool.workspaceId && !(tool.crossProject && allProjects))
       throw new ApiError(403, "wiki_agent_workspace_denied", "Use project tools only in this session's own workspace.");
-    if (/^\/workspace\/[^/]+\/(?:sandbox\/(?:execute|web)|lawoss\/files\/apply|lawoss\/memory\/write)$/.test(pathname)
+    if (/^\/workspace\/[^/]+\/(?:sandbox\/(?:execute|command|web|http)|lawoss\/files\/apply|lawoss\/memory\/write)$/.test(pathname)
       && z.object({ sessionID: z.string() }).parse(await request.clone().json()).sessionID !== sessionId)
       throw new ApiError(403, "wiki_agent_session_mismatch", "Use this session's execution settings and approvals.");
     // A scheduled run reaching every project is granted only by a person, never by an agent.
@@ -365,7 +439,7 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   }
   // LAWOSS: like allProjects above, a scheduled all-projects run reads only its own client's recordings.
   const scheduledProjects = origin.scheduledProjects === "all" ? (allProjects ? "all" : own ? [own.id] : []) : origin.scheduledProjects;
-  return { directory, sessionId, generation: origin.generation, workspaceId: own?.id ?? null, allProjects, scheduledProjects,
+  return { directory, sessionId, originSessionId: origin.sessionId, generation: origin.generation, workspaceId: own?.id ?? null, allProjects, scheduledProjects,
     actor: { type: "remote", clientId: `wiki-agent:${sessionId}`, scope, tokenHash } };
 }
 

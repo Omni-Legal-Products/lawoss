@@ -75,11 +75,12 @@ export type LocalPreferences = {
   hasCompletedOnboarding: boolean;
   /**
    * Persisted so a reload or crash resumes the current step. Desktop order:
-   * office -> audio (meetings) -> dictation -> ai -> permissions -> done.
+   * office -> audio (meetings) -> dictation -> ai -> permissions -> research -> done.
    * "setup" is a legacy value treated as "office". The welcome route starts
    * at "office" on desktop and "ai" on the web.
    */
-  onboardingStage: "ai" | "office" | "audio" | "dictation" | "permissions" | "setup" | "done";
+  onboardingStage: "ai" | "office" | "audio" | "dictation" | "permissions" | "research" | "setup" | "done";
+  researchCountry: string;
   /**
    * User preference committed from the welcome-screen toggle (nothing is
    * applied before then); switchable anytime in Settings -> Privacy.
@@ -132,6 +133,7 @@ const INITIAL_PREFS: LocalPreferences = {
   featureFlags: { microsandboxCreateSandbox: true },
   hasCompletedOnboarding: false,
   onboardingStage: "done",
+  researchCountry: "",
   // null until the user chooses on the welcome screen — persisting a concrete
   // value here would make getStoredAnalyticsConsent() report a choice that was
   // never made, defeating the welcome toggle's default.

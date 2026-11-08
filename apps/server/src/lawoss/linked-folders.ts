@@ -57,14 +57,14 @@ export async function officeRoot(config: ServerConfig): Promise<string | null> {
 }
 
 /** Lokálni klienti: bez vzdialených a bez wiki (wiki má vlastné pravidlá prístupu, nie je klient). */
-const localWorkspaces = (config: ServerConfig): WorkspaceInfo[] => config.workspaces.filter((workspace) => workspace.workspaceType !== "remote" && workspace.preset !== "wiki" && Boolean(workspace.path));
+const localWorkspaces = (config: ServerConfig): WorkspaceInfo[] => config.workspaces.filter((workspace) => workspace.preset !== "wiki" && Boolean(workspace.path));
 
 /**
  * Interný domovský priestor appky (`lawoss-domov` v Electron userData vedľa `legalwork-workspaces.json`,
  * `apps/desktop/electron/lawoss-home-workspace.mjs`): nie je klient. Jeho rodič sú dáta aplikácie (N-20).
  */
 async function appHomeDataDir(workspace: WorkspaceInfo): Promise<string | null> {
-  if (workspace.workspaceType === "remote" || !workspace.path || basename(workspace.path) !== "lawoss-domov") return null;
+  if (!workspace.path || basename(workspace.path) !== "lawoss-domov") return null;
   const parent = await existingCanonical(dirname(workspace.path));
   if (parent && parent === await desktopUserData()) return parent;
   return await access(join(dirname(workspace.path), "legalwork-workspaces.json")).then(() => parent, () => null);
@@ -99,7 +99,7 @@ async function appDataDirs(config: ServerConfig): Promise<string[]> {
 /** Rozsah pravidiel pre jeden pracovný priestor: jeho koreň, ostatní registrovaní, prax a dáta aplikácie. */
 async function conflictScope(config: ServerConfig, workspace: WorkspaceInfo) {
   const others = await Promise.all((await clientWorkspaces(config)).filter((other) => other.id !== workspace.id).map((other) => existingCanonical(other.path)));
-  const wikis = await Promise.all(config.workspaces.filter((entry) => entry.preset === "wiki" && entry.workspaceType !== "remote" && entry.path).map((entry) => existingCanonical(entry.path)));
+  const wikis = await Promise.all(config.workspaces.filter((entry) => entry.preset === "wiki" && entry.path).map((entry) => existingCanonical(entry.path)));
   return {
     contentRoots: wikis.filter((root): root is string => root !== null),
     ownRoot: await existingCanonical(workspace.path),
@@ -166,7 +166,7 @@ async function clientLinkedFolders(config: ServerConfig, workspace: WorkspaceInf
   const scope = await conflictScope(config, workspace);
   if (!scope.ownRoot) return null;
   const grants = runtimeExternalDirectory(await readRuntimeOpencodeConfig(config, workspace.id));
-  const candidates = Object.entries(grants).flatMap(([key, value]) => {
+  const candidates = Object.entries(externalDirectoryMap(grants)).flatMap(([key, value]) => {
     const folder = folderOfGrant(key, value);
     return folder ? [folder] : [];
   });
@@ -185,7 +185,7 @@ async function clientLinkedFolders(config: ServerConfig, workspace: WorkspaceInf
  * Firma, ktorá spravuje priečinky mimo projektu, a wiki ich nemajú: dokumenty ostanú v koreni.
  */
 export async function documentLinkedFolders(config: ServerConfig, workspace: WorkspaceInfo): Promise<string[]> {
-  if (workspace.preset === "wiki" || workspace.workspaceType === "remote") return [];
+  if (workspace.preset === "wiki") return [];
   const firm = await appliedOrgPolicy(config, "tools.permissions").catch(() => null);
   if (firm?.value.external_directory !== undefined) return [];
   if (!(await clientWorkspaces(config)).some((entry) => entry.id === workspace.id)) return [];
@@ -292,4 +292,16 @@ export async function linkableFolders(config: ServerConfig, workspace: Workspace
     if (linkedFolderConflict(await canonicalPath(folder), scope) === null) kept.push(folder);
   }
   return kept;
+}
+
+/** Engine v2 form of `withoutClientFolderGrants`: every folder `allow` rule except the bare `*` goes; denials and asks stay. */
+export function withoutClientFolderGrantRules<R extends { action: string; resource: string; effect: string }>(rules: readonly R[]): R[] {
+  return rules.filter(rule => !(rule.action === "external_directory" && rule.effect === "allow" && rule.resource.trim() !== "*"));
+}
+
+/** Engine v2 folder rules as the v1 `{ pattern: effect }` map that the portable OKF readers take: the last rule per pattern wins. */
+export function externalDirectoryMap(rules: readonly { action: string; resource: string; effect: string }[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const rule of rules) if (rule.action === "external_directory") { delete map[rule.resource]; map[rule.resource] = rule.effect; }
+  return map;
 }

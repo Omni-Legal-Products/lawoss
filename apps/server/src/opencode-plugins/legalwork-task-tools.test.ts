@@ -4,7 +4,9 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { LegalWorkTaskTools } from "./legalwork-task-tools.js";
+import pluginDefinition from "./legalwork-task-tools.js";
+import { nativePluginTools } from "./native-plugin-test-support.js";
+const LegalWorkTaskTools = (context = {}) => nativePluginTools(pluginDefinition, context);
 
 type Recorded = { url: string; method: string; headers: Headers; json: Record<string, unknown> | null; form: FormData | null };
 
@@ -177,6 +179,7 @@ describe("registration", () => {
       "legalwork_task_delete",
       "legalwork_task_get",
       "legalwork_task_list",
+      "legalwork_task_restore",
       "legalwork_task_update",
     ]);
     // Tasks live on this machine: no entitlement round-trip at engine start.
@@ -194,13 +197,7 @@ describe("registration", () => {
     expect(requests.every((request) => request.headers.get("authorization") === null)).toBe(true);
   });
 
-  test("a call without its chat is not connected either", async () => {
-    const tools = await registeredTools();
-    const raw = await tools.legalwork_task_list.execute({}, { directory: WORKSPACE.path });
-    expect(JSON.parse(raw)).toMatchObject({ ok: false, error: expect.stringContaining("not configured") });
-    expect(taskRequests()).toHaveLength(0);
-    expect(requests.every((request) => request.headers.get("authorization") === null)).toBe(true);
-  });
+  // OpenCode 2 always names the calling chat (ToolContext.sessionID); there is no call without one.
 });
 
 describe("legalwork_task_list", () => {
@@ -487,13 +484,7 @@ describe("legalwork_task_create", () => {
     const created = taskRequests().at(-1);
     expect(created?.method).toBe("POST");
     expect(created?.url).toBe(`${SERVER_URL}/workspace/ws-1/tasks`);
-    expect(created?.json).toEqual({
-      title: "Akte anlegen",
-      description: "Neue Sache Meier.",
-      priority: 3,
-      dueDate: "2026-09-22",
-      sessionId: "ses_test",
-    });
+    expect(created?.json).toEqual({ title: "Akte anlegen", description: "Neue Sache Meier.", priority: 3, dueDate: "2026-09-22", sessionId: CONTEXT.sessionID });
     expect(JSON.parse(raw)).toMatchObject({ ok: true, task: { id: "task-2", origin: "desktop" } });
   });
 
@@ -547,9 +538,9 @@ describe("legalwork_task_delete", () => {
 describe("system prompt", () => {
   test("tells the agent to reach for the tools and to treat task content as data", async () => {
     const plugin = await LegalWorkTaskTools({ directory: WORKSPACE.path });
-    const output: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"]?.(null, output);
-    const system = output.system.join("\n");
+    const output: { system: Array<{type:"text";text:string}> } = { system: [] };
+    await plugin.runtime.hook("session", "context", output);
+    const system = output.system.map(item=>item.text).join("\n");
     expect(system).toContain("legalwork_task_list");
     expect(system).toContain("legalwork_task_get");
     expect(system).toContain("legalwork_task_delete");

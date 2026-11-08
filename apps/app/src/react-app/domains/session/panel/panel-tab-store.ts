@@ -7,6 +7,7 @@ import { projectFileTab } from "../../workspace/project-file-tab";
 import { isProjectView, type ProjectView } from "./project-view";
 export type { ProjectView } from "./project-view";
 import type { SearchSourceReference } from "@legalwork/types/search";
+import type { AssistantFileSource } from "@legalwork/types/main-assistant";
 import { create } from "zustand";
 import type { ReviewSourceReference } from "@legalwork/types/reviews";
 import { hasUnsavedSessionDocument, confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
@@ -43,10 +44,10 @@ export type ProjectViewTab = { id: string; type: "project-view"; view: ProjectVi
 export function projectViewTab(view: ProjectView, label: string): ProjectViewTab {
   return { id: `project-view:${view}`, type: "project-view", view, label };
 }
-export type ChatPanelTab = { id: string; type: "chat"; sessionId: string; label: string };
+export type ChatPanelTab = { id: string; type: "chat"; sessionId: string; label: string; parentID?: string };
 export type ReviewPanelTab = { id: string; type: "review"; reviewId: string; label: string };
-export function chatPanelTab(sessionId: string, label: string): ChatPanelTab {
-  return { id: `chat:${sessionId}`, type: "chat", sessionId, label };
+export function chatPanelTab(sessionId: string, label: string, parentID?: string): ChatPanelTab {
+  return { id: `chat:${sessionId}`, type: "chat", sessionId, label, ...(parentID ? { parentID } : {}) };
 }
 
 export type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
@@ -67,6 +68,8 @@ export type ArtifactPanelTab = {
   updatedAt?: number;
   pendingImportId?: string;
   storage?: StorageFileSource;
+  /** A shared deliverable stays in its originating project, even in another chat's viewer. */
+  source?: AssistantFileSource;
   sourcePage?: number;
   searchSources?: SearchSourceReference[];
   reviewCitation?: ReviewSourceReference;
@@ -91,6 +94,8 @@ export type PanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | BrowserP
 export type DocumentPaneState = { id: string; tabIds: string[]; activeTabId: string | null; previewTabId?: string };
 export type SessionPanelState = {
   tabs: PanelTab[];
+  /** Daily engine sessions share one Assistant conversation tab. */
+  assistant?: boolean;
   focusedPaneId?: string;
   panes: DocumentPaneState[];
   tree: DocumentLayoutNode;
@@ -132,7 +137,7 @@ function restoredTab(value: unknown): PanelTab | null {
   if (typeof value.label === "string") {
     if (value.type === "recording" && typeof value.recordingId === "string" && value.recordingId) return { id: value.id, type: "recording", recordingId: value.recordingId, label: value.label };
     if (value.type === "project-view" && isProjectView(value.view)) return projectViewTab(value.view, value.label);
-    if (value.type === "chat" && typeof value.sessionId === "string") return chatPanelTab(value.sessionId, value.label);
+    if (value.type === "chat" && typeof value.sessionId === "string") return chatPanelTab(value.sessionId, value.label, typeof value.parentID === "string" ? value.parentID : undefined);
     if (value.type === "review" && typeof value.reviewId === "string") return { id: value.id, type: "review", reviewId: value.reviewId, label: value.label };
     if (value.type === "task" && typeof value.taskId === "string") return { id: value.id, type: "task", taskId: value.taskId, label: value.label };
   }
@@ -148,7 +153,8 @@ export type PanelTabStore = {
   keepTab: (scope: string, tabId: string) => void;
   readLayout: (value: unknown) => SessionPanelState | null;
   migrateWorkspace: (workspaceId: string) => void;
-  adoptChat: (scope: string, sessionId: string, label: string, options?: { preserveLayout: boolean }) => void;
+  setAssistantWorkspace: (workspaceId: string) => void;
+  adoptChat: (scope: string, sessionId: string, label: string, options?: { preserveLayout?: boolean; parentID?: string }) => void;
   updateTabLabel: (scope: string, tabId: string, label: string) => void;
   transcriptArtifactTargets: Record<string, OpenTarget[]>;
   openTab: (sessionId: string, tab: PanelTab, pane?: string, edge?: DocumentDropEdge, options?: { preview?: boolean; besideChat?: boolean }) => void;
@@ -186,8 +192,26 @@ function updateSession(state: PanelTabStore, sessionId: string, session: Session
   return { sessions: { ...state.sessions, [sessionId]: session } };
 }
 
+function singleAssistantChat(session: SessionPanelState, replacement?: ChatPanelTab): SessionPanelState {
+  if (!session.assistant) return session;
+  const chats = session.tabs.filter(tab => tab.type === "chat" && !tab.parentID);
+  const focused = session.panes.find(pane => pane.id === session.focusedPaneId)?.activeTabId;
+  const current = chats.find(tab => tab.id === focused) ?? chats[0];
+  if (!current || (chats.length === 1 && !replacement)) return session;
+  const chat = replacement ?? current;
+  const removed = new Set(chats.filter(tab => tab.id !== current.id).map(tab => tab.id));
+  return { ...session,
+    tabs: session.tabs.flatMap(tab => tab.id === current.id ? [chat] : removed.has(tab.id) ? [] : [tab]),
+    panes: session.panes.map(pane => ({ ...pane,
+      tabIds: pane.tabIds.flatMap(id => id === current.id ? [chat.id] : removed.has(id) ? [] : [id]),
+      activeTabId: pane.activeTabId === current.id ? chat.id : removed.has(pane.activeTabId ?? "") ? null : pane.activeTabId,
+    })),
+  };
+}
+
 /** Keep pane ids stable when a group empties; tree order determines geometry. */
 export function normalizeSession(session: SessionPanelState): SessionPanelState {
+  session = singleAssistantChat(session);
   const assigned = new Set<string>();
   const paneIds = new Set<string>();
   const defaultTab = (ids: string[]) => session.tabs.find(tab => ids.includes(tab.id) && (tab.type !== "browser" || !tab.background))?.id ?? null;
@@ -248,6 +272,17 @@ export function samePanelTab(scope: string, tab: PanelTab, other: PanelTab) {
 /** A drop is one transaction: validate capacity and any displaced draft before
  * changing membership or geometry. A lone source can relocate at the pane limit. */
 function dockTab(sessionId: string, session: SessionPanelState, tab: PanelTab, paneId?: string, edge?: DocumentDropEdge, retry?: () => void): SessionPanelState {
+  if (tab.type === "chat" && !tab.parentID) {
+    const existing = session.tabs.find(entry => entry.type === "chat" && entry.id === tab.id);
+    if (existing?.type === "chat" && existing.parentID) tab = { ...tab, parentID: existing.parentID };
+  }
+  if (session.assistant && tab.type === "chat" && !tab.parentID && session.tabs.some(entry => entry.type === "chat" && !entry.parentID && entry.id !== tab.id)) {
+    session = normalizeSession(singleAssistantChat(session, tab));
+    // Day changes and history navigation replace the conversation in place.
+    // Even a dropped historical session must not create another chat group.
+    paneId = session.panes.find(pane => pane.tabIds.includes(tab.id))?.id;
+    edge = undefined;
+  }
   const existing = session.tabs.find(entry => samePanelTab(sessionId, tab, entry));
   // Alias drops must retain the mounted editor and its draft, including whether
   // the file was opened locally, from connected storage, or through a source link.
@@ -268,7 +303,8 @@ function dockTab(sessionId: string, session: SessionPanelState, tab: PanelTab, p
   const destination = session.panes.find(pane => pane.id === (paneId ?? source?.id ?? session.focusedPaneId ?? session.panes[0].id));
   // An async cloud import may finish after its drop target was closed.
   if (!destination) return session;
-  const split = edge && destination.tabIds.length > 0;
+  const dropEdge = edge;
+  const split = dropEdge && destination.tabIds.length > 0;
   if (split && source?.id === destination.id && source.tabIds.length === 1) return session;
   const sourceEmpties = source && source.id !== destination.id && source.tabIds.length === 1;
   if (split && session.panes.length + 1 - (sourceEmpties ? 1 : 0) > MAX_DOCUMENT_PANES) return session;
@@ -281,7 +317,7 @@ function dockTab(sessionId: string, session: SessionPanelState, tab: PanelTab, p
     return { ...pane, tabIds: pane.tabIds.filter(id => id !== tab.id), activeTabId: pane.activeTabId === tab.id ? neighbour(session, pane, tab.id) : pane.activeTabId };
   });
   if (split) panes.push({ id: newPaneId, tabIds: [tab.id], activeTabId: tab.id });
-  const tree = split ? splitLayout(session.tree, destination.id, newPaneId, edge, `split:${crypto.randomUUID()}`) : session.tree;
+  const tree = split ? splitLayout(session.tree, destination.id, newPaneId, dropEdge, `split:${crypto.randomUUID()}`) : session.tree;
   return normalizeSession({ ...session, tabs, focusedPaneId: newPaneId, panes: panes.filter(pane => pane.tabIds.length > 0), tree, sizes: reconcileLayoutSizes(session.tree, tree, session.sizes) });
 }
 
@@ -336,7 +372,9 @@ function isSameTab(left: PanelTab, right: PanelTab) {
       left.label === right.label &&
       left.preview === right.preview &&
       left.value === right.value &&
-      left.storage === right.storage
+      left.storage === right.storage &&
+      left.source?.workspaceId === right.source?.workspaceId &&
+      left.source?.workspaceRoot === right.source?.workspaceRoot
     );
   }
 
@@ -353,7 +391,7 @@ function isSameTab(left: PanelTab, right: PanelTab) {
   }
 
   if (left.type === "project-view" && right.type === "project-view") return left.view === right.view && left.label === right.label;
-  if (left.type === "chat" && right.type === "chat") return left.label === right.label && left.sessionId === right.sessionId;
+  if (left.type === "chat" && right.type === "chat") return left.label === right.label && left.sessionId === right.sessionId && left.parentID === right.parentID;
   if (left.type === "review" && right.type === "review") return left.label === right.label && left.reviewId === right.reviewId;
   if (left.type === "task" && right.type === "task") {
     return left.label === right.label && left.taskId === right.taskId;
@@ -372,7 +410,7 @@ function isSameTab(left: PanelTab, right: PanelTab) {
 }
 
 function isSameSessionPanelState(session: SessionPanelState, next: SessionPanelState) {
-  return session.focusedPaneId === next.focusedPaneId && session.tabs.length === next.tabs.length && JSON.stringify(session.tree) === JSON.stringify(next.tree) &&
+  return session.assistant === next.assistant && session.focusedPaneId === next.focusedPaneId && session.tabs.length === next.tabs.length && JSON.stringify(session.tree) === JSON.stringify(next.tree) &&
     JSON.stringify(session.panes) === JSON.stringify(next.panes) && session.tabs.every((tab, index) => isSameTab(tab, next.tabs[index]));
 }
 
@@ -401,7 +439,7 @@ function mergePersistedSessions(
     if (record(session.sizes)) for (const [key, value] of Object.entries(session.sizes)) {
       if (record(value)) sizes[key] = Object.fromEntries(Object.entries(value).filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] >= 0 && entry[1] <= 100));
     }
-    sessions[sessionId] = normalizeSession({ ...EMPTY_SESSION, tabs, panes, tree, focusedPaneId: typeof session.focusedPaneId === "string" ? session.focusedPaneId : undefined, sizes: session.tree ? sizes : legacyLayoutSizes(tree, session.layout, panes.map(pane => pane.id), sizes) });
+    sessions[sessionId] = normalizeSession({ ...EMPTY_SESSION, assistant: session.assistant === true || currentState.sessions[sessionId]?.assistant || undefined, tabs, panes, tree, focusedPaneId: typeof session.focusedPaneId === "string" ? session.focusedPaneId : undefined, sizes: session.tree ? sizes : legacyLayoutSizes(tree, session.layout, panes.map(pane => pane.id), sizes) });
   }
 
   return {
@@ -425,13 +463,19 @@ export const createPanelTabStore = (storage?: () => StateStorage) => create<Pane
       }),
       transcriptArtifactTargets: {},
       readLayout: value => mergePersistedSessions({ sessions: { seed: value } }, get()).sessions.seed ?? null,
+      setAssistantWorkspace: workspaceId => set(state => {
+        const scope = workspacePanelKey(workspaceId);
+        const session = getWritableSession(state, scope);
+        const next = normalizeSession({ ...session, assistant: true });
+        return isSameSessionPanelState(session, next) ? state : updateSession(state, scope, next);
+      }),
       migrateWorkspace: workspaceId => set(state => {
         const key = workspacePanelKey(workspaceId);
         const oldKey = `project:${workspaceId}`;
         const legacy = state.sessions[oldKey];
         if (!legacy) return state;
         let session = state.sessions[key];
-        if (!session?.tabs.length) session = legacy;
+        if (!session?.tabs.length) session = normalizeSession({ ...legacy, assistant: session?.assistant || legacy.assistant });
         else for (const tab of legacy.tabs) session = dockTab(key, session, tab);
         const sessions = { ...state.sessions, [key]: session };
         delete sessions[oldKey];
@@ -451,10 +495,10 @@ export const createPanelTabStore = (storage?: () => StateStorage) => create<Pane
             const value = tab.value ?? state.transcriptArtifactTargets[sessionId]?.find(target => target.id === tab.id)?.value;
             return { ...tab, value, sourceSessionId: sessionId };
           });
-          if (!session.tabs.length) session = normalizeSession({ ...legacy, tabs: resolved });
+          if (!session.tabs.length) session = normalizeSession({ ...legacy, assistant: session.assistant || legacy.assistant, tabs: resolved });
           else for (const tab of resolved) session = dockTab(scope, session, tab);
         }
-        const chat = chatPanelTab(sessionId, label);
+        const chat = chatPanelTab(sessionId, label, options?.parentID);
         // Opening a recent chat in another project must keep that project's
         // geometry. Reuse its chat group (or focused group) instead of splitting.
         const chatPane = session.panes.find(pane => pane.tabIds.some(id => session.tabs.some(tab => tab.id === id && tab.type === "chat")));
@@ -807,6 +851,7 @@ export const createPanelTabStore = (storage?: () => StateStorage) => create<Pane
               sessionId,
               {
                 tabs,
+                assistant: session.assistant,
                 activeTabId: resolveActiveTabId(tabs, session.activeTabId),
                 sideTabIds: session.sideTabIds,
                 sideActiveTabId: session.sideActiveTabId,
