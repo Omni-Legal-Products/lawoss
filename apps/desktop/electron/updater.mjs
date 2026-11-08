@@ -388,8 +388,8 @@ async function cleanStaleUpdaterState(app) {
   }
 }
 
-// On macOS downloadUpdate() finishes when the ZIP has been served to Squirrel,
-// before Squirrel unpacks and validates it. Only the native event means ready.
+// With auto-install disabled, MacUpdater only starts its local ZIP server.
+// Explicitly start Squirrel preparation, then wait for native validation.
 export async function downloadUpdateReady(updater, nativeUpdater, timeoutMs = 300_000) {
   if (!nativeUpdater) {
     await updater.downloadUpdate();
@@ -404,7 +404,13 @@ export async function downloadUpdateReady(updater, nativeUpdater, timeoutMs = 30
     timer = setTimeout(() => reject(new Error("The update could not finish preparing for installation. Please try downloading it again.")), timeoutMs);
   });
   try {
-    await Promise.all([ready, Promise.resolve().then(() => updater.downloadUpdate())]);
+    await Promise.all([ready, Promise.resolve().then(async () => {
+      await updater.downloadUpdate();
+      // MacUpdater starts this itself only when autoInstallOnAppQuit is true.
+      // Keep that flag disabled until preparation succeeds, including retries
+      // after a channel change, instead of allowing an unready update on quit.
+      if (!updater.autoInstallOnAppQuit) nativeUpdater.checkForUpdates();
+    })]);
   } finally {
     clearTimeout(timer);
     nativeUpdater.removeListener("update-downloaded", onReady);
@@ -477,6 +483,7 @@ export function registerUpdaterIpc({
     if (channel !== previous) {
       clearCheckedUpdate();
       updateReady = false;
+      if (autoUpdaterInstance) autoUpdaterInstance.autoInstallOnAppQuit = false;
     }
     return channel;
   }
@@ -502,7 +509,8 @@ export function registerUpdaterIpc({
       if (autoUpdaterInstance) {
         if (process.platform === "darwin") nativeMacUpdater = (await import("electron")).autoUpdater;
         autoUpdaterInstance.autoDownload = false;
-        autoUpdaterInstance.autoInstallOnAppQuit = true;
+        // Upstream v0.2.15/v0.2.17: install on quit only after native preparation succeeded.
+        autoUpdaterInstance.autoInstallOnAppQuit = false;
         // Differential (blockmap) downloads reconstruct the update zip from the
         // installed app + a diff. On macOS that reconstructed bundle is what
         // feeds Squirrel's fragile move-based install, and is a common trigger
@@ -547,6 +555,7 @@ export function registerUpdaterIpc({
     updateReady = false;
     const updater = await ensureAutoUpdater();
     if (updater) {
+      updater.autoInstallOnAppQuit = false;
       return applyElectronUpdaterFeed(app, updater);
     }
     return updaterChannelState(app, channel);
@@ -630,6 +639,7 @@ export function registerUpdaterIpc({
       await cleanStaleUpdaterState(app);
       await downloadUpdateReady(updater, nativeMacUpdater);
       updateReady = true;
+      updater.autoInstallOnAppQuit = true;
       return { ok: true };
     } catch (error) {
       if (checkedUpdateSource === "github-fallback") {
@@ -656,6 +666,7 @@ export function registerUpdaterIpc({
         await cleanStaleUpdaterState(app);
         await downloadUpdateReady(updater, nativeMacUpdater);
         updateReady = true;
+        updater.autoInstallOnAppQuit = true;
         return { ok: true };
       } catch {
         return { ok: false, reason: formatUpdaterErrorReason(error) };

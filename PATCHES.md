@@ -1,5 +1,9 @@
 # LAWOSS downstream patches
 
+## Sync upstream v0.2.17 (2026-11-08, ADR 0016)
+
+Oprava zaseknutej aktualizácie na macOS po stiahnutí. Prevzaté spolu s upstream pravidlom z v0.2.15: `autoInstallOnAppQuit` je `false`, kým natívna príprava (Squirrel) neuspeje; zmena kanála ho znova vypne a `downloadUpdateReady` spustí prípravu sám. Odchýlka: `apps/desktop/electron/updater.test.mjs` má upstream testy so skutočným `MacUpdater`, ale bez testov výberu releasu z `release-feeds.mjs` (LAWOSS ho nepoužíva). `allowDowngrade` ostáva LAWOSS (stabilný kanál smie ísť späť z alfy).
+
 ## Sync upstream v0.2.16 (2026-11-08, ADR 0016)
 
 Bez konfliktov (cloudový prepis v nahrávaní klienta a v titulnom pruhu, skutočný limit útraty pred obnovou skúšobného nákupu). Bez novej odchýlky; SK/CS `stealth.recording_locally` zosúladené s novým anglickým textom („Nahráva sa“, „Nahrává se“).
@@ -17,7 +21,7 @@ Upstream zaviedol tri kanály aktualizácií (Release, Pre-release, Alpha) s vý
 | `.github/workflows/refresh-alpha-feeds.yml` | Job beží len v `eigenweltlabs/legalwork` (skript zapisuje feedy upstreamu). |
 | `scripts/release/release-channels.test.mjs` | Test automatických álf je `test.skip` s dôvodom. |
 | `apps/desktop/package.json` | Testy LAWOSS + `release-feeds.test.mjs`. |
-| `lawoss/scripts/check-branding.mjs`, `lawoss/scripts/check-no-eigenwelt.test.mjs` | Stráž značky akceptuje `alpha: alphaFeedUrl()` s alfa tagmi forku; mutácie testu stráže zodpovedajú upstream `OPENCODE_DISABLE_FFF` za `...lawossEnv` (v0.2.12). |
+| `lawoss/scripts/check-branding.mjs` | Stráž značky akceptuje `alpha: alphaFeedUrl()` s alfa tagmi forku. |
 
 `apps/desktop/electron/release-feeds.mjs` je v strome, ale LAWOSS ho za behu nenačíta.
 
@@ -47,6 +51,8 @@ Krok 2 plného syncu na v0.3.9 (diktovanie, nahrávky pre agenta, zdieľané úl
 | `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | LAWOSS `queueFailure` s odkazom na AI hranice v upstream `queueDraft`. |
 | `apps/desktop/electron-builder.yml`, `apps/{app,desktop,server}/package.json`, `.github/workflows/ci-tests.yml` | Značka LAWOSS v novom texte System Events; nové upstream testy a `recording-tools.ts` v builde popri LAWOSS. |
 | `apps/app/tests/session-sync-retention.test.ts` | LW-202: stav idle už nemaže čakajúce povolenie/otázku, maže ich až odpoveď; očakávania upravené. |
+| `apps/server/src/managed-opencode.ts`, `apps/server/src/lawoss/engine-network.ts` | Upstream `OPENCODE_DISABLE_FFF: "true"` je v `lawossEngineEnv`, nie za `...lawossEnv`, aby poistky LAWOSS ostali posledné pred prihlasovacími údajmi (stráže v `check-no-eigenwelt` a `isir/native`); engine ho dostane vynútene ako upstream. Opravené v kroku v0.2.17. |
+| `lawoss/testing/isir/native/native-entry.test.mjs` | Fixture `before-quit` dostane aj `meetingMonitor` (upstream ho v ňom uvoľňuje). Opravené v kroku v0.2.17. |
 
 Cloudový prepis (`cloud-transcription.ts`) vyžaduje účet Eigenwelt, v LAWOSS je teda nedostupný. `sk.ts` a `cs.ts`: 166 nových kľúčov, 7 zrušených `recorder.dictation_mode_*` odstránených. `opencodeVersion` ostáva 1.18.29.
 

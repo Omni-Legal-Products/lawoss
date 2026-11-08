@@ -63,6 +63,8 @@ export function lawossEngineEnv(
     OPENCODE_DISABLE_MODELS_FETCH: "1",
     OPENCODE_DISABLE_SHARE: "1",
     OPENCODE_DISABLE_AUTOUPDATE: "1",
+    // Upstream v0.2.12: FFF's background scan reads document contents; filename lookup can use ripgrep.
+    OPENCODE_DISABLE_FFF: "true",
     ...(catalog ? { OPENCODE_MODELS_PATH: catalog } : {}),
   };
 }
