@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OpenCode } from "@opencode/client";
@@ -359,5 +359,27 @@ for (const [name, bin] of engines) {
       expect(engine.fake.sessions.has(matter)).toBe(false);
       expect(engine.fake.sessions.has(foreign)).toBe(true);
     }
+  }, 60_000);
+}
+
+for (const [name, bin] of engines) {
+  test(`${name}: samostatne registrovaný spis klienta A ostáva klientovi A, vnorený klient s vlastnou kartou nie (#264, #295)`, async () => {
+    const folders = await office();
+    // Karty klienta (OKF): klient A a vnorený klient majú každý svoju; spis A kartu nemá, patrí ku karte A.
+    await writeFile(join(folders.clientA, "klient.md"), "# Klient A\n");
+    await writeFile(join(folders.nested, "klient.md"), "# Vnorený klient\n");
+    const engine = await start(bin, folders);
+    const { get } = await serve(folders, engine, { "spis-a": folders.matterA });
+    const id = engine.ids;
+    const status = async (workspace: string, session: string) => (await get(`/workspace/${workspace}/opencode/session/${session}`)).status;
+    expect(await status("klient-a", id["A vec"])).toBe(200);
+    expect((await get(`/workspace/klient-a/sessions/${id["A vec"]}/messages`)).status).toBe(200);
+    const items = z.object({ items: z.array(z.object({ id: z.string() }).passthrough()) }).parse((await get("/workspace/klient-a/sessions")).body).items.map((item) => item.id).sort();
+    expect(items).toEqual([id["A koreň"], id["A vec"]].sort());
+    // Spis číta svoj chat, nie chat koreňa klienta; vnorený klient s kartou ostáva oddelený.
+    expect(await status("spis-a", id["A vec"])).toBe(200);
+    expect(await status("spis-a", id["A koreň"])).toBe(404);
+    for (const session of [id["Vnorený tajné"], id["Vnorený spis tajný"]]) expect(await status("klient-a", session)).toBe(404);
+    expect(await status("vnoreny", id["Vnorený tajné"])).toBe(200);
   }, 60_000);
 }

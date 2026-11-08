@@ -281,6 +281,22 @@ export async function nestedClientRoots(config: ServerConfig, workspace: Workspa
   return ownRoot ? otherRoots.filter((root) => root !== ownRoot && isPathWithin(ownRoot, root)) : [];
 }
 
+/**
+ * Vnorení klienti, ktorým nepatria chaty nadradeného klienta (#264): `nestedClientRoots` okrem registrovaných spisov
+ * toho istého klienta (N-A7-14, review #295), teda vnútorných priečinkov, ktorých najbližšia karta klienta je karta
+ * tohto klienta. Bez karty (ani jednej strany) sa vnorený priečinok berie prísne ako iný klient.
+ */
+export async function foreignNestedClientRoots(config: ServerConfig, workspace: WorkspaceInfo): Promise<string[]> {
+  const nested = await nestedClientRoots(config, workspace);
+  if (!nested.length) return nested;
+  const practice = await officeRoot(config);
+  const own = await existingCanonical(workspace.path);
+  const ownCard = own ? await clientCardFolder(own, practice) : null;
+  if (!ownCard) return nested;
+  const cards = await Promise.all(nested.map((root) => clientCardFolder(root, practice)));
+  return nested.filter((_, index) => cards[index] !== ownCard);
+}
+
 /** Priečinky klienta na zdieľanie do sandboxu: len tie, ktoré pravidlá pripojených priečinkov dovolia. */
 export async function linkableFolders(config: ServerConfig, workspace: WorkspaceInfo, folders: readonly string[]): Promise<string[]> {
   // Wiki nie je klient: jej povolenia projektov majú vlastné pravidlá (wiki/access.ts).

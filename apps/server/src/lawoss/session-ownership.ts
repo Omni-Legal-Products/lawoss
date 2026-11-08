@@ -2,7 +2,7 @@ import { realpath } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { foldedPath, isPathWithin } from "./path-within.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
-import { nestedClientRoots } from "./linked-folders.js";
+import { foreignNestedClientRoots } from "./linked-folders.js";
 import { canonicalPath } from "./linked-folders-rules.js";
 import { workspaceListsSession } from "./session-list-scope.js";
 import { workspaceOwnsSession, workspaceOwnsSessionDirectory } from "./workspace-history.js";
@@ -67,14 +67,15 @@ export type ChatOwnership = (session: { id: string; directory?: string | null })
  *   path segment by segment (`Klient_A` never owns `Klient-A`, a symlink out of the root is not inside).
  *   A case chat in a case subfolder therefore belongs to its client.
  * - A chat inside another client registered within this root (a nested client, #264) belongs to that
- *   client alone: the nested client stays visible as a folder, but its chats are not the parent's.
+ *   client alone: the nested client stays visible as a folder, but its chats are not the parent's. A separately
+ *   registered case of this same client (its nearest client card is this client's, review #295) stays this client's.
  * - A chat captured before a reconnect keeps its old folder (`workspace-history.ts`).
  *
  * The nested roots are read once per call of this factory; reuse the returned check for a list.
  */
 export async function workspaceChatOwnership(config: ServerConfig, workspace: WorkspaceInfo): Promise<ChatOwnership> {
   const root = sessionFolderRoot(workspace);
-  const [canonicalRoot, nested] = await Promise.all([canonicalPath(root), nestedClientRoots(config, workspace)]);
+  const [canonicalRoot, nested] = await Promise.all([canonicalPath(root), foreignNestedClientRoots(config, workspace)]);
   const foldedNested = nested.map((other) => foldedPath(other));
   // Chats of a list share few folders: one canonical lookup per folder.
   const canonical = new Map<string, Promise<string>>();
