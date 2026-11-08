@@ -35,8 +35,9 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
     if (url.pathname === "/api/experimental/migration/v1") return Response.json({ status: "completed", progress: { completed: 0, total: 0 } });
   }
   const secret = await redeem();
-  // v1 /instance/dispose or the v2 per-location eviction closes the scratch instance of the ticket probe.
-  if (url.pathname === "/instance/dispose" || url.pathname === "/api/debug/location" && request.method === "DELETE") settled = true;
+  // Engine v2: the ticket window closes after the opened client's location answers GET /api/model
+  // (plugins activated, ticket redeemed); v1 disposed a scratch instance instead.
+  if (url.pathname === "/instance/dispose" || url.pathname === "/api/model" || url.pathname === "/api/debug/location" && request.method === "DELETE") settled = true;
   if (url.pathname.startsWith("/api/")) return Response.json({ data: [] });
   if (url.pathname === "/spent") return Response.json({ ticket, settled });
   if (url.pathname !== "/probe") return Response.json({ healthy: true });
