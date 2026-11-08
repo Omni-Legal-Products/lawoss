@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { relative } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { join, relative } from "node:path";
 
 /**
  * LAWOSS: falošný engine v2 (OpenCode 2.1.4) pre e2e testy izolácie klientov.
@@ -21,14 +22,21 @@ export type FakeSession = {
   archived?: number;
   metadata?: Record<string, unknown>;
 };
-export type FakeRequest = { method: string; path: string; search: URLSearchParams; body?: unknown };
+export type FakeRequest = { method: string; path: string; search: URLSearchParams; headers: Headers; body?: unknown };
 type ListFilter = { directory?: string; project?: string; subpath?: string; parentID?: string | null; archived?: boolean; search?: string };
 type Cursor = ListFilter & { anchor: { id: string; time: number; direction: "next" | "previous" } };
 
 const encodeCursor = (cursor: Cursor) => Buffer.from(JSON.stringify(cursor)).toString("base64url");
 const decodeCursor = (value: string): Cursor => JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
 
-export function fakeEngineV2(input: { sessions?: FakeSession[]; gitRoots?: string[] } = {}) {
+export function fakeEngineV2(input: {
+  sessions?: FakeSession[];
+  gitRoots?: string[];
+  /** Expected `Authorization` header; other requests get 401. */
+  authorization?: string;
+  /** Replaces the native move answer (unsupported engine, interrupted rollback); `undefined` moves normally. */
+  onMove?: (sessionID: string, directory: string) => Response | undefined | Promise<Response | undefined>;
+} = {}) {
   const sessions = new Map<string, FakeSession>((input.sessions ?? []).map((session) => [session.id, { ...session }]));
   const requests: FakeRequest[] = [];
   const prompts: { sessionID: string; directory: string; id?: string; text?: string }[] = [];
@@ -93,7 +101,8 @@ export function fakeEngineV2(input: { sessions?: FakeSession[]; gitRoots?: strin
     const path = url.pathname;
     const raw = request.method === "GET" || request.method === "HEAD" ? "" : await request.text();
     const body: unknown = raw ? JSON.parse(raw) : undefined;
-    requests.push({ method: request.method, path, search: url.searchParams, ...(body === undefined ? {} : { body }) });
+    requests.push({ method: request.method, path, search: url.searchParams, headers: request.headers, ...(body === undefined ? {} : { body }) });
+    if (input.authorization !== undefined && request.headers.get("authorization") !== input.authorization) return new Response("Unauthorized", { status: 401 });
     const location = url.searchParams.get("location[directory]") ?? "";
     if (path === "/api/info") return Response.json({ version: "2.1.4", pid: process.pid });
     if (path === "/api/experimental/migration/v1") return Response.json({ status: "completed", progress: { completed: 0, total: 0 } });
@@ -127,6 +136,8 @@ export function fakeEngineV2(input: { sessions?: FakeSession[]; gitRoots?: strin
       }
       if (!action && request.method === "DELETE") { sessions.delete(session.id); return new Response(null, { status: 204 }); }
       if (action === "/move" && typeof body === "object" && body !== null && "directory" in body && typeof body.directory === "string") {
+        const replaced = await input.onMove?.(session.id, body.directory);
+        if (replaced) return replaced;
         session.directory = body.directory; session.updated = ++clock;
         return new Response(null, { status: 204 });
       }
@@ -141,6 +152,8 @@ export function fakeEngineV2(input: { sessions?: FakeSession[]; gitRoots?: strin
         return Response.json({ data: { id, type: "user", text: text ?? "", time: { created: ++clock } } });
       }
       if (action === "/agent" || action === "/model") return new Response(null, { status: 204 });
+      // Synthetic stand-in for a tool run: it reports the folder the chat runs in.
+      if (action === "/shell" && request.method === "POST") return Response.json({ data: { directory: session.directory } });
       if (action === "/interrupt") return Response.json({ interrupted: false });
       return Response.json({ data: [] });
     }
@@ -155,7 +168,33 @@ export function fakeEngineV2(input: { sessions?: FakeSession[]; gitRoots?: strin
     project,
     stop: () => server.stop(true),
     /** Requests that reached the engine for this chat beyond its metadata read (`GET /api/session/:id`). */
+    moves: () => requests.filter((request) => request.method === "POST" && request.path.endsWith("/move")).map((request) => ({ sessionID: request.path.split("/")[3] ?? "", body: request.body })),
     touched: (sessionID: string) => requests.filter((request) => request.path.startsWith(`/api/session/${sessionID}/`)).map((request) => `${request.method} ${request.path}`),
   };
 }
 export type FakeEngineV2 = ReturnType<typeof fakeEngineV2>;
+
+/**
+ * Skutočný engine v2 (`LEGALWORK_TEST_OPENCODE_BIN`) v izolovanom HOME/XDG pod `home`, s heslom
+ * ako spravovaný engine (`OPENCODE_PASSWORD`, používateľ `opencode`). Bez modelu a bez sťahovania.
+ */
+export async function startRealEngineV2(bin: string, home: string, cleanups: (() => Promise<unknown> | unknown)[]) {
+  for (const folder of ["home", "config", "data", "cache", "state", "opencode-config"]) await mkdir(join(home, folder), { recursive: true });
+  // Voľný port: krátko otvorený a zatvorený poslucháč (engine dostane pevný `--port`).
+  const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+  const port = probe.port; probe.stop(true);
+  const password = crypto.randomUUID();
+  const child = Bun.spawn([bin, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: home, stdout: "ignore", stderr: "ignore", env: {
+    PATH: process.env.PATH ?? "", HOME: join(home, "home"), XDG_CONFIG_HOME: join(home, "config"), XDG_DATA_HOME: join(home, "data"), XDG_CACHE_HOME: join(home, "cache"), XDG_STATE_HOME: join(home, "state"),
+    OPENCODE_CONFIG_DIR: join(home, "opencode-config"), OPENCODE_DB: join(home, "engine.db"), OPENCODE_DISABLE_MODELS_FETCH: "1", OPENCODE_DISABLE_CLAUDE_CODE: "1", OPENCODE_DISABLE_AUTOUPDATE: "1",
+    OPENCODE_CONFIG_CONTENT: JSON.stringify({ update: "disable", warming: false }), OPENCODE_PASSWORD: password,
+  } });
+  cleanups.push(async () => { child.kill(); await child.exited; });
+  const engine = { url: `http://127.0.0.1:${port}`, username: "opencode", password };
+  const authorization = `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}`;
+  for (const deadline = Date.now() + 30_000; ; await Bun.sleep(100)) {
+    if (Date.now() > deadline) throw new Error("engine did not start");
+    if (await fetch(`${engine.url}/api/info`, { headers: { authorization } }).then((response) => response.ok, () => false)) break;
+  }
+  return engine;
+}

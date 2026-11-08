@@ -9,7 +9,7 @@ import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { ensureWikiAgentToken } from "../wiki/agent-access.js";
 import { enforceAiBoundaries } from "./test-support/ai-boundaries.js";
-import { fakeEngineV2, type FakeEngineV2 } from "./test-support/fake-engine-v2.js";
+import { fakeEngineV2, startRealEngineV2, type FakeEngineV2 } from "./test-support/fake-engine-v2.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
 
 /**
@@ -57,25 +57,8 @@ function fake(folders: Office): Engine {
 
 /** Skutočný engine v2 v izolovanom HOME/XDG; chaty založí cez jeho API v priečinkoch klientov. */
 async function real(bin: string, folders: Office): Promise<Engine> {
-  const home = join(folders.base, "engine");
-  for (const folder of ["home", "config", "data", "cache", "state", "opencode-config"]) await mkdir(join(home, folder), { recursive: true });
-  // Voľný port: krátko otvorený a zatvorený poslucháč (engine dostane pevný `--port`).
-  const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = probe.port; probe.stop(true);
-  const password = crypto.randomUUID();
-  const child = Bun.spawn([bin, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: home, stdout: "ignore", stderr: "ignore", env: {
-    PATH: process.env.PATH ?? "", HOME: join(home, "home"), XDG_CONFIG_HOME: join(home, "config"), XDG_DATA_HOME: join(home, "data"), XDG_CACHE_HOME: join(home, "cache"), XDG_STATE_HOME: join(home, "state"),
-    OPENCODE_CONFIG_DIR: join(home, "opencode-config"), OPENCODE_DB: join(home, "engine.db"), OPENCODE_DISABLE_MODELS_FETCH: "1", OPENCODE_DISABLE_CLAUDE_CODE: "1", OPENCODE_DISABLE_AUTOUPDATE: "1",
-    OPENCODE_CONFIG_CONTENT: JSON.stringify({ update: "disable", warming: false }), OPENCODE_PASSWORD: password,
-  } });
-  cleanups.push(async () => { child.kill(); await child.exited; });
-  const engine = { url: `http://127.0.0.1:${port}`, username: "opencode", password };
+  const engine = await startRealEngineV2(bin, join(folders.base, "engine"), cleanups);
   const authorization = `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}`;
-  for (const deadline = Date.now() + 30_000; ; await Bun.sleep(100)) {
-    if (Date.now() > deadline) throw new Error("engine did not start");
-    const ready = await fetch(`${engine.url}/api/info`, { headers: { authorization } }).then((response) => response.ok, () => false);
-    if (ready) break;
-  }
   const client = OpenCode.make({ baseUrl: engine.url, headers: { authorization } });
   const create = async (directory: string, title: string) => (await client.session.create({ location: { directory }, title })).id;
   const ids: Partial<Record<Title, string>> = {};

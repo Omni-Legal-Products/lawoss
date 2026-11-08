@@ -8,6 +8,8 @@ import { startServer } from "./server.js";
 import { buildWorkspaceInfos } from "./workspaces.js";
 import type { ServerConfig } from "./types.js";
 import { nativeRow } from "./lawoss/test-support/native-config.js";
+import { fakeEngineV2, startRealEngineV2 } from "./lawoss/test-support/fake-engine-v2.js";
+import { OpenCode } from "@opencode/client";
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { while (cleanup.length) await cleanup.pop()?.(); });
 // Windows refuses renaming A while anything holds a descendant open; content created after
@@ -51,16 +53,11 @@ test("persistence failure rolls back and simultaneous reconnect has one winner",
 
 test("historical chats and artifact paths remain bound to same ID without authorizing old files", async () => {
   const f = await fixture();
-  const engine = Bun.serve({ port: 0, fetch: request => {
-    const url = new URL(request.url);
-    if (url.pathname === "/experimental/control-plane/move-session") return new Response(null, { status: 204 });
-    const directory = url.pathname === "/experimental/session" ? f.a : f.b;
-    expect(url.searchParams.get("directory")).toBe(url.pathname === "/experimental/session" ? null : f.b);
-    expect(request.headers.get("x-opencode-directory")).toBe(f.b);
-    return Response.json(directory === f.a ? [{ id: "chat-original", directory: f.a, title: "Original", time: { updated: 1 } }] : []);
-  } }); cleanup.push(() => Promise.resolve(engine.stop(true)));
-  f.config.opencodeBaseUrl = `http://127.0.0.1:${engine.port}`;
+  // LAWOSS v2: the engine moves a captured chat to the reconnected folder (`session.move`).
+  const engine = fakeEngineV2({ sessions: [{ id: "chat-original", title: "Original", directory: f.a, created: 1, updated: 1 }] }); cleanup.push(async () => engine.stop());
+  f.config.opencodeBaseUrl = engine.url;
   await rename(f.a, f.b); expect((await f.request()).ok).toBe(true);
+  expect(engine.moves()).toEqual([{ sessionID: "chat-original", body: { directory: f.b } }]);
   const base = `http://127.0.0.1:${f.server.port}`;
   const sessions = await fetch(`${base}/workspace/stable/sessions`, { headers: { Authorization: "Bearer client" } });
   expect(sessions.status).toBe(200); expect(JSON.stringify(await sessions.json())).toContain("chat-original");
@@ -100,32 +97,22 @@ test("remote projects, files, aliases and foreign symlink targets cannot reconne
 });
 
 test("with AI boundaries on, native mounted session list and getters exclude later foreign chats reusing old path", async () => {
-  const f = await fixture(); await enforceAiBoundaries(f.config); f.config.workspaces[0]!.directory = f.a; let late = false, shellRequests = 0;
-  const engine = Bun.serve({ port: 0, fetch: request => {
-    const url = new URL(request.url);
-    expect(request.headers.get("x-opencode-directory")).toBe(f.b);
-    const original = { id: "original", directory: f.a, title: "Original", time: { updated: 1 } };
-    const foreign = { id: "foreign-late", directory: f.a, title: "Foreign", time: { updated: 2 } };
-    if (url.pathname === "/experimental/control-plane/move-session") return new Response(null, { status: 204 });
-    if (url.pathname === "/experimental/session") return Response.json(late ? [foreign, original] : [original]);
-    if (url.pathname === "/session") return Response.json([foreign]);
-    if (url.pathname === "/session/original") { expect(request.headers.get("content-length")).toBeNull(); return Response.json(original); }
-    if (url.pathname === "/session/original/shell") { shellRequests++; return Response.json({ cwd: f.b }); }
-    if (url.pathname === "/session/foreign-late") return Response.json(foreign);
-    return Response.json([]);
-  } }); cleanup.push(() => Promise.resolve(engine.stop(true)));
-  f.config.opencodeBaseUrl = `http://127.0.0.1:${engine.port}`;
-  await rename(f.a, f.b); expect((await f.request()).ok).toBe(true); late = true;
+  const f = await fixture(); await enforceAiBoundaries(f.config); f.config.workspaces[0]!.directory = f.a;
+  const engine = fakeEngineV2({ sessions: [{ id: "original", title: "Original", directory: f.a, created: 1, updated: 1 }] }); cleanup.push(async () => engine.stop());
+  f.config.opencodeBaseUrl = engine.url;
+  await rename(f.a, f.b); expect((await f.request()).ok).toBe(true);
+  // A later chat of someone else reuses the old path; it is not one of the captured chats.
+  await mkdir(f.a); engine.create({ id: "foreign-late", title: "Foreign", directory: f.a });
   const base = `http://127.0.0.1:${f.server.port}/workspace/stable`;
   const headers = { Authorization: "Bearer client" };
   const list = await fetch(`${base}/opencode/session`, { headers });
-  expect(list.status).toBe(200); expect((await list.json()).map((item: { id: string }) => item.id)).toEqual(["original"]);
+  expect(list.status).toBe(200); expect((await list.json()).data.map((item: { id: string }) => item.id)).toEqual(["original"]);
   const ordinary = await fetch(`${base}/sessions`, { headers });
   expect(ordinary.status).toBe(200); expect((await ordinary.json()).items.map((item: { id: string }) => item.id)).toEqual(["original"]);
   expect((await fetch(`${base}/opencode/session/original`, { headers })).status).toBe(200);
-  const shell = await fetch(`${base}/opencode/session/original/shell`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ agent: "build", command: "pwd" }) });
+  const shell = await fetch(`${base}/opencode/session/original/shell`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ command: "pwd" }) });
   expect(shell.status).toBe(403); expect(await shell.json()).toMatchObject({ code: "ai_transfer_denied" });
-  expect(shellRequests).toBe(0);
+  expect(engine.requests.filter(request => request.path.endsWith("/shell"))).toEqual([]);
   // Supported session rebind remains verified above; protected tool execution is unavailable.
   expect((await fetch(`${base}/opencode/session/foreign-late/message`, { headers })).status).toBe(404);
   expect((await fetch(`${base}/sessions/foreign-late/messages`, { headers })).status).toBe(404);
@@ -135,14 +122,8 @@ test("with AI boundaries on, native mounted session list and getters exclude lat
 test.each(["derived", "custom"])("registering a freed path allocates distinct ID and storage for %s identity", async identity => {
   const { workspaceIdForPath } = await import("./workspaces.js");
   const f = await fixture(); const originalId = identity === "derived" ? workspaceIdForPath(f.a) : "stable"; f.config.workspaces[0]!.id = originalId;
-  let sessionDirectory = f.a;
-  const engine = Bun.serve({ port: 0, fetch: async request => {
-    const path = new URL(request.url).pathname;
-    if (path === "/experimental/session") return Response.json([{ id: "original-chat", directory: sessionDirectory, time: { updated: 1 } }]);
-    if (path === "/experimental/control-plane/move-session") { sessionDirectory = (await request.json()).destination.directory; return new Response(null, { status: 204 }); }
-    if (path === "/session/original-chat") return Response.json({ id: "original-chat", directory: sessionDirectory, time: { updated: 1 } });
-    return Response.json([]);
-  } }); cleanup.push(() => Promise.resolve(engine.stop(true))); f.config.opencodeBaseUrl = `http://127.0.0.1:${engine.port}`;
+  const engine = fakeEngineV2({ sessions: [{ id: "original-chat", title: "Original", directory: f.a, created: 1, updated: 1 }] }); cleanup.push(async () => engine.stop());
+  f.config.opencodeBaseUrl = engine.url;
   await rename(f.a, f.b);
   const base = `http://127.0.0.1:${f.server.port}`;
   const headers = { "X-LegalWork-Host-Token": "host", "Content-Type": "application/json" };
@@ -156,50 +137,42 @@ test.each(["derived", "custom"])("registering a freed path allocates distinct ID
   expect(moved.path).toBe(f.b); expect(f.config.workspaces).toHaveLength(2);
   expect(externalAppFilesRoot(f.config, unrelated)).not.toBe(externalAppFilesRoot(f.config, moved));
   expect((await fetch(`${base}/workspace/${next.activeId}/opencode/session/original-chat/message`, { headers: { Authorization: "Bearer client" } })).status).toBe(404);
+  expect((await fetch(`${base}/workspace/${originalId}/opencode/session/original-chat/message`, { headers: { Authorization: "Bearer client" } })).status).toBe(200);
   expect(await readFile(join(f.b, "source.pdf"), "utf8")).toBe("%PDF-original");
 });
 
 test("supported session rebind preserves subdirectories and rolls back on persistence failure", async () => {
   const f = await fixture(a => mkdir(join(a, "sub"))); await rename(f.a, f.b);
-  const directories = new Map([["root-chat", f.a], ["nested-chat", join(f.a, "sub")]]);
-  const moves: Array<{ sessionID: string; destination: { directory: string }; moveChanges: boolean }> = [];
-  const engine = Bun.serve({ port: 0, fetch: async request => {
-    const url = new URL(request.url); expect(request.headers.get("x-opencode-directory")).toBe(f.b);
-    if (url.pathname === "/experimental/session") return Response.json([...directories].map(([id,directory]) => ({id,directory,time:{updated:1}})));
-    if (url.pathname === "/experimental/control-plane/move-session") {
-      const body = await request.json(); moves.push(body); directories.set(body.sessionID, body.destination.directory); return new Response(null,{status:204});
-    }
-    return Response.json([]);
-  } }); cleanup.push(() => Promise.resolve(engine.stop(true))); f.config.opencodeBaseUrl = `http://127.0.0.1:${engine.port}`;
+  const engine = fakeEngineV2({ sessions: [{ id: "root-chat", title: "Root", directory: f.a, created: 1, updated: 2 }, { id: "nested-chat", title: "Case", directory: join(f.a, "sub"), created: 1, updated: 1 }] });
+  cleanup.push(async () => engine.stop()); f.config.opencodeBaseUrl = engine.url;
+  const directory = (id: string) => engine.sessions.get(id)?.directory;
   f.config.configPath = f.root; expect((await f.request()).ok).toBe(false);
-  expect(directories.get("root-chat")).toBe(f.a); expect(directories.get("nested-chat")).toBe(join(f.a,"sub")); expect(f.config.workspaces[0]?.path).toBe(f.a);
-  expect(moves.slice(0,2).map(move=>move.destination.directory)).toEqual([f.b,join(f.b,"sub")]); expect(moves.every(move=>move.moveChanges===false)).toBe(true);
-  f.config.configPath=join(f.root,"server.json"); expect((await f.request()).ok).toBe(true);
-  expect(directories.get("root-chat")).toBe(f.b); expect(directories.get("nested-chat")).toBe(join(f.b,"sub"));
-  expect(await readFile(join(f.b,"source.pdf"),"utf8")).toBe("%PDF-original");
+  expect(directory("root-chat")).toBe(f.a); expect(directory("nested-chat")).toBe(join(f.a, "sub")); expect(f.config.workspaces[0]?.path).toBe(f.a);
+  expect(engine.moves().slice(0, 2).map(move => move.body)).toEqual([{ directory: f.b }, { directory: join(f.b, "sub") }]);
+  f.config.configPath = join(f.root, "server.json"); expect((await f.request()).ok).toBe(true);
+  expect(directory("root-chat")).toBe(f.b); expect(directory("nested-chat")).toBe(join(f.b, "sub"));
+  // The case chat keeps working in its subfolder of the reconnected client.
+  expect((await fetch(`http://127.0.0.1:${f.server.port}/workspace/stable/sessions/nested-chat`, { headers: { Authorization: "Bearer client" } })).status).toBe(200);
+  expect(await readFile(join(f.b, "source.pdf"), "utf8")).toBe("%PDF-original");
 });
 
 test("unsupported session rebind and nested destination escape fail without registry changes", async () => {
-  const f = await fixture(async (a,root) => { await mkdir(join(root,"outside")); await symlink(join(root,"outside"),join(a,"linked")); }); await rename(f.a,f.b);
-  let nested = false; let moves = 0;
-  const engine=Bun.serve({port:0,fetch:request=>{
-    if(new URL(request.url).pathname==="/experimental/session") return Response.json([{id:"original",directory:nested?join(f.a,"linked"):f.a,time:{updated:1}}]);
-    moves++; return Response.json({error:"unsupported"},{status:404});
-  }});cleanup.push(()=>Promise.resolve(engine.stop(true)));f.config.opencodeBaseUrl=`http://127.0.0.1:${engine.port}`;
-  expect((await f.request()).ok).toBe(false); expect(f.config.workspaces[0]?.path).toBe(f.a); expect(moves).toBe(1);
-  nested=true; expect((await f.request()).ok).toBe(false); expect(moves).toBe(1); expect(f.config.authorizedRoots).toEqual([f.a]);
+  const f = await fixture(async (a, root) => { await mkdir(join(root, "outside")); await symlink(join(root, "outside"), join(a, "linked")); }); await rename(f.a, f.b);
+  const engine = fakeEngineV2({ sessions: [{ id: "original", title: "Original", directory: f.a, created: 1, updated: 1 }], onMove: () => Response.json({ name: "NotFoundError" }, { status: 404 }) });
+  cleanup.push(async () => engine.stop()); f.config.opencodeBaseUrl = engine.url;
+  expect((await f.request()).ok).toBe(false); expect(f.config.workspaces[0]?.path).toBe(f.a); expect(engine.moves()).toHaveLength(1);
+  engine.sessions.get("original")!.directory = join(f.a, "linked");
+  expect((await f.request()).ok).toBe(false); expect(engine.moves()).toHaveLength(1); expect(f.config.authorizedRoots).toEqual([f.a]);
 });
 
 test("failed engine rollback reports reconciliation instead of successful recovery", async () => {
-  const f=await fixture();await rename(f.a,f.b);let directory=f.a;let attempts=0;
-  const engine=Bun.serve({port:0,fetch:async request=>{
-    if(new URL(request.url).pathname==="/experimental/session")return Response.json([{id:"original",directory,time:{updated:1}}]);
-    attempts++;if(attempts>1)return Response.json({error:"engine interrupted"},{status:500});
-    directory=(await request.json()).destination.directory;return new Response(null,{status:204});
-  }});cleanup.push(()=>Promise.resolve(engine.stop(true)));f.config.opencodeBaseUrl=`http://127.0.0.1:${engine.port}`;f.config.configPath=f.root;
-  const response=await f.request();expect(response.ok).toBe(false);
-  expect(await response.json()).toMatchObject({code:"workspace_recovery_rollback_failed",details:{reconciliationRequired:true,workspaceId:"stable",previousPath:f.a,destinationPath:f.b,sessionIds:["original"]}});
-  expect(directory).toBe(f.b);expect(f.config.workspaces[0]?.path).toBe(f.a);
+  const f = await fixture(); await rename(f.a, f.b); let attempts = 0;
+  const engine = fakeEngineV2({ sessions: [{ id: "original", title: "Original", directory: f.a, created: 1, updated: 1 }],
+    onMove: () => ++attempts > 1 ? Response.json({ name: "UnknownError", data: { message: "engine interrupted" } }, { status: 500 }) : undefined });
+  cleanup.push(async () => engine.stop()); f.config.opencodeBaseUrl = engine.url; f.config.configPath = f.root;
+  const response = await f.request(); expect(response.ok).toBe(false);
+  expect(await response.json()).toMatchObject({ code: "workspace_recovery_rollback_failed", details: { reconciliationRequired: true, workspaceId: "stable", previousPath: f.a, destinationPath: f.b, sessionIds: ["original"] } });
+  expect(engine.sessions.get("original")?.directory).toBe(f.b); expect(f.config.workspaces[0]?.path).toBe(f.a);
 });
 
 test.each(["relative", "absolute"])("reused old folder never supplies another case's memory with %s profile", async kind => {
@@ -223,73 +196,78 @@ test("failed host persistence restores project-owned memory grants", async () =>
   expect(runtimeExternalDirectory(await readRuntimeOpencodeConfig(f.config,"stable"))).toEqual(nativeRow({permission:{external_directory:rules}}).permissions ?? []);expect(f.config.workspaces[0]?.path).toBe(f.a);
 });
 
-test("reconnect captures native archived-zero and genuinely archived history as well as SQL-null history, preserving restart and future-foreign isolation",async()=>{
- const f=await fixture();
- const sessions=[
-  {id:"native-zero",directory:f.a,title:"Native",time:{created:1,updated:3,archived:0}},
-  // The engine API omits archived for SQL NULL.
-  {id:"legacy-null",directory:f.a,title:"Legacy",time:{created:1,updated:2}},
-  {id:"genuine-archive",directory:f.a,title:"Archived",time:{created:1,updated:1,archived:1}},
-  {id:"foreign-project",directory:join(f.root,"elsewhere"),title:"Foreign",time:{created:1,updated:4,archived:0}},
- ];
- let late=false;const moved:string[]=[];
- const engine=Bun.serve({port:0,fetch:async request=>{
-  expect(request.headers.get("authorization")).toBe("Basic "+Buffer.from("synthetic:local").toString("base64"));
-  const url=new URL(request.url),all=late?[...sessions,{id:"future-foreign",directory:f.a,title:"Later reused path",time:{created:4,updated:5,archived:0}}]:sessions;
-  if(url.pathname==="/mcp"||url.pathname==="/path"){expect(url.searchParams.get("directory")).toBe(f.b);return Response.json({});}
-  if(url.pathname==="/experimental/session"){
-   expect(url.searchParams.get("directory")).toBeNull();expect(url.searchParams.get("limit")).toBe("1000");
-   return Response.json(url.searchParams.get("archived")==="true"?all:all.filter(session=>!("archived" in session.time)));
+test("reconnect captures native archived-zero and genuinely archived history as well as SQL-null history, preserving restart and future-foreign isolation", async () => {
+  const f = await fixture();
+  const authorization = "Basic " + Buffer.from("synthetic:local").toString("base64");
+  // LAWOSS v2: one list without an archived filter selects active and archived chats alike.
+  const engine = fakeEngineV2({ authorization, sessions: [
+    { id: "native-zero", directory: f.a, title: "Native", created: 1, updated: 3 },
+    { id: "legacy-null", directory: f.a, title: "Legacy", created: 1, updated: 2 },
+    { id: "genuine-archive", directory: f.a, title: "Archived", created: 1, updated: 1, archived: 1 },
+    { id: "foreign-project", directory: join(f.root, "elsewhere"), title: "Foreign", created: 1, updated: 4 },
+  ] });
+  cleanup.push(async () => engine.stop());
+  f.config.opencodeBaseUrl = engine.url; f.config.opencodeUsername = "synthetic"; f.config.opencodePassword = "local";
+  await rename(f.a, f.b); expect((await f.request()).status).toBe(200);
+  const moved = engine.moves().map(move => move.sessionID);
+  expect(new Set(moved)).toEqual(new Set(["native-zero", "legacy-null", "genuine-archive"]));
+  expect(engine.moves().every(move => JSON.stringify(move.body) === JSON.stringify({ directory: f.b }))).toBe(true);
+  expect(new Set(f.config.workspaces[0]?.previousSessionIds)).toEqual(new Set(moved));
+  expect(engine.requests.filter(request => request.path === "/api/session" && request.method === "GET").some(request => request.search.has("archived"))).toBe(false);
+  const persisted = JSON.parse(await readFile(f.config.configPath!, "utf8"));
+  await mkdir(f.a); engine.create({ id: "future-foreign", directory: f.a, title: "Later reused path" });
+  const restarted = await startServer({ ...f.config, port: 0, workspaces: buildWorkspaceInfos(persisted.workspaces, f.root), authorizedRoots: persisted.authorizedRoots }); cleanup.push(() => Promise.resolve(restarted.stop()));
+  const base = `http://127.0.0.1:${restarted.port}/workspace/stable`, headers = { Authorization: "Bearer client" };
+  for (const path of ["/sessions", "/opencode/session"]) {
+    const response = await fetch(base + path, { headers }); expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(new Set((Array.isArray(body.data) ? body.data : body.items).map((session: { id: string }) => session.id))).toEqual(new Set(moved));
   }
-  if(url.pathname==="/experimental/control-plane/move-session"){
-   const body=await request.json();expect(body.moveChanges).toBe(false);expect(body.destination.directory).toBe(f.b);
-   const session=sessions.find(item=>item.id===body.sessionID);expect(session).toBeDefined();session!.directory=body.destination.directory;moved.push(session!.id);
-   return new Response(null,{status:204});
-  }
-  if(url.pathname==="/session")return Response.json(all);
-  const id=url.pathname.split("/")[2];return Response.json(all.find(session=>session.id===id));
- }});cleanup.push(()=>Promise.resolve(engine.stop(true)));
- f.config.opencodeBaseUrl=`http://127.0.0.1:${engine.port}`;f.config.opencodeUsername="synthetic";f.config.opencodePassword="local";
- await rename(f.a,f.b);expect((await f.request()).status).toBe(200);
- expect(new Set(moved)).toEqual(new Set(["native-zero","legacy-null","genuine-archive"]));
- expect(new Set(f.config.workspaces[0]?.previousSessionIds)).toEqual(new Set(moved));
- const persisted=JSON.parse(await readFile(f.config.configPath!,"utf8"));late=true;
- const restarted=await startServer({...f.config,port:0,workspaces:buildWorkspaceInfos(persisted.workspaces,f.root),authorizedRoots:persisted.authorizedRoots});cleanup.push(()=>Promise.resolve(restarted.stop()));
- const base=`http://127.0.0.1:${restarted.port}/workspace/stable`,headers={Authorization:"Bearer client"};
- for(const path of ["/sessions","/opencode/session"]){const response=await fetch(base+path,{headers});expect(response.status).toBe(200);const body=await response.json();expect(new Set((Array.isArray(body)?body:body.items).map((session:{id:string})=>session.id))).toEqual(new Set(moved));}
- expect((await fetch(`${base}/opencode/session/native-zero`,{headers})).status).toBe(200);
- expect((await fetch(`${base}/opencode/session/future-foreign`,{headers})).status).toBe(404);
- expect((await fetch(`${base}/opencode/session/foreign-project`,{headers})).status).toBe(404);
- expect(persisted.authorizedRoots).toEqual([f.b]);expect(await readFile(join(f.b,"source.pdf"),"utf8")).toBe("%PDF-original");
+  expect((await fetch(`${base}/opencode/session/native-zero`, { headers })).status).toBe(200);
+  expect((await fetch(`${base}/opencode/session/future-foreign`, { headers })).status).toBe(404);
+  expect((await fetch(`${base}/opencode/session/foreign-project`, { headers })).status).toBe(404);
+  expect(persisted.authorizedRoots).toEqual([f.b]); expect(await readFile(join(f.b, "source.pdf"), "utf8")).toBe("%PDF-original");
 });
 
 test("with AI boundaries off (alpha default), native mounted session list and getters exclude later foreign chats reusing old path", async () => {
-  const f = await fixture(); f.config.workspaces[0]!.directory = f.a; let late = false;
-  const engine = Bun.serve({ port: 0, fetch: request => {
-    const url = new URL(request.url);
-    expect(request.headers.get("x-opencode-directory")).toBe(f.b);
-    const original = { id: "original", directory: f.a, title: "Original", time: { updated: 1 } };
-    const foreign = { id: "foreign-late", directory: f.a, title: "Foreign", time: { updated: 2 } };
-    if (url.pathname === "/experimental/control-plane/move-session") return new Response(null, { status: 204 });
-    if (url.pathname === "/experimental/session") return Response.json(late ? [foreign, original] : [original]);
-    if (url.pathname === "/session") return Response.json([foreign]);
-    if (url.pathname === "/session/original") { expect(request.headers.get("content-length")).toBeNull(); return Response.json(original); }
-    if (url.pathname === "/session/original/shell") return Response.json({ cwd: f.b });
-    if (url.pathname === "/session/foreign-late") return Response.json(foreign);
-    return Response.json([]);
-  } }); cleanup.push(() => Promise.resolve(engine.stop(true)));
-  f.config.opencodeBaseUrl = `http://127.0.0.1:${engine.port}`;
-  await rename(f.a, f.b); expect((await f.request()).ok).toBe(true); late = true;
+  const f = await fixture(); f.config.workspaces[0]!.directory = f.a;
+  const engine = fakeEngineV2({ sessions: [{ id: "original", title: "Original", directory: f.a, created: 1, updated: 1 }] }); cleanup.push(async () => engine.stop());
+  f.config.opencodeBaseUrl = engine.url;
+  await rename(f.a, f.b); expect((await f.request()).ok).toBe(true);
+  await mkdir(f.a); engine.create({ id: "foreign-late", title: "Foreign", directory: f.a });
   const base = `http://127.0.0.1:${f.server.port}/workspace/stable`;
   const headers = { Authorization: "Bearer client" };
   const list = await fetch(`${base}/opencode/session`, { headers });
-  expect(list.status).toBe(200); expect((await list.json()).map((item: { id: string }) => item.id)).toEqual(["original"]);
+  expect(list.status).toBe(200); expect((await list.json()).data.map((item: { id: string }) => item.id)).toEqual(["original"]);
   const ordinary = await fetch(`${base}/sessions`, { headers });
   expect(ordinary.status).toBe(200); expect((await ordinary.json()).items.map((item: { id: string }) => item.id)).toEqual(["original"]);
   expect((await fetch(`${base}/opencode/session/original`, { headers })).status).toBe(200);
-  const shell = await fetch(`${base}/opencode/session/original/shell`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ agent: "build", command: "pwd" }) });
-  expect(shell.status).toBe(200); expect(await shell.json()).toEqual({ cwd: f.b });
+  // The moved chat runs its tools in the reconnected folder (engine v2 `session.move`).
+  const shell = await fetch(`${base}/opencode/session/original/shell`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ command: "pwd" }) });
+  expect(shell.status).toBe(200); expect(await shell.json()).toEqual({ data: { directory: f.b } });
   expect((await fetch(`${base}/opencode/session/foreign-late/message`, { headers })).status).toBe(404);
   expect((await fetch(`${base}/sessions/foreign-late/messages`, { headers })).status).toBe(404);
   expect((await fetch(`${base}/opencode/experimental/session`, { headers })).status).toBe(403);
 });
+
+// LAWOSS v2: the supported move with the real engine (`LEGALWORK_TEST_OPENCODE_BIN`): the captured chat and its
+// case chat run in the reconnected folder; a later chat reusing the old path stays foreign.
+test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("real engine v2: reconnect moves captured chats and keeps later old-path chats foreign", async () => {
+  const f = await fixture(a => mkdir(join(a, "Spis")));
+  const engine = await startRealEngineV2(process.env.LEGALWORK_TEST_OPENCODE_BIN ?? "", join(f.root, "engine"), cleanup);
+  const client = OpenCode.make({ baseUrl: engine.url, headers: { authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
+  const root = await client.session.create({ location: { directory: f.a }, title: "Koreň" });
+  const matter = await client.session.create({ location: { directory: join(f.a, "Spis") }, title: "Prípad" });
+  f.config.opencodeBaseUrl = engine.url; f.config.opencodeUsername = engine.username; f.config.opencodePassword = engine.password;
+  await rename(f.a, f.b); expect((await f.request()).status).toBe(200);
+  expect((await client.session.get({ sessionID: root.id })).location.directory).toBe(f.b);
+  expect((await client.session.get({ sessionID: matter.id })).location.directory).toBe(join(f.b, "Spis"));
+  await mkdir(f.a);
+  const late = await client.session.create({ location: { directory: f.a }, title: "Cudzí neskôr" });
+  const base = `http://127.0.0.1:${f.server.port}/workspace/stable`, headers = { Authorization: "Bearer client" };
+  const items = (await (await fetch(`${base}/sessions`, { headers })).json()).items.map((item: { id: string }) => item.id).sort();
+  expect(items).toEqual([root.id, matter.id].sort());
+  for (const id of [root.id, matter.id]) expect((await fetch(`${base}/sessions/${id}/messages`, { headers })).status).toBe(200);
+  expect((await fetch(`${base}/opencode/session/${late.id}`, { headers })).status).toBe(404);
+  expect((await fetch(`${base}/sessions/${late.id}`, { headers })).status).toBe(404);
+}, 60_000);
