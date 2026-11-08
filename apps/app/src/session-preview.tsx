@@ -32,6 +32,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { initLocale, setLocale } from "@/i18n";
 import { SavedReviewSchema } from "@legalwork/types/reviews";
 import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
+import { useSessionInboxStore } from "@/react-app/domains/session/sidebar/session-inbox-store";
 import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-request";
 import { useLocale } from "@/i18n/use-locale";
 import { SessionPage } from "@/react-app/domains/session/chat/session-page";
@@ -180,6 +181,23 @@ if (emptyChatId) { registerEmptySession(emptyChatId); saveSnapshot(snapshot(empt
 saveSnapshot(snapshot("visual-review", "Review supplier agreement", "Review the supplier agreement against our standard playbook and highlight the clauses that need attention."));
 saveSnapshot(snapshot("visual-board", "Prepare board meeting notes", "Help me organize the open legal topics for next week's board meeting."));
 saveSnapshot(snapshot("visual-policy", "Update the privacy policy", "Summarize the changes we need to make to the privacy policy."));
+
+// `?statusStates` lines up one chat per sidebar indicator, each named after the
+// state it stands for, so the whole vocabulary can be compared in one look.
+const statusStateRows = ["idle", "thinking", "responding", "waiting", "compacting", "error", "unread"] as const;
+const statusStatesById: Record<string, string> = {};
+if (previewParams.has("statusStates")) {
+  for (const state of statusStateRows) {
+    saveSnapshot(snapshot(`visual-state-${state}`, state));
+    // `idle` draws nothing and `unread` comes from the inbox store below.
+    if (state !== "idle" && state !== "unread") statusStatesById[`visual-state-${state}`] = state;
+  }
+  useSessionInboxStore.setState({
+    trackingStartedAt: 1,
+    entries: { "visual-state-unread": { workspaceId: workspace.id, sessionId: "visual-state-unread", updatedAt: 2, assistantAt: 2 } },
+    readAt: {},
+  });
+}
 if (limitParam) {
   const item = snapshot("visual-limit", "Review supplier agreement", "Review the supplier agreement and highlight the clauses that need attention.");
   saveSnapshot({
@@ -721,7 +739,7 @@ function SessionPreview() {
           }}
           sidebar={{
             workspaceSessionGroups: projectOrder.flatMap(id => groups.filter(group => group.workspace.id === id)), onReorderWorkspaces: setProjectOrder, selectedWorkspaceId: activeWorkspace.id, selectedSessionId, developerMode: false,
-            sessionStatusById: {}, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newChatDisabled: false,
+            sessionStatusById: statusStatesById, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newChatDisabled: false,
             sidebarHydratedFromCache: true, startupPhase: "ready", onSelectWorkspace: id => {
               setActiveWorkspace(id === workspace.id ? workspace : otherWorkspace);
               setSelectedSessionId(id === workspace.id ? welcomeId : null); setShowWorkflows(false);

@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { Part } from "@opencode-ai/sdk/v2/client";
 import type { UIMessage } from "ai";
+import type { LegalworkSessionSnapshot } from "../src/app/lib/legalwork-server";
+import { snapshotToUIMessages } from "../src/react-app/domains/session/sync/usechat-adapter";
+import { parseScheduledRunMessage } from "../src/react-app/domains/scheduled-tasks/scheduled-message";
 
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import { groupMessages, isCompactionMessage } from "../src/components/chat/utils";
@@ -18,6 +21,29 @@ import {
 
 afterEach(() => {
   getReactQueryClient().clear();
+});
+
+test("scheduled task identity survives live delivery and snapshot reload", () => {
+  const input = { workspaceId: "scheduled-project", baseUrl: "http://127.0.0.1:1234", legalworkToken: "token" };
+  const sessionId = "scheduled-chat";
+  const metadata = { taskId: "101ec043-4ef0-4df7-88b6-4690869e8830", workspaceId: input.workspaceId, title: "Recordings [daily]" };
+  const part: Extract<Part, { type: "text" }> = {
+    id: "run-text", messageID: "run", sessionID: sessionId, type: "text", text: `[Scheduled task: ${metadata.title}]\n\nRead yesterday's recordings`,
+    metadata: { legalworkScheduledTask: metadata },
+  };
+  const info = { id: "run", sessionID: sessionId, role: "user", time: { created: 1 }, agent: "legalwork-scheduled-project", model: { providerID: "test", modelID: "test" } } satisfies LegalworkSessionSnapshot["messages"][number]["info"];
+  const snapshot: LegalworkSessionSnapshot = { session: { id: sessionId, title: "Scheduled", version: "1", time: { created: 1, updated: 2 } },
+    messages: [{ info, parts: [part] }], todos: [], status: { type: "idle" } };
+  const expected = { ...metadata, prompt: "Read yesterday's recordings" };
+  expect(parseScheduledRunMessage(snapshotToUIMessages(snapshot)[0])).toEqual(expected);
+  const cleanup = __createWorkspaceSessionSyncForTest(input);
+  const release = trackWorkspaceSessionSync(input, sessionId);
+  try {
+    __applySessionSyncEventForTest(input, { type: "message.updated", properties: { info } });
+    __applySessionSyncEventForTest(input, { type: "message.part.updated", properties: { part } });
+    const messages = getReactQueryClient().getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, sessionId)) ?? [];
+    expect(parseScheduledRunMessage(messages[0])).toEqual(expected);
+  } finally { release(); cleanup(); }
 });
 
 test("compaction summaries stay out of the rendered conversation", () => {

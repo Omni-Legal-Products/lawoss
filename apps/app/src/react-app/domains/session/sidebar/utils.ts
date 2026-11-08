@@ -30,6 +30,9 @@ export const isStreamingSessionStatus = (status: string | undefined) =>
   status === "streaming" ||
   status === "thinking" ||
   status === "responding" ||
+  // Compacting is work the session is doing, not a state it is resting in, so
+  // it spins like the other busy states and counts towards a parent's rollup.
+  status === "compacting" ||
   status === "waiting";
 
 const normalizeSessionParentID = (session: SessionListItem) => {

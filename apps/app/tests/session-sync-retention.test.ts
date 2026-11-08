@@ -1335,7 +1335,7 @@ for(const mode of ["idle","terminal-idle","metadata","accepted","accepted-same-b
    f.wire({type:"permission.asked",properties:{id:"synthetic-guard",sessionID:"session-one",permission:"read",patterns:[],always:[],metadata:{}}});
    await waitFor(()=>record()?.status==="waiting");
    if(mode==="idle")await f.wireStatus({type:"idle"});
-   else{f.wire({type:"session.idle",properties:{sessionID:"session-one"}});await waitFor(()=>record()?.status==="idle");}
+   else{f.wire({type:"session.idle",properties:{sessionID:"session-one"}});await waitFor(()=>record()?.runActive===false);}
   }else if(mode==="metadata"){
    const before=record()?.executionEvidence;
    useSessionActivityStore.getState().replaceWaitingRequests(f.input.workspaceId,"session-one","permission",["hydrated-wait"]);
@@ -1364,7 +1364,9 @@ for(const mode of ["idle","terminal-idle","metadata","accepted","accepted-same-b
   expect(client.getQueryData<SessionStatus>(statusKey(f.input.workspaceId,"session-one"))?.type).toBe(expected);
   expect(client.getQueryData<LegalworkSessionSnapshot>(snapshotKey(f.input.workspaceId,"session-one"))?.status.type).toBe(expected);
   expect(record()?.runActive).toBe(expected==="busy");
-  if(expected==="idle")expect(record()).toMatchObject({waitingPermissionIds:[],waitingQuestionIds:[],compacting:false});
+  // Upstream v0.2.12 (LW-202): idle status keeps a pending request; only its reply clears it.
+  const waitingPermissionIds=mode==="idle"||mode==="terminal-idle"?["synthetic-guard"]:mode==="metadata"?["hydrated-wait"]:[];
+  if(expected==="idle")expect(record()).toMatchObject({waitingPermissionIds,waitingQuestionIds:[],compacting:false});
   if(mode==="metadata")expect(client.getQueryData<LegalworkSessionSnapshot>(snapshotKey(f.input.workspaceId,"session-one"))?.session.title).toBe("Synthetic metadata during read");
  });
 }
@@ -1571,7 +1573,8 @@ for(const reader of ["snapshot","status"] as const)for(const sequence of ["start
   if(sequence==="idle-accepted-ask")expect(record()).toMatchObject({runActive:true,waitingQuestionIds:["synthetic-sequence-wait"]});
   // Existing fresh status recovery remains available after a genuine cleanup.
   if(sequence==="idle-start"||sequence==="error-start"||sequence==="idle-busy-start")await event("end");
-  if(sequence==="idle-ask"||sequence==="idle-accepted-ask")await event("reply");
+  // Upstream v0.2.12 (LW-202): an idle status does not clear a pending question, its reply does.
+  if(sequence==="idle-ask"||sequence==="idle-accepted-ask"||sequence==="ask-idle")await event("reply");
   await statuses.refetch();
   expect(client.getQueryData<SessionStatus>(statusQueryKey)?.type).toBe("idle");
   expect(client.getQueryData<LegalworkSessionSnapshot>(snapshotQueryKey)?.status.type).toBe("idle");

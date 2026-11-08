@@ -1,12 +1,10 @@
 /** @jsxImportSource react */
 /**
- * Onboarding: transcription & meeting recording. The same three steps as the
- * settings first-run setup — microphone, system audio (the other side of
- * calls), on-device speech model — as a click-through checklist. The model
- * can keep downloading in the background while the user starts working.
+ * Meeting recording and Dictate Anywhere share device setup, while each
+ * feature requests its own missing access in an in-app setup dialog.
  */
 import { useEffect, useRef, useState } from "react";
-import { Check, ExternalLink, Loader2, X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -18,19 +16,14 @@ import {
   hasEigenweltFeature,
   useEigenweltEntitlements,
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
-import type { AudioPermissionState } from "@legalwork/types/audio";
+import type { AudioDictationPermissionKind, AudioPermissionState } from "@legalwork/types/audio";
 
-import { formatDictationShortcut } from "../recorder/dictation-shortcut";
-import { MODEL_TIERS, tierName } from "../recorder/model-tiers";
-import { SetupStep, recommendedTier } from "../recorder/recorder-setup";
-import { useRecorderStore } from "../recorder/recorder-store";
-import {
-  CoverBackButton,
-  CoverSkipButton,
-  OnboardingCover,
-  StepDots,
-  onboardingDemoActive,
-} from "./onboarding-cover";
+import { RecorderFlow, type RecorderSetupRequirement, type RecorderFeature } from "./recorder-flow";
+import { dictationPermissionReady, dictationSetupPermissions, onboardingDictationPermissions, type DictationSetupPermission } from "./recorder-permissions";
+import { MODEL_TIERS } from "../recorder/model-tiers";
+import { recommendedTier } from "../recorder/recorder-setup";
+import { useRecorderStore, isTranscriptionReady } from "../recorder/recorder-store";
+import { onboardingDemoActive } from "./onboarding-cover";
 
 /** How often the step re-probes the OS while something is still missing. */
 const PERMISSION_POLL_MS = 4000;
@@ -43,10 +36,12 @@ type SimState = {
   sys: AudioPermissionState;
   sysWaiting: boolean;
   model: "not-installed" | "downloading" | "installed";
+  dictationPermissions: Record<DictationSetupPermission, boolean>;
   progress: number; // 0..1 while downloading
 };
 
 export function AudioStep(props: {
+  feature: RecorderFeature;
   onDone: (result: "enabled" | "background" | "skipped") => void;
   onBack: () => void;
   /** For the entitlement check — a firm with premium models gets the premium
@@ -62,12 +57,13 @@ export function AudioStep(props: {
     sys: "not-determined",
     sysWaiting: false,
     model: "not-installed",
+    dictationPermissions: { inputMonitoring: false, accessibility: false, automation: false },
     progress: 0,
   });
   const [micBusy, setMicBusy] = useState(false);
   const [sysWaiting, setSysWaiting] = useState(false);
-  const [sysSkipped, setSysSkipped] = useState(false);
-  const dictationEnableAttempted = useRef(false);
+  const [requestingDictation, setRequestingDictation] = useState<AudioDictationPermissionKind | null>(null);
+  const [checkingReadiness, setCheckingReadiness] = useState(!demo);
   const simTimers = useRef<number[]>([]);
   useEffect(
     () => () => {
@@ -80,8 +76,11 @@ export function AudioStep(props: {
   };
 
   useEffect(() => {
-    captureAnalyticsEvent("onboarding_audio_viewed");
-    if (!demo) void store.init();
+    captureAnalyticsEvent(props.feature === "meetings" ? "onboarding_audio_viewed" : "onboarding_dictation_viewed");
+  }, [props.feature]);
+
+  useEffect(() => {
+    if (!demo) void Promise.all([store.init(), store.refreshDictationReadiness()]).finally(() => setCheckingReadiness(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -89,7 +88,7 @@ export function AudioStep(props: {
   const bootstrap = store.bootstrap;
 
   const micState: AudioPermissionState = demo ? sim.mic : (permissions?.microphone ?? "unknown");
-  const micDone = micState === "granted" || (!demo && micState === "unknown");
+  const micDone = micState === "granted" || (!demo && permissions !== null && micState === "unknown");
   const micBlocked = micState === "denied" || micState === "restricted";
 
   const sysApplies = demo
@@ -97,7 +96,6 @@ export function AudioStep(props: {
     : permissions?.platform === "darwin" && bootstrap?.capabilities.systemAudio !== false;
   const sysState: AudioPermissionState = demo ? sim.sys : (permissions?.systemAudio ?? "unknown");
   const sysGranted = sysState === "granted" || (!demo && sysState === "unknown");
-  const sysDone = sysGranted || sysSkipped;
 
   // A firm already entitled to premium models (an existing Eigenwelt
   // connection — the onboarding AI step now runs after this one) gets the
@@ -118,55 +116,46 @@ export function AudioStep(props: {
   const recommendedModel = bootstrap?.models.find((model) => model.id === recommended.modelId);
   const modelInstalled = demo
     ? sim.model === "installed"
-    : (bootstrap?.models.some((model) => model.state === "installed") ?? false);
+    : isTranscriptionReady(store);
+  // Reuse a usable installed model when an earlier choice is absent or no
+  // longer installed. Keep an intentional download selected until it finishes.
+  useEffect(() => {
+    if (demo || !bootstrap || store.transcriptionSource === "cloud" || modelInstalled || bootstrap.models.some(model => model.id === store.modelId && model.state === "downloading")) return;
+    const installed = bootstrap.models.find(model => model.id === recommended.modelId && model.state === "installed")
+      ?? bootstrap.models.find(model => model.state === "installed" && (model.plan !== "premium" || premiumEntitled || store.unlockedModels.includes(model.id)));
+    if (installed) store.setModelId(installed.id);
+  }, [demo, bootstrap, modelInstalled, store.modelId, store.transcriptionSource, store.setModelId, store.unlockedModels, recommended.modelId, premiumEntitled]);
   const modelDownloading = demo
     ? sim.model === "downloading"
     : recommendedModel?.state === "downloading";
   const totalBytes = demo
     ? DEMO_MODEL_BYTES
     : recommendedModel?.totalBytes || recommendedModel?.approxSizeBytes || 0;
-  const downloadedBytes = demo
-    ? Math.round(sim.progress * DEMO_MODEL_BYTES)
-    : (recommendedModel?.downloadedBytes ?? 0);
+  const downloadedBytes = demo ? sim.progress * DEMO_MODEL_BYTES : (recommendedModel?.downloadedBytes ?? 0);
   const pct = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0;
 
-  const steps = [
-    { id: "microphone" as const, done: micDone, doneLabel: t("recorder.perm_status_granted") },
-    ...(sysApplies
-      ? [
-          {
-            id: "systemAudio" as const,
-            done: sysDone,
-            doneLabel: sysGranted ? t("recorder.perm_status_granted") : t("recorder.setup_skipped"),
-          },
-        ]
-      : []),
-    { id: "model" as const, done: modelInstalled, doneLabel: t("recorder.model_installed") },
-  ];
-  const activeIndex = steps.findIndex((step) => !step.done);
-  const allDone = activeIndex === -1;
+  const readiness = store.dictationReadiness;
+  const extraPermissions = demo ? dictationSetupPermissions : onboardingDictationPermissions(readiness);
+  const permissionViews: Record<DictationSetupPermission, { title: string; body: string }> = {
+    inputMonitoring: { title: t("onboarding_audio.shortcut_access_title"), body: t("onboarding_audio.shortcut_access_description") },
+    accessibility: { title: t("onboarding_audio.insert_access_title"), body: t("onboarding_audio.insert_access_description") },
+    automation: { title: t("onboarding_audio.permission_automation_title"), body: t("onboarding_audio.paste_access_description") },
+  };
 
   // Re-check OS permission state when the user returns from System Settings
   // (focus), plus a slow poll while anything is still missing.
   useEffect(() => {
-    if (demo || allDone) return;
-    const onFocus = () => void store.refreshPermissions();
+    if (demo) return;
+    const refresh = () => { void Promise.all([store.refreshPermissions(), store.refreshDictationReadiness(), store.refreshSystemDictation(), store.refreshMeeting()]).finally(() => setSysWaiting(false)); };
+    const onFocus = refresh;
     window.addEventListener("focus", onFocus);
-    const timer = window.setInterval(() => void store.refreshPermissions(), PERMISSION_POLL_MS);
+    const timer = window.setInterval(refresh, PERMISSION_POLL_MS);
     return () => {
       window.removeEventListener("focus", onFocus);
       window.clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [demo, allDone]);
-
-  // Mic + model ready: enable the dictation hotkey once, in the background.
-  useEffect(() => {
-    if (demo || !micDone || !modelInstalled || dictationEnableAttempted.current) return;
-    dictationEnableAttempted.current = true;
-    void store.setSystemDictationEnabled(true).catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [demo, micDone, modelInstalled]);
+  }, [demo]);
 
   const allowMicrophone = () => {
     captureAnalyticsEvent("onboarding_audio_mic_requested");
@@ -198,21 +187,20 @@ export function AudioStep(props: {
     captureAnalyticsEvent("onboarding_audio_model_download");
     if (demo) {
       setSim((state) => ({ ...state, model: "downloading", progress: 0 }));
-      const tick = () => {
-        setSim((state) => {
-          if (state.model !== "downloading") return state;
-          const progress = Math.min(1, state.progress + 0.03 + Math.random() * 0.05);
-          if (progress >= 1) return { ...state, model: "installed", progress: 1 };
-          return { ...state, progress };
-        });
-        later(160, tick);
-      };
-      later(160, tick);
       return;
     }
     store.setModelId(recommended.modelId);
     void store.downloadModel(recommended.modelId);
   };
+
+  useEffect(() => {
+    if (!demo || sim.model !== "downloading") return;
+    const timer = window.setInterval(() => setSim(state => {
+      const progress = Math.min(1, state.progress + 0.08);
+      return { ...state, progress, model: progress === 1 ? "installed" : "downloading" };
+    }), 160);
+    return () => window.clearInterval(timer);
+  }, [demo, sim.model]);
 
   const cancelDownload = () => {
     if (demo) {
@@ -222,172 +210,73 @@ export function AudioStep(props: {
     void store.cancelModelDownload(recommended.modelId);
   };
 
-  const finish = (result: "enabled" | "background" | "skipped") => {
-    if (!demo && result !== "skipped" && micDone) {
-      void store.setSystemDictationEnabled(true).catch(() => undefined);
-    }
-    props.onDone(result);
-  };
-
   const waitingForSettings = demo ? sim.sysWaiting : sysWaiting;
   const requestingMic = demo ? sim.micBusy : micBusy;
   const modelSize = formatBytes(
     recommendedModel?.installedSizeBytes ?? recommendedModel?.approxSizeBytes ?? DEMO_MODEL_BYTES,
   );
 
-  const shortcut = store.systemDictation
-    ? formatDictationShortcut(store.systemDictation.accelerator, store.systemDictation.platform)
-    : null;
-
-  return (
-    <OnboardingCover
-      footerLeft={<CoverBackButton label={t("onboarding.back")} onClick={props.onBack} />}
-      footerRight={
-        allDone ? (
-          <Button size="sm" onClick={() => finish("enabled")}>
-            {t("onboarding.continue")}
-          </Button>
-        ) : modelDownloading ? (
-          <Button size="sm" onClick={() => finish("background")}>
-            {t("onboarding_audio.continue_background")}
-          </Button>
-        ) : (
-          <CoverSkipButton label={t("onboarding.skip")} onClick={() => finish("skipped")} />
-        )
-      }
-    >
-      <div className="flex w-full max-w-md flex-col gap-7">
-        <div>
-          <StepDots step={3} total={5} />
-          <h1 className="text-[32px] font-medium leading-[1.15] tracking-[-0.04em] text-foreground">
-            {t("onboarding_audio.title")}
-          </h1>
-          <p className="mt-3 max-w-sm text-[14px] leading-[1.6] text-dls-secondary">
-            {t("onboarding_audio.subtitle")}
-          </p>
-        </div>
-
-        {/* The same steps as the settings first-run setup. */}
-        <div className="divide-y divide-subtle overflow-hidden rounded-2xl border border-subtle bg-surface shadow-xs">
-          {steps.map((step, index) => {
-            const active = index === activeIndex;
-            if (step.id === "microphone") {
-              return (
-                <SetupStep
-                  key={step.id}
-                  index={index}
-                  done={step.done}
-                  active={active}
-                  title={t("recorder.setup_mic_title")}
-                  doneLabel={step.doneLabel}
-                >
-                  <p className="text-sm text-subtext">
-                    {micBlocked
-                      ? t("recorder.perm_microphone_instructions")
-                      : t("recorder.setup_mic_body")}
-                  </p>
-                  <div className="mt-3">
-                    {micBlocked ? (
-                      <Button size="sm" variant="outline" onClick={allowMicrophone}>
-                        <ExternalLink data-icon="inline-start" />
-                        {t("recorder.perm_open_settings")}
-                      </Button>
-                    ) : (
-                      <Button size="sm" disabled={requestingMic} onClick={allowMicrophone}>
-                        {requestingMic ? (
-                          <Loader2 data-icon="inline-start" className="animate-spin" />
-                        ) : null}
-                        {t("recorder.setup_mic_cta")}
-                      </Button>
-                    )}
-                  </div>
-                </SetupStep>
-              );
-            }
-            if (step.id === "systemAudio") {
-              return (
-                <SetupStep
-                  key={step.id}
-                  index={index}
-                  done={step.done}
-                  active={active}
-                  title={t("recorder.setup_sys_title")}
-                  doneLabel={step.doneLabel}
-                >
-                  <p className="text-sm text-subtext">{t("recorder.setup_sys_body")}</p>
-                  <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-                    <Button size="sm" onClick={openSystemAudioSettings}>
-                      <ExternalLink data-icon="inline-start" />
-                      {t("recorder.perm_open_settings")}
-                    </Button>
-                    <button
-                      type="button"
-                      className="text-xs text-subtext underline-offset-2 hover:text-ink hover:underline"
-                      onClick={() => setSysSkipped(true)}
-                    >
-                      {t("recorder.setup_sys_skip")}
-                    </button>
-                  </div>
-                  {waitingForSettings ? (
-                    <p className="mt-2.5 flex items-center gap-1.5 text-xs text-subtext animate-in fade-in-0">
-                      <Loader2 className="size-3 animate-spin text-brand" />
-                      {t("recorder.setup_sys_waiting")}
-                    </p>
-                  ) : null}
-                </SetupStep>
-              );
-            }
-            return (
-              <SetupStep
-                key={step.id}
-                index={index}
-                done={step.done}
-                active={active}
-                title={t("recorder.setup_model_title")}
-                doneLabel={step.doneLabel}
-              >
-                <p className="text-sm text-subtext">{t("recorder.setup_model_body")}</p>
-                <div className="mt-3 flex items-center gap-3">
-                  {modelDownloading ? (
-                    <>
-                      <Progress value={pct} className="h-1.5 flex-1" />
-                      <span className="text-2xs tabular-nums text-subtext">
-                        {formatBytes(downloadedBytes)} / {formatBytes(totalBytes)}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={t("recorder.model_cancel")}
-                        onClick={cancelDownload}
-                      >
-                        <X />
-                      </Button>
-                    </>
-                  ) : (
-                    <Button size="sm" onClick={startDownload}>
-                      {t("recorder.model_download")} {tierName(recommended.key)} · {modelSize}
-                    </Button>
-                  )}
-                </div>
-                {!demo && recommendedModel?.state === "error" && recommendedModel.error ? (
-                  <div className="mt-1 text-xs text-red-11">{recommendedModel.error}</div>
-                ) : null}
-              </SetupStep>
-            );
-          })}
-        </div>
-
-        {allDone ? (
-          <span className="inline-flex items-center gap-1.5 text-[14px] font-medium text-green-11">
-            <Check className="size-4" />
-            {shortcut
-              ? t("onboarding_audio.ready", { shortcut })
-              : t("onboarding_audio.ready_generic")}
-          </span>
-        ) : modelDownloading ? (
-          <p className="text-[13px] text-dls-secondary">{t("onboarding_audio.background_note")}</p>
-        ) : null}
+  const microphone: RecorderSetupRequirement = {
+    id: "microphone",
+    title: t("onboarding_audio.mic_access_title"),
+    description: t("onboarding_audio.mic_access_description"),
+    ready: micDone,
+    hint: micBlocked ? t("recorder.perm_microphone_instructions") : null,
+    action: <Button disabled={requestingMic} onClick={allowMicrophone}>
+      {requestingMic ? <Loader2 className="size-3.5 animate-spin" /> : null}
+      {t(micBlocked ? "recorder.perm_open_settings" : "recorder.perm_allow")}
+    </Button>,
+  };
+  const systemAudio: RecorderSetupRequirement = {
+    id: "systemAudio",
+    title: t("onboarding_audio.system_access_title"),
+    description: t("onboarding_audio.system_access_description"),
+    ready: sysGranted,
+    hint: waitingForSettings ? t("recorder.perm_recheck_hint") : null,
+    action: <Button onClick={openSystemAudioSettings}>
+      {waitingForSettings ? <Loader2 className="size-3.5 animate-spin" /> : null}
+      {t("recorder.perm_allow")}
+    </Button>,
+  };
+  const model: RecorderSetupRequirement = {
+    id: "model",
+    title: t("onboarding_audio.local_transcription_title"),
+    description: t("onboarding_audio.local_transcription_description", { size: modelSize }),
+    ready: modelInstalled,
+    downloading: modelDownloading === true,
+    hint: !demo && recommendedModel?.state === "error" ? recommendedModel.error : null,
+    action: modelDownloading ? <div className="space-y-3" role="status">
+      <div className="flex items-center gap-3">
+        <Progress value={pct} className="h-1.5 flex-1" />
+        <span className="text-xs tabular-nums text-subtext">{pct}%</span>
+        <Button variant="ghost" size="icon-sm" aria-label={t("recorder.model_cancel")} onClick={cancelDownload}><X /></Button>
       </div>
-    </OnboardingCover>
-  );
+      <p className="text-xs text-subtext">{t("onboarding_audio.background_note")}</p>
+    </div> : <Button onClick={startDownload}>{t("recorder.model_download")}</Button>,
+  };
+  const dictationAccess: RecorderSetupRequirement[] = extraPermissions.map(kind => ({
+    id: kind,
+    title: permissionViews[kind].title,
+    description: permissionViews[kind].body,
+    ready: demo ? sim.dictationPermissions[kind] : dictationPermissionReady(readiness?.[kind] ?? "not-determined"),
+    hint: readiness?.[kind] === "broken" ? t("recorder.dictation_step_monitor_broken") : !demo ? t("recorder.perm_recheck_hint") : null,
+    action: <Button disabled={requestingDictation !== null} onClick={() => {
+      if (demo) { setSim(state => ({ ...state, dictationPermissions: { ...state.dictationPermissions, [kind]: true } })); return; }
+      setRequestingDictation(kind);
+      void store.requestDictationPermission(kind).finally(() => setRequestingDictation(null));
+    }}>
+      {requestingDictation === kind ? <Loader2 className="size-3.5 animate-spin" /> : null}
+      {t("recorder.perm_allow")}
+    </Button>,
+  }));
+
+  return <RecorderFlow
+    feature={props.feature}
+    demo={demo}
+    loading={checkingReadiness}
+    meetingRequirements={[microphone, ...(sysApplies ? [systemAudio] : []), model]}
+    dictationRequirements={[microphone, ...dictationAccess, model]}
+    onBack={props.onBack}
+    onDone={ready => props.onDone(modelDownloading ? "background" : ready ? "enabled" : "skipped")}
+  />;
 }

@@ -6,7 +6,8 @@ import { copyMessageWithAttachments } from "@/react-app/domains/session/surface/
 import { ViewToolCard } from "@/react-app/domains/views/view-tool-card";
 import { useViewGenerations } from "@/react-app/domains/views/use-view-generations";
 import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
-import { ScheduledTaskToolCard } from "./scheduled-task-card";
+import { ScheduledTaskToolCard, ScheduledTaskRunCard } from "./scheduled-task-card";
+import { parseScheduledRunMessage } from "@/react-app/domains/scheduled-tasks/scheduled-message";
 import { CalculationToolCard } from "./calculation/calculation-card";
 import { PendingStatus } from "./pending-status";
 import { JevSearchCard } from "./review/jev-search-card";
@@ -608,6 +609,7 @@ const UserMessage = React.memo(
     const copyMessage = useCopyMessage();
     const { onRevertToUserMessage, onForkAtMessage, onEditUserMessage } = useMessageList()
     const messageText = React.useMemo(() => cleanUserMessageText(getMessagesText([message])), [message])
+    const scheduledRun = React.useMemo(() => parseScheduledRunMessage(message), [message])
 
     return (
       <Message
@@ -623,7 +625,7 @@ const UserMessage = React.memo(
                 {message.parts.filter(isFileUIPart).map((part, index) => (
                   <FileMessage key={`${part.url}-${index}`} part={part} tone="user" />
                 ))}
-                {message.parts.some((part) => part.type === "text" && part.text) ? (
+                {scheduledRun ? <div className="w-full max-w-[85%] sm:max-w-[75%]"><ScheduledTaskRunCard run={scheduledRun} /></div> : message.parts.some((part) => part.type === "text" && part.text) ? (
                   <MessageContent
                     layoutId={message.id}
                     className="bg-foreground/[0.06] text-foreground max-w-[85%] rounded-3xl px-5 py-2.5 whitespace-pre-wrap sm:max-w-[75%]"

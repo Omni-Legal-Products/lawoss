@@ -42,7 +42,10 @@ import { CorpusService } from "./corpus/service.js";
 import { extractCorpusText } from "./corpus/extract.js";
 import { readSystemOneSettings, systemOne } from "./systemone.js";
 import { listProjectContents, readProjectContent, type ProjectContentSources } from "./project-contents.js";
+import { listRecordingLibrary, readRecordingTranscript } from "./recording-library.js";
+import { recordingAccess } from "./recording-access.js";
 import { registerSystemOneRoutes } from "./routes/systemone.js";
+import { registerCloudTranscriptionRoutes } from "./routes/cloud-transcription.js";
 import { SystemOneConfigurationSchema } from "./systemone-schema.js";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, realpath, writeFile, rm, stat } from "node:fs/promises";
@@ -1021,9 +1024,11 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
         throw new ApiError(409, "schedule_chat_permissions", "This chat has broader saved permissions. Choose a new chat for each run to use project-only access.");
       // The server records the schedule editor's authority. A collaborator edit
       // downgrades it; old schedules default to shared-wiki access.
-      await grantWikiAgentSession(config, { sessionId, directory: session.directory, scope: task.wikiScope, allProjects: task.projectAccess === "all" });
+      await grantWikiAgentSession(config, { sessionId, directory: session.directory, scope: task.wikiScope, allProjects: task.projectAccess === "all",
+        scheduledProjects: task.projectAccess === "all" ? "all" : [workspace.id] });
       const result = await client.session.promptAsync({ sessionID: sessionId, agent, ...(task.model ? { model: task.model } : {}),
-        parts: [{ type: "text", text: `[Scheduled task: ${task.title}]\n\n${task.prompt}` }] }, { signal: AbortSignal.timeout(30000) });
+        parts: [{ type: "text", text: `[Scheduled task: ${task.title}]\n\n${task.prompt}`,
+          metadata: { legalworkScheduledTask: { taskId: task.id, workspaceId: workspace.id, title: task.title } } }] }, { signal: AbortSignal.timeout(30000) });
       if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
     }, true)),
   });
@@ -2150,6 +2155,7 @@ function createRoutes(
   onboardingApplyCheckpoint?: (checkpoint: OnboardingApplyCheckpoint) => void,
 ): Route[] {
   const routes: Route[] = [];
+  registerCloudTranscriptionRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope });
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
     const primary = config.workspaces.find(workspace => workspace.workspaceType !== "remote");
     if (primary) {
@@ -2365,6 +2371,20 @@ function createRoutes(
     resolveWorkspace,
     getStore: () => openBenchmarkStore(config),
     runner: benchmarkRunner,
+  });
+
+  addRoute(routes, "GET", "/recorder/recordings", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    const access = await recordingAccess(config, ctx.request, approvals);
+    const result = await listRecordingLibrary(config, Object.fromEntries(ctx.url.searchParams), Date.now(), access.visible);
+    await access.check();
+    return jsonResponse({ ...result, access: access.scope });
+  });
+
+  addRoute(routes, "GET", "/recorder/recordings/:recordingId", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    const access = await recordingAccess(config, ctx.request, approvals);
+    return jsonResponse(await readRecordingTranscript(config, ctx.params.recordingId, Object.fromEntries(ctx.url.searchParams), access.authorize));
   });
 
   const recorderUnavailable = () => ({

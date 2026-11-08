@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { HardDrive, Keyboard, Languages, Mic, ShieldCheck } from "lucide-react";
+import { HardDrive, Keyboard, Languages, Mic, ShieldCheck, Video } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { desktopLoginItemGet, desktopLoginItemSet } from "@/app/lib/desktop";
+import type { HideAppMode } from "@/react-app/kernel/local-provider";
 import { t } from "../../../../i18n";
 import {
   LayoutSectionItem,
@@ -29,32 +30,36 @@ import {
 } from "../settings-layout";
 import { ModelManagerList } from "../../recorder/model-manager";
 import { formatDictationShortcut } from "../../recorder/dictation-shortcut";
-import { useRecorderStore } from "../../recorder/recorder-store";
+import { useRecorderStore, isTranscriptionReady } from "../../recorder/recorder-store";
 import { HubTabs } from "../segmented-tabs";
 import { DictationReadinessGate } from "./dictation-readiness";
 import { DictationSetupDialog } from "./dictation-setup-dialog";
+import { DictationMicrophoneSetting } from "./dictation-microphone-setting";
 
-export function RecorderSettingsView() {
+export function RecorderSettingsView(props: {
+  busy: boolean;
+  hideAppMode: HideAppMode;
+  onChangeHideAppMode: (mode: HideAppMode) => void;
+}) {
   const store = useRecorderStore();
   const [searchParams] = useSearchParams();
   // Callers deep-link the tab: "Dictate anywhere" opens ?tab=dictation, model
   // entries default to the models tab.
-  const [tab, setTab] = useState<"models" | "dictation">(
-    searchParams.get("tab") === "dictation" ? "dictation" : "models",
+  const [tab, setTab] = useState<"models" | "dictation" | "meetings">(
+    searchParams.get("tab") === "dictation" ? "dictation" : searchParams.get("tab") === "meetings" ? "meetings" : "models",
   );
   useEffect(() => {
     const requested = searchParams.get("tab");
-    if (requested === "dictation" || requested === "models") setTab(requested);
+    if (requested === "dictation" || requested === "models" || requested === "meetings") setTab(requested);
   }, [searchParams]);
+  const [changingAppearance, setChangingAppearance] = useState(false);
   const [changingDictation, setChangingDictation] = useState(false);
+  const [changingMeetingDetection, setChangingMeetingDetection] = useState(false);
   const [dictationSetupOpen, setDictationSetupOpen] = useState(false);
   const [loginItem, setLoginItem] = useState<{ openAtLogin: boolean; requiresApproval: boolean } | null>(null);
   const [changingLoginItem, setChangingLoginItem] = useState(false);
-  const models = store.bootstrap?.models ?? [];
   const engine = store.bootstrap?.engine;
-  const selectedModelInstalled = models.some(
-    (model) => model.id === store.modelId && model.state === "installed",
-  );
+  const selectedModelInstalled = isTranscriptionReady(store);
   const dictation = store.systemDictation;
 
   useEffect(() => {
@@ -63,8 +68,11 @@ export function RecorderSettingsView() {
       .then(setLoginItem)
       .catch(() => setLoginItem(null));
     const onFocus = () => {
+      void store.refreshBootstrap();
       void store.refreshSystemDictation();
       void store.refreshPermissions();
+      void store.refreshDictationMicrophones();
+      void store.refreshMeeting();
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
@@ -88,6 +96,7 @@ export function RecorderSettingsView() {
         items={[
           { id: "models", label: t("recorder.models_tab"), icon: HardDrive },
           { id: "dictation", label: t("recorder.dictation_tab"), icon: Keyboard },
+          { id: "meetings", label: t("recorder.meetings_tab"), icon: Video },
         ]}
       />
 
@@ -113,10 +122,10 @@ export function RecorderSettingsView() {
                       if (value === "auto" || value === "en" || value === "de") store.setLanguage(value);
                     }}
                   >
-                    <SelectTrigger size="sm" className="w-[160px]">
+                    <SelectTrigger size="sm">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent align="start" className="w-auto min-w-(--anchor-width)">
                       <SelectItem value="auto">{t("recorder.language_auto")}</SelectItem>
                       <SelectItem value="en">English</SelectItem>
                       <SelectItem value="de">Deutsch</SelectItem>
@@ -133,6 +142,69 @@ export function RecorderSettingsView() {
             <ModelManagerList />
           </LayoutSectionItem>
         </>
+      ) : tab === "meetings" ? (
+        <LayoutSectionItem>
+          <LayoutSectionItemHeader>
+            <div>
+              <LayoutSectionItemTitle>{t("recorder.meetings_title")}</LayoutSectionItemTitle>
+              <LayoutSectionItemDescription>{t("recorder.meetings_description")}</LayoutSectionItemDescription>
+            </div>
+            <LayoutSectionItemHeaderActions>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!selectedModelInstalled || store.finalizing || store.meeting?.state === "starting" || Boolean(store.dictationRecordingId)}
+                onClick={() => { void (store.recording ? store.stopRecording() : store.startMeetingRecording()); }}
+              >
+                {store.recording ? t("recorder.meeting_stop") : t("recorder.meeting_start")}
+              </Button>
+            </LayoutSectionItemHeaderActions>
+          </LayoutSectionItemHeader>
+          <div className="flex items-center justify-between gap-4 border-t border-subtle pt-4">
+            <div>
+              <div className="text-xs font-medium text-ink">{t("recorder.meeting_detection_title")}</div>
+              <div className="mt-1 text-sm text-subtext">{t("recorder.meeting_detection_description")}</div>
+            </div>
+            <Switch
+              aria-label={t("recorder.meeting_detection_title")}
+              checked={store.meeting?.detectionEnabled === true}
+              disabled={!store.meeting || changingMeetingDetection}
+              onCheckedChange={(enabled) => {
+                setChangingMeetingDetection(true);
+                void store.setMeetingDetection(enabled).finally(() => setChangingMeetingDetection(false));
+              }}
+            />
+          </div>
+          <p className="text-xs text-subtext">{t("recorder.meeting_detection_support")}</p>
+          <p className="text-xs text-subtext">{t("recorder.meeting_recording_location")}</p>
+          <div className="flex flex-col gap-3 border-t border-subtle pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-xs font-medium text-ink">{t("settings.hide_app_title")}</div>
+              <div className="mt-1 text-sm text-subtext">{t("settings.hide_app_desc")}</div>
+            </div>
+            <Select
+              value={props.hideAppMode}
+              items={[
+                { value: "never", label: t("settings.hide_app_never") },
+                { value: "recording", label: t("settings.hide_app_recording") },
+                { value: "always", label: t("settings.hide_app_always") },
+              ]}
+              onValueChange={(value) => {
+                if (value === "never" || value === "recording" || value === "always") props.onChangeHideAppMode(value);
+              }}
+              disabled={props.busy}
+            >
+              <SelectTrigger size="sm" className="w-[200px] shrink-0" aria-label={t("settings.hide_app_title")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="never">{t("settings.hide_app_never")}</SelectItem>
+                <SelectItem value="recording">{t("settings.hide_app_recording")}</SelectItem>
+                <SelectItem value="always">{t("settings.hide_app_always")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </LayoutSectionItem>
       ) : (
         <DictationReadinessGate>
           <LayoutSectionItem>
@@ -182,6 +254,37 @@ export function RecorderSettingsView() {
         </div>
 
         <DictationSetupDialog open={dictationSetupOpen} onOpenChange={setDictationSetupOpen} />
+        <DictationMicrophoneSetting />
+
+        <div className="flex flex-col gap-3 border-t border-subtle pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-xs font-medium text-ink">{t("recorder.overlay_color")}</div>
+            <div className="mt-1 text-sm text-subtext">{t("recorder.overlay_color_description")}</div>
+          </div>
+          <Select
+            value={dictation?.appearance ?? "app"}
+            items={[
+              { value: "app", label: t("recorder.overlay_color_app") },
+              { value: "white", label: t("recorder.overlay_color_white") },
+              { value: "black", label: t("recorder.overlay_color_black") },
+            ]}
+            disabled={!dictation || changingAppearance}
+            onValueChange={(value) => {
+              if (value !== "app" && value !== "white" && value !== "black") return;
+              setChangingAppearance(true);
+              void store.setDictationAppearance(value).finally(() => setChangingAppearance(false));
+            }}
+          >
+            <SelectTrigger size="sm" className="w-[200px] shrink-0" aria-label={t("recorder.overlay_color")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="app">{t("recorder.overlay_color_app")}</SelectItem>
+              <SelectItem value="white">{t("recorder.overlay_color_white")}</SelectItem>
+              <SelectItem value="black">{t("recorder.overlay_color_black")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
         {loginItem !== null ? (
           <div className="flex flex-col gap-3 border-t border-subtle pt-4 sm:flex-row sm:items-center sm:justify-between">

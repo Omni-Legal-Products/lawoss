@@ -2,6 +2,7 @@ import { applyMarkdownStreamEvent } from "../artifacts/markdown-stream";
 import { usePanelTabStore } from "../panel/panel-tab-store";
 import type { UIMessage } from "ai";
 import { CancelledError, QueryObserver, type Query } from "@tanstack/react-query";
+import { scheduledTextMetadata } from "../../scheduled-tasks/scheduled-message";
 import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
 import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRequest, Session, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
 
@@ -533,7 +534,7 @@ function toUIPart(part: Part): UIMessage["parts"][number] | null {
       type: isModelCommentary(part) ? "reasoning" : "text",
       text: part.text,
       state: "done",
-      providerMetadata: { opencode: { partId: part.id, ...commentaryTag(part) } },
+      providerMetadata: { opencode: { ...scheduledTextMetadata(part).opencode, ...commentaryTag(part) } },
     };
   }
   if (part.type === "reasoning") {

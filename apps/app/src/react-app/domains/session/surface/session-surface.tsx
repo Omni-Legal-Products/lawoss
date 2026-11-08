@@ -1,3 +1,5 @@
+import { useRequestPanelTab } from "../panel/panel-tab-destination";
+import { recordingTranscriptTab } from "../../recorder/recording-transcript-tabs";
 import { WikiProjectFilesDialog, WIKI_PROJECT_PICKER_EVENT } from "../../wiki/wiki-project-files-dialog";
 import { ChatWorkspaceContext } from "@/components/chat/chat-workspace-context";
 import { BackgroundTabStack } from "../background/background-tab-stack";
@@ -13,7 +15,6 @@ import { hasEndedEigenweltSubscription, isEigenweltSubscriptionEndedErrorText } 
 import { hasAssistantReplyAfter } from "@/react-app/domains/connections/usage-control/usage-recovery";
 import { eigenweltUsageLimitFromError, isProviderUsageLimitError, parseProviderUsageLimit, providerFromUsageLimitError } from "@/app/lib/provider-usage-limit";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types";
-import { RecordingDetailDialog } from "../../recorder/recorder-pane";
 import { useContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { UIMessage } from "ai";
 import { environmentManager, useQuery } from "@tanstack/react-query";
@@ -710,8 +711,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const desktopRecorderActive = useRecorderStore((state) =>
     Boolean(state.recording && state.recording.id !== state.dictationRecordingId),
   );
+  const requestRecordingTab = useRequestPanelTab();
   const desktopLiveTranscriptActive = useRecorderStore(
-    (state) => state.liveTranscriptSessionId === props.sessionId,
+    (state) => Boolean(props.workspaceRoot && state.liveTranscriptWorkspacePath === props.workspaceRoot),
   );
   const officeRecorderQuery = useQuery({
     queryKey: ["office-recorder-live-transcript", props.workspaceId],
@@ -762,7 +764,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       }
 
       const store = useRecorderStore.getState();
-      if (store.liveTranscriptSessionId === props.sessionId) {
+      if (store.liveTranscriptWorkspacePath === props.workspaceRoot) {
         await store.stopLiveTranscriptShare();
         toast.success(t("composer.live_transcript_stopped"));
         return;
@@ -771,8 +773,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
         props.sessionId,
         props.workspaceRoot || "",
         props.workspaceRoot || undefined,
+        opencodeClient,
       );
-      if (started) toast.success(t("composer.live_transcript_started"));
+      if (started) {
+        const recording = useRecorderStore.getState().recording;
+        if (recording) requestRecordingTab(recordingTranscriptTab(recording), { besideChat: true });
+        toast.success(t("composer.live_transcript_started"));
+      }
     } catch (toggleError) {
       toast.error(toggleError instanceof Error ? toggleError.message : t("app.unknown_error"));
     } finally {
@@ -788,6 +795,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     props.workspaceId,
     props.workspaceRoot,
     refetchOfficeRecorder,
+    requestRecordingTab,
   ]);
   const removeQueuedDraftFromStore = useComposerStateStore((state) => state.removeQueuedDraft);
   const queuePaused = useComposerStateStore((state) => Boolean(state.pausedQueues[props.sessionId]));
@@ -1178,8 +1186,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     }
     toast.error(t("composer.queue_failed"), { description: error instanceof Error ? error.message : String(error) });
   };
-  const handleQueue = async () => {
-    const text = draft.trim();
+  const queueDraft = async (text: string) => {
     if ((!text && attachments.length === 0) || queueSubmitting.current) return;
     queueSubmitting.current = true; setQueueSaving(true);
     const editor = useComposerStateStore.getState().sessions[props.sessionId];
@@ -1202,6 +1209,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     } catch (error) { queueFailure(error); }
     finally { queueSubmitting.current = false; setQueueSaving(false); }
   };
+  const handleQueue = () => queueDraft(draft.trim());
   const handleSend = handleQueue;
   const removeQueuedDraft = (id: string) => { void sharedQueue.remove(id).catch(queueFailure); };
   const editQueuedDraft = (id: string) => { void sharedQueue.edit(id).then(() => window.dispatchEvent(new Event("legalwork:focusPrompt"))).catch(queueFailure); };
@@ -1231,6 +1239,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
     setAwaitingAssistantBaseline(null);
     useSessionActivityStore.getState().clearError(props.workspaceId, props.sessionId);
     useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, IDLE_STATUS);
+    // The user stopped the run, so anything it was blocked on is moot. Said
+    // out loud because `setRunStatus` keeps pending requests: an idle status
+    // by itself means the engine is waiting on the user, not that the request
+    // went away.
+    useSessionActivityStore.getState().replaceWaitingRequests(props.workspaceId, props.sessionId, "permission", []);
+    useSessionActivityStore.getState().replaceWaitingRequests(props.workspaceId, props.sessionId, "question", []);
     queryClient.setQueryData(statusQueryKey, IDLE_STATUS);
     // Take the run-start marker here so this stop is the run's single
     // terminal event. The engine may or may not follow an abort with
@@ -2089,7 +2103,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
                         status={status}
                         retryStatus={retryStatusForDisplay}
                       />
-                      <RecordingDetailDialog />
                     </MessageListProvider>
                   </EnvironmentVariableProvider>
                 </OpenTargetProvider>
@@ -2136,10 +2149,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
         ) : null}
         <DevProfiler id="SessionComposer">
         <ReactSessionComposer
+          active={props.active}
           draft={draft}
           mentions={mentions}
           onDraftChange={handleComposerDraftChange}
         onSend={handleSend}
+        onSendDictation={text => queueDraft(text.trim())}
         onStop={handleAbort}
         busy={chatStreaming}
         queuedCount={queuedDrafts.length}

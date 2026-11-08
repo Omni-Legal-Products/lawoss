@@ -69,6 +69,9 @@ test("project tools resolve the closest project, carry pagination and reject unr
     await plugin["experimental.chat.system.transform"]({}, output);
     expect(output.system.join(" ")).toContain("untrusted");
     expect(output.system.join(" ")).toContain("interactive cards");
+    expect(output.system.join(" ")).toContain("Do not assume the current project's recordings are the full library");
+    expect(plugin.tool).toHaveProperty("legalwork_recordings_list");
+    expect(plugin.tool).toHaveProperty("legalwork_recording_read");
     const result = await plugin.tool.legalwork_project_list.execute({ kind: "notes", cursor: "Notes/Page 1.md" }, { directory: "/matters/current/subfolder", sessionID: "ses_project" });
     expect(JSON.parse(result).project.id).toBe("child");
     expect(directories.at(-1)).toBe(encodeURIComponent("/matters/current/subfolder"));

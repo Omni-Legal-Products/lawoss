@@ -49,9 +49,9 @@ import {
   takePendingTasksPaneRequest,
   type TasksPaneOpenDetail,
 } from "../domains/tasks/tasks-pane-request";
+import { requestRecordingTranscript, useAutoOpenRecordingTranscript } from "../domains/recorder/recording-transcript-tabs";
 import { PremiumUpsellHost } from "../domains/recorder/premium-upsell-context";
 import {
-  RECORDER_TRANSCRIPT_EVENT,
   registerRecorderCopilotContext,
   useRecorderStore,
 } from "../domains/recorder/recorder-store";
@@ -543,6 +543,22 @@ export function SessionRoute() {
         : null,
     [opencodeBaseUrl, selectedSessionDirectory, selectedWorkspaceError, selectedWorkspaceRoot, selectedWorkspaceServerToken],
   );
+  useEffect(() => {
+    const openRecorder = () => {
+      const recording = useRecorderStore.getState().recording;
+      const projectId = recording?.projectIds?.[0];
+      if (recording && !recording.ephemeral && projectId) {
+        requestRecordingTranscript(recording, projectId);
+        if (routeWorkspaceId !== projectId) navigate(workspaceSessionRoute(projectId) + "?view=workspace");
+        return;
+      }
+      setRecorderProject(null);
+      navigate(recording && !recording.ephemeral ? `/recorder?recording=${encodeURIComponent(recording.id)}` : "/recorder");
+    };
+    window.addEventListener("legalwork:open-recorder", openRecorder);
+    if (new URLSearchParams(location.search).get("recorder") === "1") openRecorder();
+    return () => window.removeEventListener("legalwork:open-recorder", openRecorder);
+  }, [navigate, location.search, routeWorkspaceId]);
   const currentSessionRoute = useRef({ sessionId: selectedSessionId, workspaceId: selectedWorkspaceId });
   currentSessionRoute.current = { sessionId: selectedSessionId, workspaceId: selectedWorkspaceId };
   const wikis = useQuery({
@@ -818,6 +834,25 @@ export function SessionRoute() {
   useEffect(() => {
     void useRecorderStore.getState().init();
   }, []);
+  useAutoOpenRecordingTranscript();
+  const activeRecording = useRecorderStore(state => state.recording);
+  const recordingChatSessionId = usePanelTabStore(state => {
+    if (!routeWorkspaceId || !location.pathname.startsWith(workspaceSessionRoute(routeWorkspaceId))) return null;
+    const panel = state.sessions[workspacePanelKey(routeWorkspaceId)];
+    const visibleChats = panel?.tabs.filter(tab => tab.type === "chat" && panel.panes.some(pane => pane.activeTabId === tab.id));
+    const chat = visibleChats?.find(tab => tab.type === "chat" && tab.sessionId === selectedSessionId) ?? visibleChats?.[0];
+    return chat?.type === "chat" ? chat.sessionId : null;
+  });
+  // The workspace route can have a visible chat without a session in its URL.
+  // Pick that chat too, while leaving parked tabs and other workspaces alone.
+  useEffect(() => {
+    if (!routeWorkspaceId || !recordingChatSessionId || selectedWorkspace?.workspaceType === "remote"
+      || !activeRecording || activeRecording.ephemeral || !activeRecording.projectIds?.includes(routeWorkspaceId)
+      || !selectedWorkspaceRoot || !opencodeClient) return;
+    void useRecorderStore.getState().startLiveTranscriptShare(
+      recordingChatSessionId, selectedWorkspaceRoot, selectedWorkspaceRoot, opencodeClient, true,
+    );
+  }, [activeRecording, routeWorkspaceId, recordingChatSessionId, selectedWorkspaceRoot, selectedWorkspace?.workspaceType, opencodeClient]);
   useEffect(() => {
     registerRecorderCopilotContext({
       getClient: () => recorderCopilotClient(selectedWorkspace, opencodeClient),
@@ -940,13 +975,13 @@ export function SessionRoute() {
 
   // Persisted onboarding stage — survives reloads; "done" for existing
   // installs. "setup" is a legacy interim value, shown as the office step.
-  // Order: office -> audio -> ai -> permissions -> done. Signing in first
+  // Order: office -> audio (meetings) -> dictation -> ai -> permissions -> done. Signing in first
   // lets us apply firm policies before offering permission choices.
-  // Office and audio are desktop-only; the web flow starts at ai.
+  // Office, meetings and dictation are desktop-only; the web flow starts at ai.
   const onboardingStage =
     local.prefs.onboardingStage === "setup" ? "office" : local.prefs.onboardingStage;
   const setOnboardingStage = useCallback(
-    (stage: "ai" | "office" | "audio" | "permissions" | "done") => {
+    (stage: "ai" | "office" | "audio" | "dictation" | "permissions" | "done") => {
       local.setPrefs((previous) => ({
         ...previous,
         onboardingStage: stage,
@@ -955,6 +990,20 @@ export function SessionRoute() {
     },
     [local],
   );
+  // A development link reopens the actual Recorder onboarding without
+  // resetting workspaces, permissions, or the user's other preferences.
+  const recorderOnboardingOpened = useRef(false);
+  useEffect(() => {
+    if (!import.meta.env.DEV || recorderOnboardingOpened.current) return;
+    const search = new URLSearchParams(location.search);
+    if (search.get("onboarding") !== "recorder") return;
+    // Preferences and navigation settle separately. Claim the request before
+    // changing either so a preference render cannot replay the same request.
+    recorderOnboardingOpened.current = true;
+    setOnboardingStage("audio");
+    search.delete("onboarding");
+    navigate({ pathname: location.pathname, search: search.toString(), hash: location.hash }, { replace: true });
+  }, [location.pathname, location.search, location.hash, navigate, setOnboardingStage]);
   // Set when the user navigates backwards in the onboarding flow, so the
   // office step shows its rows instead of auto-skipping forward again.
   const onboardingWentBack = useRef(false);
@@ -968,11 +1017,11 @@ export function SessionRoute() {
     [location.search, navigate, selectedWorkspaceId, setOnboardingStage, workspaces],
   );
 
-  // LAWOSS: krok „audio" zapína prepis a diktovanie, ale záložka recorder je
+  // LAWOSS: kroky „audio“ a „dictation“ zapínajú prepis a diktovanie, ale záložka recorder je
   // skrytá — používateľ by zapol funkciu, ku ktorej sa potom nikde nedostane.
   // Preskočiť aj uložený stav "audio", aby v ňom nikto neuviazol.
   useEffect(() => {
-    if (onboardingStage === "audio" && isHiddenSettingsTab("recorder")) setOnboardingStage("permissions");
+    if ((onboardingStage === "audio" || onboardingStage === "dictation") && isHiddenSettingsTab("recorder")) setOnboardingStage("permissions");
   }, [onboardingStage, setOnboardingStage]);
   const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot } =
     useSessionProviderAuth({
@@ -2682,24 +2731,25 @@ export function SessionRoute() {
         }}
       />
     ) : null}
-    {onboardingStage === "audio" && !isHiddenSettingsTab("recorder") ? (
-      // One action: turn on transcription & dictation.
+    {(onboardingStage === "audio" || onboardingStage === "dictation") && !isHiddenSettingsTab("recorder") ? (
       <AudioStep
+        feature={onboardingStage === "audio" ? "meetings" : "dictation"}
         legalworkClient={client}
         workspaceId={selectedWorkspaceId}
         onBack={() => {
           onboardingWentBack.current = true;
-          setOnboardingStage("office");
+          setOnboardingStage(onboardingStage === "dictation" ? "audio" : "office");
         }}
         onDone={(result) => {
-          captureAnalyticsEvent("onboarding_audio_done", { result });
-          setOnboardingStage("ai");
+          captureAnalyticsEvent(onboardingStage === "audio" ? "onboarding_audio_done" : "onboarding_dictation_done", { result });
+          setOnboardingStage(onboardingStage === "audio" ? "dictation" : "ai");
         }}
       />
     ) : null}
     {onboardingStage === "permissions" ? (
       // The Settings -> Tool Permissions panel, with Continue as the action.
       <PermissionsStep
+        totalSteps={isDesktopRuntime() ? 6 : 3}
         legalworkClient={selectedWorkspaceEndpoint?.client ?? client}
         runtimeWorkspaceId={selectedWorkspaceEndpoint?.workspaceId || null}
         onConfigUpdated={() => {
@@ -2714,9 +2764,9 @@ export function SessionRoute() {
           isDesktopRuntime()
             ? () => {
                 onboardingWentBack.current = true;
-                // LAWOSS: krok „audio" je preskočený, keď je recorder skrytý —
-                // späť sa ide rovno na „office", inak by krok problikol.
-                setOnboardingStage(isHiddenSettingsTab("recorder") ? "office" : "audio");
+                // LAWOSS: krok „audio“ a „dictation“ je preskočený, keď je recorder skrytý —
+                // späť sa ide rovno na „office“, inak by krok problikol.
+                setOnboardingStage(isHiddenSettingsTab("recorder") ? "office" : "dictation");
               }
             : undefined
         }
@@ -2737,6 +2787,7 @@ export function SessionRoute() {
     {aiPlansScreenVisible ? (
       // Connect a model, then load firm policy before the permissions step.
       <AiPlansOverlay
+        totalSteps={isDesktopRuntime() ? 6 : 3}
         mode={onboardingStage === "ai" ? "onboarding" : "gate"}
         variant={aiPlansVariant ?? "new"}
         account={aiPlansAccount}
@@ -2758,7 +2809,9 @@ export function SessionRoute() {
           onboardingStage === "ai" && isDesktopRuntime()
             ? () => {
                 onboardingWentBack.current = true;
-                setOnboardingStage("audio");
+                // LAWOSS: krok „audio“ a „dictation“ je preskočený, keď je recorder skrytý —
+                // späť sa ide rovno na „office“, inak by krok problikol.
+                setOnboardingStage(isHiddenSettingsTab("recorder") ? "office" : "dictation");
               }
             : undefined
         }
@@ -2982,7 +3035,14 @@ export function SessionRoute() {
           </div>
         ) : showRecorder ? (
           <RecorderPane
+            recordingId={new URLSearchParams(location.search).get("recording")}
+            onRecordingChange={(id) => navigate(id ? `/recorder?recording=${encodeURIComponent(id)}` : "/recorder")}
+            workspaceId={recorderProject?.id}
             project={recorderProject}
+            projects={sidebarWorkspaces.map(workspace => ({
+              id: workspace.id,
+              name: workspace.displayNameResolved || workspace.name || workspace.id,
+            }))}
             workspacePath={selectedWorkspaceRoot ?? null}
             workspaceTargets={workspaces
               .filter((workspace) => workspace.workspaceType !== "remote" && workspace.path?.trim())
@@ -2993,15 +3053,6 @@ export function SessionRoute() {
               }))
               // Selected workspace first, so the common case is one click away.
               .sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId))}
-            onInsertTranscript={(text) => {
-              // The composer's listener lives in SessionSurface, which is
-              // unmounted while this pane is the main view — swap back to the
-              // session first, then dispatch once it has remounted.
-              navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId));
-              window.setTimeout(() => {
-                window.dispatchEvent(new CustomEvent(RECORDER_TRANSCRIPT_EVENT, { detail: { text } }));
-              }, 350);
-            }}
           />
         ) : experimentView
       }

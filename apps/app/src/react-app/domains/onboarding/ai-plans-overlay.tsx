@@ -78,7 +78,9 @@ export type AiPlansAccount = { email: string | null; firmName: string | null };
 type AiPlansChoice = "own_model" | EigenweltPlanId | "sign_in";
 
 export type AiPlansOverlayProps = {
-  /** "onboarding": the last onboarding step (step dots, Back). "gate": no model is usable. */
+  /** Desktop has six onboarding steps; the web has three. */
+  totalSteps?: number;
+  /** "onboarding": connect an AI provider (step dots, Back). "gate": no model is usable. */
   mode: "onboarding" | "gate";
   variant: AiPlansVariant;
   /** The account the screen talks about: the remembered one, or the signed-in one. */
@@ -659,7 +661,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   const stepDots =
     mode === "onboarding" ? (
       <div className="flex justify-center [&>div]:mb-4">
-        <StepDots step={4} total={5} />
+        <StepDots step={(props.totalSteps ?? 6) - 1} total={props.totalSteps ?? 6} />
       </div>
     ) : null;
 

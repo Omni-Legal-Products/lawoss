@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import type { UIMessage } from "ai";
+import { scheduledTextMetadata } from "../../scheduled-tasks/scheduled-message";
 import type { FilePart, Part, ToolPart } from "@opencode-ai/sdk/v2/client";
 
 import type { LegalworkSessionSnapshot } from "../../../../app/lib/legalwork-server";
@@ -235,7 +236,7 @@ export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMess
             type: isModelCommentary(part) && !commentaryAnswer ? "reasoning" : "text",
             text: getTextPartValue(part),
             state: "done" as const,
-            providerMetadata: { opencode: { partId: part.id, ...commentaryTag(part) } },
+            providerMetadata: { opencode: { ...scheduledTextMetadata(part).opencode, ...commentaryTag(part) } },
           }];
         }
         if (part.type === "reasoning") {

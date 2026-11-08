@@ -23,6 +23,7 @@ export const PROJECT_TASK_TOOLS = new Set([
   "legalwork_calendar_list", "legalwork_calendar_get", "legalwork_review_files",
   "legalwork_jev_corpus_question", "legalwork_review_list", "legalwork_review_get", "legalwork_review_results",
   "legalwork_schedule_clock", "legalwork_schedule_projects", "legalwork_schedule_project_list", "legalwork_schedule_project_read",
+  "legalwork_recordings_list", "legalwork_recording_read",
   "todowrite", "question",
 ]);
 

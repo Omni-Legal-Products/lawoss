@@ -1,3 +1,5 @@
+import { ShareCloudStorageDialog } from "./share-cloud-storage-dialog";
+import { ConnectorWriteSettings, CONNECTOR_SETTINGS_CHANGED } from "../connector-write-settings";
 /** @jsxImportSource react */
 import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationAddRequest, useIntegrationLibraryLayout } from "./integration-library";
 import { useEffect, useState } from "react";
@@ -8,6 +10,7 @@ import { ConnectorConfig } from "../connector-config";
 import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
 import { resolveBrandIconSrc } from "../../../design-system/extension-icon-src";
 import { StorageCloudLocations } from "./storage-cloud-locations";
+import { ConnectorStatus } from "./connector-status";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -56,7 +59,7 @@ import {
 } from "./storage-providers";
 import { StorageOAuthSignIn } from "./storage-oauth-signin";
 import { useHubScope } from "./hub-scope-context";
-import { storageConnectionsForScope } from "./storage-scope";
+import { storageConnectionsForScope, storageNeedsSignIn } from "./storage-scope";
 import { orgPolicyAllows, useOrgPolicyForbids } from "../../connections/org-policy";
 import { OrgPolicyNote } from "../../connections/org-policy-ui";
 
@@ -74,6 +77,7 @@ export function FileStorageView({
   const [nativeProvider, setNativeProvider] = useState<string | null>(null);
   const native = connectorDefinitions.find((item) => item.id === nativeProvider);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [sharing, setSharing] = useState<StorageConnection | null>(null);
   const [removing, setRemoving] = useState<StorageConnection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -101,6 +105,14 @@ export function FileStorageView({
     : storageConnectionsForScope(allConnections, scope);
   const nativeDefinition = (connection: StorageConnection) => connection.config.kind === "oauth" ? connectorDefinitions.find(provider => connection.config.kind === "oauth" && provider.id === connection.config.provider) : undefined;
   const storageProviderName = (connection: StorageConnection) => nativeDefinition(connection)?.name ?? (connection.config.kind === "oauth" ? providers.data?.providers.find(provider => connection.config.kind === "oauth" && provider.id === connection.config.provider)?.name ?? connection.config.provider : storageLabel(connection.config.kind));
+  const nativeAccounts = useQuery({
+    queryKey: ["storage-native-accounts", workspaceId],
+    queryFn: () => client!.connectorSavedStatus(),
+    enabled: Boolean(client && workspaceId && allConnections.some(connection => connection.enabled && connection.config.kind === "oauth" && connection.config.sharingMode !== "team" && nativeDefinition(connection))),
+    retry: false,
+    refetchInterval: 30_000,
+  });
+  const needsSignIn = (connection: StorageConnection) => storageNeedsSignIn(connection, nativeAccounts.data);
   const query = search.trim().toLowerCase();
   const matchingConnections = visibleConnections.filter(connection => !query || `${connection.name} ${storageProviderName(connection)}`.toLowerCase().includes(query));
   const providerQuery = providerSearch.trim().toLowerCase();
@@ -148,10 +160,15 @@ export function FileStorageView({
   useEffect(() => {
     const listener = () => {
       void connections.refetch();
+      void queryClient.invalidateQueries({ queryKey: ["storage-native-accounts"] });
     };
     window.addEventListener(STORAGE_CHANGED_EVENT, listener);
-    return () => window.removeEventListener(STORAGE_CHANGED_EVENT, listener);
-  }, [connections.refetch]);
+    window.addEventListener(CONNECTOR_SETTINGS_CHANGED, listener);
+    return () => {
+      window.removeEventListener(STORAGE_CHANGED_EVENT, listener);
+      window.removeEventListener(CONNECTOR_SETTINGS_CHANGED, listener);
+    };
+  }, [connections.refetch, queryClient]);
   async function setTeamInstalled(connection: StorageConnection) {
     if (!client || !workspaceId || !connection.team) return;
     setBusy(true);
@@ -176,13 +193,13 @@ export function FileStorageView({
       </>} />
       {scope === "local" ? <OrgPolicyNote policyKey="storage.allowPersonal" /> : null}
       <IntegrationSearch toolbar value={search} onChange={setSearch} label={t("integrations.search_storage")} />
-      {(error || connections.error) && (
+      {(error || connections.error || nativeAccounts.error) && (
         <p
           role="alert"
           className="flex items-start gap-2 rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive"
         >
           <AlertCircle className="size-4 shrink-0" />
-          {error || connections.error?.message}
+          {error || connections.error?.message || nativeAccounts.error?.message}
         </p>
       )}
       {(libraryLayout || scope === "team") && connections.data?.team?.error ? (
@@ -208,10 +225,10 @@ export function FileStorageView({
               return (
                 <IntegrationLibraryRow key={connection.id} name={connection.name} description={`${storageProviderName(connection)} · ${t(connection.readOnly ? "storage.read_only" : "storage.read_write")}`}
                   icon={icon ? <span className="grid size-9 shrink-0 place-items-center"><img src={icon} alt="" className="size-6 object-contain" /></span> : <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Icon className="size-4 text-muted-foreground" /></span>}
-                  source={connection.team ? t("firm_hub.scope_team") : undefined} busy={busy} onOpen={() => accountRoot && provider ? openNativeAccount(provider.id) : setDetailId(connection.id)}
+                  source={connection.team ? t("firm_hub.scope_team") : undefined} status={needsSignIn(connection) ? <ConnectorStatus state="needs_auth" /> : undefined} busy={busy} onOpen={() => (accountRoot || needsSignIn(connection)) && provider ? openNativeAccount(provider.id) : setDetailId(connection.id)}
                   onEdit={!connection.team && !accountRoot ? () => setEditor({ kind: connection.config.kind, connection }) : undefined}
                   onRemove={!connection.team && !accountRoot ? () => setRemoving(connection) : undefined}
-                  actions={accountRoot && canAdd ? <DropdownMenuItem onClick={() => openFolderView(connection)}><Plus />{t("storage.add_folder_view")}</DropdownMenuItem> : connection.team && connection.teamInstallation === "optional" ? <DropdownMenuItem disabled={!connection.enabled && !connection.team.installed} onClick={() => void setTeamInstalled(connection)}>{t(connection.team.installed ? "storage.remove_local" : "storage.install")}</DropdownMenuItem> : undefined} />
+                  actions={!connection.team && provider ? <><DropdownMenuItem disabled={!connections.data?.team?.canManage} onClick={() => setSharing(connection)}>{t("storage.share_team")}</DropdownMenuItem>{accountRoot && canAdd ? <DropdownMenuItem onClick={() => openFolderView(connection)}><Plus />{t("storage.add_folder_view")}</DropdownMenuItem> : null}</> : connection.team && connection.teamInstallation === "optional" ? <DropdownMenuItem disabled={!connection.enabled && !connection.team.installed} onClick={() => void setTeamInstalled(connection)}>{t(connection.team.installed ? "storage.remove_local" : "storage.install")}</DropdownMenuItem> : undefined} />
               );
             })}
           </div>
@@ -223,10 +240,12 @@ export function FileStorageView({
         <DialogContent>
           <DialogHeader><DialogTitle>{detail?.name}</DialogTitle><DialogDescription>{detail ? `${storageProviderName(detail)} · ${t(detail.readOnly ? "storage.read_only" : "storage.read_write")}` : ""}</DialogDescription></DialogHeader>
           {detail ? <div className="space-y-4">
+            {needsSignIn(detail) ? <><ConnectorStatus state="needs_auth" /><p className="text-sm text-muted-foreground">{t("integrations.team_sign_in_hint", { name: storageProviderName(detail) })}</p></> : null}
             <p className="text-sm text-muted-foreground">{t(!detail.enabled ? "storage.paused" : detail.team?.installed === false ? "storage.available" : "storage.enabled")}</p>
             {detail.team ? <p className="text-sm text-muted-foreground">{t(detail.teamInstallation === "optional" ? "storage.team_optional" : "storage.team_automatic")}</p> : null}
-            {detail.config.kind === "oauth" && !detail.config.accountId && detail.enabled && detail.team?.installed !== false ? <StorageOAuthSignIn client={client} workspaceId={workspaceId} connectionId={detail.id} revision={detail.updatedAt} onChanged={refresh} /> : null}
-            {detail.config.kind === "oauth" && detail.config.accountId && nativeDefinition(detail) ? <Button variant="outline" onClick={() => { const provider = nativeDefinition(detail); if (provider) openNativeAccount(provider.id); }}>{t("storage.account_settings")}</Button> : null}
+            {detail.config.kind === "oauth" && !detail.config.accountId && !nativeDefinition(detail) && detail.enabled && detail.team?.installed !== false ? <StorageOAuthSignIn client={client} workspaceId={workspaceId} connectionId={detail.id} revision={detail.updatedAt} onChanged={refresh} /> : null}
+            {detail.config.kind === "oauth" && detail.config.sharingMode !== "team" && nativeDefinition(detail) ? <Button variant={needsSignIn(detail) ? "default" : "outline"} onClick={() => { const provider = nativeDefinition(detail); if (provider) openNativeAccount(provider.id); }}>{t(needsSignIn(detail) ? "storage.oauth_connect" : "storage.account_settings")}</Button> : null}
+            {detail.team && nativeDefinition(detail) && detail.config.kind === "oauth" && detail.config.sharingMode === "team" ? <ConnectorWriteSettings id={detail.config.provider} kind="files" client={client} /> : null}
             {detail.team && detail.teamInstallation === "optional" ? <Button variant="outline" disabled={busy || (!detail.enabled && !detail.team.installed)} onClick={() => void setTeamInstalled(detail)}>{t(detail.team.installed ? "storage.remove_local" : "storage.install")}</Button> : null}
           </div> : null}
           <DialogFooter>
@@ -262,6 +281,7 @@ export function FileStorageView({
           </div>
         </DialogContent>
       </Dialog>
+      {sharing && <ShareCloudStorageDialog client={client} workspaceId={workspaceId} connection={sharing} onClose={() => setSharing(null)} onSaved={refresh} />}
       {editor && (
         <StorageConnectionDialog
           client={client}

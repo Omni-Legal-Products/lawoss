@@ -7,11 +7,20 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { toast } from "@/components/ui/sonner";
 import { SectionHeading, Surface } from "@/react-app/design-system/surface";
 import { isElectronRuntime } from "@/app/utils";
+import type { AudioRecordingMeta } from "@legalwork/types/audio";
 import { currentLocale, t } from "@/i18n";
-import { RecordingDetailDialog, RecordingRow } from "../recorder/recorder-pane";
+import { RecordingRow } from "../recorder/recorder-pane";
+import { recordingTranscriptTab } from "../recorder/recording-transcript-tabs";
+import { useProjectItemDrag } from "../session/panel/panel-tab-destination";
 import { useRecorderStore } from "../recorder/recorder-store";
 
-export function ProjectRecordings(props: { projectId: string; onStartRecording: () => void }) {
+export function ProjectRecordings(props: {
+  projectId: string;
+  onStartRecording: () => void;
+  onOpenRecording: (recording: AudioRecordingMeta) => void;
+  onKeepRecordingOpen: (recording: AudioRecordingMeta) => void;
+}) {
+  const startDrag = useProjectItemDrag();
   const recordings = useRecorderStore((state) => state.recordings);
   const active = useRecorderStore((state) => state.recording);
   const finalizing = useRecorderStore((state) => state.finalizing);
@@ -59,14 +68,15 @@ export function ProjectRecordings(props: { projectId: string; onStartRecording: 
       {active?.projectIds?.includes(props.projectId) ? <ContextMenu>
       <ContextMenuTrigger render={<Surface className="flex flex-wrap items-center gap-3 rounded-xl px-4 py-3" />}>
         <span className="size-2 rounded-full bg-red-9" />
-        <span className="min-w-0 flex-1 truncate text-sm">{active.title}</span>
+        <button type="button" className="min-w-0 flex-1 truncate text-left text-sm" onClick={() => props.onOpenRecording(active)}>{active.title}</button>
         <Button variant="outline" size="sm" disabled={finalizing} onClick={stop}><Square className="size-3 text-red-9" fill="currentColor" />{t(finalizing ? "recorder.finishing" : "recorder.stop_recording")}</Button>
       </ContextMenuTrigger>
-      <ContextMenuContent><ContextMenuItem disabled={finalizing} onClick={stop}><Square />{t("recorder.stop_recording")}</ContextMenuItem></ContextMenuContent>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={() => props.onOpenRecording(active)}><FileAudio />{t("projects.open")}</ContextMenuItem>
+        <ContextMenuItem disabled={finalizing} onClick={stop}><Square />{t("recorder.stop_recording")}</ContextMenuItem>
+      </ContextMenuContent>
       </ContextMenu> : null}
-      {linked.map((recording) => <RecordingRow key={recording.id} recording={recording} workspaceTargets={[]} busy={pendingId !== null} onUnlink={() => { void setLink(recording.id, false); }} onOpen={() => {
-        void useRecorderStore.getState().openRecording(recording.id).catch(() => toast.error(t("projects.failed")));
-      }} />)}
+      {linked.map((recording) => <RecordingRow key={recording.id} recording={recording} workspaceTargets={[]} busy={pendingId !== null} onUnlink={() => { void setLink(recording.id, false); }} onOpen={() => props.onOpenRecording(recording)} onKeepOpen={() => props.onKeepRecordingOpen(recording)} onDragRecording={startDrag ? data => startDrag(data, recordingTranscriptTab(recording)) : undefined} />)}
       {!linked.length && !active?.projectIds?.includes(props.projectId) ? <Surface className="flex min-h-24 items-center gap-3 rounded-xl border-border/60 px-4 py-4 text-xs leading-5 text-muted-foreground shadow-none">
         <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/60"><FileAudio className="size-4" /></span>
         <p>{loading ? t("projects.loading") : desktop ? t("recorder.project_empty") : t("recorder.desktop_required_body")}</p>
@@ -96,6 +106,5 @@ export function ProjectRecordings(props: { projectId: string; onStartRecording: 
         </div>
       </DialogContent>
     </Dialog>
-    <RecordingDetailDialog />
   </>;
 }

@@ -3853,6 +3853,8 @@ async function startOpencode(options: {
       ...(options.stateLayout?.env ?? {}),
       OPENCODE_ROUTER_CONTROL_TOKEN: getRouterControlToken(),
       OPENCODE_CLIENT: "legalwork-orchestrator",
+      // Avoid FFF reading cloud-only documents during background filename indexing.
+      OPENCODE_DISABLE_FFF: "true",
       OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: process.env.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS ?? "true",
       // 🟡 LAWOSS: žiadny katalóg z Eigenweltu ani z relay servera (#223/#230 sa v LAWOSS nepoužíva).
       ...(options.modelCatalogUrl ? { OPENCODE_MODELS_URL: options.modelCatalogUrl } : {}),
@@ -4386,6 +4388,7 @@ async function writeSandboxEntrypoint(options: {
     `if [ -d ${shQuote(hostOpencodeDataDir)} ]; then cp ${shQuote(`${hostOpencodeDataDir}/auth.json`)} \"$XDG_DATA_HOME/opencode/auth.json\" 2>/dev/null || true; cp ${shQuote(`${hostOpencodeDataDir}/mcp-auth.json`)} \"$XDG_DATA_HOME/opencode/mcp-auth.json\" 2>/dev/null || true; fi`,
     `export OPENCODE_URL=${shQuote(`http://127.0.0.1:${SANDBOX_INTERNAL_OPENCODE_PORT}`)}`,
     `export OPENCODE_CLIENT=legalwork-orchestrator`,
+    "export OPENCODE_DISABLE_FFF=true",
     `export OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=${shQuote(process.env.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS ?? "true")}`,
     `export OPENCODE_MODELS_URL=${shQuote(`http://127.0.0.1:${SANDBOX_INTERNAL_LEGALWORK_PORT}/model-catalog`)}`,
     `export OPENCODE_HOT_RELOAD=${shQuote(options.opencode.hotReload.enabled ? "1" : "0")}`,

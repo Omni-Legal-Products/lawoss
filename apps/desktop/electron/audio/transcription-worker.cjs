@@ -25,14 +25,8 @@
 
 "use strict";
 
-const fs = require("node:fs");
-const fsp = require("node:fs/promises");
-
+const { LiveSpeakers } = require("./live-speakers.cjs");
 const SAMPLE_RATE = 16000;
-// Reading the whole recording back for diarization costs ~4 bytes/sample of
-// RAM plus a copy; cap so a marathon recording can't OOM the worker. Beyond
-// this, transcription still completes — only speaker labels are skipped.
-const MAX_DIARIZE_SAMPLES = SAMPLE_RATE * 60 * 60; // 60 minutes
 const VAD_WINDOW = 512; // Silero v4/v5 window at 16 kHz
 const MAX_SPEECH_SECONDS = 18; // force-split long monologues (Parakeet caps ~20 s)
 const PARTIAL_INTERVAL_SAMPLES = SAMPLE_RATE * 1.5;
@@ -61,15 +55,22 @@ let decodeQueue = Promise.resolve();
 /** @type {Map<string, StreamState>} */
 const streams = new Map();
 let segmentCounter = 0;
-/**
- * Per-stream diarization sinks: while a recording is diarize-armed, its raw
- * 16 kHz mono PCM is teed to a temp .f32 file, then read back and run through
- * OfflineSpeakerDiarization at finalize.
- * @type {Map<string, { path: string, stream: import('node:fs').WriteStream, segModel: string, embModel: string, threshold: number, samples: number }>}
- */
-const diarSinks = new Map();
-/** Cache diarizers by model+threshold so back-to-back recordings reuse them. */
-const diarizers = new Map();
+// Each retained capture gets its own stable voice clusters. Models are loaded
+// lazily, after sherpa has initialized, and audio is limited to VAD segments.
+const liveSpeakers = new Map();
+
+function identifySpeaker(streamId, samples) {
+  const entry = liveSpeakers.get(streamId);
+  if (!entry || entry.failed) return null;
+  try {
+    entry.detector ??= new LiveSpeakers(sherpa, entry.config);
+    return entry.detector.identify(samples);
+  } catch (error) {
+    entry.failed = true;
+    send({ type: "diarize-error", streamId, error: error instanceof Error ? error.message : String(error) });
+    return null;
+  }
+}
 
 function send(message) {
   try {
@@ -99,6 +100,7 @@ class StreamState {
     this.inSpeech = false;
     this.samplesSincePartial = 0;
     this.partialGeneration = 0;
+    this.partialPending = false;
     // Rolling raw-audio ring for onset/tail padding (see PREROLL_SAMPLES).
     this.ring = new Float32Array(RING_SAMPLES);
     this.ringHead = 0;
@@ -280,6 +282,7 @@ function drainVadSegments(state) {
             streamId: state.streamId,
             id: `seg-${++segmentCounter}`,
             generation,
+            speaker: identifySpeaker(state.streamId, speech),
             text,
             startMs,
             endMs,
@@ -297,7 +300,7 @@ function drainVadSegments(state) {
 }
 
 function maybeEmitPartial(state) {
-  if (!state.inSpeech || state.samplesSincePartial < PARTIAL_INTERVAL_SAMPLES) return;
+  if (!state.inSpeech || state.partialPending || state.samplesSincePartial < PARTIAL_INTERVAL_SAMPLES) return;
   if (state.speechChunkSamples < SAMPLE_RATE * 0.8) return;
   state.samplesSincePartial = 0;
   const generation = state.partialGeneration;
@@ -309,18 +312,17 @@ function maybeEmitPartial(state) {
   }
   const startMs = msFromSamples(startSample);
   const endMs = msFromSamples(state.speechStartSample + state.speechChunkSamples);
+  state.partialPending = true;
   void enqueueDecode(async () => {
-    if (!recognizer) return;
-    // A final segment landed while we waited — the partial is stale.
-    if (generation !== state.partialGeneration) return;
     try {
+      if (!recognizer || generation !== state.partialGeneration) return;
       const text = await decodeSamples(samples);
       if (text && generation === state.partialGeneration) {
         send({ type: "partial", streamId: state.streamId, text, startMs, endMs });
       }
     } catch {
       // partials are best-effort
-    }
+    } finally { state.partialPending = false; }
   });
 }
 
@@ -360,12 +362,6 @@ function feedPcm(state, samples) {
 }
 
 function handlePcm(message) {
-  const sink = diarSinks.get(message.streamId);
-  if (sink && sink.samples < MAX_DIARIZE_SAMPLES) {
-    // Tee the raw Float32 bytes to disk verbatim (little-endian, 16 kHz mono).
-    sink.stream.write(Buffer.from(message.buffer));
-    sink.samples += message.buffer.byteLength / 4;
-  }
   if (!recognizer) return;
   let state = streams.get(message.streamId);
   if (!state) {
@@ -375,91 +371,26 @@ function handlePcm(message) {
   feedPcm(state, new Float32Array(message.buffer));
 }
 
-function handleDiarizeBegin(message) {
-  if (diarSinks.has(message.streamId)) return;
-  try {
-    const stream = fs.createWriteStream(message.pcmPath);
-    stream.on("error", () => {}); // disk error → diarization silently skipped
-    diarSinks.set(message.streamId, {
-      path: message.pcmPath,
-      stream,
-      segModel: message.segModel,
-      embModel: message.embModel,
-      threshold: typeof message.threshold === "number" ? message.threshold : 0.5,
-      samples: 0,
-    });
-  } catch {
-    // Couldn't open the sink — finalize just won't diarize.
-  }
-}
-
-function diarizerFor(segModel, embModel, threshold) {
-  const key = `${segModel}|${embModel}|${threshold}`;
-  let diarizer = diarizers.get(key);
-  if (!diarizer) {
-    diarizer = new sherpa.OfflineSpeakerDiarization({
-      segmentation: { pyannote: { model: segModel }, numThreads: 2, provider: "cpu", debug: 0 },
-      embedding: { model: embModel, numThreads: 2, provider: "cpu", debug: 0 },
-      clustering: { numClusters: -1, threshold },
-      minDurationOn: 0.2,
-      minDurationOff: 0.5,
-    });
-    diarizers.set(key, diarizer);
-  }
-  return diarizer;
-}
-
-/**
- * Read the teed PCM back and run diarization. Returns speaker turns in ms, or
- * null when diarization was not armed / not possible.
- * @returns {Promise<{ startMs: number, endMs: number, speaker: number }[] | null>}
- */
-async function runDiarization(streamId) {
-  const sink = diarSinks.get(streamId);
-  if (!sink) return null;
-  diarSinks.delete(streamId);
-  await new Promise((resolve) => sink.stream.end(resolve));
-  try {
-    if (!sherpa) return null;
-    if (sink.samples < SAMPLE_RATE || sink.samples > MAX_DIARIZE_SAMPLES) return null;
-    const raw = await fsp.readFile(sink.path);
-    // Copy into an aligned buffer whose length is a whole number of floats so
-    // the Float32 view is always valid (a truncated tail float is dropped).
-    const wholeBytes = raw.byteLength - (raw.byteLength % 4);
-    const aligned = raw.buffer.slice(raw.byteOffset, raw.byteOffset + wholeBytes);
-    const samples = new Float32Array(aligned);
-    const diarizer = diarizerFor(sink.segModel, sink.embModel, sink.threshold);
-    const turns = diarizer.process(samples);
-    return (turns ?? []).map((turn) => ({
-      startMs: Math.round(turn.start * 1000),
-      endMs: Math.round(turn.end * 1000),
-      speaker: turn.speaker | 0,
-    }));
-  } catch (error) {
-    send({ type: "diarize-error", streamId, error: error instanceof Error ? error.message : String(error) });
-    return null;
-  } finally {
-    void fsp.rm(sink.path, { force: true }).catch(() => {});
-  }
-}
-
 function handleFinalize(message) {
   const state = streams.get(message.streamId);
   if (state) {
     streams.delete(message.streamId);
     try {
+      // The capture flush may end between VAD windows. Preserve every real
+      // sample, padding only the last window with silence before VAD flush.
+      if (state.pending.length > 0) {
+        feedPcm(state, new Float32Array(VAD_WINDOW - state.pending.length));
+      }
       state.vad.flush();
       drainVadSegments(state);
     } catch {
       // flush is best-effort; segments so far are already out
     }
   }
-  // finalized must trail every queued decode of this stream, and the
-  // (blocking) diarization pass runs after decoding so it never competes for
-  // CPU with the transcript.
+  // Keep speaker state alive until all queued speech segments have finished.
   void enqueueDecode(async () => {
-    const speakers = await runDiarization(message.streamId);
-    send({ type: "finalized", streamId: message.streamId, speakers });
+    liveSpeakers.delete(message.streamId);
+    send({ type: "finalized", streamId: message.streamId });
   });
 }
 
@@ -474,18 +405,14 @@ port.on("message", (event) => {
       handlePcm(message);
       break;
     case "diarize-begin":
-      handleDiarizeBegin(message);
+      liveSpeakers.set(message.streamId, { config: message, detector: null, failed: false });
       break;
     case "finalize":
       handleFinalize(message);
       break;
     case "drop": {
       streams.delete(message.streamId);
-      const sink = diarSinks.get(message.streamId);
-      if (sink) {
-        diarSinks.delete(message.streamId);
-        sink.stream.end(() => void fsp.rm(sink.path, { force: true }).catch(() => {}));
-      }
+      liveSpeakers.delete(message.streamId);
       break;
     }
     case "stop":

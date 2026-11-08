@@ -1,5 +1,26 @@
 # LAWOSS downstream patches
 
+## Sync upstream v0.2.12 (2026-11-08, ADR 0016)
+
+Krok 2 plného syncu na v0.3.9 (diktovanie, nahrávky pre agenta, zdieľané úložisko tímu, LW-202). Odchýlky:
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/wiki/agent-access.ts`, `apps/server/src/server.ts` | Upstream `scheduledProjects` prevzatý popri LAWOSS `allProjects`. Ako `allProjects = false` aj plánovaný beh „všetci klienti“ dostane pri overení len vlastného klienta (`[own.id]`) a všeobecné nahrávky. Testy `recorder-routes.e2e.test.ts` a `agent-access.test.ts` to overujú; prvý test číta tajomstvo cez `adoptWikiAgentSecret` a plánované čítanie robí pred znížením roly (LAWOSS ho drží natrvalo). |
+| `apps/server/src/opencode-plugins/recording-tools.ts` | `serverConnected(context)` namiesto upstream `serverToken()` (engine nemá serverový token). |
+| `apps/app/src/react-app/domains/settings/pages/preferences-view.tsx`, `apps/app/src/react-app/shell/settings-route.tsx` | Upstream presunul „Skryť LegalWork“ do nastavení záznamníka, ktoré LAWOSS skrýva; voľba ostáva v Súkromí, kým je záznamník skrytý. |
+| `apps/app/src/react-app/shell/session-route.tsx` | Preskočenie onboardingu záznamníka platí aj pre nový krok `dictation`; späť sa ide na `office`. |
+| `apps/app/src/react-app/domains/session/surface/composer/composer-dictation.tsx` | Nové tlačidlo diktovania v composeri sa pri skrytom záznamníku nezobrazí (model reči by sa nedal nainštalovať). |
+| `apps/desktop/electron/audio/meeting-monitor.mjs`, `apps/desktop/electron/main.mjs` | Voľba `detectionDefault`; LAWOSS ju dáva `false`, takže rozpoznávanie stretnutí (sonda procesov a kariet prehliadača každé 3 s) nebeží, kým ho používateľ nezapne. Test v `meeting-monitor.test.mjs`. |
+| `apps/app/src/react-app/domains/recorder/recorder-store.ts` | Bez `ensureDiarizationReady` pri štarte (MČ 5. 10.); jazyk HUD diktovania je len `en`/`de`, lebo hlavný proces iné texty nemá. |
+| `apps/server/src/legalwork-runtime-config.ts` | Upstream prompt plánovaného behu s nahrávkami + LAWOSS `withFileChangeRule`. |
+| `apps/app/src/react-app/domains/session/sync/{session-sync,usechat-adapter}.ts` | `scheduledTextMetadata(part)` spojené s LAWOSS `commentaryTag(part)`. |
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | LAWOSS `queueFailure` s odkazom na AI hranice v upstream `queueDraft`. |
+| `apps/desktop/electron-builder.yml`, `apps/{app,desktop,server}/package.json`, `.github/workflows/ci-tests.yml` | Značka LAWOSS v novom texte System Events; nové upstream testy a `recording-tools.ts` v builde popri LAWOSS. |
+| `apps/app/tests/session-sync-retention.test.ts` | LW-202: stav idle už nemaže čakajúce povolenie/otázku, maže ich až odpoveď; očakávania upravené. |
+
+Cloudový prepis (`cloud-transcription.ts`) vyžaduje účet Eigenwelt, v LAWOSS je teda nedostupný. `sk.ts` a `cs.ts`: 166 nových kľúčov, 7 zrušených `recorder.dictation_mode_*` odstránených. `opencodeVersion` ostáva 1.18.29.
+
 ## Sync upstream v0.2.11 (2026-11-08, ADR 0016)
 
 Krok 1 plného syncu na v0.3.9. Odchýlky, ktoré po merge ostávajú alebo pribudli:

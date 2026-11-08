@@ -177,7 +177,7 @@ export function SettingsShell(props: SettingsShellProps) {
           </div>
           {sidebarOpen && <SidebarRail aria-label={t("session.resize_workspace_column")} title={t("session.resize_workspace_column")} onClick={event => event.preventDefault()} onPointerDown={startLeftSidebarResize} />}
         </Sidebar>
-        <SidebarInset className="lw-session-workspace min-h-0 overflow-hidden pr-1.5">
+        <SidebarInset className="lw-session-workspace min-h-0 overflow-hidden">
           <main className="lw-workspace-surface flex min-h-0 min-w-0 flex-1 flex-col">
             <SettingsPage {...props}>{props.children}</SettingsPage>
             {props.modalSlot}

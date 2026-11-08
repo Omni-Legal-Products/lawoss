@@ -77,6 +77,8 @@ Sandbox advertisement (for capability discovery):
 
 ## Endpoints
 
+- `GET /recorder/recordings` (desktop owner: retained recording metadata; optional `scope=global`, `period=today|yesterday`, inclusive `from`/`to`, `timeZone`, title `query`, `projectId`, `limit`, `cursor`; scheduled sessions are limited to configured projects plus global recordings)
+- `GET /recorder/recordings/:id` (desktop owner: current transcript and speaker names; `offset`/`limit` pagination; chats can read global/current-project recordings, other projects require existing access or approval; scheduled sessions cannot expand their saved project scope)
 - `GET /health`
 - `GET /status`
 - `GET /capabilities`

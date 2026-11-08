@@ -1,3 +1,4 @@
+import { managedStorageCapability } from "../connectors/broker.js";
 import { hasConnectorRuntimeCapability, hasConnectorHostAuthorization } from "../connectors/capability.js";
 import { ConnectorStorageAccounts, isConnectorStorageId } from "../file-storage/connector-accounts.js";
 import { isCloudStorage } from "../file-storage/cloud-drives.js";
@@ -40,7 +41,7 @@ import { StorageOAuth } from "../file-storage/oauth/session.js";
 import { oauthVaultPath } from "../file-storage/oauth/vault.js";
 import { oauthProviders } from "../file-storage/oauth/providers.js";
 import { TeamStorage, isTeamStorage, teamStorageId } from "../file-storage/team.js";
-import { mergeStorageSecrets, publicConnection, StorageStore } from "../file-storage/store.js";
+import { mergeStorageSecrets, publicConnection, StorageStore, type StoredStorage } from "../file-storage/store.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 import { appliedOrgPolicy, requireOrgPolicyAllows } from "../org-policy.js";
@@ -86,7 +87,7 @@ export function registerStorageRoutes({
 }: Options) {
   const store = new StorageStore(config);
   const team = new TeamStorage(config);
-  const accounts = new ConnectorStorageAccounts(config);
+  const accounts = new ConnectorStorageAccounts(config, team);
   const oauth = new StorageOAuth(oauthVaultPath(config));
   // File-server protocols lack conditional writes. Serialize this server's
   // mutations per connection so folder renames cannot interleave with descendant saves.
@@ -117,8 +118,8 @@ export function registerStorageRoutes({
     return accounts.bind(item);
   };
   const personalOwner = (ctx: RequestContext) => ctx.actor?.type === "host" || ctx.actor?.scope === "owner" || (ctx.actor?.scope === "collaborator" && (hasConnectorRuntimeCapability(config, ctx.request) || hasConnectorHostAuthorization(config, ctx.request)));
-  const personalAccess = (ctx: RequestContext, item: { config: import("@legalwork/types/file-storage").StorageConfig }) => {
-    if (isCloudStorage(item.config) && !personalOwner(ctx)) throw new ApiError(403, "storage_personal_account", "Only the server owner or their managed agent can use personal cloud accounts.");
+  const personalAccess = (ctx: RequestContext, item: { config: import("@legalwork/types/file-storage").StorageConfig; team?: StoredStorage["team"] }) => {
+    if (isCloudStorage(item.config) && !(item.team && item.config.sharingMode === "team") && !personalOwner(ctx)) throw new ApiError(403, "storage_personal_account", "Only the server owner or their managed agent can use personal cloud accounts.");
   };
   const projectFolders = registerProjectFolderRoutes({ routes, config, storagePath: store.path, oauth, lookup, resolveWorkspace, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, personalAccess, onChanged: onProjectFoldersChanged, onRenamed: onProjectRenamed });
   const selected = async (ctx: RequestContext, writing = false, storageId = ctx.params.storageId) => {
@@ -144,7 +145,7 @@ export function registerStorageRoutes({
           "This storage is read-only. Change its access in Integrations to write files.",
         );
     }
-    oauth.bind(await workspace(ctx), item.id, item);
+    if (!isCloudStorage(item.config)) oauth.bind(await workspace(ctx), item.id, item);
     return item;
   };
   const parsedInput = async (ctx: RequestContext, id?: string) => {
@@ -156,14 +157,16 @@ export function registerStorageRoutes({
         parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "),
       );
     const previous = id ? await lookup(await workspace(ctx), id) : undefined;
-    const input = mergeStorageSecrets(parsed.data, previous);
-    if (isCloudStorage(input.config)) {
+    let input = mergeStorageSecrets(parsed.data, previous);
+    if (input.secrets.nangoConnectionId !== undefined || input.secrets.nangoOwnerId !== undefined)
+      throw new ApiError(400, "invalid_storage_configuration", "Managed account credentials cannot be saved in local storage settings.");
+    if (isCloudStorage(input.config) && !previous?.team) {
       if (input.config.provider === "sharepoint-files" && !input.config.driveId) throw new ApiError(400, "storage_drive_required", "Choose a SharePoint document library for this view.");
       if (!input.config.accountId) throw new ApiError(400, "storage_account_required", "Choose the connected account for this folder view.");
       await accounts.validate(input);
-      await accounts.bind(input);
+      input = await accounts.bind(input);
     }
-    if (id) oauth.bind(await workspace(ctx), id, input);
+    if (id && !isCloudStorage(input.config)) oauth.bind(await workspace(ctx), id, input);
     return input;
   };
   addRoute(routes, "GET", "/storage/project-sources", "host", async (ctx) => {
@@ -232,11 +235,11 @@ export function registerStorageRoutes({
     const workspaceId = await workspace(ctx);
     const shared = await team.list(workspaceId);
     const owner = personalOwner(ctx);
-    const connections = [...(await personal(workspaceId)), ...shared.connections]
-      .filter((item) => item.enabled && item.team?.installed !== false && (owner || !isCloudStorage(item.config)) && !(isCloudStorage(item.config) && item.config.provider === "sharepoint-files" && !item.config.driveId));
-    await Promise.all(connections.filter((item) => isCloudStorage(item.config)).map((item) => accounts.bind(item)));
+    const candidates = [...(await personal(workspaceId)), ...shared.connections]
+      .filter((item) => item.enabled && item.team?.installed !== false && (owner || !isCloudStorage(item.config) || (item.team && item.config.sharingMode === "team")) && !(isCloudStorage(item.config) && item.config.provider === "sharepoint-files" && !item.config.driveId));
+    const connections = await Promise.all(candidates.map(item => accounts.bind(item)));
     const details = await readProjectDetails((await resolveWorkspace(config, workspaceId)).path);
-    const linkedRoots = (details.remote?.folders ?? []).filter((folder) => owner || !(isConnectorStorageId(folder.connectionId) || (folder.folder.namespace && /^(google-drive|onedrive|onedrive-personal|sharepoint-files):/.test(folder.folder.namespace)))).map((folder) => {
+    const linkedRoots = (details.remote?.folders ?? []).filter((folder) => owner || isTeamStorage(folder.connectionId) || !(isConnectorStorageId(folder.connectionId) || (folder.folder.namespace && /^(google-drive|onedrive|onedrive-personal|sharepoint-files):/.test(folder.folder.namespace)))).map((folder) => {
       const source = connections.find((item) => item.id === folder.connectionId && item.team?.orgId === folder.organizationId && connectionFingerprint(item) === folder.connectionFingerprint);
       return {
         id: `project:${folder.id}`, name: folder.folder.name, kind: "linked", writable: false,
@@ -298,7 +301,7 @@ export function registerStorageRoutes({
     const workspaceId = await workspace(ctx);
     const raw = await readJsonBodyLimited(ctx.request, 128 * 1024);
     const localId = typeof raw.localId === "string" ? raw.localId : undefined;
-    const input = localId ? await store.get(workspaceId, localId) : storageInputSchema.safeParse(raw);
+    const input = localId ? await lookup(workspaceId, localId) : storageInputSchema.safeParse(raw);
     if ("success" in input && !input.success)
       throw new ApiError(400, "invalid_storage_configuration", "Check the connection fields.");
     const parsed = storageInputSchema.safeParse({
@@ -307,7 +310,14 @@ export function registerStorageRoutes({
     });
     if (!parsed.success) throw new ApiError(400, "invalid_storage_configuration", "Check the connection fields.");
     const value = parsed.data;
-    if (isCloudStorage(value.config)) throw new ApiError(403, "storage_personal_account", "Personal Google and Microsoft accounts cannot be shared as team storage.");
+    if (isCloudStorage(value.config)) {
+      if (value.config.sharingMode === "team") {
+        if (!value.config.accountId) throw new ApiError(400, "storage_account_required", "Choose a connected account to share.");
+        value.secrets.nangoConnectionId = await managedStorageCapability(config, value.config.provider, value.config.accountId);
+      }
+      delete value.config.accountId;
+      value.config.sharingMode ??= "member";
+    }
     const saved = await team.request(workspaceId, "POST", "", value);
     team.invalidate(workspaceId);
     if (localId && value.teamInstallation === "optional") {
@@ -322,7 +332,7 @@ export function registerStorageRoutes({
     }
     // Promotion is explicit and the platform save has succeeded. Remove only
     // this local copy so it does not appear twice in the administrator's app.
-    if (localId) await store.remove(workspaceId, localId);
+    if (localId && !isConnectorStorageId(localId)) await store.remove(workspaceId, localId);
     team.invalidate(workspaceId);
     return jsonResponse({ ok: true }, 201);
   });

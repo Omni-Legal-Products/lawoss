@@ -267,6 +267,8 @@ export async function createManagedOpencodeServer(options: {
     ...features,
     ...options.env,
     ...lawossEnv,
+    // FFF's background scan reads document contents; filename lookup can use ripgrep.
+    OPENCODE_DISABLE_FFF: "true",
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
   });
@@ -274,6 +276,7 @@ export async function createManagedOpencodeServer(options: {
     ...features,
     ...(options.env ?? {}),
     ...lawossEnv,
+    OPENCODE_DISABLE_FFF: "true",
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
   }))

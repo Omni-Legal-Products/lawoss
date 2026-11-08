@@ -28,6 +28,12 @@ export async function stopSubagentRun({ client, serverClient, workspaceId, sessi
   const activity = useSessionActivityStore.getState();
   activity.clearError(workspaceId, sessionId);
   activity.setRunStatus(workspaceId, sessionId, { type: "idle" });
+  // Stopping discards whatever the run was blocked on, exactly like the pending
+  // caches emptied below. This has to be said out loud: an idle run status on
+  // its own means the engine is waiting on the user, so `setRunStatus` leaves
+  // pending requests alone.
+  activity.replaceWaitingRequests(workspaceId, sessionId, "permission", []);
+  activity.replaceWaitingRequests(workspaceId, sessionId, "question", []);
   queryClient.setQueryData(statusKey(workspaceId, sessionId), { type: "idle" });
   queryClient.setQueryData(permissionKey(workspaceId, sessionId), []);
   queryClient.setQueryData(questionKey(workspaceId, sessionId), []);

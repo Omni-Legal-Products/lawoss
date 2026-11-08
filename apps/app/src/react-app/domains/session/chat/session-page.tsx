@@ -520,7 +520,7 @@ export function SessionPage(props: SessionPageProps) {
       const scope = destination && typeof destination === "object" && "workspaceId" in destination && typeof destination.workspaceId === "string" ? workspacePanelKey(destination.workspaceId) : panelStateSessionId;
       const pane = destination && typeof destination === "object" && "paneId" in destination && typeof destination.paneId === "string" ? destination.paneId : undefined;
       openTab(scope, tab, pane, undefined, { preview: tab.openAsPreview, besideChat: tab.openBesideChat });
-      if (tab.type === "artifact" && tab.pendingImportId && destination?.kind === "workspace") {
+      if (destination?.kind === "workspace" && ((tab.type === "artifact" && tab.pendingImportId) || (tab.type === "recording" && hasMainView))) {
         navigate(workspaceSessionRoute(destination.workspaceId) + "?view=workspace");
       }
       if (scope !== panelStateSessionId) return;
@@ -1068,6 +1068,8 @@ export function SessionPage(props: SessionPageProps) {
       projectId={props.selectedWorkspaceId}
       isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
       onStartRecording={props.onStartProjectRecording}
+      inWorkspace={inWorkspace}
+      active={active}
       name={projectName}
       onOpenFile={openWorkspaceFileEntry}
       onBeforeDeleteNote={(entry) => {
@@ -1210,7 +1212,7 @@ export function SessionPage(props: SessionPageProps) {
           </div>
           {!mobile && sidePanelOpen && <div ref={setViewerHeaderTarget} data-panel-header="viewer" className="lw-window-panel-header" style={{ width: viewerHeaderWidth }} />}
           {!mobile && fileSidebar && (!hasMainView || panelStateSessionId === EVALS_PANEL_SESSION_ID) && <div ref={setFilesHeaderTarget} data-panel-header="files" className="lw-window-panel-header" style={{ width: filesHeaderWidth }} />}
-          {!mobile && (!hasMainView || panelStateSessionId === EVALS_PANEL_SESSION_ID) && (sidePanelOpen || fileSidebar) && <div aria-hidden className="shrink-0" style={{ width: shellConfig.panelRail ? "calc(var(--lw-window-right-rail-width) + 1px)" : 1 }} />}
+          {!mobile && (!hasMainView || panelStateSessionId === EVALS_PANEL_SESSION_ID) && (sidePanelOpen || fileSidebar) && <div aria-hidden className="shrink-0" style={{ width: "var(--lw-window-panel-rail-width)" }} />}
         </header>
         <AppSidebar
           accountClient={props.environmentClient ?? props.legalworkServerClient ?? null}

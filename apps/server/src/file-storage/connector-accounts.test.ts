@@ -15,6 +15,9 @@ import { connectorRuntimeCapability } from "../connectors/capability.js";
 import { ConnectorStorageAccounts } from "./connector-accounts.js";
 import { updateProjectRemote, readProjectDetails } from "../project-store.js";
 import { connectionFingerprint, ProjectFolderBindings } from "./project-folders.js";
+import { TeamStorage } from "./team.js";
+import { withStorage } from "./service.js";
+import type { StoredStorage } from "./store.js";
 import { nativeSegment } from "./native-drive.js";
 
 const nativeFetch = globalThis.fetch;
@@ -140,10 +143,22 @@ test("a switched Eigenwelt account cannot inherit a saved cloud folder view", as
   await expect(bridge.validate(input)).rejects.toMatchObject({ code: "storage_disconnected" }); expect(calls).toHaveLength(0);
 });
 
-test("team promotion rejects personal cloud credentials before contacting the platform", async () => {
+test("sharing a member location removes the personal handle and makes no Nango request", async () => {
+  const priorFetch = globalThis.fetch;
+  let published: unknown;
+  globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.pathname === "/api/storage-connections" && init?.method === "POST") {
+      published = JSON.parse(String(init.body)); return Response.json({ connection: { id: "af506b2e-82eb-40cd-936a-fef613abc765" } });
+    }
+    return priorFetch(input, init);
+  }, { preconnect: nativeFetch.preconnect });
   await serve(); calls.length = 0;
-  const response = await nativeFetch(`${base}/workspace/project/storage/team`, { method: "POST", headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" }, body: JSON.stringify({ name: "Drive", config: { kind: "oauth", provider: "google-drive", accountId: account.id, root: "" } }) });
-  expect(response.status).toBe(403); expect(calls.some((path) => path.includes("storage") || path.includes("connectors"))).toBe(false);
+  const response = await nativeFetch(`${base}/workspace/project/storage/team`, { method: "POST", headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" }, body: JSON.stringify({ name: "Drive", config: { kind: "oauth", provider: "google-drive", accountId: account.id, root: "", sharingMode: "member" } }) });
+  expect(response.status).toBe(201);
+  expect(published).toMatchObject({ config: { provider: "google-drive", sharingMode: "member" }, secrets: {} });
+  expect(JSON.stringify(published)).not.toContain(account.id);
+  expect(calls.some(path => path.startsWith("/api/connectors"))).toBe(false);
 });
 
 
@@ -172,4 +187,48 @@ test("own OAuth storage remains available without Eigenwelt sign-in and creates 
   await serve(); const response = await api(`/${encodeURIComponent(roots[0].id)}/children`); expect(response.status).toBe(200);
   expect(calls.some((path) => path.startsWith("/api/connectors"))).toBe(false);
   expect((await savedConnectorStatus(config, "google-drive")).connectors[0].connections).toHaveLength(1);
+});
+
+
+function sharedCloud(mode: "team" | "member"): StoredStorage {
+  return { ...storageInputSchema.parse({ name: "Firm drive", config: { kind: "oauth", provider: "google-drive", root: "", sharingMode: mode }, readOnly: false }),
+    id: "team:af506b2e-82eb-40cd-936a-fef613abc765", workspaceId: "project", updatedAt: 1,
+    team: { orgId: "firm", version: 1, installed: true } };
+}
+test("shared accounts use a team token without looking up the server owner's personal account", async () => {
+  const item = sharedCloud("team"), team = new TeamStorage(config);
+  team.list = async () => ({ connections: [item], status: { connected: true, canManage: false } });
+  let tokens = 0;
+  team.accessToken = async (_workspace, id, version) => { expect(id).toBe(item.id); expect(version).toBe(1); tokens++; return "shared-storage-access"; };
+  const bound = await new ConnectorStorageAccounts(config, team).bind(item);
+  const adapter = await withStorage(bound, async adapter => { await adapter.list(""); return adapter; });
+  expect(tokens).toBe(1); expect(calls.some(path => path.startsWith("/api/connectors"))).toBe(false);
+  item.enabled = false;
+  await expect(adapter.list("")).rejects.toMatchObject({ code: "storage_team_unavailable" });
+});
+test("member locations reuse the sole personal account and preserve default-off write control", async () => {
+  const item = sharedCloud("member"), team = new TeamStorage(config);
+  const bound = await new ConnectorStorageAccounts(config, team).bind(item);
+  expect(bound.readOnly).toBe(true);
+  await withStorage(bound, async adapter => {
+    expect((await adapter.list("")).entries.map(entry => entry.name)).toContain("Shared drives");
+    await expect(adapter.mkdir("Unsafe")).rejects.toMatchObject({ code: "connector_writes_disabled" });
+  });
+  expect(calls).toContain("/api/connectors/google-drive/connection/token");
+  expect((await savedConnectorStatus(config, "google-drive")).connectors[0].connections).toHaveLength(1);
+});
+test("unconnected member locations stay visible without looking up Nango accounts", async () => {
+  await writeConnectorConnections(config, owner, "google-drive", []);
+  const item = await new ConnectorStorageAccounts(config, new TeamStorage(config)).bind(sharedCloud("member"));
+  await expect(withStorage(item, adapter => adapter.list(""))).rejects.toMatchObject({ code: "storage_signin_required" });
+  expect(calls).toHaveLength(0);
+});
+
+
+test("binding a cached team location never overwrites its admin write policy", async () => {
+  const item = sharedCloud("member"), bridge = new ConnectorStorageAccounts(config, new TeamStorage(config));
+  expect((await bridge.bind(item)).readOnly).toBe(true);
+  expect(item.readOnly).toBe(false);
+  await saveConnectorWriteSetting(config, "google-drive", { writeAccess: true });
+  expect((await bridge.bind(item)).readOnly).toBe(false);
 });

@@ -188,12 +188,19 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
   },
   audio: {
     /** Stream 16 kHz mono Float32 PCM to the local transcriber (fire-and-forget). */
-    sendPcm(streamId, buffer) {
-      ipcRenderer.send("legalwork:audio:pcm", streamId, buffer);
+    sendPcm(streamId, buffer, source) {
+      ipcRenderer.send("legalwork:audio:pcm", streamId, buffer, source);
+    },
+    /** Send the live microphone meter independently of transcription batching. */
+    sendDictationLevel(level) {
+      ipcRenderer.send("legalwork:audio:dictation-level", level);
+    },
+    sendMeetingLevel(recordingId, level) {
+      ipcRenderer.send("legalwork:audio:meeting-level", recordingId, level);
     },
     /** Append a MediaRecorder chunk to the recording file on disk. */
-    sendMediaChunk(recordingId, chunk) {
-      ipcRenderer.send("legalwork:audio:media-chunk", recordingId, chunk);
+    sendMediaChunk(recordingId, chunk, source) {
+      ipcRenderer.send("legalwork:audio:media-chunk", recordingId, chunk, source);
     },
     /** Stream an AI answer back to the call overlay. */
     sendAskAnswer(askId, text, done, error) {

@@ -1,5 +1,5 @@
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
-import { Blocks, BookOpen, Bot, FilePenLine, FilePlus2, FolderSearch, Globe, KeyRound, ListChecks, MessageCircleQuestionMark, Search, SquareTerminal, Table2, Wrench } from "lucide-react";
+import { Blocks, BookOpen, Bot, FilePenLine, FilePlus2, FolderSearch, Globe, Headphones, KeyRound, ListChecks, MessageCircleQuestionMark, Search, SquareTerminal, Table2, Wrench } from "lucide-react";
 import { isBashToolPart, isEditToolPart, isGlobToolPart, isGrepToolPart, isReadToolPart, isWriteToolPart } from "@/lib/build-in-tools";
 import { getToolActivityLabel, isToolPartInFlight, isToolPermissionDenied } from "@/lib/tool-activity";
 import { t } from "@/i18n";
@@ -17,6 +17,8 @@ function categoryOf(part: ToolPart) {
   const name = nameOf(part);
   const lawossCategory = lawossToolCategory(name);
   if (lawossCategory) return lawossCategory;
+  if (name === "legalwork_recordings_list") return "recordings";
+  if (name === "legalwork_recording_read") return "transcript";
   if (name === "bash" || name === "exec_command") return "command";
   if (name === "task" || name === "task_status") return "agent";
   if (name === "question") return "question";
@@ -44,6 +46,7 @@ const icons = {
   search: Search, web: Globe, skill: Blocks, plan: ListChecks, agent: Bot,
   question: MessageCircleQuestionMark, credentials: KeyRound, review: Table2,
   browse: FolderSearch, tool: Wrench,
+  recordings: Headphones, transcript: BookOpen,
 };
 
 function categoryLabel(category: ReturnType<typeof categoryOf>): string {
@@ -61,6 +64,8 @@ function categoryLabel(category: ReturnType<typeof categoryOf>): string {
     credentials: t("tool_run.summary.credentials"),
     review: t("tool_run.summary.review"),
     browse: t("tool_run.summary.browse"),
+    recordings: t("tool_run.summary.recordings"),
+    transcript: t("tool_run.summary.transcript"),
     tool: t("tool_run.summary.tool"),
   }[category];
 }

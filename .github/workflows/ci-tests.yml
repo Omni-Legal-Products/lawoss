@@ -54,6 +54,17 @@ jobs:
     uses: ./.github/workflows/ci-desktop-packaging.yml
     with:
       runtime_provided: true
+  windows-meetings:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Test Windows meeting detection and native metadata helper
+        run: node --test apps/desktop/electron/windows-meeting-probe.test.mjs apps/desktop/electron/meeting-monitor.test.mjs
+
   windows-drafts:
     runs-on: windows-latest
     steps:
@@ -145,6 +156,11 @@ jobs:
       - name: Run app unit tests
         run: pnpm --filter @legalwork/app test
 
+      - name: Verify recorder capture and dictation
+        run: |
+          pnpm --filter @legalwork/app test:recorder-capture
+          pnpm --filter @legalwork/app test:dictation
+
       - name: Run server unit tests
         run: pnpm --filter legalwork-server test
 
@@ -153,10 +169,10 @@ jobs:
           pnpm --filter opencode-router test:unit
           node --test apps/orchestrator/scripts/router-control-security.test.mjs
 
-      - name: Verify scheduling with the shipped engine
+      - name: Verify scheduling and file search with the shipped engine
         run: |
           pnpm --filter legalwork-server build
-          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts --timeout 180000 apps/server/src/scheduled-tasks/engine.test.ts
+          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts --timeout 180000 apps/server/src/scheduled-tasks/engine.test.ts apps/server/src/managed-opencode.search.e2e.test.ts
 
       # 🟡 LAWOSS: oddelenie klientov a schvaľovanie so skutočným enginom a skriptovaným modelom (review #221).
       # Načítajú pluginy z apps/server/dist, preto bežia po builde servera v predchádzajúcom kroku.

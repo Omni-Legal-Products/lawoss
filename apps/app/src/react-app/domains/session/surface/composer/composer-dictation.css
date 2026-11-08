@@ -1,0 +1,9 @@
+.lw-composer-dictation { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; padding-top: 6px; }
+.lw-composer-dictation-wave { flex: 1; min-width: 0; width: 0; height: 36px; color: var(--lw-text-primary); }
+.lw-composer-dictation-working { display: flex; flex: 1; align-items: center; justify-content: center; gap: 12px; min-width: 0; min-height: 36px; color: var(--lw-text-secondary); font-size: 13px; }
+.lw-composer-dictation-dots { display: flex; align-items: center; gap: 4px; height: 18px; }
+.lw-composer-dictation-dots i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: lw-composer-dictation-bounce 1s ease-in-out infinite; }
+.lw-composer-dictation-dots i:nth-child(2) { animation-delay: .14s; }
+.lw-composer-dictation-dots i:nth-child(3) { animation-delay: .28s; }
+@keyframes lw-composer-dictation-bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .lw-composer-dictation-dots i { animation: none; } }

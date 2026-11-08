@@ -1,0 +1,48 @@
+.lw-recording-transcript { flex: 1; height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; background: var(--lw-canvas); container-type: inline-size; }
+.lw-transcript-people-popover { width: min(320px, calc(100vw - 32px)); max-height: min(480px, var(--available-height)); overflow-y: auto; overscroll-behavior: contain; padding: 12px; }
+.lw-transcript-people-card > header { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 10px; }
+.lw-transcript-people-card h2 { color: var(--lw-text-primary); font-size: 12px; font-weight: 600; }
+.lw-transcript-people-count { color: var(--lw-text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.lw-transcript-people-card > p { margin-bottom: 10px; color: var(--lw-text-secondary); font-size: 11px; line-height: 1.5; }
+.lw-transcript-person { display: flex; align-items: center; gap: 8px; min-height: 54px; }
+.lw-transcript-person + .lw-transcript-person { border-top: 1px solid var(--lw-border-subtle); }
+.lw-transcript-person-name { flex: 1; min-width: 0; padding: 6px 0; text-align: left; cursor: text; border-radius: 4px; }
+.lw-transcript-person-name > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--lw-text-primary); font-size: 12px; font-weight: 500; }
+.lw-transcript-person-name > small { display: block; margin-top: 2px; color: var(--lw-text-secondary); font-size: 10px; }
+.lw-transcript-person-name:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.lw-transcript-person-actions { display: flex; flex-shrink: 0; gap: 2px; }
+.lw-transcript-remove-speaker:hover { color: var(--lw-danger); }
+.lw-transcript-name-form { display: flex; align-items: center; flex: 1; min-width: 0; gap: 2px; }
+.lw-transcript-name-form input { min-width: 0; height: 30px; padding: 0 6px; font-size: 12px; border-radius: 6px; background: var(--lw-canvas); }
+.lw-transcript-avatar { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; background: color-mix(in srgb, currentColor 12%, transparent); font-size: 12px; font-weight: 600; }
+.lw-transcript-add-speaker { display: flex; align-items: center; gap: 4px; margin-top: 10px; padding: 4px 6px 4px 10px; border: 1px solid var(--lw-border-subtle); border-radius: var(--lw-radius-md); background: var(--lw-canvas); }
+.lw-transcript-add-speaker:focus-within { border-color: var(--ring); }
+.lw-transcript-add-speaker input { min-width: 0; height: 26px; padding: 0; font-size: 12px; border: 0; background: transparent; box-shadow: none; }
+.lw-transcript-add-speaker input:focus-visible { outline: none; box-shadow: none; }
+.lw-transcript-speaker-button { display: inline-flex; align-items: center; gap: 5px; max-width: 85%; text-align: left; cursor: pointer; border-radius: 4px; overflow-wrap: anywhere; }
+.lw-transcript-speaker-button:hover { text-decoration: underline; }
+.lw-transcript-speaker-button:focus-visible, .lw-transcript-segment-menu:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.lw-transcript-segment { position: relative; display: flex; gap: 8px; align-items: flex-start; }
+.lw-transcript-segment + .lw-transcript-segment { margin-top: 6px; }
+.lw-transcript-segment > span { flex: 1; min-width: 0; }
+.lw-transcript-segment-menu { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 20px; height: 24px; opacity: .35; border-radius: 4px; cursor: pointer; }
+.lw-transcript-segment:hover .lw-transcript-segment-menu, .lw-transcript-segment-menu:focus-visible { opacity: 1; background: var(--lw-canvas); }
+.lw-recording-transcript-header { display: flex; flex-shrink: 0; align-items: flex-start; justify-content: space-between; gap: var(--lw-space-3); padding: var(--lw-space-6); }
+.lw-recording-transcript-header h1 { color: var(--lw-text-primary); font-size: 22px; font-weight: 500; letter-spacing: -.035em; line-height: 1.25; overflow-wrap: anywhere; }
+.lw-recording-transcript-details { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: var(--lw-space-2); color: var(--lw-text-secondary); font-size: 12px; }
+.lw-recording-transcript-actions { display: flex; flex-shrink: 0; align-items: center; gap: 2px; }
+.lw-recording-transcript-status { display: inline-flex; align-items: center; gap: var(--lw-space-2); }
+.lw-recording-transcript-dot { width: 6px; height: 6px; border-radius: var(--lw-radius-full); background: var(--lw-danger); animation: lw-transcript-recording 1.6s ease-in-out infinite; }
+@keyframes lw-transcript-recording { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+.lw-recording-transcript-body { min-width: 0; padding: 0 var(--lw-space-6) var(--lw-space-6); }
+.lw-recording-transcript-turn + .lw-recording-transcript-turn { margin-top: var(--lw-space-6); }
+.lw-recording-transcript-speaker { display: flex; align-items: center; justify-content: space-between; gap: var(--lw-space-3); margin-bottom: var(--lw-space-2); font-size: 12px; font-weight: 500; }
+.lw-recording-transcript-speaker time { color: var(--lw-text-secondary); font-size: 11px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.lw-recording-transcript-words { width: fit-content; max-width: 100%; border-radius: var(--lw-radius-xl); background: var(--lw-sunken); padding: var(--lw-space-3) var(--lw-space-4); color: var(--lw-text-primary); font-size: 14px; line-height: 1.75; overflow-wrap: anywhere; white-space: pre-wrap; }
+.lw-recording-transcript-partial { color: var(--lw-text-secondary); }
+.lw-recording-transcript-empty { display: flex; min-height: 220px; flex-direction: column; align-items: center; justify-content: center; gap: var(--lw-space-3); color: var(--lw-text-secondary); text-align: center; font-size: 13px; line-height: 1.6; }
+@container (max-width: 640px) {
+  .lw-recording-transcript-header { padding: 16px; }
+  .lw-recording-transcript-body { padding: 0 16px 16px; }
+}
+@media (prefers-reduced-motion: reduce) { .lw-recording-transcript-dot { animation: none; } }

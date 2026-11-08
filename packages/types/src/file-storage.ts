@@ -27,6 +27,7 @@ const configSchema = z.discriminatedUnion("kind", [
     root: z.string().max(2048).default(""),
     /** Reuses a native connector account; never another OAuth grant. */
     accountId: z.string().min(1).max(500).optional(),
+    sharingMode: z.enum(["member", "team"]).optional(),
     driveId: z.string().min(1).max(1000).optional(),
   }),
   z.object({
@@ -148,6 +149,8 @@ export const storageSecretKeys = [
   "accountKey",
   "sasToken",
   "serviceAccount",
+  "nangoConnectionId",
+  "nangoOwnerId",
 ] as const;
 export const storageInputSchema = z.object({
   name: z.string().trim().min(1).max(100),

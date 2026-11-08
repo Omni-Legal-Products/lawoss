@@ -28,20 +28,24 @@ import type {
   AudioDiarizationState,
   AudioDictationPermissionKind,
   AudioDictationReadiness,
+  AudioDictationMicrophoneInput,
+  AudioDictationMicrophoneState,
   AudioModelDiskCandidate,
   AudioModelImportResult,
   AudioModelState,
   AudioPermissionKind,
   AudioRecorderBootstrap,
+  AudioMeetingStatus,
   AudioTapApp,
   AudioRecordingDetail,
+  AudioTranscriptEdit,
   AudioRecordingMeta,
   AudioRecordingStartInput,
   AudioSaveToWorkspaceResult,
   AudioSystemDictationPasteResult,
-  AudioSystemDictationMode,
   AudioSystemDictationRuntimeState,
   AudioSystemDictationStatus,
+  AudioDictationAppearance,
   AudioTranscribeLanguage,
   AudioTranscriberStatus,
 } from "./audio.js";
@@ -754,6 +758,7 @@ export type DesktopCommandMap = {
   audioRecordingCancel: { args: [recordingId: string]; result: unknown };
   audioRecordingsList: { args: []; result: AudioRecordingMeta[] };
   audioRecordingGet: { args: [recordingId: string]; result: AudioRecordingDetail | null };
+  audioRecordingEditTranscript: { args: [recordingId: string, edit: AudioTranscriptEdit]; result: AudioRecordingDetail };
   audioRecordingDelete: { args: [recordingId: string]; result: AudioRecordingMeta[] };
   /** Rename a recording (active or on disk); returns the refreshed list. */
   audioRecordingRename: { args: [recordingId: string, title: string]; result: AudioRecordingMeta[] };
@@ -795,6 +800,10 @@ export type DesktopCommandMap = {
   audioOverlaySetVisible: { args: [visible: boolean]; result: { visible: boolean } };
   audioOverlayGetVisible: { args: []; result: { visible: boolean } };
   audioSystemDictationGet: { args: []; result: AudioSystemDictationStatus };
+  audioSystemDictationSetAppearance: {
+    args: [appearance: AudioDictationAppearance];
+    result: AudioSystemDictationStatus;
+  };
   audioSystemDictationSetEnabled: {
     args: [enabled: boolean];
     result: AudioSystemDictationStatus;
@@ -803,17 +812,20 @@ export type DesktopCommandMap = {
     args: [accelerator: string];
     result: AudioSystemDictationStatus;
   };
-  audioSystemDictationSetMode: {
-    args: [mode: AudioSystemDictationMode];
-    result: AudioSystemDictationStatus;
-  };
   audioSystemDictationSetShortcutCapture: {
     args: [active: boolean];
     result: AudioSystemDictationStatus;
   };
   audioSystemDictationOpenSettings: { args: []; result: AudioSystemDictationStatus };
+  audioMeetingGet: { args: []; result: AudioMeetingStatus };
+  audioMeetingDetectionSet: { args: [enabled: boolean]; result: AudioMeetingStatus };
+  audioMeetingSetState: {
+    args: [state: AudioMeetingStatus["state"], recordingId?: string, error?: string];
+    result: AudioMeetingStatus;
+  };
+  audioMeetingOpen: { args: []; result: void };
   audioSystemDictationSetState: {
-    args: [state: AudioSystemDictationRuntimeState, message?: string];
+    args: [state: AudioSystemDictationRuntimeState, message?: string, locale?: "en" | "de"];
     result: AudioSystemDictationStatus;
   };
   audioSystemDictationPaste: {
@@ -825,6 +837,13 @@ export type DesktopCommandMap = {
    * monitoring, accessibility, automation), probed live against the OS.
    */
   audioSystemDictationReadiness: { args: []; result: AudioDictationReadiness };
+  audioSystemDictationMicrophonesGet: { args: []; result: AudioDictationMicrophoneState };
+  audioSystemDictationMicrophonesUpdate: {
+    args: [inputs: AudioDictationMicrophoneInput[], defaultDeviceId: string | null];
+    result: AudioDictationMicrophoneState;
+  };
+  audioSystemDictationMicrophoneSelect: { args: [selection: string]; result: AudioDictationMicrophoneState };
+  audioSystemDictationMicrophoneActive: { args: [name: string]; result: void };
   /**
    * Fire the strongest available re-prompt for one dictation permission
    * (native prompt where macOS still allows one, exact pane deep link

@@ -3,6 +3,7 @@
  * Users never see "whisper-small" / "parakeet-tdt-0.6b-v3"; they see Basic /
  * Standard / Premium / Maximum with a plain-English benefit.
  */
+import { useSyncExternalStore } from "react";
 import { t } from "@/i18n";
 
 export type ModelTierKey = "basic" | "standard" | "premium" | "max";
@@ -73,9 +74,19 @@ export function tierTagline(key: ModelTierKey): string {
 let premiumEntitledState = false;
 let premiumEntitlementKnown = false;
 let premiumPlatformUrl: string | null = null;
+const premiumListeners = new Set<() => void>();
+
+function subscribePremium(listener: () => void): () => void {
+  premiumListeners.add(listener);
+  return () => { premiumListeners.delete(listener); };
+}
 
 export function isPremiumEntitled(): boolean {
   return premiumEntitledState;
+}
+
+export function usePremiumEntitled(): boolean {
+  return useSyncExternalStore(subscribePremium, isPremiumEntitled, isPremiumEntitled);
 }
 
 /**
@@ -89,9 +100,11 @@ export function isPremiumEntitlementKnown(): boolean {
 
 /** Called by the entitlement sync once the firm's plan/status is known. */
 export function setEigenweltPremiumEntitled(entitled: boolean, platformUrl?: string | null): void {
+  const changed = premiumEntitledState !== entitled;
   premiumEntitledState = entitled;
   premiumEntitlementKnown = true;
   if (platformUrl !== undefined) premiumPlatformUrl = platformUrl;
+  if (changed) premiumListeners.forEach((listener) => listener());
 }
 
 /** Platform origin for the upsell modal's billing/upgrade CTA (null → default). */

@@ -219,6 +219,7 @@ test("with AI boundaries off (alpha default), authenticated HTTP lifecycle, loca
       assert.equal(store.runs(seed.id)[0].dueAt, new Date(missedDueAt).toISOString());
       assert.ok(Date.parse(store.runs(seed.id)[0].startedAt) >= missedDueAt + 5 * 60000);
       assert.equal(deliveries[0].parts[0].text, "[Scheduled task: Catch up]\\n\\nReview the matter");
+      assert.deepEqual(deliveries[0].parts[0].metadata, { legalworkScheduledTask: { taskId: seed.id, workspaceId: "project", title: "Catch up" } });
       assert.equal(deliveries[0].permission, undefined);
       assert.equal(deliveries[0].agent, "legalwork-scheduled-project");
       assert.equal(store.get("project", seed.id).projectAccess, "project");

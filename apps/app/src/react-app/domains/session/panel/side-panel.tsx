@@ -88,6 +88,7 @@ import type { OpenTarget } from "../artifacts/open-target";
 import { useSidePanelTabs } from "./use-side-panel-tabs";
 import { t } from "@/i18n";
 import { isProjectViewHidden } from "@/lawoss/feature-flags";
+import { RecordingTranscriptPanel } from "@/react-app/domains/recorder/recording-transcript-panel";
 import { TaskPanel } from "@/react-app/domains/tasks/task-panel";
 import { WorkflowEditorPanel } from "@/react-app/domains/settings/pages/workflow-editor-panel";
 import { WorkflowResourceEditorPanel } from "@/react-app/domains/settings/pages/workflow-resource-editor-panel";
@@ -399,7 +400,7 @@ function SidePanelTab({ tab, workspaceId, fileSource, projectId, pane, destinati
           if (projectId) {
             if (tab.type === "chat") startSessionDrag(event.dataTransfer, projectId, tab.sessionId);
             else if (tab.type === "project-view") startProjectViewDrag(event.dataTransfer, projectId, tab.view);
-            else if (tab.type === "task" || tab.type === "review") startProjectItemDrag(event.dataTransfer, projectId, tab);
+            else if (tab.type === "task" || tab.type === "review" || tab.type === "recording") startProjectItemDrag(event.dataTransfer, projectId, tab);
           }
           const surface = tabRef.current?.querySelector<HTMLElement>("[aria-pressed]");
           if (surface) startNativeDragPreview(event, surface);
@@ -426,7 +427,7 @@ function SidePanelTab({ tab, workspaceId, fileSource, projectId, pane, destinati
             <ListTodo />
           ) : tab.type === "workflow" ? (
             <Workflow />
-          ) : tab.type === "workflow-resource" ? (
+          ) : tab.type === "workflow-resource" || tab.type === "recording" ? (
             <FileText />
           ) : (tab.type === "view" || tab.type === "view-draft") ? <DashboardIcon /> : tab.type === "wiki" ? (
             tab.location.kind === "asset" ? <ArtifactIcon type={classifyOpenTarget(tab.location.path, "file")} /> : <BookOpen />
@@ -1128,6 +1129,7 @@ function SidePanelContent({
           : tab.type === "project-view" ? renderProjectView?.(tab.view, visible)
           : tab.type === "chat" ? renderChat?.(tab.sessionId, active)
           : tab.type === "browser" ? <BrowserPanelContent tab={tab} visible={visible} onClose={() => closeDocumentTab(tab)} />
+          : tab.type === "recording" ? <RecordingTranscriptPanel sessionId={sessionId} tab={tab} onClose={() => closeDocumentTab(tab)} />
           : tab.type === "task" ? <TaskPanel projects={projects} sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} onClose={() => closeDocumentTab(tab)} />
           : tab.type === "review" && client && workspaceId ? <ProjectReviews client={client} workspaceId={workspaceId} projectName="" reviewId={tab.reviewId} onTitleChange={label => usePanelTabStore.getState().updateTabLabel(sessionId, tab.id, label)} onClose={() => closeDocumentTab(tab)} onOpenSession={id => onFocusChat?.(id)} />
           : tab.type === "workflow" ? <WorkflowEditorPanel id={tab.id} onClose={() => closeDocumentTab(tab)} />

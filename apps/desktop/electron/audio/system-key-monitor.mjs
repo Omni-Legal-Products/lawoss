@@ -121,7 +121,7 @@ public static class LegalWorkKeyMonitor {
       case 0x28: return "Down";
       case 0x2D: return "Insert";
       case 0x2E: return "Delete";
-      default: return null;
+      default: return "Other" + key.ToString();
     }
   }
 

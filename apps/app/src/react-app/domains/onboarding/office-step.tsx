@@ -146,7 +146,7 @@ export function OfficeStep(props: {
     >
       <div className="flex w-full max-w-md flex-col gap-8">
         <div>
-          <StepDots step={2} total={5} />
+          <StepDots step={2} total={6} />
           <h1 className="text-[32px] font-medium leading-[1.15] tracking-[-0.04em] text-foreground">
             {t("onboarding_office.title")}
           </h1>

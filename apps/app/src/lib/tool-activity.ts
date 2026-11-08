@@ -40,6 +40,8 @@ const productActivityLabels: Record<string, string> = {
   legalwork_project_read: "tool_activity.reading_project_content",
   // 🟡 LAWOSS: lawoss_memory reads the case memory (server lawoss/matter-memory.ts); no tool name for the lawyer.
   lawoss_memory: "tool_activity.reading_project_content",
+  legalwork_recordings_list: "tool_activity.finding_recordings",
+  legalwork_recording_read: "tool_activity.reading_recording",
   legalwork_task_list: "tool_activity.finding_tasks",
   legalwork_task_get: "tool_activity.reading_task",
   legalwork_task_create: "tool_activity.creating_task",
