@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Cloudový prepis Gemini skrytý v UI (2026-11-08, MČ)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/lawoss/feature-flags.ts` | `isCloudTranscriptionHidden()` = `true`. |
+| `apps/app/src/react-app/domains/recorder/recorder-store.ts` | Bootstrap záznamníka zahodí `cloud` (modely, regióny, modely poznámok), uložená voľba „cloud“ sa číta ako lokálna a `setTranscriptionSource("cloud")` sa odmietne. Všetky ponuky (`CloudModelList`, výber modelu, onboarding, nastavenia záznamníka) tak nemajú čo zobraziť. |
+| `apps/app/tests/lawoss-cloud-transcription-hidden.test.ts`, `apps/app/tests/onboarding-transcription-choice.test.tsx` | Nový test; upstream test voľby cloudu overuje, že voľba ostane lokálna. |
+
 ## Sync upstream v0.2.19 (2026-11-08, ADR 0016)
 
 Pribalená používateľská príručka (`docs/user-guide`, skill `legalwork-help`), presné preklady, podrobný export pre podporu, prehľady v súboroch klienta, opravy rečníkov a rozpoznania Meet.

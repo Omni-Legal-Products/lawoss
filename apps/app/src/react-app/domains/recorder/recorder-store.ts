@@ -5,6 +5,7 @@
  * workspace's OpenCode session AI.
  */
 
+import { isCloudTranscriptionHidden } from "@/lawoss/feature-flags";
 import { create } from "zustand";
 
 import {
@@ -780,7 +781,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
   };
 
   return {
-    transcriptionSource: readPref(TRANSCRIPTION_SOURCE_PREF_KEY, "local") === "cloud" ? "cloud" : "local",
+    // 🟡 LAWOSS: cloud transcription is hidden (feature-flags.ts), so a stored "cloud" choice falls back to local.
+    transcriptionSource: !isCloudTranscriptionHidden() && readPref(TRANSCRIPTION_SOURCE_PREF_KEY, "local") === "cloud" ? "cloud" : "local",
     cloudModelId: readPref(CLOUD_MODEL_PREF_KEY, ""),
     meetingNotes: { enabled: readPref(`${NOTES_PREF_KEY}.enabled`,
       readPref(`${NOTES_PREF_KEY}.title`, "true") === "true" && readPref(`${NOTES_PREF_KEY}.summary`, "true") === "true" ? "true" : "false") === "true",
@@ -878,9 +880,11 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         // A failed background check is not evidence that a working model was
         // disabled. Keep the last choices until a successful check replaces them.
         const previousCloud = get().bootstrap?.cloud;
-        const bootstrap = result.cloud?.error && previousCloud
+        const merged = result.cloud?.error && previousCloud
           ? { ...result, cloud: { ...result.cloud, models: previousCloud.models } }
           : result;
+        // 🟡 LAWOSS: no cloud transcription models, region or notes models reach the UI.
+        const bootstrap = isCloudTranscriptionHidden() ? { ...merged, cloud: undefined } : merged;
         set({ bootstrap });
         if (!bootstrap.cloud?.error && isTranscriptionReady(get())) clearCloudAvailabilityError();
         // Clear a stale selection that no longer maps to a real model (e.g. an
@@ -1167,7 +1171,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     setTranscriptionSource: (source, cloudModelId) => {
       if (get().recording || get().starting || get().finalizing || get().importing) return;
       const selected = cloudModelId ?? get().cloudModelId;
-      if (source === "cloud" && !get().bootstrap?.cloud?.models.some(model => model.model === selected && model.enabled && model.available)) return;
+      if (source === "cloud" && (isCloudTranscriptionHidden() || !get().bootstrap?.cloud?.models.some(model => model.model === selected && model.enabled && model.available))) return;
       writePref(TRANSCRIPTION_SOURCE_PREF_KEY, source);
       if (source === "cloud") writePref(CLOUD_MODEL_PREF_KEY, selected);
       set({ transcriptionSource: source, cloudModelId: selected, error: null });

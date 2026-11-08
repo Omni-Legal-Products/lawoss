@@ -58,10 +58,11 @@ test("confirming an installed local model switches source without downloading ag
   expect(downloads).toEqual([]);
 });
 
-test("confirming cloud works without a local engine or installed model", async () => {
+// 🟡 LAWOSS: cloud transcription is hidden (lawoss/feature-flags.ts), so the choice stays local.
+test("confirming cloud cannot select hidden cloud transcription", async () => {
   useRecorderStore.setState({ transcriptionSource: "local", bootstrap: { ...bootstrap, models: [], engine: { available: false, error: "unavailable" } } });
-  expect(await confirmTranscriptionChoice({ source: "cloud", modelId: "cloud-eu" })).toBe(true);
-  expect(useRecorderStore.getState().transcriptionSource).toBe("cloud");
+  await confirmTranscriptionChoice({ source: "cloud", modelId: "cloud-eu" });
+  expect(useRecorderStore.getState().transcriptionSource).toBe("local");
   expect(downloads).toEqual([]);
 });
 

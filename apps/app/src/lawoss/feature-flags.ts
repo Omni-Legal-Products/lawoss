@@ -187,6 +187,13 @@ export const isAnalyticsChoiceHidden = (): boolean => true;
 export const isModelCatalogUpdatesHidden = (): boolean => true;
 
 /**
+ * Cloudový prepis Gemini (upstream v0.2.12) sa v UI nezobrazuje (MČ 8. 11. 2026).
+ * Vyžaduje účet Eigenwelt a zvuk by odchádzal do cloudu; ponuka modelov, výber
+ * zdroja prepisu ani zhrnutie stretnutia z cloudu sa preto neponúkajú.
+ */
+export const isCloudTranscriptionHidden = (): boolean => true;
+
+/**
  * Je záložka nastavení skrytá? Onboarding sa pýta rovnako ako zoznam záložiek:
  * krok, ktorý zapína funkciu, ku ktorej sa používateľ potom nikde nedostane,
  * je slepá ulička.
