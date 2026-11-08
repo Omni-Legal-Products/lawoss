@@ -43,7 +43,7 @@ async function fixture() {
   const busy = new Set<string>();
   // Poradie prichádzajúcich a dobehnutých volaní (registrácia MCP a uvoľnenie inštancie).
   const trace: string[] = [];
-  const holds = { mcpPost: null as Promise<void> | null, chat: null as Promise<void> | null, dispose: null as Promise<void> | null };
+  const holds = { mcpPost: null as Promise<void> | null, chat: null as Promise<void> | null, dispose: null as Promise<void> | null, status: new Map<string, Promise<void>>() };
   const sessions = new Map([["ses_m", matter]]);
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
@@ -61,6 +61,8 @@ async function fixture() {
       await holds.dispose;
       trace.push("dispose:end");
     }
+    // Inštancia, ktorá ešte štartuje, na stav neodpovie.
+    if (url.pathname === "/session/status" && directory && holds.status.has(directory)) await holds.status.get(directory);
     if (url.pathname === "/command") trace.push("command");
     const session = url.pathname.match(/^\/session\/([^/]+)(\/message)?$/);
     if (session && session[1] !== "status" && sessions.has(session[1]!)) {
@@ -336,3 +338,44 @@ test("aktivácia iného klienta počas behu nič nezatvorí a návrat na bežiac
   await delay(120);
   expect(f.disposals().filter((directory) => directory === a)).toEqual([]);
 });
+
+test("hromadná zmena neotvorených klientov neuvoľní; zastaraná inštancia sa uvoľní až pred ich otvorením (N9)", async () => {
+  // N9 (retest alfa10): každý plugin balíka uvoľnil všetkých neotvorených klientov a bočný panel ich
+  // hneď postavil znova – desiatky studených štartov a špička enginu 1,2–1,4 GB.
+  const f = await fixture();
+  const [a, b, c] = f.paths as [string, string, string];
+  expect(await f.get("/workspace/ws_a/opencode/command")).toBe(200);
+  f.requests.length = 0;
+  expect((await fetch(`${f.base}/systemone/providers/neexistuje`, { method: "DELETE", headers: { Authorization: "Bearer client" } })).status).toBeLessThan(500);
+  while (!f.disposals().includes(a)) await delay(5);
+  await delay(100);
+  // Otvorený klient sa obnoví, neotvorení nie: žiadny dispose ani dotaz na ich stav.
+  expect(f.disposals()).toEqual([a]);
+  expect(f.requests.some((entry) => entry.directory === b || entry.directory === c)).toBe(false);
+  // Pri otvorení B sa najprv uvoľní jeho zastaraná inštancia, potom až prídu MCP.
+  expect(await f.get("/workspace/ws_b/opencode/command")).toBe(200);
+  const forB = f.requests.filter((entry) => entry.directory === b).map((entry) => `${entry.method} ${entry.pathname}`);
+  expect(forB.indexOf("POST /instance/dispose")).toBeGreaterThanOrEqual(0);
+  expect(forB.indexOf("POST /instance/dispose")).toBeLessThan(forB.indexOf("GET /command"));
+  // Druhé otvorenie už zastarané nie je.
+  const before = f.disposals().filter((directory) => directory === b).length;
+  expect(await f.get("/workspace/ws_a/opencode/command")).toBe(200);
+  expect(await f.get("/workspace/ws_b/opencode/command")).toBe(200);
+  expect(f.disposals().filter((directory) => directory === b).length).toBe(before + 1);
+});
+
+test("zastaraná inštancia, ktorá ešte štartuje a na stav neodpovedá, otvorenie klienta nezdrží (N9)", async () => {
+  const f = await fixture();
+  const [a, b] = f.paths as [string, string];
+  expect(await f.get("/workspace/ws_a/opencode/command")).toBe(200);
+  expect((await fetch(`${f.base}/systemone/providers/neexistuje`, { method: "DELETE", headers: { Authorization: "Bearer client" } })).status).toBeLessThan(500);
+  while (!f.disposals().includes(a)) await delay(5);
+  let release!: () => void;
+  f.holds.status.set(b, new Promise<void>((resolve) => { release = resolve; }));
+  const started = Date.now();
+  expect(await f.get("/workspace/ws_b/opencode/command")).toBe(200);
+  release();
+  // Krátka kontrola (2 s) namiesto 10 s; potom sa zastaraná inštancia uvoľní a príkaz prejde.
+  expect(Date.now() - started).toBeLessThan(5_000);
+  expect(f.disposals()).toContain(b);
+}, 15_000);

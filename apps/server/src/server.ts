@@ -172,7 +172,7 @@ import { registerOnboardingRoutes, type OnboardingApplyCheckpoint } from "./lawo
 import { LawossOcrManager, registerLawossOcrRoutes } from "./lawoss/ocr-opt-in.js";
 import { registerLawossMarketplaceRoutes } from "./lawoss/marketplace-routes.js";
 // LAWOSS: rozpočet RAM 2 GB – MCP len pre otvorených klientov (lawoss/engine-mcp-budget.ts, issue #367).
-import { createEngineDirectoryLanes, createEngineMcpBudget, engineMcpBudgetSettings, engineSessionAction, initializesEngineMcp, settleWithin, type EngineMcpBudget, type EngineScope } from "./lawoss/engine-mcp-budget.js";
+import { createEngineDirectoryLanes, createEngineMcpBudget, engineMcpBudgetSettings, engineSessionAction, initializesEngineMcp, readsEngineConfig, settleWithin, type EngineMcpBudget, type EngineScope } from "./lawoss/engine-mcp-budget.js";
 import { startWeeklyMarketplaceCheck } from "./lawoss/marketplace-updates.js";
 import {
   applyGlobalToolPermissions,
@@ -2079,6 +2079,7 @@ function createRoutes(
         await previousReload;
         for (const workspace of config.workspaces) {
           if (workspace.workspaceType === "remote") continue;
+          if (deferDormantReload(config, workspace)) continue;
           try {
             if (!(await workspaceEngineBusy(config, workspace))) await reloadOpencodeEngine(config, workspace, { background: true });
           } catch { /* A stopped engine will read the updated configuration on startup. */ }
@@ -2210,12 +2211,19 @@ function createRoutes(
   registerOnboardingRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, onWorkspacesChanged, applyCheckpoint: onboardingApplyCheckpoint, serializeWorkspace: (workspace) => serializeWorkspace(workspace, "owner") });
   // LAWOSS: LAWOSS Marketplace pre všetkých klientov a aktualizácie (lawoss/marketplace-routes.ts).
   // Po zmene globálnych pluginov sa nečinné inštancie enginu obnovia (nové skilly a MCP), pri bežiacej úlohe len MCP a výzva na obnovu.
+  // LAWOSS (RAM 2 GB, #367 N9): balík inštaluje pluginy po jednom; zmeny, ktoré prídu, kým čaká
+  // ešte nezačatý prechod, sa zlúčia do neho. Neotvorení klienti sa len označia (deferDormantReload).
+  let marketplaceReloadQueued = false;
   registerLawossMarketplaceRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, resolveWorkspace: (id) => resolveWorkspace(config, id), afterChange: async (ctx) => {
-    const local = config.workspaces.filter((item) => item.workspaceType !== "remote");
+    if (marketplaceReloadQueued) return;
+    marketplaceReloadQueued = true;
     const previousReload = idleWorkspaceReloads;
       idleWorkspaceReloads = withRuntimeDb(config, async () => {
         await previousReload;
+      marketplaceReloadQueued = false;
+      const local = config.workspaces.filter((item) => item.workspaceType !== "remote");
       for (const workspace of local) {
+        if (deferDormantReload(config, workspace)) continue;
         try {
           if (!(await workspaceEngineBusy(config, workspace))) { await reloadOpencodeEngine(config, workspace, { background: true }); continue; }
           await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
@@ -5964,6 +5972,7 @@ function reloadIdleWorkspaceEngines(config: ServerConfig, origin: WorkspaceInfo)
   idleWorkspaceReloads = withRuntimeDb(config, async () => {
     await previousReload;
     for (const workspace of otherLocalWorkspaces(config, origin)) {
+      if (deferDormantReload(config, workspace)) continue;
       try {
         if (await workspaceEngineBusy(config, workspace)) continue;
         await reloadOpencodeEngine(config, workspace, { background: true });
@@ -6012,6 +6021,7 @@ function applyOrgPolicyToEngines(config: ServerConfig): void {
       let reloaded = false;
       for (const id of [...state.pending]) {
         const workspace = config.workspaces.find((candidate) => candidate.id === id);
+        if (workspace && deferDormantReload(config, workspace)) { state.pending.delete(id); continue; }
         try {
           if (workspace && await workspaceEngineBusy(config, workspace)) continue;
           if (workspace) await reloadOpencodeEngine(config, workspace, { background: true });
@@ -6081,6 +6091,16 @@ function workspaceMcpDormant(config: ServerConfig, workspace: WorkspaceInfo): bo
   return !!budget && !!scope && !budget.isActive(scope);
 }
 
+// LAWOSS (RAM 2 GB, #367 N9): hromadný reload na pozadí neotvoreného klienta inštanciu len označí.
+// Okamžité uvoľnenie viedlo k desiatkam studených štartov (bočný panel ich hneď postavil znova)
+// a k špičke enginu 1,2–1,4 GB; zastaraná inštancia sa uvoľní až pred jej ďalším MCP.
+function deferDormantReload(config: ServerConfig, workspace: WorkspaceInfo): boolean {
+  if (!workspaceMcpDormant(config, workspace)) return false;
+  const scope = workspaceEngineScope(config, workspace);
+  if (scope) engineMcpBudgetFor(config)?.markStale(scope);
+  return true;
+}
+
 // Bežiaci chat v adresári? Neznáma odpoveď je „áno“: úlohu nikdy neprerušiť.
 async function engineDirectoryBusy(scope: EngineScope): Promise<boolean> {
   const url = new URL(scope.baseUrl);
@@ -6096,6 +6116,25 @@ async function engineDirectoryBusy(scope: EngineScope): Promise<boolean> {
     return !isRecord(statuses) || Object.values(statuses).some((status) => !isRecord(status) || status.type !== "idle");
   } catch {
     return true;
+  }
+}
+
+// LAWOSS (#367 N9): krátka kontrola pre zastaraný neotvorený priečinok; inštancia, ktorá ešte
+// štartuje, neodpovie, a 10 s čakanie by zdržalo otvorenie klienta (engine-mcp-budget.ts staleBusy).
+async function engineDirectoryClearlyBusy(scope: EngineScope): Promise<boolean> {
+  const url = new URL(scope.baseUrl);
+  url.pathname = "/session/status";
+  url.search = "";
+  url.searchParams.set("directory", scope.directory);
+  const headers: Record<string, string> = {};
+  if (scope.authHeader) headers.Authorization = scope.authHeader;
+  try {
+    const response = await fetch(url, { headers, signal: AbortSignal.timeout(2_000) });
+    if (!response.ok) return false;
+    const statuses: unknown = await response.json();
+    return isRecord(statuses) && Object.values(statuses).some((status) => isRecord(status) && status.type !== "idle");
+  } catch {
+    return false;
   }
 }
 
@@ -6115,6 +6154,7 @@ function installEngineMcpBudget(config: ServerConfig): () => void {
   const budget = createEngineMcpBudget({
     ...settings,
     busy: engineDirectoryBusy,
+    staleBusy: engineDirectoryClearlyBusy,
     dispose: disposeEngineDirectory,
     // Prvé použitie koreňa klienta zaregistruje jeho vlastné MCP; zdieľané má inštancia zo súboru.
     initialize: async (scope) => {
@@ -6140,6 +6180,10 @@ async function admitEngineMcp(config: ServerConfig, method: string, path: string
   const budget = engineMcpBudgetFor(config);
   if (!budget || !scope) return () => undefined;
   if (!initializesEngineMcp(method, path)) {
+    // LAWOSS (#367 N9): zastaraná inštancia neotvoreného klienta sa uvoľní pred požiadavkou, ktorá číta
+    // jej konfiguráciu (modely, agenti, skilly). Zoznam chatov a udalosti ju nepotrebujú, a bočný panel
+    // by inak postupne uvoľnil všetkých klientov.
+    if (readsEngineConfig(path)) await budget.refreshIfStale(scope);
     budget.touch(scope);
     return () => undefined;
   }
