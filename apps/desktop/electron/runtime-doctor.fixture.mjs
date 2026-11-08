@@ -35,7 +35,7 @@ try {
     desktopRoot: path.join(root, "desktop"), listLocalWorkspacePaths: async () => [],
     listLocalWorkspaceAppFiles: async () => [], listLocalWorkspaces: async () => [],
     reconnectHostWorkspace: async () => null, recorder: undefined,
-    onSidecarExit: () => {}, getApprovalWindow: () => null, ...extra,
+    onSidecarExit: () => {}, getApprovalWindow: () => null, modelDownloadFetch: undefined, ...extra,
   });
   const manager = createManager();
   const doctor = () => manager.engineDoctor({ opencodeBinPath: ownedBinary });

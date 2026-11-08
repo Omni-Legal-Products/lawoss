@@ -266,7 +266,8 @@ test("the desktop loader uses the server vault module, config override and write
     process.env.LEGALWORK_ENV_STORE = path.join(directory, "env.json");
     process.env.LEGALWORK_ENCRYPTION_KEY = "fixture-only-vault-key";
     const manager = createRuntimeManager({ app: { isPackaged: false, getPath: (name) => path.join(directory, name) },
-      desktopRoot: path.resolve(import.meta.dirname, ".."), listLocalWorkspacePaths: async () => [], recorder: null,
+      desktopRoot: path.resolve(import.meta.dirname, ".."), listLocalWorkspacePaths: async () => [], listLocalWorkspaceAppFiles: async () => [],
+      listLocalWorkspaces: async () => [], reconnectHostWorkspace: async () => null, recorder: null,
       onSidecarExit: () => {}, getApprovalWindow: () => null, modelDownloadFetch: undefined });
     const loaded = await manager.credentialVault();
     const shared = await import("../../server/dist/file-storage/oauth/vault.js");
