@@ -41,6 +41,18 @@ const authenticationGeneration = (base: string, token: string, hostToken: string
   if (generation === undefined) { generation = authenticationGenerations.size + 1; authenticationGenerations.set(key, generation); }
   return generation;
 };
+/**
+ * Rozpočet RAM (#367): rovnaké pripojenie dostane toho istého klienta. Cache obsahu OKF patrí klientovi (WeakMap),
+ * a nový klient pri každej 15 s obnove by ju zakaždým začal odznova (akceptácia 8. 11.: ~107 čítaní za sekundu).
+ * Iný server, token alebo token hostiteľa = nový klient a nová cache. Drží sa len posledný.
+ */
+let lastOkfClient: { key: string; client: LegalworkServerClient } | null = null;
+export function okfConnectionClient(baseUrl: string, token: string, hostToken?: string): LegalworkServerClient {
+  const key = JSON.stringify([baseUrl, token, hostToken ?? ""]);
+  if (lastOkfClient?.key !== key) lastOkfClient = { key, client: createLegalworkServerClient({ baseUrl, token, hostToken }) };
+  return lastOkfClient.client;
+}
+
 export async function loadOkfConnection(): Promise<OkfConnection> {
   let desktopWorkspaces: RouteWorkspace[] = [];
   if (isDesktopRuntime()) {
@@ -56,11 +68,7 @@ export async function loadOkfConnection(): Promise<OkfConnection> {
     const storedActiveId = readActiveWorkspaceId();
     return { client: null, baseUrl: "", token: "", workspaces: withoutLawossHome(desktopWorkspaces), activeWorkspaceId: storedActiveId ? resolveActiveWorkspaceId(withoutLawossHome(desktopWorkspaces), storedActiveId) : "" };
   }
-  const client = createLegalworkServerClient({
-    baseUrl: normalizedBaseUrl,
-    token: resolvedToken,
-    hostToken: resolvedHostToken || undefined,
-  });
+  const client = okfConnectionClient(normalizedBaseUrl, resolvedToken, resolvedHostToken || undefined);
   const list = await client.listWorkspaces();
   const workspaces = withoutLawossHome(mergeRouteWorkspaces(list.items, desktopWorkspaces));
   const activeWorkspaceId = resolveActiveWorkspaceId(workspaces, readActiveWorkspaceId() ?? list.activeId);

@@ -56,3 +56,24 @@ test("wiki owners are rejected before any API request; scoped workspace errors s
   const result = JSON.parse(typeof raw === "string" ? raw : raw.output);
   expect(result.ok).toBe(false);
 });
+
+test("N-A11-24: polia pohľadu mimo input sa presunú dovnútra, ostatné argumenty ostanú", async () => {
+  const { normalizeViewArgs } = await import("./lawoss-view-tools.js");
+  const input = { version: 1, title: "SYN", mode: "report", catalog: "legalwork-1", queries: {} };
+  expect(normalizeViewArgs({ input, program: 'root = Text("x")' })).toEqual({ input: { ...input, program: 'root = Text("x")' } });
+  expect(normalizeViewArgs({ ...input, program: "p", owner: { kind: "workspace", id: "syn" } }))
+    .toEqual({ owner: { kind: "workspace", id: "syn" }, input: { ...input, program: "p" } });
+  // Hodnota vnútri input má prednosť; argumenty bez polí pohľadu sa nemenia.
+  expect(normalizeViewArgs({ input: { ...input, program: "vnútri" }, program: "vonku" })).toEqual({ input: { ...input, program: "vnútri" } });
+  const plain = { owner: { kind: "workspace", id: "syn" }, input };
+  expect(normalizeViewArgs(plain)).toBe(plain);
+});
+
+test("N-A11-24: neplatný vstup povie, ktoré pole chýba", async () => {
+  const plugin = await LawossViewTools();
+  const raw = await plugin.tool.view_create!.execute({ input: { version: 1, title: "SYN", mode: "report", catalog: "legalwork-1", queries: {} } }, {});
+  const result = JSON.parse(typeof raw === "string" ? raw : raw.output);
+  expect(result.ok).toBe(false);
+  expect(result.code).toBe("wiki_invalid_data");
+  expect(result.issues.map((issue: { path: string }) => issue.path)).toContain("input.program");
+});
