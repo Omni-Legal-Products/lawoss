@@ -78,6 +78,9 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
     // Priečinok klienta chýba (presunutý, odpojený disk): o registri nevieme nič. Iný problém zdroja (napr. zlý
     // záznam pamäte) register nespochybní.
     const folderMissing = data.problems.some((problem) => problem.folderUnavailable !== undefined && ownFolder(problem.path));
+    // #264: priečinok iného klienta v tomto klientovi nie je v prehľade, Domov to však povie.
+    const foreignFolders = (data.foreignClientFolders ?? []).filter((path) => ownFolder(path.split("/").slice(0, -1).join("/")))
+      .map((path) => path.slice(path.lastIndexOf("/") + 1));
     // Typ práce aj fáza a ďalší krok z tých istých súborov ako detail prípadu (views.ts).
     const views = ownInputs.map((input) => [input.path, buildMatterViews(input, todayIso)] as const);
     const kinds = Object.fromEntries(views.map(([path, view]) => [path, familyNames(view.families, locale)]).filter(([, names]) => names));
@@ -86,10 +89,10 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
     const source = { ...own, inputs: ownInputs, clients: ownClients };
     // N-A5-4: úlohy z „Nová úloha“ tohto klienta (projekt = jeho priečinok) aj na jeho osi a v mesiaci.
     const appTasks = appTodayTasks(rawAppTasks.filter((task) => task.projectId === workspaceId), appTaskClient(nav.connection?.workspaces ?? [], scope, data.clients ?? []));
-    return { own, ownInputs, kinds, statuses, events: agendaEvents(source, appTasks), todayModel: buildToday(source, todayIso, undefined, appTasks), inputs: inputCounts(ownInputs, own.matters.map((m) => m.path), ownClients), intakeFailed, folderMissing };
+    return { foreignFolders, own, ownInputs, kinds, statuses, events: agendaEvents(source, appTasks), todayModel: buildToday(source, todayIso, undefined, appTasks), inputs: inputCounts(ownInputs, own.matters.map((m) => m.path), ownClients), intakeFailed, folderMissing };
   }, [allowed, scope, data, model, nav.connection, nav.groups, workspaceId, todayIso, locale, rawAppTasks]);
   if (!scope || !data || !derived) return null;
-  const { own, ownInputs, kinds, statuses, events, todayModel, inputs, intakeFailed, folderMissing } = derived;
+  const { own, ownInputs, kinds, statuses, events, todayModel, inputs, intakeFailed, folderMissing, foreignFolders } = derived;
   const clientRoot = nav.connection?.workspaces.find((w) => w.id === workspaceId)?.path ?? "";
   // Iní klienti: registrovaní klienti panela a priečinky klientov z prehľadu praxe (únik medzi klientmi).
   const otherClients = otherClientFolders(clientRoot, (nav.connection?.workspaces ?? []).filter((w) => model.clients.has(w.id)),
@@ -98,12 +101,13 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
     <ClientOverviewView workspaceId={workspaceId} locale={locale} todayIso={todayIso} matters={own.matters}
       deadlines={[...own.overdue, ...own.upcomingDeadlines]} soon={own.totals.deadlinesWithin7Days} partial={data.coverage.status !== "complete" || !appTasksComplete}
       deadlineEvidence={deadlineCoverage(ownInputs)} readFailed={!canActOnSource(data, workspaceId)} kinds={kinds}
-      statuses={statuses} inputs={inputs} inputsFailed={intakeFailed || (inputs === null && folderMissing)} events={events} today={todayModel} />
+      statuses={statuses} inputs={inputs} inputsFailed={intakeFailed || (inputs === null && folderMissing)} events={events} today={todayModel}
+      foreignFolders={foreignFolders} />
     <LinkedFolders connection={nav.connection} workspaceId={workspaceId} practiceRoot={scope.practiceRoot ?? null} otherClients={otherClients} locale={locale} />
   </div>;
 }
 
-export function ClientOverviewView({ workspaceId, locale, todayIso, matters, deadlines, soon, partial = false, deadlineEvidence, readFailed = false, kinds = {}, statuses = {}, inputs, inputsFailed = false, events, today: todayModel }: {
+export function ClientOverviewView({ foreignFolders = [], workspaceId, locale, todayIso, matters, deadlines, soon, partial = false, deadlineEvidence, readFailed = false, kinds = {}, statuses = {}, inputs, inputsFailed = false, events, today: todayModel }: {
   workspaceId: string; locale: Language; todayIso: string; matters: readonly MatterOverview[]; deadlines: readonly UpcomingDeadline[];
   /** Lehoty do 7 dní, spočítané ako register (`totals.deadlinesWithin7Days`). */
   soon: number;
@@ -125,6 +129,8 @@ export function ClientOverviewView({ workspaceId, locale, todayIso, matters, dea
   events?: readonly AgendaEvent[];
   /** Lehoty a termíny klienta pre 14-dňovú časovú os. */
   today?: TodayModel;
+  /** #264: mená priečinkov iného klienta vo vnútri tohto klienta; v prehľade nie sú. */
+  foreignFolders?: readonly string[];
 }) {
   const [mode, setMode] = useState<ViewMode>("overview");
   const [showAll, setShowAll] = useState(false);
@@ -137,6 +143,7 @@ export function ClientOverviewView({ workspaceId, locale, todayIso, matters, dea
   return <section aria-label={title} data-lawoss-client-overview="" className="lw-client-home">
     <SectionHeading title={title} action={events ? <ModeSwitch mode={mode} onChange={setMode} locale={locale} /> : undefined} />
     {partial ? <p className="lw-status warn" role="alert" data-lawoss-client-overview-partial="">{t("lawoss.practice.incomplete", locale)}</p> : null}
+    {foreignFolders.length ? <p className="lw-status" role="note" data-lawoss-client-overview-foreign="">{t("lawoss.lite.foreign_client_folders", { names: foreignFolders.join(", "), lng: locale })}</p> : null}
     {month && events ? <MonthCalendar events={events} todayIso={todayIso} locale={locale} variant="full" aside={<CandidatesPanel events={events} locale={locale} />} /> : <>
       <div className="lw-client-summary">
         {inputs !== undefined ? <InputsCard counts={inputs} failed={inputsFailed} evidence={evidence} locale={locale} /> : null}
