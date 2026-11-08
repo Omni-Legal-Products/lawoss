@@ -113,6 +113,7 @@ export function ReadySummaryView({ text, found, connected, model, agent, busy, n
             <button type="button" className="lw-btn gold" disabled={busy} onClick={onOverview}>{text(plan.overview)}</button>
           </div>
         )}
+        {busy ? <p role="status" className="text-sm text-muted-foreground">{text("readyWorking")}</p> : null}
       </section>
       {offer}
       {plan.offerTable && onTable ? (

@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Retest alfa10: výpadok siete, čakanie po onboardingu, hľadanie v katalógu (2026-11-07)
+
+Nálezy N7, N8 a N12 z retestu zostavy `829b9b952`. Sieťový výpadok pri inštalácii doplnku sa ukazoval ako anglické „Unexpected server error“, obrazovka Pripravené nič nehovorila počas dlhého prechodu a katalóg „Všetky balíky“ nešlo prehľadávať.
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/claude-plugin-bundle.ts` | `fetchGithubJson` a `fetchGithubText` volajú `fetchPluginSource` z nového `lawoss/plugin-source-fetch.ts` (jedno opakovanie, potom 503 `plugin_source_unreachable`). |
+
 ## OCR workery bez CPU arény ONNX Runtime, kratšia nečinnosť (2026-11-08)
 
 Rozpočet RAM 2 GB, #367 (ADR 0017). Meranie na strane syntetického skenu (1654×2339, PP-DocLayoutV3 + PP-OCRv6 small, súbežne ako v príprave dokumentu): špička oboch workerov **2,0 GB**, po strane layout 1,2 GB + OCR 0,5 GB až do ukončenia (120 s). Arena ONNX Runtime drží najväčší alokovaný blok. Bez nej: špička **1,34 GB**, po strane 0,63 + 0,35 GB, rýchlosť bez zmeny (3,1 s/strana), výstup totožný. Menej vlákien šetrí málo a OCR spomalí 2–3×.

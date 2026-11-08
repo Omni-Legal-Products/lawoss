@@ -11,6 +11,8 @@ import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connecti
 import { catalogPluginId, catalogPluginUrl, type BasePackResult } from "./native-actions";
 import type { MarketplaceEntry } from "./catalog";
 import type { LawossMarketplaceApi, MarketplaceView } from "./marketplace-api";
+import { t } from "@/i18n";
+import { LegalworkServerError } from "@/app/lib/legalwork-server";
 
 /** Klient lokálneho servera s host tokenom (routes sú host auth ako `/lawoss/ocr`). */
 export async function loadMarketplaceApi(): Promise<LawossMarketplaceApi | null> {
@@ -33,15 +35,28 @@ export function pluginDisplayName(pluginId: string, fallback: string, catalog: r
 /** Odporúčané balíky pre všetkých klientov: po jednom, zlyhanie jedného nezastaví ostatné. */
 export async function installGlobalEntries(api: LawossMarketplaceApi, entries: readonly MarketplaceEntry[]): Promise<BasePackResult> {
   const result: BasePackResult = { installed: [], failed: [] };
+  let unreachable: string | null = null;
   for (const entry of entries) {
+    // Po výpadku zdroja by každý ďalší doplnok čakal na sieť znova; zvyšok balíka dostane tú istú radu hneď.
+    if (unreachable) { result.failed.push({ id: entry.id, message: unreachable }); continue; }
     try {
       await api.install(catalogPluginUrl(entry));
       result.installed.push(entry.id);
     } catch (error) {
-      result.failed.push({ id: entry.id, message: error instanceof Error ? error.message : String(error) });
+      const message = installFailureMessage(error);
+      if (isSourceUnreachable(error)) unreachable = message;
+      result.failed.push({ id: entry.id, message });
     }
   }
   return result;
+}
+
+const isSourceUnreachable = (error: unknown) => error instanceof LegalworkServerError && error.code === "plugin_source_unreachable";
+
+/** N7: výpadok siete pri sťahovaní doplnku je po slovensky a s radou, ostatné chyby ostávajú pôvodné. */
+export function installFailureMessage(error: unknown): string {
+  if (isSourceUnreachable(error)) return t("lawoss.integrations.base.source_unreachable");
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function useLawossMarketplace(options: { api?: LawossMarketplaceApi | null; workspaceId?: string | null; checkOnOpen?: boolean } = {}) {
