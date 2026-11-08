@@ -3,7 +3,6 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer, assertOpencodeProxyAllowed } from "./server.js";
-import { TokenService } from "./tokens.js";
 import type { ServerConfig } from "./types.js";
 import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 
@@ -41,24 +40,26 @@ async function fixture(readOnly = false, onApproval?: ServerConfig["requestHostA
     workspaces: [{ id: "ws_1", name: "Synthetic workspace", path: workspace, workspaceType: "local", preset: "starter", baseUrl: `http://127.0.0.1:${engine.port}`, opencodeUsername: "engine-user-sentinel", opencodePassword: "engine-password-sentinel", legalworkToken: "remote-token-sentinel" }],
     startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "json", logRequests: false,
   };
-  const viewer = await new TokenService(config).create("viewer");
-  const owner = await new TokenService(config).create("owner");
+  // Upstream v0.2.18: shared viewer/owner tokens are retired; owner authority is the host token.
+  const viewer = { token: "owt_retired_viewer" };
   const server = await startServer(config);
   cleanup.push(() => server.stop());
   const base = `http://127.0.0.1:${server.port}`;
-  return { root, workspace, base, calls, viewer: { authorization: `Bearer ${viewer.token}` }, collaborator: { authorization: `Bearer ${config.token}` }, owner: { authorization: `Bearer ${owner.token}` } };
+  return { root, workspace, base, calls, viewer: { authorization: `Bearer ${viewer.token}` }, collaborator: { authorization: `Bearer ${config.token}` }, owner: { "x-legalwork-host-token": config.hostToken } };
 }
 
 test("workspace and mounted status projections do not leak engine credentials or escalate viewer access", async () => {
   const f = await fixture();
   for (const path of ["/status", "/workspaces", "/w/ws_1/status", "/w/ws_1/workspaces"]) {
+    // Upstream v0.2.18: the retired viewer credential is rejected before any projection.
     const response = await fetch(f.base + path, { headers: f.viewer });
-    expect(response.status).toBe(200);
-    const body = await response.text();
-    expect(body).toContain("Synthetic workspace");
-    for (const value of ["engine-user-sentinel", "engine-password-sentinel", "remote-token-sentinel"]) expect(body).not.toContain(value);
+    expect(response.status).toBe(401);
+    const deniedBody = await response.text();
+    for (const value of ["engine-user-sentinel", "engine-password-sentinel", "remote-token-sentinel"]) expect(deniedBody).not.toContain(value);
     const collaborator = await fetch(f.base + path, { headers: f.collaborator });
     const trustedBody = await collaborator.text();
+    expect(trustedBody).toContain("Synthetic workspace");
+    for (const value of ["engine-user-sentinel"]) expect(trustedBody).not.toContain(value);
     expect(trustedBody).toContain("remote-token-sentinel");
     expect(trustedBody).not.toContain("engine-password-sentinel");
   }
@@ -69,14 +70,14 @@ test("viewer cannot retrieve configuration through direct, mounted, export, meta
   for (const route of ["config", "runtime-config", "opencode-config", "opencode-config?scope=global", "mcp", "export", "export?sensitive=include", "skills", "commands"]) {
     for (const prefix of ["", "/w/ws_1"]) {
       const response = await fetch(`${f.base}${prefix}/workspace/ws_1/${route}`, { headers: f.viewer });
-      expect(response.status).toBe(403);
+      expect(response.status).toBe(401);
       expect(await response.text()).not.toContain("provider-secret-sentinel");
     }
   }
   for (const mount of ["/opencode", "/w/ws_1/opencode", "/workspace/ws_1/opencode"]) {
     for (const path of ["/config", "/global/config", "/provider", "/file/content?path=opencode.json", "/find/text?pattern=secret", "/%63onfig", "/session%2f..%2fconfig"]) {
       const response = await fetch(f.base + mount + path, { headers: f.viewer });
-      expect(response.status).toBe(403);
+      expect(response.status).toBe(401);
     }
   }
   expect(f.calls).toEqual([]);
@@ -84,8 +85,8 @@ test("viewer cannot retrieve configuration through direct, mounted, export, meta
   expect(normal.status).toBe(200);
   expect(await normal.text()).toContain("provider-secret-sentinel");
   const session = await fetch(`${f.base}/opencode/session/synthetic_session/message`, { headers: f.viewer });
-  expect(session.status).toBe(200);
-  expect(f.calls).toEqual(["GET /session/synthetic_session", "GET /session/synthetic_session/message"]);
+  expect(session.status).toBe(401);
+  expect(f.calls).toEqual([]);
 });
 
 test("skill detail and plugin configuration require collaborator access at every mount", async () => {
@@ -97,7 +98,7 @@ test("skill detail and plugin configuration require collaborator access at every
   for (const prefix of ["", "/w/ws_1"]) {
     for (const route of ["skills/synthetic", "skills/synthetic?includeGlobal=true", "plugins", "plugins?includeGlobal=true"]) {
       const denied = await fetch(`${f.base}${prefix}/workspace/ws_1/${route}`, { headers: f.viewer });
-      expect(denied.status).toBe(403);
+      expect(denied.status).toBe(401);
       expect(await denied.text()).not.toContain("skill-secret-sentinel");
     }
     const allowed = await fetch(`${f.base}${prefix}/workspace/ws_1/skills/synthetic`, { headers: f.collaborator });
@@ -303,8 +304,7 @@ test("viewer needs collaborator scope for audit, folder grants, memory context, 
   for (const prefix of ["", "/w/ws_1"]) {
     for (const [method, route] of routes) {
       const denied = await call(prefix, method, route, f.viewer);
-      expect(denied.status).toBe(403);
-      expect(await requiredScope(denied)).toBe("collaborator");
+      expect(denied.status).toBe(401);
       for (const trusted of [f.collaborator, f.owner]) {
         const allowed = await call(prefix, method, route, trusted);
         // The fixture has no signed-in hub team; the hub itself refuses, the scope gate passes.
@@ -331,18 +331,15 @@ test("viewer cannot read or find protected configuration through project content
     expect(body.sections[0].unavailable).toBeUndefined();
     return body.sections[0].items.map(item => item.id);
   };
-  const listed = await contents(f.viewer);
-  expect(listed).toContain("memo.md");
-  for (const name of ["opencode.json", "credentials.json", "innocent.json"]) expect(listed).not.toContain(name);
+  expect((await fetch(`${f.base}/workspace/ws_1/project/contents?kind=files&limit=50`, { headers: f.viewer })).status).toBe(401);
   // Upstream lists neither links nor dot entries; innocent.json stays readable by its id.
   for (const trusted of [f.collaborator, f.owner]) expect(await contents(trusted)).toEqual(expect.arrayContaining(["memo.md", "opencode.json", "credentials.json"]));
   const read = (id: string, headers: Record<string, string>) => fetch(`${f.base}/workspace/ws_1/project/content?${new URLSearchParams({ kind: "files", id })}`, { headers });
   for (const id of ["opencode.json", "credentials.json", "innocent.json"]) {
     const denied = await read(id, f.viewer);
-    expect(denied.status).toBe(403);
+    expect(denied.status).toBe(401);
     expect(await denied.text()).not.toMatch(/secret-sentinel/);
   }
-  expect((await read("memo.md", f.viewer)).status).toBe(200);
   for (const trusted of [f.collaborator, f.owner]) {
     const allowed = await read("opencode.json", trusted);
     expect(allowed.status).toBe(200);
@@ -362,11 +359,7 @@ test("viewer cannot read or find protected configuration through project content
   for (const trusted of [f.collaborator, f.owner]) {
     expect((await search("provider-secret-sentinel", trusted)).map(item => item.path)).toContain("opencode.json");
   }
-  for (const query of ["provider-secret-sentinel", "credential-secret-sentinel", "opencode", "credentials", "innocent"]) {
-    const items = await search(query, f.viewer);
-    expect(items).toEqual([]);
-  }
-  expect((await search("Ordinary memo", f.viewer)).map(item => item.path)).toEqual(["memo.md"]);
+  expect((await fetch(`${f.base}/workspace/ws_1/search/files?q=provider-secret-sentinel`, { headers: f.viewer })).status).toBe(401);
 });
 
 test("viewer cannot list or read prepared documents of protected configuration", async () => {
@@ -388,11 +381,10 @@ test("viewer cannot list or read prepared documents of protected configuration",
   };
   const all = await list(f.collaborator);
   expect(all.map(document => document.path).sort()).toEqual(["credentials.json", "memo.txt", "report.txt"]);
-  expect((await list(f.viewer)).map(document => document.path)).toEqual(["memo.txt"]);
+  expect((await fetch(endpoint, { headers: f.viewer })).status).toBe(401);
   for (const document of all) {
     const response = await fetch(`${endpoint}/${document.id}/read`, { headers: f.viewer });
-    if (document.path === "memo.txt") { expect(response.status).toBe(200); continue; }
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(401);
     expect(await response.text()).not.toContain("credential-secret-sentinel");
   }
   const secret = all.find(document => document.path === "credentials.json");

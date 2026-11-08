@@ -1,8 +1,13 @@
 # LegalWork Orchestrator
 
-Host orchestrator for opencode + LegalWork server + opencode-router. This is a CLI-first way to run host mode without the desktop UI.
+Host orchestrator for OpenCode and LegalWork server. This is a CLI-first way to run host mode without the desktop UI.
 
 Published on npm as `legalwork-orchestrator` and installs the `legalwork` command.
+
+The legacy Slack/Telegram messaging bridge has been removed. Old enable flags
+are rejected, and messaging configuration cannot start a connector. Previously
+generated bot tools are moved from the managed `tools` folder into
+`retired-messaging-tools` on startup, preserving their contents.
 
 ## Quick start
 
@@ -24,11 +29,11 @@ If npm skips the optional platform package, `postinstall` falls back to download
 binary from the `legalwork-orchestrator-v<version>` GitHub release. Override the download host with
 `LEGALWORK_ORCHESTRATOR_DOWNLOAD_BASE_URL` when you need to use a mirror.
 
-`legalwork` downloads and caches the `legalwork-server`, `opencode-router`, and `opencode` sidecars on
+`legalwork` downloads and caches the `legalwork-server` and `opencode` sidecars on
 first run using a SHA-256 manifest. Use `--sidecar-dir` or `LEGALWORK_SIDECAR_DIR` to control the
 cache location, and `--sidecar-base-url` / `--sidecar-manifest` to point at a custom host.
 
-Use `--sidecar-source` to control where `legalwork-server` and `opencode-router` are resolved
+Use `--sidecar-source` to control where `legalwork-server` is resolved
 (`auto` | `bundled` | `downloaded` | `external`), and `--opencode-source` to control
 `opencode` resolution. Set `LEGALWORK_SIDECAR_SOURCE` / `LEGALWORK_OPENCODE_SOURCE` to
 apply the same policies via env vars.
@@ -36,11 +41,8 @@ apply the same policies via env vars.
 By default the manifest is fetched from
 `https://github.com/eigenweltlabs/legalwork/releases/download/legalwork-orchestrator-v<version>/legalwork-orchestrator-sidecars.json`.
 
-OpenCode Router is optional. If it exits, `legalwork` continues running unless you pass
-`--opencode-router-required` or set `LEGALWORK_OPENCODE_ROUTER_REQUIRED=1`.
-
 For development overrides only, set `LEGALWORK_ALLOW_EXTERNAL=1` or pass `--allow-external` to use
-locally installed `legalwork-server` or `opencode-router` binaries.
+locally installed `legalwork-server` binaries.
 
 Add `--verbose` (or `LEGALWORK_VERBOSE=1`) to print extra diagnostics about resolved binaries.
 
@@ -115,7 +117,7 @@ Override with `LEGALWORK_SANDBOX_MOUNT_ALLOWLIST`.
 
 ## Logging
 
-`legalwork` emits a unified log stream from OpenCode, LegalWork server, and opencode-router. Use JSON format for
+`legalwork` emits a unified log stream from OpenCode and LegalWork server. Use JSON format for
 structured, OpenTelemetry-friendly logs and a stable run id for correlation.
 
 ```bash
@@ -228,6 +230,5 @@ Point to source CLIs for fast iteration:
 legalwork start \
   --workspace /path/to/workspace \
   --allow-external \
-  --legalwork-server-bin apps/server/src/cli.ts \
-  --opencode-router-bin apps/opencode-router/dist/cli.js
+  --legalwork-server-bin apps/server/src/cli.ts
 ```

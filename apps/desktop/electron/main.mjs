@@ -22,7 +22,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
 
-import { app, BaseWindow, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, safeStorage, session, shell, systemPreferences } from "electron";
+import { app, autoUpdater, BaseWindow, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, safeStorage, session, shell, systemPreferences } from "electron";
 import { createActaportConnection, prepareActaportRuntime } from "./actaport.mjs";
 import { configureRemoteDebugging } from "./remote-debugging.mjs";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
@@ -36,7 +36,7 @@ import { MeetingMonitor } from "./audio/meeting-monitor.mjs";
 import { DictationMicrophones } from "./audio/dictation-microphones.mjs";
 import { RecorderService } from "./audio/recorder-service.mjs";
 import { SystemDictationService } from "./audio/system-dictation.mjs";
-import { SystemKeyMonitor } from "./audio/system-key-monitor.mjs";
+import { SystemKeyMonitor, resolveKeyMonitorPath } from "./audio/system-key-monitor.mjs";
 import { PowerLifecycle, PowerSessions } from "./power-lifecycle.mjs";
 import { AppTray } from "./tray.mjs";
 import { pinWindowsProcessQoS } from "./windows-qos.mjs";
@@ -131,6 +131,7 @@ function actaportBundlePath(file) {
 let actaportConnection;
 function getActaportConnection() {
   actaportConnection ??= createActaportConnection({ directory: app.getPath("userData"), safeStorage,
+    loadVault: () => runtimeManager.credentialVault(),
     loadAuth: () => import(pathToFileURL(actaportBundlePath("auth.mjs")).href) });
   return actaportConnection;
 }
@@ -274,7 +275,8 @@ Add-Type -TypeDefinition $source -ErrorAction Stop
 if (-not [LegalWorkPaste]::Paste()) { exit 2 }
 `;
 
-function runChildProcess(executable, args) {
+/** @returns {Promise<boolean>} */
+function runChildProcess(executable, args, notInsertedCode = null) {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { stdio: "ignore", windowsHide: true });
     const timeout = setTimeout(() => {
@@ -287,17 +289,27 @@ function runChildProcess(executable, args) {
     });
     child.once("exit", (code) => {
       clearTimeout(timeout);
-      if (code === 0) resolve(undefined);
-      else reject(new Error(`Paste command exited with code ${code ?? "unknown"}.`));
+      if (code === 0) resolve(true);
+      else if (notInsertedCode !== null && code === notInsertedCode) resolve(false);
+      else reject(Object.assign(new Error(`Paste command exited with code ${code ?? "unknown"}.`), { exitCode: code }));
     });
   });
 }
 
-function runSystemPasteCommand(platform) {
+async function runSystemPasteCommand(platform) {
   if (platform === "darwin") {
+    const helper = resolveKeyMonitorPath(app);
+    if (existsSync(helper)) {
+      try {
+        return await runChildProcess(helper, ["--paste"], 4);
+      } catch (error) {
+        // An unresolved layout must not fall back to a different shortcut.
+        if (error.exitCode === 3) throw error;
+      }
+    }
     return runChildProcess("/usr/bin/osascript", [
       "-e",
-      "tell application \"System Events\" to key code 9 using command down",
+      'tell application "System Events" to keystroke "v" using command down',
     ]);
   }
   if (platform === "windows") {
@@ -309,6 +321,12 @@ function runSystemPasteCommand(platform) {
     ]);
   }
   return Promise.reject(new Error("Automatic paste is not available on this platform."));
+}
+
+function prepareSystemPasteCommand() {
+  if (process.platform !== "darwin") return;
+  const helper = resolveKeyMonitorPath(app);
+  if (existsSync(helper)) void runChildProcess(helper, ["--prepare-paste"]).catch(() => {});
 }
 
 async function showSupportLogsProgressWindow(parent) {
@@ -805,7 +823,7 @@ const callOverlay = new CallOverlay({
 const dictationHud = new DictationHud({
   onStart: () => systemDictation.toggleHandsFree(),
   onStop: () => recorderService().broadcast({ type: "system-dictation-stop" }),
-  onCancel: () => recorderService().broadcast({ type: "system-dictation-cancel" }),
+  onCancel: () => systemDictation.cancel(),
   onMeetingStart: () => {
     if (["starting", "listening", "transcribing", "inserting"].includes(systemDictation.runtimeState)) return;
     meetingMonitor.requestStart();
@@ -892,18 +910,26 @@ const systemDictation = new SystemDictationService({
   systemPreferences,
   shell,
   runPasteCommand: runSystemPasteCommand,
+  preparePaste: prepareSystemPasteCommand,
   keyMonitor: systemKeyMonitor,
   onToggle: () => recorderService().broadcast({ type: "system-dictation-toggle" }),
   onPress: () => recorderService().broadcast({ type: "system-dictation-press" }),
   onRelease: () => recorderService().broadcast({ type: "system-dictation-release" }),
-  onCancel: (reason) => recorderService().broadcast({ type: "system-dictation-cancel", reason }),
+  onCancel: (reason) => {
+    const recorder = recorderService();
+    recorder.broadcast({ type: "system-dictation-cancel", reason });
+    // Reset and release native work even if the dev renderer is reloading.
+    for (const [id, recording] of recorder.activeRecordings) {
+      if (recording.meta.ephemeral) void recorder.cancelRecording(id).catch(() => {});
+    }
+  },
   onStatus: (status) => {
     recorderService().broadcast({ type: "system-dictation-status", status });
     syncBackgroundPresence();
   },
   onState: (state, message, locale) => {
     if (state !== "listening") dictationMicrophones.setActive(null);
-    void dictationHud.setState(state, message, locale).catch((error) => console.warn("[dictation-hud]", error));
+    void dictationHud.setState(state === "cancelled" ? "idle" : state, message, locale).catch((error) => console.warn("[dictation-hud]", error));
   },
 });
 
@@ -916,6 +942,9 @@ const systemDictation = new SystemDictationService({
 // destroying it, and a tray icon keeps the app reachable.
 
 let appIsQuitting = false;
+// Native update installation closes windows before app's before-quit event.
+// Mark the quit intent now so close-to-hide cannot block the installation.
+autoUpdater.on("before-quit-for-update", () => { appIsQuitting = true; });
 let windowsCloseHintShown = false;
 // --hidden comes from the login-item registration (Windows args); macOS
 // login-item launches are detected via wasOpenedAtLogin in whenReady.
@@ -2671,7 +2700,7 @@ const desktopCommandHandlers = {
   },
   "audioMeetingOpen": async (event) => openMeetingRecorder(),
   "audioSystemDictationSetState": async (event, ...args) => {
-      const state = ["idle", "starting", "listening", "transcribing", "inserting", "success", "cancelled", "error"].includes(args[0])
+      const state = ["idle", "starting", "listening", "transcribing", "inserting", "success", "copied", "cancelled", "error"].includes(args[0])
         ? args[0]
         : "idle";
       return systemDictation.setRuntimeState(state, String(args[1] ?? ""), args[2] === "de" ? "de" : "en");
@@ -3041,7 +3070,7 @@ async function createMainWindow() {
 
   // While dictation is armed (or a recording is finishing), closing the
   // window would kill the renderer that hosts the capture pipeline — hide it
-  // instead. Quit still closes for real via the before-quit flag.
+  // instead. Quit and update installation close for real via the quit flag.
   mainWindow.on("close", (event) => {
     if (appIsQuitting || !keepAliveOnClose()) return;
     const status = systemDictation.status();

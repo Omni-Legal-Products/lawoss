@@ -102,9 +102,9 @@ test("humans and agents create projects from the same edited catalog, with custo
     ]) expect((await request("/workspaces/local", { name: "Invalid", folderMode: "default", ...invalid })).status).toBe(400);
     expect(await readdir(config.projectsDirectory!)).toEqual(folders);
     expect((await fetch(`${url}/workspaces/project-templates`)).status).toBe(401);
-    const viewer: { token: string } = await (await request("/tokens", { scope: "viewer" })).json();
+    const viewer = { token: "owt_retired_viewer" };
     const viewerCreate = await fetch(`${url}/workspaces/projects`, { method: "POST", headers: { authorization: `Bearer ${viewer.token}`, "content-type": "application/json" }, body: JSON.stringify({ name: "Viewer", templateId: null }) });
-    expect(viewerCreate.status).toBe(403);
+    expect(viewerCreate.status).toBe(401);
     const agentForbidden = await fetch(`${url}/workspaces/projects`, { method: "POST", headers: { authorization: "Bearer template-owner", "content-type": "application/json" }, body: JSON.stringify({ name: "Registration", folderPath: root }) });
     expect(agentForbidden.status).toBe(400);
     expect(await readdir(config.projectsDirectory!)).toEqual(folders);

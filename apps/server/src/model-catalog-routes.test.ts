@@ -3,7 +3,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "./server.js";
-import { TokenService } from "./tokens.js";
 import type { ServerConfig } from "./types.js";
 
 // 🟡 LAWOSS: online aktualizácia katalógu modelov (upstream #223/#230) je natrvalo vypnutá.
@@ -24,10 +23,11 @@ test("katalóg modelov sa nesťahuje: nastavenie je vypnuté a relé neexistuje"
     const headers = { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" };
     expect((await fetch(`${baseURL}/model-catalog/settings`)).status).toBe(401);
     expect(await (await fetch(`${baseURL}/model-catalog/settings`, { headers })).json()).toEqual({ onlineUpdatesEnabled: false });
-    const viewer = await new TokenService(config).create("viewer");
+    // Upstream v0.2.18: shared viewer tokens are retired and rejected.
+    const retiredViewer = "owt_retired_viewer";
     expect((await fetch(`${baseURL}/model-catalog/settings`, {
-      method: "PUT", headers: { ...headers, Authorization: `Bearer ${viewer.token}` }, body: JSON.stringify({ onlineUpdatesEnabled: false }),
-    })).status).toBe(403);
+      method: "PUT", headers: { ...headers, Authorization: `Bearer ${retiredViewer}` }, body: JSON.stringify({ onlineUpdatesEnabled: false }),
+    })).status).toBe(401);
     expect((await fetch(`${baseURL}/model-catalog/settings`, { method: "PUT", headers, body: JSON.stringify({ onlineUpdatesEnabled: "false" }) })).status).toBe(400);
     expect((await fetch(`${baseURL}/model-catalog/settings`, { method: "PUT", headers, body: JSON.stringify({ onlineUpdatesEnabled: true }) })).status).toBe(409);
     const off = await fetch(`${baseURL}/model-catalog/settings`, { method: "PUT", headers, body: JSON.stringify({ onlineUpdatesEnabled: false }) });

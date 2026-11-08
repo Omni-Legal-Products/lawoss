@@ -10,7 +10,7 @@ export type { WorkspaceMemoryStatus as LegalworkWorkspaceMemoryStatus } from "..
 import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { EmailDraft } from "@legalwork/types/email-draft";
 import type { ConnectorWriteSetting } from "@legalwork/types/connectors";
-import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
+import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest, PluginImportUpdate } from "@legalwork/types/plugin-import";
 import type { WikiSuggestion, WikiSuggestionInput, WikiContribution } from "@legalwork/types/wiki-suggestions";
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
 import type { SessionQueue, QueueAction } from "@legalwork/types/session-queue";
@@ -1226,42 +1226,6 @@ const LEGALWORK_INVITE_PARAM_TOKEN = "ow_token";
 const LEGALWORK_INVITE_PARAM_STARTUP = "ow_startup";
 const LEGALWORK_INVITE_PARAM_AUTO_CONNECT = "ow_auto_connect";
 
-export type LegalworkOpenCodeRouterHealthSnapshot = {
-  ok: boolean;
-  opencode: Record<string, unknown>;
-  channels: Record<string, unknown>;
-  config: Record<string, unknown>;
-  activity?: {
-    inboundToday?: number;
-    outboundToday?: number;
-    lastMessageAt?: number | null;
-    [key: string]: unknown;
-  };
-  agent?: {
-    loaded?: boolean;
-    selected?: string;
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
-};
-
-export type LegalworkOpenCodeRouterIdentityItem = {
-  id: string;
-  channel?: string;
-  enabled?: boolean;
-  peerId?: string;
-  [key: string]: unknown;
-};
-
-export type LegalworkOpenCodeRouterSendResult = {
-  ok: boolean;
-  sent: number;
-  attempted: number;
-  failures?: Array<{ identityId: string; peerId: string; error: string }>;
-  reason?: string;
-  [key: string]: unknown;
-};
-
 export type LegalworkConnectInvite = {
   url: string;
   token?: string;
@@ -1315,13 +1279,12 @@ export function readLegalworkServerSettings(): LegalworkServerSettings {
     const portOverride = portRaw ? Number(portRaw) : undefined;
     const token = window.localStorage.getItem(STORAGE_TOKEN) ?? undefined;
     const hostToken = window.localStorage.getItem(STORAGE_HOST_AUTH_KEY) ?? undefined;
-    const remoteAccessRaw = window.localStorage.getItem(STORAGE_REMOTE_ACCESS) ?? "";
     return {
       urlOverride: urlOverride ?? undefined,
       portOverride: Number.isNaN(portOverride) ? undefined : portOverride,
       token: token?.trim() || undefined,
       hostToken: hostToken?.trim() || undefined,
-      remoteAccessEnabled: remoteAccessRaw === "1",
+      remoteAccessEnabled: false,
     };
   } catch {
     return {};
@@ -1335,7 +1298,6 @@ export function writeLegalworkServerSettings(next: LegalworkServerSettings): Leg
     const portOverride = typeof next.portOverride === "number" ? next.portOverride : undefined;
     const token = next.token?.trim() || undefined;
     const hostToken = next.hostToken?.trim() || undefined;
-    const remoteAccessEnabled = next.remoteAccessEnabled === true;
 
     if (urlOverride) {
       window.localStorage.setItem(STORAGE_URL_OVERRIDE, urlOverride);
@@ -1361,11 +1323,7 @@ export function writeLegalworkServerSettings(next: LegalworkServerSettings): Leg
       window.localStorage.removeItem(STORAGE_HOST_AUTH_KEY);
     }
 
-    if (remoteAccessEnabled) {
-      window.localStorage.setItem(STORAGE_REMOTE_ACCESS, "1");
-    } else {
-      window.localStorage.removeItem(STORAGE_REMOTE_ACCESS);
-    }
+    window.localStorage.removeItem(STORAGE_REMOTE_ACCESS);
 
     return readLegalworkServerSettings();
   } catch {
@@ -2533,7 +2491,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         method: "DELETE",
         timeoutMs: timeouts.config,
       }),
-    checkPluginImportUpdate: (workspaceId: string, pluginId: string) => requestJson<{ source: PluginImportRequest["source"]; scope: PluginImportRequest["scope"]; root: string; asWorkflow?: boolean; changed: boolean; preview: PluginImportPreview }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/${encodeURIComponent(pluginId)}/update`, { token, hostToken, timeoutMs: 90_000 }),
+    checkPluginImportUpdate: (workspaceId: string, pluginId: string) => requestJson<PluginImportUpdate>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/${encodeURIComponent(pluginId)}/update`, { token, hostToken, timeoutMs: 90_000 }),
     rollbackPluginImport: (workspaceId: string, pluginId: string) => requestJson<LegalworkCloudPluginInstallResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/${encodeURIComponent(pluginId)}/rollback`, { token, hostToken, method: "POST", body: {} }),
     readPackageComponent: (workspaceId: string, pluginId: string, path: string) =>
       requestJson<{ content: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/cloud-plugins/${encodeURIComponent(pluginId)}/file?path=${encodeURIComponent(path)}`, { token, hostToken, timeoutMs: timeouts.config }),

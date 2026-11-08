@@ -156,15 +156,21 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     await retireSharedLegacyReview(globalSkillsDir());
     await ensureBundledWorkflows();
     for (const workspace of config.workspaces) {
-      if (usesExternalWorkspaceAppFiles(workspace)) {
-        const appFilesRoot = workspaceAppFilesRoot(config, workspace);
-        await mkdir(appFilesRoot, { recursive: true });
-        await ensureWorkspaceFiles(appFilesRoot, workspace.preset, {
-          root: workspace.path,
-          name: workspace.displayName ?? workspace.name,
-        });
-      } else {
-        await ensureWorkspaceFilesForBootstrap(workspace);
+      // Upstream v0.2.18: a disconnected cloud project must not prevent the shared
+      // server from starting. Its requests retry initialization and return the real error.
+      try {
+        if (usesExternalWorkspaceAppFiles(workspace)) {
+          const appFilesRoot = workspaceAppFilesRoot(config, workspace);
+          await mkdir(appFilesRoot, { recursive: true });
+          await ensureWorkspaceFiles(appFilesRoot, workspace.preset, {
+            root: workspace.path,
+            name: workspace.displayName ?? workspace.name,
+          });
+        } else {
+          await ensureWorkspaceFilesForBootstrap(workspace);
+        }
+      } catch (error: unknown) {
+        console.warn(`[workspace-init] ${workspace.path}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }

@@ -13,7 +13,6 @@ import {
   googleWorkspaceTestConnection,
 } from "../extensions/google-workspace.js";
 import { callExperimentalExtensionAction, listExperimentalExtensionActions } from "../extensions/index.js";
-import type { TokenService } from "../tokens.js";
 import {
   TOY_UI_CSS,
   TOY_UI_FAVICON_SVG,
@@ -38,7 +37,6 @@ type FetchRuntimeControl = (path: string, init?: { method?: string; body?: unkno
 interface RegisterCoreRoutesOptions {
   routes: Route[];
   config: ServerConfig;
-  tokens: TokenService;
   env: EnvService;
   serverVersion: string;
   opencodeVersion: string;
@@ -65,7 +63,6 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
   const {
     routes,
     config,
-    tokens,
     env,
     serverVersion,
     opencodeVersion,
@@ -334,33 +331,6 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     const active = config.workspaces[0] ?? null;
     const items = config.workspaces.map((workspace) => serializeWorkspace(workspace, ctx.actor?.scope));
     return jsonResponse({ items, workspaces: items, activeId: active?.id ?? null });
-  });
-
-  addRoute(routes, "GET", "/tokens", "host", async () => {
-    const items = await tokens.list();
-    return jsonResponse({ items });
-  });
-
-  addRoute(routes, "POST", "/tokens", "host", async (ctx) => {
-    ensureWritable(config);
-    const body = await readJsonBody(ctx.request);
-    const scopeRaw = typeof body.scope === "string" ? body.scope.trim() : "";
-    const scope = scopeRaw === "owner" || scopeRaw === "collaborator" || scopeRaw === "viewer" ? scopeRaw : null;
-    if (!scope) {
-      throw new ApiError(400, "invalid_scope", "Token scope must be owner, collaborator, or viewer");
-    }
-    const label = typeof body.label === "string" ? body.label.trim() : undefined;
-    const issued = await tokens.create(scope, { label });
-    return jsonResponse(issued, 201);
-  });
-
-  addRoute(routes, "DELETE", "/tokens/:id", "host", async (ctx) => {
-    ensureWritable(config);
-    const ok = await tokens.revoke(ctx.params.id);
-    if (!ok) {
-      throw new ApiError(404, "token_not_found", "Token not found");
-    }
-    return jsonResponse({ ok: true });
   });
 
   function rethrowEnvStoreReadError(error: unknown): never {

@@ -19,10 +19,9 @@
  * location.reload() dependably replace the entry a future navigation
  * renders):
  *
- *   - taskpane.html?pairing=2 (the manifest URL) serves a tiny redirector,
- *     cached for 30 days. It preserves the installation capability fragment
- *     and only selects a pairing-capable shell. The versioned query avoids
- *     legacy redirectors that discarded the capability.
+ *   - The installed manifest points at shell-v<N>.html#office_launch=… .
+ *     taskpane.html (older manifests) serves a tiny redirector, cached for
+ *     30 days, that forwards its fragment to the current shell.
  *   - shell-v<N>.html serves the actual shell, cached immutable. When a
  *     running shell learns from the bootstrap response that a newer
  *     version exists, it records it and NAVIGATES to the new URL while
@@ -40,7 +39,7 @@
  * Without a bump, existing installs keep rendering the old shell for up
  * to a year. Increment the number.
  */
-export const WORD_ADDIN_SHELL_VERSION = "7";
+export const WORD_ADDIN_SHELL_VERSION = "8";
 
 export const OFFICE_SHELL_COPY = {
   "en": {
@@ -48,36 +47,28 @@ export const OFFICE_SHELL_COPY = {
     "offlineTitle": "LAWOSS is not running",
     "offlineBody": "Start LAWOSS to use the add-in. This pane connects automatically when it is running.",
     "open": "Open LAWOSS",
-    "retry": "Try again",
-    "pairingTitle": "Reopen the Office add-in",
-    "pairingBody": "Close and reopen this pane. If it still cannot connect, reinstall it in LAWOSS Office Add-ins settings."
+    "retry": "Try again"
   },
   "cs": {
     "connecting": "Připojuji k LAWOSS…",
     "offlineTitle": "LAWOSS není spuštěný",
     "offlineBody": "Spusťte LAWOSS, abyste mohli používat doplněk. Panel se potom připojí automaticky.",
     "open": "Otevřít LAWOSS",
-    "retry": "Zkusit znovu",
-    "pairingTitle": "Otevřete doplněk Office znovu",
-    "pairingBody": "Zavřete a znovu otevřete tento panel. Pokud se nepřipojí, přeinstalujte jej v nastavení Doplňky Office v LAWOSS."
+    "retry": "Zkusit znovu"
   },
   "sk": {
     "connecting": "Pripájam k LAWOSS…",
     "offlineTitle": "LAWOSS nie je spustený",
     "offlineBody": "Spustite LAWOSS, aby ste mohli používať doplnok. Panel sa potom pripojí automaticky.",
     "open": "Otvoriť LAWOSS",
-    "retry": "Skúsiť znova",
-    "pairingTitle": "Otvorte doplnok Office znova",
-    "pairingBody": "Zatvorte a znova otvorte tento panel. Ak sa nepripojí, preinštalujte ho v nastaveniach Doplnky Office v LAWOSS."
+    "retry": "Skúsiť znova"
   },
   "de": {
     "connecting": "Verbindung zu LAWOSS…",
     "offlineTitle": "LAWOSS ist nicht geöffnet",
     "offlineBody": "Starten Sie LAWOSS, um das Add-in zu verwenden. Dieser Bereich verbindet sich dann automatisch.",
     "open": "LAWOSS öffnen",
-    "retry": "Erneut versuchen",
-    "pairingTitle": "Office-Add-in erneut öffnen",
-    "pairingBody": "Schließen und öffnen Sie diesen Bereich erneut. Falls die Verbindung weiterhin fehlschlägt, installieren Sie ihn in den Office-Add-in-Einstellungen von LAWOSS erneut."
+    "retry": "Erneut versuchen"
   }
 };
 
@@ -160,33 +151,29 @@ export function buildWordAddinShellHtml(): string {
     document.getElementById("retry-btn").textContent = currentCopy.retry;
   }
 
-  var capability = "";
+  // The fragment comes from the private local manifest, never an HTTP URL.
+  // 🟡 LAWOSS (MČ 8. 11. 2026): the installation key stays in sessionStorage
+  // only, never in localStorage; the app exchanges it for an office_ token.
+  var launch = "";
+  try { launch = new URLSearchParams(location.hash.slice(1)).get("office_launch") || ""; } catch (e) { /* no fragment */ }
+  try { if (location.hash.indexOf("office_launch=") !== -1) history.replaceState(null, "", location.pathname + location.search); } catch (e) { /* keep going */ }
   try {
-    capability = new URLSearchParams(location.hash.slice(1)).get("capability") || sessionStorage.getItem("legalwork.officeCapability") || "";
-    if (capability) sessionStorage.setItem("legalwork.officeCapability", capability);
-    if (location.hash.indexOf("capability=") !== -1) history.replaceState(null, "", location.pathname + location.search);
-  } catch (e) { /* retain the manifest capability when storage is unavailable */ }
-  try {
-    if (capability && typeof crypto !== "undefined" && crypto.subtle) {
-      var digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(capability));
-      var scope = Array.from(new Uint8Array(digest)).map(function (byte) { return byte.toString(16).padStart(2, "0"); }).join("");
-      var oldScope = localStorage.getItem("legalwork.officeLocaleScope");
-      if (oldScope && oldScope !== scope) localStorage.removeItem("legalwork.language");
-      localStorage.setItem("legalwork.officeLocaleScope", scope);
-    }
-  } catch (e) { /* Offline presentation remains available without storage. */ }
+    if (/^[A-Za-z0-9_-]{64}$/.test(launch)) sessionStorage.setItem("legalwork.office.launch", launch);
+  } catch (e) { /* the app reports a failed connection */ }
+  // The language cache is written only by the app after an authenticated
+  // bootstrap with a valid office_ token (apps/app/src/word-addin/ui-locale.ts).
   var lang = "";
   try { lang = localStorage.getItem("legalwork.language") || ""; } catch (e) { /* use system */ }
   applyLanguage(supported(lang) ? lang : systemLanguage());
-  function pairedUrl(path) { return path + (capability ? "#capability=" + encodeURIComponent(capability) : ""); }
+
   var SHELL_VERSION = "${WORD_ADDIN_SHELL_VERSION}";
   var handedOff = false;
 
   function checkServer() {
     var controller = typeof AbortController === "function" ? new AbortController() : null;
     var timer = controller ? setTimeout(function () { controller.abort(); }, 3000) : null;
-    return fetch("bootstrap", { headers: { "X-LegalWork-Office-Capability": capability }, cache: "no-store", signal: controller ? controller.signal : undefined })
-      .then(function (response) { return response.ok ? response.json() : response.status === 401 ? { pairingRequired: true } : null; })
+    return fetch("bootstrap", { cache: "no-store", signal: controller ? controller.signal : undefined })
+      .then(function (response) { return response.ok ? response.json() : null; })
       .then(function (data) { return data && typeof data === "object" ? data : null; })
       .catch(function () { return null; })
       .finally(function () { if (timer) clearTimeout(timer); });
@@ -198,18 +185,6 @@ export function buildWordAddinShellHtml(): string {
 
   function handOff(bootstrap) {
     if (handedOff) return;
-    if (bootstrap && bootstrap.pairingRequired) {
-      try { localStorage.removeItem("legalwork.language"); localStorage.removeItem("legalwork.officeLocaleScope"); } catch (e) { /* presentation cache only */ }
-      applyLanguage(systemLanguage());
-      showOffline();
-      document.getElementById("offline-title").textContent = currentCopy.pairingTitle;
-      document.getElementById("offline-body").textContent = currentCopy.pairingBody;
-      return;
-    }
-    if (bootstrap && supported(bootstrap.uiLocale)) {
-      applyLanguage(bootstrap.uiLocale);
-      try { localStorage.setItem("legalwork.language", bootstrap.uiLocale); } catch (e) { /* in-memory only */ }
-    }
     handedOff = true;
     var current = bootstrap && bootstrap.shellVersion;
     if (typeof current === "string" && current && current !== SHELL_VERSION) {
@@ -217,11 +192,11 @@ export function buildWordAddinShellHtml(): string {
       // URL while the server is reachable, seeding the navigation cache
       // for future offline opens. The new shell hands off to the app.
       rememberVersion(current);
-      location.replace(pairedUrl("shell-v" + encodeURIComponent(current) + ".html"));
+      location.replace("shell-v" + encodeURIComponent(current) + ".html");
       return;
     }
     rememberVersion(SHELL_VERSION);
-    location.replace(pairedUrl("app.html"));
+    location.replace("app.html");
   }
 
   function showOffline() {
@@ -267,9 +242,8 @@ export function buildWordAddinShellHtml(): string {
 }
 
 /**
- * The manifest's redirector preserves pairing through navigation. The query
- * version in buildWordAddinManifest must change if the redirector's behavior
- * changes again, because Office may keep this page in its navigation cache.
+ * The redirector for older manifests forwards the fragment to the current
+ * shell. Office may keep this page in its navigation cache.
  */
 export function buildWordAddinRedirectorHtml(): string {
   return `<!doctype html>
@@ -282,8 +256,7 @@ export function buildWordAddinRedirectorHtml(): string {
 <script>
 (function () {
   "use strict";
-  // pairing=2 on the installed manifest avoids pre-pairing redirector cache
-  // entries. Never select a legacy cached shell that drops the capability.
+  // Forward any launch fragment; the shell keeps it in sessionStorage only.
   location.replace("shell-v${WORD_ADDIN_SHELL_VERSION}.html" + location.hash);
 })();
 </script>

@@ -5,12 +5,14 @@ import assert from 'node:assert/strict';
 export function createNativeEngineClient(serverInfo, workspaceId, request = fetch) {
   const server = new URL(serverInfo.baseUrl);
   assert.ok(server.protocol === 'http:' && server.hostname === '127.0.0.1' && server.port, 'Owned loopback server required');
-  assert.ok(typeof serverInfo.ownerToken === 'string' && serverInfo.ownerToken, 'Native engine setup requires the owned server owner token');
+  // Upstream v0.2.18 retired owner bearer tokens; the desktop client token authenticates the renderer.
+  const token = serverInfo.ownerToken || serverInfo.clientToken;
+  assert.ok(typeof token === 'string' && token, 'Native engine setup requires the owned server client token');
   assert.ok(typeof workspaceId === 'string' && workspaceId, 'Native engine workspace required');
   const baseUrl = `${server.origin}/workspace/${encodeURIComponent(workspaceId)}/opencode`;
   const authenticatedRequest = (url, options = {}, timeout = 30_000) => {
     const headers = new Headers(options.headers);
-    headers.set('authorization', `Bearer ${serverInfo.ownerToken}`);
+    headers.set('authorization', `Bearer ${token}`);
     headers.set('content-type', 'application/json');
     return request(url, { ...options, headers }, timeout);
   };

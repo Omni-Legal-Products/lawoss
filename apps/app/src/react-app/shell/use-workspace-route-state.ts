@@ -385,8 +385,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
             await fetchOnce(workspace, attempt + 1);
             return;
           }
-          // Final failure: keep local workspace startup quiet, but give
-          // remote workers a precise endpoint/token/workspace diagnostic.
+          // Keep final failures visible for local cloud folders as well as
+          // remote workers, so the affected project can explain how to recover.
           if (workspace.workspaceType === "remote") {
             const connectionState = await diagnoseRemoteWorkspaceTaskLoadFailure(workspace, message);
             if (!isCurrentRequest()) return;
@@ -400,6 +400,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
                 [workspace.id]: connectionState,
               };
             });
+          } else {
+            setErrorsByWorkspaceId((current) => ({ ...current, [workspace.id]: message }));
           }
           setRetryingWorkspaceIds((current) =>
             current.includes(workspace.id) ? current.filter((id) => id !== workspace.id) : current,

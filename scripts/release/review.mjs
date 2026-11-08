@@ -10,7 +10,6 @@ const strict = args.includes("--strict");
 const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
 const readText = (path) => readFileSync(path, "utf8");
 
-
 const appPkg = readJson(resolve(root, "apps", "app", "package.json"));
 const desktopPkg = readJson(resolve(root, "apps", "desktop", "package.json"));
 const orchestratorPkg = readJson(
@@ -22,17 +21,13 @@ const pinnedOpencodeVersion = String(
   .trim()
   .replace(/^v/, "");
 const serverPkg = readJson(resolve(root, "apps", "server", "package.json"));
-const opencodeRouterPkg = readJson(
-  resolve(root, "apps", "opencode-router", "package.json"),
-);
+
 const versions = {
   app: appPkg.version ?? null,
   desktop: desktopPkg.version ?? null,
   server: serverPkg.version ?? null,
   orchestrator: orchestratorPkg.version ?? null,
-  opencodeRouter: opencodeRouterPkg.version ?? null,
   opencode: pinnedOpencodeVersion || null,
-  opencodeRouterVersionPinned: desktopPkg.opencodeRouterVersion ?? null,
   orchestratorLegalworkServerRange:
     orchestratorPkg.dependencies?.["legalwork-server"] ?? null,
 };
@@ -65,20 +60,7 @@ addCheck(
   versions.app && versions.server && versions.app === versions.server,
   `${versions.app ?? "?"} vs ${versions.server ?? "?"}`,
 );
-addCheck(
-  "App/opencode-router versions match",
-  versions.app &&
-    versions.opencodeRouter &&
-    versions.app === versions.opencodeRouter,
-  `${versions.app ?? "?"} vs ${versions.opencodeRouter ?? "?"}`,
-);
-addCheck(
-  "OpenCodeRouter version pinned in desktop",
-  versions.opencodeRouter &&
-    versions.opencodeRouterVersionPinned &&
-    versions.opencodeRouter === versions.opencodeRouterVersionPinned,
-  `${versions.opencodeRouterVersionPinned ?? "?"} vs ${versions.opencodeRouter ?? "?"}`,
-);
+
 if (versions.opencode) {
   addCheck(
     "OpenCode version pin exists",
@@ -123,19 +105,11 @@ if (existsSync(sidecarManifestPath)) {
     `${manifest.version ?? "?"} vs ${versions.orchestrator ?? "?"}`,
   );
   const serverEntry = manifest.entries?.["legalwork-server"]?.version;
-  const routerEntry = manifest.entries?.["opencode-router"]?.version;
   if (serverEntry) {
     addCheck(
       "Sidecar manifest legalwork-server version matches",
       versions.server && serverEntry === versions.server,
       `${serverEntry ?? "?"} vs ${versions.server ?? "?"}`,
-    );
-  }
-  if (routerEntry) {
-    addCheck(
-      "Sidecar manifest opencode-router version matches",
-      versions.opencodeRouter && routerEntry === versions.opencodeRouter,
-      `${routerEntry ?? "?"} vs ${versions.opencodeRouter ?? "?"}`,
     );
   }
 } else {

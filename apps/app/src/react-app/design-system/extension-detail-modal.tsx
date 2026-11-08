@@ -417,7 +417,7 @@ export function ExtensionDetailModal({
                   ) : null}
 
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">{t("identities.status_label", locale)}</span>
+                    <span className="text-muted-foreground">{t("review.status", locale)}</span>
                     <span className={cn("font-medium", connected ? "text-green-11" : "text-muted-foreground")}>
                       {connected
                         ? connectedLabel ?? (kind === "skill" || kind === "plugin" ? t("skills.installed_status", locale) : t("connectors.connected", locale))

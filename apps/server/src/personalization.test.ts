@@ -266,14 +266,7 @@ describe("Personalisation", () => {
       expect((await write({ revision: -1, customInstructions: "test" })).status).toBe(400);
       expect((await fetch(`${base}/workspace/missing/personalization`, { headers })).status).toBe(404);
       expect((await fetch(`${base}/workspace/missing/personalization`, { method: "PUT", headers, body: JSON.stringify({ customInstructions: "test" }) })).status).toBe(404);
-      const issued = await fetch(`${base}/tokens`, {
-        method: "POST",
-        headers: { ...headers, "x-legalwork-host-token": config.hostToken },
-        body: JSON.stringify({ scope: "viewer", label: "viewer" }),
-      });
-      const payload: unknown = await issued.json();
-      if (typeof payload !== "object" || payload === null || !("token" in payload) || typeof payload.token !== "string") throw new Error("Viewer token missing");
-      expect((await write({ customInstructions: "test" }, { ...headers, authorization: `Bearer ${payload.token}` })).status).toBe(403);
+      expect((await write({ customInstructions: "test" }, { ...headers, authorization: "Bearer owt_retired_viewer" })).status).toBe(401);
       config.readOnly = true;
       expect((await write({ customInstructions: "test" })).status).toBe(403);
     } finally {

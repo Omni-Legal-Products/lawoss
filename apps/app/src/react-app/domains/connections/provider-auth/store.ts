@@ -1,8 +1,9 @@
 import type { SystemOneConfiguration } from "@legalwork/types/systemone";
 import { useSyncExternalStore } from "react";
-import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
+import { EIGENWELT_SIGN_IN_TIMEOUT_MS, type EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 import { useSyncProviderSetupState } from "./sync-provider-setup-state";
 import { isEigenweltEntitledStatus } from "@/app/lib/eigenwelt-trial";
+import { EigenweltSignInTimeoutError } from "@/app/lib/eigenwelt-sign-in";
 
 import { applyEdits, modify, parse } from "jsonc-parser";
 import type {
@@ -1287,7 +1288,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
    * Long-poll the sign-in session until the browser flow delivers the
    * exchange payload, then finalize the connection. The server holds each
    * poll open (long-poll) and answers `{pending:true}` on its own timeout;
-   * we re-poll after ~2s up to a ~10 minute cap. `cancelled` lets the modal
+   * we re-poll after ~2s up to a one-hour cap. `cancelled` lets the modal
    * abort when it closes.
    */
   async function completeEigenweltSignIn(
@@ -1297,7 +1298,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     setStateField("providerAuthError", null);
     try {
       const legalworkClient = requireEigenweltServerClient();
-      const deadline = Date.now() + 10 * 60 * 1000;
+      const deadline = Date.now() + EIGENWELT_SIGN_IN_TIMEOUT_MS;
       while (Date.now() < deadline) {
         if (opts?.cancelled?.()) return { connected: false, cancelled: true };
         const result = await legalworkClient.eigenweltOauthWait(sessionId);
@@ -1313,13 +1314,20 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         }
         return { connected: true, preferredAiProvider: "preferredAiProvider" in result ? result.preferredAiProvider : undefined, message: t("providers.connected_named", { name: "Eigenwelt" }) };
       }
-      throw new Error(t("providers.eigenwelt_signin_timeout"));
     } catch (error) {
       if (opts?.cancelled?.()) return { connected: false, cancelled: true };
+      if (error instanceof LegalworkServerError && error.code === "eigenwelt_signin_timeout") {
+        const message = t("providers.eigenwelt_signin_timeout");
+        setStateField("providerAuthError", message);
+        throw new EigenweltSignInTimeoutError(message);
+      }
       const message = describeProviderError(error, t("providers.oauth_failed"));
       setStateField("providerAuthError", message);
       throw error instanceof Error ? error : new Error(message);
     }
+    const message = t("providers.eigenwelt_signin_timeout");
+    setStateField("providerAuthError", message);
+    throw new EigenweltSignInTimeoutError(message);
   }
 
   /** A provider's name as the member sees it, for the messages after connecting or disconnecting. */

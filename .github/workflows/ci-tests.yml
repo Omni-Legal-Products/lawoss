@@ -164,11 +164,6 @@ jobs:
       - name: Run server unit tests
         run: pnpm --filter legalwork-server test
 
-      - name: Verify messaging control authentication and workspace containment
-        run: |
-          pnpm --filter opencode-router test:unit
-          node --test apps/orchestrator/scripts/router-control-security.test.mjs
-
       - name: Verify scheduling and file search with the shipped engine
         run: |
           pnpm --filter legalwork-server build

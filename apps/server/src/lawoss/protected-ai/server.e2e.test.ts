@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { startServer } from "../../server.js";
-import { TokenService } from "../../tokens.js";
 import { closeOrgPolicyRuntime } from "../../org-policy.js";
 import { syntheticHostConfig } from "../test-support/host-config.js";
 
@@ -9,7 +8,8 @@ test("the installed generation endpoint requires the native host and rejects bro
   const {root, config} = await syntheticHostConfig();
   const server = await startServer(config);
   try {
-    const owner = await new TokenService(config).create("owner");
+    // Upstream v0.2.18: no owner bearer tokens; the application credential is not the host.
+    const owner = { token: config.token };
     const endpoint = `http://127.0.0.1:${server.port}/workspace/synthetic/lawoss/documents/generation`;
     const request = (headers: Record<string, string>, body: unknown) => fetch(endpoint, {method: "POST", headers: {"content-type": "application/json", ...headers}, body: JSON.stringify(body)});
     const withoutHost = await request({authorization: `Bearer ${owner.token}`}, {approved: true});

@@ -133,7 +133,7 @@ boundary("a chat in client A gets neither files nor metadata of client B", async
     asA(`/workspace/${encodeURIComponent(a.id)}/mcp`),
     asA(`/workspace/${encodeURIComponent(a.id)}/opencode/session`),
     asA(`/workspace/${encodeURIComponent(a.id)}/files/list`),
-    asA("/tokens"),
+    // Upstream v0.2.18 removed /tokens (guest sharing), so it is no longer probed here.
     // Host and owner-only routes stay closed to the engine credential.
     asA("/workspaces/project-defaults"),
     asA("/workspaces/project-templates", { method: "PUT", body: {} }),

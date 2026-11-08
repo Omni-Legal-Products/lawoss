@@ -32,6 +32,9 @@ extraResources:
     to: NOTICE
   - from: resources/engine-dependencies
     to: engine-dependencies
+  # Cloud dictation detects silence locally before opening a paid session.
+  - from: node_modules/@ricky0123/vad-web/dist/silero_vad_legacy.onnx
+    to: speech/silero_vad_legacy.onnx
   - from: resources/licenses
     to: licenses
   - from: resources/opencode-sdk

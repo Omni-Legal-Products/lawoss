@@ -35,8 +35,6 @@ type RemoteWorkspaceInput = {
 
 export type LegalworkServerStoreSnapshot = {
   legalworkServerSettings: LegalworkServerSettings;
-  shareRemoteAccessBusy: boolean;
-  shareRemoteAccessError: string | null;
   legalworkServerUrl: string;
   legalworkServerBaseUrl: string;
   legalworkServerAuth: { token?: string; hostToken?: string };
@@ -72,8 +70,6 @@ type CreateLegalworkServerStoreOptions = {
 
 type MutableState = {
   legalworkServerSettings: LegalworkServerSettings;
-  shareRemoteAccessBusy: boolean;
-  shareRemoteAccessError: string | null;
   legalworkServerUrl: string;
   legalworkServerStatus: LegalworkServerStatus;
   legalworkServerCapabilities: LegalworkServerCapabilities | null;
@@ -109,8 +105,6 @@ export function createLegalworkServerStore(options: CreateLegalworkServerStoreOp
 
   let state: MutableState = {
     legalworkServerSettings: readLegalworkServerSettings(),
-    shareRemoteAccessBusy: false,
-    shareRemoteAccessError: null,
     legalworkServerUrl: "",
     legalworkServerStatus: "disconnected",
     legalworkServerCapabilities: null,
@@ -216,8 +210,6 @@ export function createLegalworkServerStore(options: CreateLegalworkServerStoreOp
 
     snapshot = {
       legalworkServerSettings: state.legalworkServerSettings,
-      shareRemoteAccessBusy: state.shareRemoteAccessBusy,
-      shareRemoteAccessError: state.shareRemoteAccessError,
       legalworkServerUrl,
       legalworkServerBaseUrl,
       legalworkServerAuth,
@@ -723,7 +715,7 @@ export function createLegalworkServerStore(options: CreateLegalworkServerStoreOp
 
     try {
       hostInfo = await legalworkServerRestart({
-        remoteAccessEnabled: state.legalworkServerSettings.remoteAccessEnabled === true,
+        remoteAccessEnabled: false,
       }) as LegalworkServerInfo;
       mutateState((current) => ({ ...current, legalworkServerHostInfo: hostInfo }));
     } catch {
@@ -746,44 +738,6 @@ export function createLegalworkServerStore(options: CreateLegalworkServerStoreOp
     });
   }
 
-  const saveShareRemoteAccess = async (enabled: boolean) => {
-    if (state.shareRemoteAccessBusy) return;
-    const previous = state.legalworkServerSettings;
-    const next: LegalworkServerSettings = {
-      ...previous,
-      remoteAccessEnabled: enabled,
-    };
-
-    mutateState((current) => ({
-      ...current,
-      shareRemoteAccessBusy: true,
-      shareRemoteAccessError: null,
-    }));
-    updateLegalworkServerSettings(next);
-
-    try {
-      if (isDesktopRuntime() && options.selectedWorkspaceDisplay().workspaceType === "local") {
-        const restarted = await options.restartLocalServer();
-        if (!restarted) {
-          throw new Error(t("app.error_restart_local_worker"));
-        }
-        await reconnectLegalworkServer();
-      }
-    } catch (error) {
-      updateLegalworkServerSettings(previous);
-      mutateState((current) => ({
-        ...current,
-        shareRemoteAccessError:
-          error instanceof Error
-            ? error.message
-            : t("app.error_remote_access"),
-      }));
-      return;
-    } finally {
-      setStateField("shareRemoteAccessBusy", false);
-    }
-  };
-
   refreshSnapshot();
 
   const subscribe = (listener: () => void) => {
@@ -804,7 +758,6 @@ export function createLegalworkServerStore(options: CreateLegalworkServerStoreOp
     setLegalworkServerSettings,
     updateLegalworkServerSettings,
     resetLegalworkServerSettings,
-    saveShareRemoteAccess,
     checkLegalworkServer,
     testLegalworkServerConnection,
     reconnectLegalworkServer,

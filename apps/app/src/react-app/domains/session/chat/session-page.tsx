@@ -889,6 +889,11 @@ export function SessionPage(props: SessionPageProps) {
     selectedWorkspaceGroupError ||
     "";
   const showSelectedWorkspaceError = Boolean(selectedWorkspaceErrorMessage);
+  const workspaceErrorNotice = showSelectedWorkspaceError ? (
+    <div role="alert" className="mx-6 mt-4 shrink-0 rounded-xl border border-red-7/35 bg-red-1/40 p-4 text-sm text-red-11">
+      <p className="whitespace-pre-wrap wrap-anywhere">{selectedWorkspaceErrorMessage}</p>
+    </div>
+  ) : null;
   const selectedWorkspaceErrorTitle =
     props.selectedWorkspaceDisplay.workspaceType === "remote"
       ? "Remote workspace unavailable"
@@ -1279,7 +1284,7 @@ export function SessionPage(props: SessionPageProps) {
             <ResizablePanelGroup orientation="horizontal" className={cn("lw-workspace-surface min-h-0 flex-1", workflowFocusMode && "!grid !grid-cols-1")}>
               <ResizablePanel id="session-content" minSize={workflowFocusMode ? "0px" : workflowsPage ? "280px" : "360px"} className={cn("min-w-0", workflowFocusMode && "hidden")}>
             <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-
+              {workspaceErrorNotice}
               <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", props.projectPage && "@container/project-page")}>{props.projectPage ? <div ref={setOverviewHost} className="h-full min-h-0" /> : workflowsPage ? <div ref={setWorkflowLibraryHost} className="h-full min-h-0" /> : mainView}</div>
               {shellConfig.statusBar ? (
                 <StatusBar
@@ -1419,7 +1424,10 @@ export function SessionPage(props: SessionPageProps) {
                 </div>
               ) : null}
 
-              {canRenderWorkspace && <div ref={setWorkspaceHost} className="h-full min-h-0" />}
+              {canRenderWorkspace && <div className="flex h-full min-h-0 flex-col">
+                {workspaceErrorNotice}
+                <div ref={setWorkspaceHost} className="min-h-0 flex-1" />
+              </div>}
 
               {!showDelayedSessionLoadingState && !canRenderWorkspace && !showStartupSkeleton ? (
                 <div className={`mx-auto h-full max-w-[800px] overflow-y-auto px-6 pb-8 ${showWorkspaceSetupEmptyState ? "pt-20" : "pt-3"}`}>

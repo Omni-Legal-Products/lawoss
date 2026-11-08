@@ -54,10 +54,7 @@ test("network settings API authenticates, validates, persists and respects read-
     }
     await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({}));
     expect((await fetch(base + "/sandbox/settings", { method: "PATCH", headers: { authorization: "Bearer client", "content-type": "application/json" }, body: JSON.stringify({ enabled: true, networkMode: "block" }) })).status).toBe(401);
-    const issued = await fetch(base + "/tokens", { method: "POST", headers: hostHeaders, body: JSON.stringify({ scope: "viewer", label: "network-policy-test" }) });
-    expect(issued.status).toBe(201);
-    const viewer = await issued.json();
-    expect((await patch({ mode: "allow" }, viewer.token)).status).toBe(401);
+    expect((await patch({ mode: "allow" }, "owt_retired_viewer")).status).toBe(401);
     for (const body of [{ mode: "unknown" }, { mode: "allow", extra: true }, { mode: null }, {}]) {
       expect((await patch(body, "host")).status).toBe(400);
       expect(await readSandboxNetworkMode(config)).toBe("allow");

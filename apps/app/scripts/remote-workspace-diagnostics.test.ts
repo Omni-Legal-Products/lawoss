@@ -430,6 +430,12 @@ describe("diagnoseRemoteWorkspaceTaskLoadFailure", () => {
 });
 
 describe("getWorkspaceTaskLoadErrorDisplay", () => {
+  test("local cloud failures retain the actionable server message", () => {
+    const message = 'Project "Matter" is unavailable. Open Nextcloud and sign in, then retry.';
+    const display = getWorkspaceTaskLoadErrorDisplay({ id: "local", name: "Matter", path: "/projects/matter", workspaceType: "local" }, message);
+    expect(display.message).toBe(message);
+    expect(display.title).toBe(message);
+  });
   test("redacts remote worker task load errors before rendering", () => {
     const display = getWorkspaceTaskLoadErrorDisplay(
       workspace(),

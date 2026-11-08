@@ -119,8 +119,10 @@ async function authenticatedEngine(engine) {
 
 async function publicProjection(manager, engine) {
   const server = await manager.legalworkServerInfo();
-  assert.equal(typeof server.ownerToken === "string" && !!server.ownerToken, true);
-  for (const token of [server.ownerToken, server.clientToken]) {
+  // Upstream v0.2.18: owner bearer tokens are retired; the renderer uses the client token.
+  assert.equal(server.ownerToken ?? null, null);
+  assert.equal(typeof server.clientToken === "string" && !!server.clientToken, true);
+  for (const token of [server.clientToken]) {
     const response = await fetch(`${server.baseUrl}/workspaces`, { headers: { Authorization: `Bearer ${token}` } });
     assert.equal(response.status, 200);
     const payload = await response.json();

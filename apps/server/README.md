@@ -60,10 +60,6 @@ Defaults to `~/.config/legalwork/server.json` (override with `LEGALWORK_SERVER_C
 - `LEGALWORK_OPENCODE_USERNAME`
 - `LEGALWORK_OPENCODE_PASSWORD`
 
-Token management (scoped tokens):
-
-- `LEGALWORK_TOKEN_STORE` path to token store JSON (default: alongside `server.json`)
-
 File injection / artifacts:
 
 - `LEGALWORK_INBOX_ENABLED` (`1` | `0`)
@@ -104,11 +100,11 @@ Sandbox advertisement (for capability discovery):
 - `POST /workspace/:id/import/preview`
 - `POST /workspace/:id/import`
 
-Token management (host/owner auth):
-
-- `GET /tokens`
-- `POST /tokens` (body: `{ "scope": "owner"|"collaborator"|"viewer", "label"?: string }`)
-- `DELETE /tokens/:id`
+Workspace guest sharing has been removed. The `/tokens` endpoints return 404,
+and persisted share tokens (including viewer and owner tokens) are no longer
+accepted. The configured application bearer token and host header credential
+remain available for the desktop and explicitly operated servers. Desktop
+servers always bind to `127.0.0.1`; legacy remote-access settings are ignored.
 
 Inbox/outbox:
 
@@ -135,23 +131,12 @@ OpenCode proxy:
 - `GET|POST|... /opencode/*`
 - `GET|POST|... /w/:id/opencode/*`
 
-OpenCode Router proxy:
-
-- `GET|POST|... /opencode-router/*`
-- `GET|POST|... /w/:id/opencode-router/*`
-
-Auth policy:
-- `GET /opencode-router/health` requires client auth.
-- All other `/opencode-router/*` endpoints require host/owner auth.
-
 ## Approvals
 
 Gated HTTP writes use the configured host approval mode. These approvals are separate from OpenCode's tool permission prompts.
 
-Host APIs accept either:
-
-- `X-LegalWork-Host-Token: <token>` (legacy host token), or
-- `Authorization: Bearer <token>` where the token scope is `owner`.
+Host APIs require `X-LegalWork-Host-Token: <token>`.
+Bearer owner tokens have been retired.
 
 Approvals endpoints:
 

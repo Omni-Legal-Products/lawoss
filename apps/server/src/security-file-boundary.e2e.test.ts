@@ -125,21 +125,15 @@ test("viewer cannot recover configuration through raw/content/stat, session or a
   await writeFile(join(f.root, "opencode.json"), JSON.stringify({ provider: { secret: "synthetic-key" } }));
   await symlink(join(f.root, "opencode.json"), join(f.root, "innocent.json"));
   await symlink(join(f.root, "opencode.json"), join(f.root, ".opencode", "legalwork", "outbox", "secret.json"));
-  const issued = await f.request("/tokens", { scope: "viewer", label: "security test" }, hostHeaders);
-  expect(issued.status).toBe(201);
-  const token: { token: string } = await issued.json();
-  const viewer = { ...headers, Authorization: `Bearer ${token.token}` };
+  // Upstream v0.2.18: shared viewer tokens are retired; the old credential is rejected everywhere.
+  expect((await f.request("/tokens", { scope: "viewer", label: "security test" }, hostHeaders)).status).toBe(404);
+  const viewer = { ...headers, Authorization: "Bearer owt_retired_viewer" };
   for (const path of ["opencode.json", "innocent.json"]) {
-    for (const method of ["raw", "content", "stat"]) expect((await f.request(`/workspace/test/files/${method}?path=${path}`, undefined, viewer)).status).toBe(403);
+    for (const method of ["raw", "content", "stat"]) expect((await f.request(`/workspace/test/files/${method}?path=${path}`, undefined, viewer)).status).toBe(401);
   }
-  const session = await f.session(viewer);
-  const response = await f.request(`${session}/read-batch`, { paths: ["innocent.json", "notes/ordinary.md"] }, viewer);
-  const batch: { items: { ok: boolean }[] } = await response.json();
-  expect(batch.items.map(item => item.ok)).toEqual([false, true]);
   const id = Buffer.from("secret.json").toString("base64url");
-  expect((await f.request(`/workspace/test/artifacts/${id}`, undefined, viewer)).status).toBe(403);
-  const resolved: { items: unknown[] } = await (await f.request("/workspace/test/artifacts/resolve", { targets: [{ value: "innocent.json" }] }, viewer)).json();
-  expect(resolved.items).toEqual([]);
+  expect((await f.request(`/workspace/test/artifacts/${id}`, undefined, viewer)).status).toBe(401);
+  expect((await f.request("/workspace/test/artifacts/resolve", { targets: [{ value: "innocent.json" }] }, viewer)).status).toBe(401);
   expect((await f.file("content", "opencode.json")).status).toBe(200);
   // Protect the physical target when app metadata/config are themselves aliases.
   // Windows: od v0.2.9 server počas behu sleduje `.opencode` (reload watcher) a drží v ňom
@@ -152,15 +146,15 @@ test("viewer cannot recover configuration through raw/content/stat, session or a
   await symlink(join(f.root, "app-meta"), join(f.root, ".opencode"), "dir");
   await writeFile(join(f.root, "app-meta", "settings.json"), "synthetic credential");
   await symlink(join(f.root, "app-meta", "settings.json"), join(f.root, "report.json"));
-  expect((await f.request("/workspace/test/files/raw?path=report.json", undefined, viewer)).status).toBe(403);
+  expect((await f.request("/workspace/test/files/raw?path=report.json", undefined, viewer)).status).toBe(401);
   await rename(join(f.root, "opencode.json"), join(f.root, "settings-copy.json"));
   await symlink(join(f.root, "settings-copy.json"), join(f.root, "opencode.json"));
-  expect((await f.request("/workspace/test/files/raw?path=settings-copy.json", undefined, viewer)).status).toBe(403);
+  expect((await f.request("/workspace/test/files/raw?path=settings-copy.json", undefined, viewer)).status).toBe(401);
   for (const name of [".npmrc", ".netrc", "auth.json", "credentials.json", ".env.production"]) {
     const target = `report-${name.replaceAll(".", "-")}.txt`;
     await writeFile(join(f.root, target), "synthetic credential");
     await symlink(join(f.root, target), join(f.root, name));
-    expect((await f.request(`/workspace/test/files/raw?path=${target}`, undefined, viewer)).status).toBe(403);
+    expect((await f.request(`/workspace/test/files/raw?path=${target}`, undefined, viewer)).status).toBe(401);
   }
 });
 
@@ -330,12 +324,8 @@ test("viewer listings hide protected configuration, also inside an enforced boun
   await writeFile(join(f.root, "opencode.json"), "synthetic config credential");
   await mkdir(join(f.root, "notes", ".opencode"), { recursive: true });
   await writeFile(join(f.root, "notes", ".env.local"), "SYNTHETIC=credential");
-  const issue = async (scope: string) => {
-    const issued = await f.request("/tokens", { scope, label: "listing test" }, hostHeaders);
-    const token: { token: string } = await issued.json();
-    return { ...headers, Authorization: `Bearer ${token.token}` };
-  };
-  const viewer = await issue("viewer"), owner = await issue("owner");
+  // Upstream v0.2.18: viewer/owner bearer tokens are retired; owner authority is the host token.
+  const viewer = { ...headers, Authorization: "Bearer owt_retired_viewer" }, owner = hostHeaders;
   const names = async (query: Record<string, string>, customHeaders: Record<string, string>) => {
     const response = await f.request(`/workspace/test/files/list?${new URLSearchParams(query)}`, undefined, customHeaders);
     expect(response.status).toBe(200);
@@ -344,21 +334,17 @@ test("viewer listings hide protected configuration, also inside an enforced boun
   };
   const rootQueries: Array<Record<string, string>> = [{ path: "" }, { path: "", within: "" }];
   for (const query of rootQueries) {
-    const visible = await names(query, viewer);
-    expect(visible).toContain("notes");
-    for (const name of [".env", ".opencode", "opencode.json"]) expect(visible).not.toContain(name);
+    expect((await f.request(`/workspace/test/files/list?${new URLSearchParams(query)}`, undefined, viewer)).status).toBe(401);
     for (const trusted of [headers, owner]) expect(await names(query, trusted)).toEqual(expect.arrayContaining(["notes", ".env", ".opencode", "opencode.json"]));
   }
   const folderQueries: Array<Record<string, string>> = [{ path: "notes" }, { path: "notes", within: "notes" }];
   for (const query of folderQueries) {
-    const visible = await names(query, viewer);
-    expect(visible).toContain("ordinary.md");
-    for (const name of [".env.local", ".opencode"]) expect(visible).not.toContain(name);
+    expect((await f.request(`/workspace/test/files/list?${new URLSearchParams(query)}`, undefined, viewer)).status).toBe(401);
     for (const trusted of [headers, owner]) expect(await names(query, trusted)).toEqual(expect.arrayContaining(["ordinary.md", ".env.local", ".opencode"]));
   }
   const protectedQueries: Array<Record<string, string>> = [{ path: ".opencode" }, { path: ".opencode", within: ".opencode" }, { path: "notes/.opencode", within: "notes" }];
   for (const query of protectedQueries) {
-    expect((await f.request(`/workspace/test/files/list?${new URLSearchParams(query)}`, undefined, viewer)).status).toBe(403);
+    expect((await f.request(`/workspace/test/files/list?${new URLSearchParams(query)}`, undefined, viewer)).status).toBe(401);
     for (const trusted of [headers, owner]) expect((await f.request(`/workspace/test/files/list?${new URLSearchParams(query)}`, undefined, trusted)).status).toBe(200);
   }
 });
@@ -375,9 +361,7 @@ test("Windows stream suffixes and trailing dots or spaces cannot rename protecte
 test.skipIf(process.platform !== "win32")("viewer cannot open protected configuration through a Windows alternate data stream", async () => {
   const f = await fixture();
   await writeFile(join(f.root, "opencode.json"), JSON.stringify({ provider: { secret: "synthetic-ads-sentinel" } }));
-  const issued = await f.request("/tokens", { scope: "viewer", label: "ads test" }, hostHeaders);
-  const token: { token: string } = await issued.json();
-  const viewer = { ...headers, Authorization: `Bearer ${token.token}` };
+  const viewer = { ...headers, Authorization: "Bearer owt_retired_viewer" };
   for (const path of ["opencode.json::$DATA", "opencode.json.", "opencode.json "]) {
     for (const method of ["raw", "content", "stat"]) {
       const response = await f.request(`/workspace/test/files/${method}?${new URLSearchParams({ path })}`, undefined, viewer);

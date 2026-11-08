@@ -118,7 +118,7 @@ copyFileSync(constantsSrc, join(meta, "constants.json"))
 writeJson(join(meta, "package.json"), {
   name: "legalwork-orchestrator",
   version,
-  description: "LegalWork host orchestrator for opencode + LegalWork server + opencode-router",
+  description: "LegalWork host orchestrator for OpenCode and LegalWork server",
   license: "MIT",
   bin: {
     legalwork: "./bin/legalwork",

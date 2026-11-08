@@ -49,6 +49,9 @@ run(nodeCmd, [resolve(repoRoot, "lawoss/engine-dependencies/package-runtime.mjs"
 run(nodeCmd, [resolve(__dirname, "prepare-actaport-mcp.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-opencode-sdk.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-windows-arm64-speech.mjs")], desktopRoot);
+if (!existsSync(resolve(desktopRoot, "node_modules/@ricky0123/vad-web/dist/silero_vad_legacy.onnx"))) {
+  throw new Error("Bundled dictation speech detector missing; install desktop dev dependencies before packaging.");
+}
 run(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], desktopRoot);
 // Build the server TS → JS so Electron can import it in-process

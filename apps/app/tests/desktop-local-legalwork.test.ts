@@ -46,7 +46,8 @@ test("first connection and each credential, address, port or access change still
   expect(f.changes()).toBe(1);
   for (const change of [
     { ownerToken: "rotated-owner" }, { hostToken: "rotated-host" },
-    { baseUrl: "http://127.0.0.1:43211" }, { port: 43211 }, { remoteAccessEnabled: true },
+    // Upstream v0.2.18: remote access is retired; the desktop API stays on loopback.
+    { baseUrl: "http://127.0.0.1:43211" }, { port: 43211 },
   ]) {
     const before = f.changes();
     Object.assign(f.info, change);

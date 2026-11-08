@@ -29,7 +29,7 @@ function keyFor(plan: PluginImportPlan, target: ImportTarget): string {
   // Re-review if an owned connector's setup changes, including an endpoint change.
   const owned = new Set(target.installed?.files.filter(file => file.objectType === "mcp").map(file => file.path.replace(/^opencode\.jsonc#mcp\./, "")));
   const setup = Object.fromEntries(Object.keys(plan.connectorConfigs ?? {}).filter(name => owned.has(name)).map(name => [name, target.current[name]]));
-  return createHash("sha256").update(JSON.stringify([plan.preview.id, plan.preview.digest, target.workspace, target.scope, setup, target.installed?.connectorDefaults, process.env.LEGALWORK_MCP_CLIENT_METADATA_URL, target.available?.map(item => [item.pluginId, item.provenance?.digest, item.importState?.readiness])])).digest("hex");
+  return createHash("sha256").update(JSON.stringify([plan.preview.id, plan.preview.digest, target.workspace, target.scope, plan.preview.provenance?.convertPluginSkills, plan.preview.provenance?.workflowSkillPaths, setup, target.installed?.connectorDefaults, process.env.LEGALWORK_MCP_CLIENT_METADATA_URL, target.available?.map(item => [item.pluginId, item.provenance?.digest, item.importState?.readiness])])).digest("hex");
 }
 
 /** Check from the actual LegalWork server; never execute imported programs or read another app's credentials. */

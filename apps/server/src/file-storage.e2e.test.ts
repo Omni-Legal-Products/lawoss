@@ -31,13 +31,12 @@ let rootPath: string;
 let config: ServerConfig;
 let server: Awaited<ReturnType<typeof startServer>>;
 let base: string;
-let viewerToken: string;
+const viewerToken = "owt_retired_viewer";
 let agentContext: { sessionID: string; directory: string };
 const priorEnv = { ...process.env };
 const idSchema = z.object({ connection: z.object({ id: z.string() }) });
 const fileSchema = z.object({ dataBase64: z.string(), version: z.string(), writable: z.boolean() });
 const rootSchema = z.object({ roots: z.array(z.object({ id: z.string(), name: z.string(), writable: z.boolean() })) });
-const tokenSchema = z.object({ token: z.string() });
 const offlineInput = () =>
   storageInputSchema.parse({ name: "Firm WebDAV", config: { kind: "webdav", endpoint: "http://127.0.0.1:1" } });
 
@@ -108,12 +107,6 @@ beforeAll(async () => {
   // afterAll restores the environment, including the engine credential set here.
   agentContext = (await engineAgentSession(config, { sessionID: "ses_storage", directory: temporary })).context;
   await engineAgentSession(config, { sessionID: "ses_storage_viewer", directory: temporary, scope: "viewer" });
-  const issued = await fetch(`${base}/tokens`, {
-    method: "POST",
-    headers: { "x-legalwork-host-token": config.hostToken, "content-type": "application/json" },
-    body: JSON.stringify({ scope: "viewer", label: "storage-test" }),
-  });
-  viewerToken = tokenSchema.parse(await issued.json()).token;
 });
 afterAll(async () => {
   await server?.stop();
@@ -164,7 +157,7 @@ describe("storage API access and validation", () => {
       for (const folder of ["first", "second"])
         ids.push(await connect(storageInputSchema.parse({ name: folder, config: { kind: "webdav", endpoint: `${dav.endpoint}/${folder}` } })));
       const body = { path: "matter", kind: "folder", destinationId: ids[1], destinationPath: "", mode: "move" };
-      expect((await api("POST", `/${ids[0]}/transfer`, body, "viewer", "storage-test", { Accept: "text/event-stream" })).status).toBe(403);
+      expect((await api("POST", `/${ids[0]}/transfer`, body, "viewer", "storage-test", { Accept: "text/event-stream" })).status).toBe(401);
       const response = await api("POST", `/${ids[0]}/transfer`, body, "owner", "storage-test", { Accept: "text/event-stream" });
       expect(response.headers.get("content-type")).toContain("text/event-stream");
       if (!response.body) throw new Error("Missing stream");
@@ -200,7 +193,7 @@ describe("storage API access and validation", () => {
       }
       const [first, second, reference] = ids;
       const body = { path: "matter", kind: "folder", destinationId: second, destinationPath: "", mode: "move" };
-      expect((await api("POST", `/${first}/transfer`, body, "viewer")).status).toBe(403);
+      expect((await api("POST", `/${first}/transfer`, body, "viewer")).status).toBe(401);
       expect((await api("POST", `/${first}/transfer`, { ...body, path: "../outside" })).status).toBe(400);
       expect((await api("POST", `/${first}/transfer`, { ...body, destinationId: first, destinationPath: "matter/nested" })).status).toBe(400);
       expect((await api("POST", `/${first}/transfer`, { ...body, destinationId: reference })).status).toBe(403);
@@ -368,9 +361,9 @@ describe("storage API access and validation", () => {
   test("rejects local folder connections and ignores legacy records without breaking other storage", async () => {
     const input = offlineInput();
     const id = await connect(input);
-    expect((await api("POST", `/${id}/rename`, { path: "file", name: "new", kind: "file" }, "viewer")).status).toBe(403);
-    expect((await api("DELETE", `/${id}/file?path=file`, undefined, "viewer")).status).toBe(403);
-    expect((await api("DELETE", `/${id}/folders?path=folder&recursive=true`, undefined, "viewer")).status).toBe(403);
+    expect((await api("POST", `/${id}/rename`, { path: "file", name: "new", kind: "file" }, "viewer")).status).toBe(401);
+    expect((await api("DELETE", `/${id}/file?path=file`, undefined, "viewer")).status).toBe(401);
+    expect((await api("DELETE", `/${id}/folders?path=folder&recursive=true`, undefined, "viewer")).status).toBe(401);
     const local = { name: "Removed local folder", config: { kind: "local", rootPath } };
     expect(storageInputSchema.safeParse(local).success).toBe(false);
     expect((await api("POST", "", local)).status).toBe(400);
@@ -432,15 +425,11 @@ describe("storage API access and validation", () => {
       await dav.stop(true);
     }
   });
-  test("enforces read-only and viewer permissions, disabled connections and removal", async () => {
+  test("enforces read-only permissions, rejects retired viewers, and handles disabled connections and removal", async () => {
     const input = offlineInput();
     const id = await connect(input);
-    expect((await api("POST", `/${id}/folders`, { path: "forbidden" }, "viewer")).status).toBe(403);
-    expect(
-      rootSchema
-        .parse(await (await api("GET", "/roots", undefined, "viewer")).json())
-        .roots.find((root) => root.id === id)?.writable,
-    ).toBe(false);
+    expect((await api("POST", `/${id}/folders`, { path: "forbidden" }, "viewer")).status).toBe(401);
+    expect((await api("GET", "/roots", undefined, "viewer")).status).toBe(401);
     await api("PUT", `/${id}`, { ...input, readOnly: true });
     expect((await api("POST", `/${id}/folders`, { path: "forbidden" })).status).toBe(403);
     expect((await api("POST", `/${id}/rename`, { path: "file", name: "new", kind: "file" })).status).toBe(403);
@@ -601,7 +590,7 @@ async function roundTrip(input: StorageInput) {
   ).toBe(107);
   expect(listing.nested.entries.map((item) => item.name)).toEqual(["hidden.txt"]);
   // Filename lookup must reach unopened descendants, even on prefix-only S3.
-  const filenameResults = await api("POST", `/${id}/filename-search`, { query: "IDDEN", path: folder }, "viewer");
+  const filenameResults = await api("POST", `/${id}/filename-search`, { query: "IDDEN", path: folder }, "collaborator");
   expect(filenameResults.status).toBe(200);
   const filenamePage = await filenameResults.json();
   expect(filenamePage.entries.map((item: { path: string }) => item.path)).toEqual([`${folder}/nested/hidden.txt`]);
@@ -612,7 +601,7 @@ async function roundTrip(input: StorageInput) {
       "POST",
       `/${id}/filename-search`,
       { query: "IDDEN", path: folder, cursor: filenameCursor },
-      "viewer",
+      "collaborator",
     );
     expect(next.status).toBe(200);
     const page = await next.json();
@@ -734,7 +723,7 @@ async function roundTrip(input: StorageInput) {
   ).toBe(400);
   expect(
     (await api("POST", `/${id}/local-copy`, { localPath: copy.localPath, targetPath: "viewer.bin" }, "viewer")).status,
-  ).toBe(403);
+  ).toBe(401);
   await agentRoundTrip(id, folder);
   await mutationRoundTrip(id, folder);
   await api("DELETE", `/${id}`);
@@ -771,7 +760,7 @@ async function mutationRoundTrip(id: string, folder: string) {
   expect((await api("DELETE", `/${id}/folders?recursive=true`)).status).toBe(400);
   expect((await api("DELETE", `/${id}/folders?${new URLSearchParams({ path: destination })}`)).status).toBe(400);
   const deletion = `/${id}/folders?${new URLSearchParams({ path: destination, recursive: "true" })}`;
-  expect((await api("DELETE", deletion, undefined, "viewer")).status).toBe(403);
+  expect((await api("DELETE", deletion, undefined, "viewer")).status).toBe(401);
   expect((await api("DELETE", deletion)).status).toBe(200);
   const remaining: string[] = [];
   let cursor: string | undefined;
