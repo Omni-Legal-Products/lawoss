@@ -41,6 +41,7 @@ Pribalená používateľská príručka (`docs/user-guide`, skill `legalwork-hel
 | `apps/app/src/react-app/domains/views/view-renderer.tsx` | Upstream ukladanie a export prehľadov + LAWOSS lenivé načítanie OpenUI, preklady (`views.display_failed`, `views.limited_data`) a bez 15 s obnovy otvoreného prehľadu (`staleTime`/`gcTime`, #367). |
 | `apps/desktop/electron/main.mjs`, `apps/desktop/package.json`, `apps/server/package.json`, `package.json` | Lokalizovaný názov okna exportu pre podporu ostáva; upstream technický export, `dashboardFileImporter`, `gen-core-skills` v builde a nové testy popri LAWOSS. |
 | `AGENTS.md`, `README.md` | LAWOSS (upstream pravidlá príručky neprevzaté). |
+| `lawoss/engine-dependencies/package-runtime.mjs` (+ test, README), `.github/workflows/ci-desktop-packaging.yml` | Hostiteľský Node pre balenie runtime-tools je 24.22.1 ako upstream v0.2.x (`.nvmrc`, release a alfa workflowy). So starým kontraktom 24.21.0 padali všetky joby „Package and launch“ na `RUNTIME_PACKAGE_FAILED` (`INVALID_NODE`). LAWOSS joby memory-budget a windows-engine-* majú tiež 24.22.1. |
 | `.github/workflows/ci-windows-portable.yml` | Krok `pnpm docs:generate` po inštalácii: testy importujú ignorovaný `apps/server/src/help-i18n.generated.ts`, ktorý vzniká až generátorom. |
 
 Overené: `meeting-monitor.mjs` má ďalej `detectionDefault` (LAWOSS `false`), akcie LAWOSS v `ci-tests.yml` ostávajú pripnuté na SHA. `sk.ts` a `cs.ts`: 61 nových kľúčov, 2 zrušené odstránené. `opencodeVersion` ostáva 1.18.29.
