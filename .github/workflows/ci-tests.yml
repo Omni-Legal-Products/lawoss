@@ -206,6 +206,7 @@ jobs:
       - name: Verify report source evidence checks
         run: |
           python3 -m venv "$RUNNER_TEMP/legalwork-report-tests"
+          "$RUNNER_TEMP/legalwork-report-tests/bin/python" -I -S apps/server/resources/agent-sandbox/bootstrap-pip.py
           "$RUNNER_TEMP/legalwork-report-tests/bin/python" -m pip install python-docx==1.2.0
           "$RUNNER_TEMP/legalwork-report-tests/bin/python" apps/server/scripts/test-report-evidence.py
           "$RUNNER_TEMP/legalwork-report-tests/bin/python" apps/server/scripts/test-report-from-reviews.py

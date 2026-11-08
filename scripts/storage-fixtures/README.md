@@ -6,7 +6,7 @@ workspace, credentials, or cloud accounts.
 
 ## Start services
 
-Requirements: pnpm, Bun 1.4.2+, uv, Docker Compose, and `opencode` on PATH for the dev app.
+Requirements: pnpm, Bun 1.4.2+, uv 0.13.4+, Docker Compose, and `opencode` on PATH for the dev app.
 
 ```sh
 pnpm install

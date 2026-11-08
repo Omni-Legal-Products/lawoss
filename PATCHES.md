@@ -1,5 +1,9 @@
 # LAWOSS downstream patches
 
+## Sync upstream v0.2.14 (2026-11-08, ADR 0016)
+
+Dôvera certifikátov inštalátora Pythonu a seed virtualenv (pip 26.2.2 cez `bootstrap-pip.py`). Odchýlka: `apps/server/resources/agent-sandbox/Dockerfile` má LAWOSS overenie hostovského enginu (`protected-opencode-guest-proof.json`) aj upstream bootstrap pip pred inštaláciou `requirements.txt`.
+
 ## Sync upstream v0.2.13 (2026-11-08, ADR 0016)
 
 Bezpečnostné opravy z októbra (Node 24.22.1, overrides `proxy-addr`, `seroval`) a spoľahlivejšia notarizácia macOS. Odchýlky: workflowy berú upstream `node-version: 24.22.1`, ale ponechávajú akcie LAWOSS pripnuté na SHA (`pnpm/action-setup`, `oven-sh/setup-bun`) a krok `protected-engine-assets` v `sandbox-runtime.yml`; `pnpm-workspace.yaml` a `pnpm-lock.yaml` majú LAWOSS override `axios` aj nové upstream. Lockfile prešiel `--frozen-lockfile`.

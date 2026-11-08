@@ -1,5 +1,6 @@
 *
 !Dockerfile
+!bootstrap-pip.py
 !relay.py
 !supervisor.py
 !network.py
