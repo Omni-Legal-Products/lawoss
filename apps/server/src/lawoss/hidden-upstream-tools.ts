@@ -1,18 +1,19 @@
 /**
  * LAWOSS: nástroje agenta z LegalWork v0.2.x, ktoré alfa neprevzala (spec 0017, časť 8.1, S1 a S2).
  *
- * Wiki, uložené pohľady, kalendár, výpočet lehôt, plánované úlohy a metadáta projektu by
+ * Wiki, kalendár, výpočet lehôt, plánované úlohy a metadáta projektu by
  * zakladali druhý zdroj pravdy vedľa OKF. Upstream kód ostáva na disku nedotknutý; návrat je
  * zmena jedného riadku tu.
  */
 
-/** S1: plugin `legalwork-wiki-tools` (nástroje `wiki_*`, `view_*` a ich blok pravidiel) sa nenačíta. Návrat: `true`. */
+/** S1: plugin `legalwork-wiki-tools` (nástroje `wiki_*` a ich blok pravidiel) sa nenačíta. Návrat: `true`. */
 export const LAWOSS_LOAD_WIKI_TOOLS = false;
+// Dataset views use the separate lawoss-view-tools adapter; no wiki knowledge store.
 
 /**
  * S2: zapisujúce nástroje upstreamu, ktoré agent nesmie použiť. Kľúče sú pravidlá oprávnení enginu,
  * hviezdička platí ako zástupný znak (OpenCode 1.18, `agent-sandbox/permissions.ts`).
- * `wiki_*` a `view_*` sú poistka pre prípad, že plugin wiki načíta iná konfigurácia. Návrat: prázdny zoznam.
+ * `wiki_*` je poistka pre prípad, že plugin wiki načíta iná konfigurácia. Návrat: prázdny zoznam.
  */
 export const LAWOSS_DENIED_UPSTREAM_TOOLS: readonly string[] = [
   "legalwork_calendar_create",
@@ -24,7 +25,6 @@ export const LAWOSS_DENIED_UPSTREAM_TOOLS: readonly string[] = [
   "legalwork_schedule_delete",
   "legalwork_project_set_metadata",
   "wiki_*",
-  "view_*",
 ];
 
 /**

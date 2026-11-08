@@ -2,6 +2,7 @@ import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import type { SkillCard } from "../../../app/types";
 import type { ImportedPlugin } from "../../../app/lib/extension-imports";
@@ -48,8 +49,8 @@ export function NativeCatalog(props: Props) {
   const catalog = getMarketplaceCatalog(locale);
   const marketplace = useLawossMarketplace({ api: props.marketplaceApi, workspaceId: props.workspaceId || null, checkOnOpen: true });
   const [target, setTarget] = useState<Target>("global");
-  const [query, setQuery] = useState("");
-  const matching = filterCatalogEntries(catalog, query);
+  const [search, setSearch] = useState("");
+  const filtered = filterCatalogEntries(catalog, search);
   const globalReady = Boolean(marketplace.api);
   const effectiveTarget: Target = globalReady ? target : "workspace";
   const refreshAll = async () => {
@@ -83,6 +84,9 @@ export function NativeCatalog(props: Props) {
     <div className="space-y-2">
       <h4 className="text-sm font-semibold text-dls-text">{t("lawoss.integrations.catalog.all_title", locale)}</h4>
       <p className="text-sm text-dls-secondary">{t("lawoss.integrations.catalog.all_description", locale)}</p>
+      <Input type="search" value={search} onChange={event => setSearch(event.target.value)}
+        aria-label={t("lawoss.integrations.catalog.search", locale)} placeholder={t("lawoss.integrations.catalog.search", locale)} />
+      {!filtered.length ? <p role="status" className="py-3 text-sm text-dls-secondary">{t("lawoss.integrations.catalog.no_matches", locale)}</p> : null}
       <fieldset data-lawoss-target={effectiveTarget} className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-dls-text">
         <legend className="mb-1 text-xs text-dls-secondary">{t("lawoss.marketplace.target.label", locale)}</legend>
         <label className="flex items-center gap-2">
@@ -94,16 +98,12 @@ export function NativeCatalog(props: Props) {
           {t("lawoss.marketplace.target.workspace", locale, { name: props.workspaceName || t("lawoss.integrations.catalog.workspace", locale) })}
         </label>
       </fieldset>
-      <input type="search" value={query} onChange={(event) => setQuery(event.target.value)}
-        aria-label={t("lawoss.integrations.catalog.search", locale)} placeholder={t("lawoss.integrations.catalog.search", locale)}
-        className="h-9 w-full rounded-lg border border-dls-border bg-transparent px-3 text-sm text-dls-text sm:w-64" />
     </div>
-    {matching.length === 0 ? <p role="status" className="text-sm text-dls-secondary">{t("lawoss.integrations.catalog.no_matches", locale)}</p> : null}
-    {matching.some((entry) => entry.install.action === "okf") ? <CatalogSection id="bundled" label={t("lawoss.integrations.catalog.bundled_section", locale)}>
-      {matching.filter((entry) => entry.install.action === "okf").map(card)}
+    {filtered.some(entry => entry.install.action === "okf") ? <CatalogSection id="bundled" label={t("lawoss.integrations.catalog.bundled_section", locale)}>
+      {filtered.filter((entry) => entry.install.action === "okf").map(card)}
     </CatalogSection> : null}
     {marketplaceCategories(locale).filter((category) => category.kind !== "bundles").map((category) => {
-      const entries = matching.filter((entry) => entry.category === category.id);
+      const entries = filtered.filter((entry) => entry.category === category.id);
       return entries.length ? <CatalogSection key={category.id} id={category.id} label={category.label}>{entries.map(card)}</CatalogSection> : null;
     })}
   </section>;
@@ -111,7 +111,7 @@ export function NativeCatalog(props: Props) {
 
 function CatalogSection({ id, label, children }: { id: string; label: string; children: ReactNode }) {
   return <div data-lawoss-category={id} className="space-y-2">
-    <h5 className="text-[11px] font-medium text-dls-secondary">{label}</h5>
+    <h5 className="text-sm font-medium text-dls-secondary">{label}</h5>
     <div className="grid gap-3 sm:grid-cols-2">{children}</div>
   </div>;
 }

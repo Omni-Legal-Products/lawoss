@@ -3,10 +3,12 @@
 .lw-saved-view-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; color: var(--muted-foreground); font-size: 11px; margin-bottom: 20px; }
 .lw-saved-view-loading { display: flex; gap: 8px; align-items: center; color: var(--muted-foreground); font-size: 13px; min-height: 80px; }
 .lw-saved-view-error { font-size: 13px; padding: 16px; color: var(--destructive); }
-.lw-saved-view-error pre { white-space: pre-wrap; font-size: 12px; }
+.lw-saved-view-error pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 20rem; overflow: auto; }
 .lw-view-data-note, .lw-view-provenance { margin-top: 20px; font-size: 11px; color: var(--muted-foreground); }
 .lw-view-provenance summary { cursor: pointer; }
-.lw-view-provenance button { display: block; margin-top: 6px; text-align: left; text-decoration: underline; }
+.lw-view-provenance button { display: block; min-height: 32px; max-width: 100%; overflow-wrap: anywhere; margin-top: 6px; text-align: left; text-decoration: underline; text-underline-offset: 3px; }
+.lw-view-provenance :is(button, summary):focus-visible { outline: 2px solid var(--lw-focus-ring); outline-offset: 3px; border-radius: var(--lw-radius-sm); }
+.lw-saved-view > .lw-saved-view { padding: 0; }
 .lw-inline-view { position: relative; border: 1px solid var(--border); border-radius: 12px; margin: 20px 0; overflow: hidden; }
 .lw-inline-view-open { position: absolute; right: 12px; top: 18px; z-index: 2; padding: 2px; color: var(--muted-foreground); cursor: pointer; }
 

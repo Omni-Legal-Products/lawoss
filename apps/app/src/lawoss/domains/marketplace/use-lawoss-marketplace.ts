@@ -3,7 +3,7 @@
  * Čítanie stavu nejde na sieť; sieť ide len pri `check` (otvorenie Marketplace, tlačidlo)
  * a pri inštalácii, aktualizácii a presune, teda po akcii advokáta.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connection";
@@ -60,41 +60,50 @@ export function installFailureMessage(error: unknown): string {
 }
 
 export function useLawossMarketplace(options: { api?: LawossMarketplaceApi | null; workspaceId?: string | null; checkOnOpen?: boolean } = {}) {
-  const [api, setApi] = useState<LawossMarketplaceApi | null>(options.api ?? null);
-  const [view, setView] = useState<MarketplaceView | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [checking, setChecking] = useState(false);
+  const [loadedApi, setApi] = useState<LawossMarketplaceApi | null>(null);
+  const api = options.api === undefined ? loadedApi : options.api;
   const workspaceId = options.workspaceId ?? null;
+  const scope = useMemo(() => ({ active: true, request: 0, checks: 0 }), [api, workspaceId]);
+  const [result, setResult] = useState<{ scope: typeof scope; view: MarketplaceView | null; error: string | null } | null>(null);
+  const [checkingScope, setCheckingScope] = useState<typeof scope | null>(null);
+  useEffect(() => {
+    scope.active = true;
+    return () => { scope.active = false; scope.request++; };
+  }, [scope]);
 
   useEffect(() => {
-    if (options.api !== undefined) { setApi(options.api); return; }
+    if (options.api !== undefined) return;
     let cancelled = false;
     void loadMarketplaceApi().then((loaded) => { if (!cancelled) setApi(loaded); }, () => undefined);
     return () => { cancelled = true; };
   }, [options.api]);
 
   const refresh = useCallback(async () => {
-    if (!api) return;
+    if (!api || !scope.active) return;
+    const request = ++scope.request;
     try {
-      setView(await api.view(workspaceId));
-      setError(null);
+      const view = await api.view(workspaceId);
+      if (scope.active && scope.request === request) setResult({ scope, view, error: null });
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      if (scope.active && scope.request === request) setResult({ scope, view: null, error: failure instanceof Error ? failure.message : String(failure) });
     }
-  }, [api, workspaceId]);
+  }, [api, workspaceId, scope]);
 
   const check = useCallback(async (reason: "open" | "manual") => {
-    if (!api) return;
-    setChecking(true);
+    if (!api || !scope.active || scope.checks) return;
+    const request = ++scope.request;
+    scope.checks++;
+    setCheckingScope(scope);
     try {
-      setView(await api.check(reason, workspaceId));
-      setError(null);
+      const view = await api.check(reason, workspaceId);
+      if (scope.active && scope.request === request) setResult({ scope, view, error: null });
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      if (scope.active && scope.request === request) setResult({ scope, view: null, error: failure instanceof Error ? failure.message : String(failure) });
     } finally {
-      setChecking(false);
+      scope.checks--;
+      if (scope.active) setCheckingScope(current => current === scope ? null : current);
     }
-  }, [api, workspaceId]);
+  }, [api, workspaceId, scope]);
 
   useEffect(() => {
     if (!api) return;
@@ -109,7 +118,8 @@ export function useLawossMarketplace(options: { api?: LawossMarketplaceApi | nul
     await refresh();
   }, [api, refresh]);
 
-  return { api, view, error, checking, refresh, check, setWeeklyCheck };
+  return { api, view: result?.scope === scope ? result.view : null, error: result?.scope === scope ? result.error : null,
+    checking: checkingScope === scope, refresh, check, setWeeklyCheck };
 }
 
 export type LawossMarketplaceState = ReturnType<typeof useLawossMarketplace>;

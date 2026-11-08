@@ -41,6 +41,7 @@ import {
   legalworkToolOutputPluginPath,
   legalworkReviewToolsPluginPath,
   legalworkWikiToolsPluginPath,
+  lawossViewToolsPluginPath,
   legalworkExcelToolsPluginPath,
   legalworkPowerPointToolsPluginPath,
   legalworkBenchmarkToolsPluginPath,
@@ -374,6 +375,7 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkPluginPath("lawoss-memory-tools"), config),
       // LAWOSS: wiki sa v alfe nenačíta (spec 0017 S1, lawoss/hidden-upstream-tools.ts).
       ...(LAWOSS_LOAD_WIKI_TOOLS ? [bundledPluginSpec(legalworkWikiToolsPluginPath(), config)] : []),
+      ...(!LAWOSS_LOAD_WIKI_TOOLS ? [bundledPluginSpec(lawossViewToolsPluginPath(), config)] : []),
       bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
       // The member's own plugins, unless the firm allows none.
       ...(config && (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : runtimePluginList(runtimeConfig)),

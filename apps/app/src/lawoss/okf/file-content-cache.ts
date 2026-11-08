@@ -5,15 +5,17 @@
 
 const MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 const MAX_FILE_BYTES = 1024 * 1024;
+const MAX_ENTRIES = 2048;
 /** Súbor zmenený práve teraz sa neukladá: ďalší zápis v tom istom tiku by mal rovnaký čas (NAS má aj 2 s). */
 const RACY_WINDOW_MS = 2_000;
 
 export type CachedFileContent = { path: string; content: string; bytes: number; updatedAt: number };
 type Listed = { size?: number; updatedAt?: number };
 
-export function createFileContentCache(options: { maxTotalBytes?: number; maxFileBytes?: number; now?: () => number } = {}) {
+export function createFileContentCache(options: { maxTotalBytes?: number; maxFileBytes?: number; maxEntries?: number; now?: () => number } = {}) {
   const maxTotal = options.maxTotalBytes ?? MAX_TOTAL_BYTES;
   const maxFile = options.maxFileBytes ?? MAX_FILE_BYTES;
+  const maxEntries = options.maxEntries ?? MAX_ENTRIES;
   const now = options.now ?? Date.now;
   const files = new Map<string, CachedFileContent>();
   let total = 0;
@@ -45,7 +47,7 @@ export function createFileContentCache(options: { maxTotalBytes?: number; maxFil
       files.set(key, { path: file.path, content: file.content, bytes: file.bytes, updatedAt: file.updatedAt });
       total += file.bytes;
       for (const oldest of files.keys()) {
-        if (total <= maxTotal) break;
+        if (total <= maxTotal && files.size <= maxEntries) break;
         remove(oldest);
       }
     },
@@ -54,4 +56,11 @@ export function createFileContentCache(options: { maxTotalBytes?: number; maxFil
   };
 }
 
-export const okfFileContents = createFileContentCache();
+// An API client owns its authentication and server identity. A replacement connection
+// gets a fresh cache; retired connections and their contents can be garbage-collected.
+const connectionCaches = new WeakMap<object, ReturnType<typeof createFileContentCache>>();
+export function fileContentCacheFor(connection: object) {
+  let cache = connectionCaches.get(connection);
+  if (!cache) { cache = createFileContentCache(); connectionCaches.set(connection, cache); }
+  return cache;
+}

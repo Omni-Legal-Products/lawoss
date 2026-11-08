@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createFileContentCache, okfFileContents } from "../src/lawoss/okf/file-content-cache";
+import { createFileContentCache, fileContentCacheFor } from "../src/lawoss/okf/file-content-cache";
 import { readWorkspaceMemory, type OkfReadClient } from "../src/lawoss/okf/read-model";
 
 const OLD = 1_700_000_000_000;
@@ -41,6 +41,12 @@ describe("cache obsahu súborov", () => {
     expect(cache.get("ws", "b.md", { size: 5, updatedAt: OLD })).toBeNull();
     expect(cache.get("ws", "a.md", { size: 5, updatedAt: OLD })?.content).toBe("aaaaa");
   });
+
+  test("aj prázdne súbory majú hranicu počtu položiek", () => {
+    const cache = createFileContentCache({ now, maxEntries: 2 });
+    for (let i = 0; i < 5; i++) cache.put("ws", file(`${i}.md`, ""));
+    expect(cache.size).toBe(2);
+  });
 });
 
 describe("readWorkspaceMemory s cache", () => {
@@ -72,17 +78,30 @@ describe("readWorkspaceMemory s cache", () => {
     const path = "AK/N/Novak/Spisy/M1/matter.md";
     const state = new Map([[path, { content: CARD, updatedAt: OLD }]]);
     const first: string[] = [];
-    const a = await readWorkspaceMemory(client(state, first), ws, "2026-09-12");
+    const connection = client(state, first);
+    const a = await readWorkspaceMemory(connection, ws, "2026-09-12");
     expect(first).toContain(path);
-    const second: string[] = [];
-    const b = await readWorkspaceMemory(client(state, second), ws, "2026-09-12");
-    expect(second).not.toContain(path);
+    first.length = 0;
+    const b = await readWorkspaceMemory(connection, ws, "2026-09-12");
+    expect(first).not.toContain(path);
     expect(b.inputs).toEqual(a.inputs);
     state.set(path, { content: "---\ntitle: Zmenený klient\nmatter_kind: advisory\n---\n", updatedAt: OLD + 5000 });
-    const third: string[] = [];
-    const c = await readWorkspaceMemory(client(state, third), ws, "2026-09-12");
-    expect(third).toContain(path);
+    first.length = 0;
+    const c = await readWorkspaceMemory(connection, ws, "2026-09-12");
+    expect(first).toContain(path);
     expect(JSON.stringify(c.inputs)).toContain("Zmenený klient");
-    expect(okfFileContents.totalBytes).toBeGreaterThan(0);
+    expect(fileContentCacheFor(connection).totalBytes).toBeGreaterThan(0);
+  });
+
+  test("rovnaké workspace id, čas a veľkosť na inom pripojení nevrátia cudzie dáta", async () => {
+    const ws = `ws-${crypto.randomUUID()}`, path = "AK/N/Novak/Spisy/M1/matter.md";
+    const first = new Map([[path, { content: CARD.replace("Syntetický klient", "SYN AA"), updatedAt: OLD }]]);
+    const second = new Map([[path, { content: CARD.replace("Syntetický klient", "SYN BB"), updatedAt: OLD }]]);
+    await readWorkspaceMemory(client(first, []), ws, "2026-09-12");
+    const reads: string[] = [];
+    const result = await readWorkspaceMemory(client(second, reads), ws, "2026-09-12");
+    expect(reads).toContain(path);
+    expect(JSON.stringify(result.inputs)).toContain("SYN BB");
+    expect(JSON.stringify(result.inputs)).not.toContain("SYN AA");
   });
 });

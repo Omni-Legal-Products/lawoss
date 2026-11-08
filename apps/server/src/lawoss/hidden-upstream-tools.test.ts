@@ -86,9 +86,10 @@ test("S2: zapisujúce nástroje upstreamu sú zamietnuté aj pri širokom povole
   // Upstream pravidlo pokynov projektu ostáva posledné.
   expect(keys.at(-1)).toBe("legalwork_project_set_instructions");
   // Vyhodnotenie ako v engine: zástupné znaky zachytia nástroje wiki aj pohľadov.
-  for (const tool of ["legalwork_calendar_create", "legalwork_schedule_delete", "legalwork_project_set_metadata", "wiki_write", "wiki_suggest", "view_create", "view_update"]) {
+  for (const tool of ["legalwork_calendar_create", "legalwork_schedule_delete", "legalwork_project_set_metadata", "wiki_write", "wiki_suggest"]) {
     expect(permissionAction(permission, tool, "*")).toBe("deny");
   }
+  expect(permissionAction(permission, "view_create", "*")).toBe("allow");
   // Čítanie a ostatné nástroje sa nemenia.
   expect(permissionAction(permission, "legalwork_calendar_list", "*")).toBe("allow");
   expect(permissionAction(permission, "bash", "*")).toBe("ask");
@@ -97,16 +98,16 @@ test("S2: zapisujúce nástroje upstreamu sú zamietnuté aj pri širokom povole
   const agents = parsed.agent;
   if (!isRecord(agents)) throw new Error("agents missing");
   const scheduled = permissionOf(agents["legalwork-scheduled-all"]);
-  for (const tool of ["legalwork_schedule_create", "wiki_write", "view_create"]) {
+  for (const tool of ["legalwork_schedule_create", "wiki_write"]) {
     expect(permissionAction(scheduled, tool, "*")).toBe("deny");
   }
   expect(permissionAction(permissionOf(agents["legalwork-scheduled-project"]), "legalwork_calendar_update", "*")).toBe("deny");
 });
 
 test("zamietnutie presunie existujúci kľúč na koniec", () => {
-  const permission: Record<string, unknown> = { "view_*": "allow", "*": "allow" };
+  const permission: Record<string, unknown> = { "wiki_*": "allow", "*": "allow" };
   appendLawossToolDenials(permission);
   const keys = Object.keys(permission);
-  expect(keys.indexOf("view_*")).toBeGreaterThan(keys.indexOf("*"));
-  expect(permissionAction(permission, "view_read", "*")).toBe("deny");
+  expect(keys.indexOf("wiki_*")).toBeGreaterThan(keys.indexOf("*"));
+  expect(permissionAction(permission, "wiki_read", "*")).toBe("deny");
 });
