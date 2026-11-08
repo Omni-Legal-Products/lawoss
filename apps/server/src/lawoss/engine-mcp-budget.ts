@@ -27,6 +27,12 @@ export type EngineMcpBudgetOptions = {
   idleMs: number;
   /** Beží v adresári chat? Neznáma odpoveď musí vrátiť true. */
   busy: (scope: EngineScope) => Promise<boolean>;
+  /**
+   * Rýchla kontrola pre zastaraný neotvorený priečinok: `true` len pri jasnej odpovedi „beží chat“.
+   * Neotvorený priečinok nemôže mať chat spustený cez LAWOSS (každý chat ho otvorí v rozpočte), preto
+   * nevypovedaná odpoveď (inštancia ešte štartuje) uvoľnenie nezdrží. Bez nej sa použije `busy`.
+   */
+  staleBusy?: (scope: EngineScope) => Promise<boolean>;
   /** Uvoľní inštanciu enginu (a tým aj jej MCP procesy). */
   dispose: (scope: EngineScope) => Promise<void>;
   /** Spustí sa raz po prijatí nového adresára (napr. registrácia MCP klienta). */
@@ -62,6 +68,13 @@ export type EngineMcpBudget = {
    * nasledujúci dotyk MCP počkal; bežiaci chat nepreruší (vráti `false`). MCP sa spustia až pri ďalšom použití.
    */
   reset(scope: EngineScope): Promise<boolean>;
+  /**
+   * Konfigurácia neotvoreného priečinka sa zmenila (Marketplace, SystemOne, politika firmy). Inštancia bez MCP
+   * sa neuvoľní hneď (bočný panel by ju o chvíľu postavil znova); uvoľní sa až pred ďalším prijatím MCP.
+   */
+  markStale(scope: EngineScope): void;
+  /** Pred akoukoľvek požiadavkou do priečinka: zastaranú inštanciu uvoľní (bežiaci chat nepreruší). */
+  refreshIfStale(scope: EngineScope): Promise<void>;
   /** Iná požiadavka do adresára predĺži jeho životnosť, ak je aktívny. */
   touch(scope: EngineScope): void;
   /** Inštanciu uvoľnil niekto iný (reload); prestane sa evidovať. */
@@ -89,6 +102,11 @@ export function initializesEngineMcp(method: string, path: string): boolean {
   if (verb === "GET" && path === "/command") return true;
   if (path.startsWith("/experimental/tool") || path.startsWith("/experimental/resource")) return true;
   return engineSessionAction(verb, path) !== null;
+}
+
+/** Engine cesty, ktorých odpoveď závisí od konfigurácie inštancie (poskytovatelia, agenti, skilly). */
+export function readsEngineConfig(path: string): boolean {
+  return /^\/(?:provider|config|agent|skill|formatter|lsp)(?:\/|$)/.test(path);
 }
 
 export function scopeKey(scope: Pick<EngineScope, "baseUrl" | "directory">): string {
@@ -157,6 +175,8 @@ export function engineMcpBudgetSettings(env: Record<string, string | undefined> 
 export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMcpBudget {
   const now = options.now ?? Date.now;
   const active = new Map<string, Entry>();
+  const stale = new Set<string>();
+  const staleBusy = (scope: EngineScope) => (options.staleBusy ?? options.busy)(scope).catch(() => false);
   let openings = 0;
   // Prijímanie a uvoľňovanie ide postupne, aby dva súbežné prvé dotyky
   // nepostavili dve inštancie nad limit.
@@ -229,6 +249,11 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
           return release(current);
         }
         await makeRoom(options.limit - 1);
+        // Zastaraná inštancia (zmena konfigurácie, kým bol klient neotvorený) sa pred MCP postaví znova.
+        if (stale.has(key) && !(await staleBusy(scope)) && stale.delete(key)) {
+          await options.dispose(scope).catch(() => undefined);
+          options.log?.("Engine instance released", { "engine.directory": scope.directory, "engine.reason": "stale" });
+        }
         const entry: Entry = { scope, lastUsed: now(), opened: ++openings, inflight: 1, ready: Promise.resolve() };
         active.set(key, entry);
         if (active.size > options.limit && options.limit > 0) {
@@ -241,6 +266,7 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
     },
     adopt(scope) {
       const key = scopeKey(scope);
+      stale.delete(key);
       return serialized(async () => {
         const current = active.get(key);
         if (current) { current.lastUsed = now(); current.opened = ++openings; return; }
@@ -264,6 +290,7 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
         if (await options.busy(scope).catch(() => true)) return false;
         if (active.get(key) !== entry || (entry && entry.inflight > 0)) return false;
         active.delete(key);
+        stale.delete(key);
         try {
           await options.dispose(scope);
         } catch (error) {
@@ -272,6 +299,22 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
         }
         options.log?.("Engine instance released", { "engine.directory": scope.directory, "engine.reason": "reset" });
         return true;
+      });
+    },
+    markStale(scope) {
+      const key = scopeKey(scope);
+      if (!active.has(key)) stale.add(key);
+    },
+    refreshIfStale(scope) {
+      const key = scopeKey(scope);
+      if (!stale.has(key)) return Promise.resolve();
+      return serialized(async () => {
+        if (!stale.has(key) || active.has(key)) { stale.delete(key); return; }
+        // Bežiaci chat sa nepreruší; obnoví sa pri ďalšej požiadavke po jeho dobehnutí.
+        if (await staleBusy(scope)) return;
+        if (!stale.delete(key)) return;
+        await options.dispose(scope).catch(() => undefined);
+        options.log?.("Engine instance released", { "engine.directory": scope.directory, "engine.reason": "stale" });
       });
     },
     touch(scope) {
@@ -297,6 +340,7 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
     },
     close() {
       active.clear();
+      stale.clear();
     },
   };
 }

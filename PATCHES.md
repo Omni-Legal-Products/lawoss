@@ -19,6 +19,18 @@ Rozpočet RAM 2 GB, #367 (ADR 0017). Meranie na strane syntetického skenu (1654
 
 Zostáva: samotný layout model má špičku ~1 GB, takže príprava skenu s rozložením sa k zvyšku appky (~1,4 GB) do 2 GB nezmestí. Rozhodnutie o režime pre slabé stroje (napr. OCR bez rozloženia) patrí do ADR.
 
+## Hromadná zmena konfigurácie neotvorených klientov bez studených štartov (2026-11-08, #367 N9)
+
+Retest alfa10 (N9): po inštalácii balíka „SK základ“ bol engine krátko 1,2–1,4 GB a celá appka nad 2 GB. Každý plugin balíka spustil reload všetkých inštancií; neotvorený klient sa uvoľnil a bočný panel ho hneď postavil znova (10 klientov: 77 inštancií vytvorených a 66 uvoľnených za 40 s).
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/server.ts` | Hromadné reloady na pozadí (Marketplace, SystemOne, Eigenwelt, politika firmy) volajú `deferDormantReload`: neotvorený klient sa len označí (`markStale`), otvorený sa obnoví ako doteraz. Zmeny Marketplace, ktoré prídu počas čakajúceho prechodu, sa zlúčia do neho. Zastaraná inštancia sa uvoľní pred ďalším prijatím MCP alebo pred požiadavkou, ktorá číta konfiguráciu (`readsEngineConfig`: poskytovatelia, konfigurácia, agenti, skilly); zoznam chatov a udalosti ju nepotrebujú. Kontrola bežiaceho chatu pre zastaraný priečinok je krátka (`engineDirectoryClearlyBusy`, 2 s): inštancia, ktorá ešte štartuje, otvorenie nezdrží; neotvorený priečinok nemôže mať chat spustený cez LAWOSS. |
+| `apps/server/src/server.ts` | Štyri reťazce reloadov na pozadí čakajú na predošlý cez `previousReload.catch(() => undefined)`, aby jedno zlyhanie nezablokovalo ďalšie. Zlyhaný prechod Marketplace vynuluje `marketplaceReloadQueued`. |
+| `apps/server/src/eigenwelt-workspace-reload.test.ts` | Neotvorené pracovné priestory sa uvoľnia pri ďalšej požiadavke na zoznam poskytovateľov, nie v prechode na pozadí; priestor s bežiacou úlohou sa neuvoľní. |
+
+Rozšírený LAWOSS súbor: `apps/server/src/lawoss/engine-mcp-budget.ts` (`markStale`, `refreshIfStale`, `staleBusy`, `readsEngineConfig`) + testy.
+
 ## Runner macos-14 nahradený macos-15 (2026-11-06)
 
 GitHub 2. 11. 2026 vyradil obraz `macos-14`: joby sa rušia bez runnera (`The configuration 'macos-14-arm64-us-default' is not supported`).

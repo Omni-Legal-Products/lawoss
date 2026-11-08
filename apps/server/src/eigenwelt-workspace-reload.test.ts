@@ -12,6 +12,10 @@ import type { ServerConfig } from "./types.js";
  * workspace kept serving its old provider list: no Eigenwelt models there
  * until it was reopened. The server now reloads the other idle workspaces
  * whenever the Eigenwelt models in the file change.
+ *
+ * LAWOSS (RAM 2 GB, #367 N9): a workspace without running MCP (not opened) is
+ * not disposed in the background pass; its instance is marked stale and
+ * released right before the next request to it, unless a task is running.
  */
 
 const priorEnv = { ...process.env };
@@ -98,9 +102,13 @@ const call = (method: string, path: string, body?: unknown) =>
 // The reloads run in the background, one workspace after another; the busy
 // workspace is checked last, so its status request marks the pass as done.
 async function reloadPassDone() {
-  for (let attempt = 0; attempt < 100 && !statusAsked.includes(dir("ws_busy")); attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+  await new Promise((resolve) => setTimeout(resolve, 200));
+}
+
+// The next request to a workspace (here its provider list) releases a stale instance first.
+async function touch(id: string) {
+  const response = await call("GET", `/workspace/${id}/opencode/provider`);
+  await response.arrayBuffer();
 }
 
 function reset() {
@@ -119,7 +127,12 @@ test("a sign-in from one workspace reloads the other idle workspaces' engines", 
   });
   expect(signIn.status).toBe(200);
   await reloadPassDone();
+  expect(reloaded).toEqual([]);
+  await touch("ws_b");
+  await touch("ws_busy");
   // ws_a is the app's own (it reloads it); ws_busy has a task that a reload would abort.
+  expect(reloaded).toEqual([dir("ws_b")]);
+  await touch("ws_b");
   expect(reloaded).toEqual([dir("ws_b")]);
 });
 
@@ -135,5 +148,6 @@ test("a sign-out reloads them too, so the models leave every workspace", async (
   reset();
   expect((await call("PUT", "/workspace/ws_b/eigenwelt/connection", { disconnect: true })).status).toBe(200);
   await reloadPassDone();
+  await touch("ws_a");
   expect(reloaded).toEqual([dir("ws_a")]);
 });
