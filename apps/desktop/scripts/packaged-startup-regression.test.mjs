@@ -21,6 +21,11 @@ async function packagedArchiveFor(target) {
   const libRequire = createRequire(createRequire(require.resolve("electron-builder")).resolve("app-builder-lib"));
   await libRequire("@electron/asar").createPackage(source, path.join(resources, "app.asar"));
   await rm(source, { recursive: true, force: true });
+  // Od upstream v0.2.11 skript overí aj pribalené OpenCode SDK (packaged-opencode-sdk.cjs).
+  const plugin = path.join(resources, "opencode-sdk", "node_modules", "@opencode-ai", "plugin");
+  await mkdir(plugin, { recursive: true });
+  await writeFile(path.join(resources, "opencode-sdk", "package.json"), JSON.stringify({ dependencies: { "@opencode-ai/plugin": "0.0.0-test" } }));
+  await writeFile(path.join(plugin, "package.json"), JSON.stringify({ name: "@opencode-ai/plugin", version: "0.0.0-test" }));
 }
 
 function killIfRunning(pid) {
