@@ -337,11 +337,13 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
 
   const setReleaseChannel = useCallback(
     async (next: ReleaseChannel) => {
+      setUpdateStatus(null);
       onReleaseChannelChange(next);
       const bridge = electronUpdaterBridge();
       if (!bridge?.setChannel) return;
       try {
         const state = await bridge.setChannel(next);
+        setUpdateStatus(null);
         dispatchEnvState({ type: "app-version", appVersion: state.currentVersion ?? null });
         if (state.channel && state.channel !== next) {
           onReleaseChannelChange(state.channel);
@@ -351,7 +353,7 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
         setUpdateStatus({ state: "error", message: describeError(error) });
       }
     },
-    [checkForUpdates, onReleaseChannelChange],
+    [checkForUpdates, onReleaseChannelChange, setUpdateStatus],
   );
 
   return {

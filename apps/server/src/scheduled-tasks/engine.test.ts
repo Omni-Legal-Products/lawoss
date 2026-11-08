@@ -111,6 +111,18 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
       z.record(z.string(), z.unknown()).parse(await response.json());
     }
     const client = createOpencodeClient({ baseUrl: base, directory: otherFolder });
+    // Health only confirms the listener. The first request in each directory
+    // also loads plugins and installs their dependencies on a cold CI runner.
+    // Finish that read-only bootstrap before applying the 10s write deadline.
+    for (const directory of [otherFolder, folder]) {
+      try {
+        await client.app.agents({ directory }, { throwOnError: true, signal: AbortSignal.timeout(60_000) });
+      } catch (error) {
+        engine.kill("SIGKILL");
+        await engine.exited;
+        throw new Error(`Engine bootstrap failed for ${directory}: ${await logs}`, { cause: error });
+      }
+    }
     const { data: sourceSession } = await client.session.create({ title: "Other project chat" }, { throwOnError: true, signal: AbortSignal.timeout(10000) });
     sourceSessionId = sourceSession.id;
     for (let i = 0; i < 23; i++) await client.session.prompt({ sessionID: sourceSession.id, noReply: true, parts: [{ type: "text", text: `Source message ${i}: Continue the contract review.` }] }, { throwOnError: true, signal: AbortSignal.timeout(10000) });

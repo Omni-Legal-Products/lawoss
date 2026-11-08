@@ -51,7 +51,7 @@ import { toast } from "@/components/ui/sonner";
 import type { AudioRecordingMeta } from "@legalwork/types/audio";
 
 import { ModelTierSelect } from "./model-tier-select";
-import { isTranscriptionReady } from "./recorder-store";
+import { isCloudAvailabilityError, isTranscriptionReady } from "./recorder-store";
 import { PermissionsPanel } from "./permissions-panel";
 import {
   RecorderSetup,
@@ -411,10 +411,25 @@ export function RecorderPane(props: {
   };
 
   useEffect(() => {
-    void store.init();
-    // The store is module-scoped; init is idempotent.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const refresh = () => { void store.refreshBootstrap(); };
+    if (useRecorderStore.getState().initialized) refresh();
+    else void store.init();
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("online", refresh);
+    };
+  }, [store.init, store.refreshBootstrap, props.project?.id]);
+
+  const cloudAvailabilityError = isCloudAvailabilityError(store);
+  const retryCloudAvailability = store.transcriptionSource === "cloud"
+    && (cloudAvailabilityError || !isTranscriptionReady(store) || Boolean(store.bootstrap?.cloud?.error));
+  useEffect(() => {
+    if (!retryCloudAvailability) return;
+    const timer = window.setInterval(() => { void store.refreshBootstrap(); }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [retryCloudAvailability, store.refreshBootstrap]);
 
   const models = store.bootstrap?.models ?? [];
   const installedModels = useMemo(() => models.filter((model) => model.state === "installed"), [models]);
@@ -590,7 +605,10 @@ export function RecorderPane(props: {
         <PermissionsPanel />
 
         {store.error ? (
-          <div className="mt-4 flex items-start justify-between gap-3 rounded-xl border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger">
+          <div role={cloudAvailabilityError ? "status" : "alert"} className={cn(
+            "mt-4 flex items-start justify-between gap-3 rounded-xl border px-3 py-2 text-sm",
+            cloudAvailabilityError ? "border-warning/40 bg-warning-soft text-warning" : "border-danger/30 bg-danger-soft text-danger",
+          )}>
             <span className="whitespace-pre-wrap break-words">{store.error}</span>
             <Button variant="ghost" size="icon-sm" aria-label={t("recorder.dismiss")} onClick={store.clearError}>
               <X />

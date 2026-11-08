@@ -2463,7 +2463,7 @@ const desktopCommandHandlers = {
       return undefined;
   },
   "audioRecorderBootstrap": async (event, ...args) => {
-      const cloud = await recorderServerRequest("/transcription/settings").catch(() => ({ models: [], error: null }));
+      const cloud = await recorderServerRequest("/transcription/settings").catch(() => ({ models: [], error: "Cloud transcription availability could not be checked." }));
       return { ...recorderService().bootstrap(), cloud };
   },
   "audioCapturePermissions": async (event, ...args) => {

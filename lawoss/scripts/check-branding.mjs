@@ -78,7 +78,8 @@ export const STRUCTURE = [
   },
   {
     file: "apps/desktop/electron/updater.mjs",
-    must: [/stable: "https:\/\/lawoss\.app\/update"/, /alpha: alphaReleaseDownloadUrl\(/],
+    // Upstream v0.2.15: alfa ide cez alphaFeedUrl (Intel Mac ostáva na stabilnom feede).
+    must: [/stable: "https:\/\/lawoss\.app\/update"/, /alpha: alphaFeedUrl\(\)/, /return alphaReleaseDownloadUrl\("macos"\)/, /return alphaReleaseDownloadUrl\("windows"\)/],
     why: "Updater sa pozerá na feed LAWOSS a alfa tagy forku.",
   },
   {

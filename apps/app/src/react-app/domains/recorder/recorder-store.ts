@@ -281,6 +281,14 @@ export function isTranscriptionReady(state: TranscriptionSelection): boolean {
   ) === true;
 }
 
+/** Availability can recover; capture, storage and interrupted-stream errors need attention. */
+export function isCloudAvailabilityError(state: Pick<RecorderState, "transcriptionSource" | "error">): boolean {
+  return state.transcriptionSource === "cloud" && state.error !== null && (
+    /^Cloud transcription is (?:currently )?unavailable\./.test(state.error)
+    || state.error === t("recorder.transcription_not_ready")
+  );
+}
+
 function readPref(key: string, fallback: string): string {
   try {
     return localStorage.getItem(key) ?? fallback;
@@ -459,6 +467,12 @@ async function runCopilotPrompt(question: string, transcript: string, language: 
 }
 
 export const useRecorderStore = create<RecorderState & RecorderActions>((set, get) => {
+  let bootstrapRevision = 0;
+  const clearCloudAvailabilityError = () => {
+    const state = get();
+    if (!state.starting && !state.finalizing && isCloudAvailabilityError(state)) set({ error: null });
+  };
+
   const sendAskAnswer = (askId: string, text: string, done: boolean, error?: string | null) => {
     window.__LEGALWORK_ELECTRON__?.audio?.sendAskAnswer?.(askId, text, done, error ?? null);
   };
@@ -554,11 +568,15 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         break;
       }
       case "transcript-partial": {
-        if (state.recording?.id === event.streamId) set(current => ({ partials: [...current.partials.filter(partial => partial.source !== event.segment.source), ...(event.parts ?? [event.segment])] }));
+        if (state.recording?.id === event.streamId) {
+          clearCloudAvailabilityError();
+          set(current => ({ partials: [...current.partials.filter(partial => partial.source !== event.segment.source), ...(event.parts ?? [event.segment])] }));
+        }
         break;
       }
       case "transcript-segment": {
         if (state.recording?.id === event.streamId) {
+          clearCloudAvailabilityError();
           set((current) => ({
             segments: [...current.segments, event.segment].sort((a, b) => a.startMs - b.startMs),
             partials: current.partials.filter(partial => partial.source !== event.segment.source || partial.endMs > event.segment.endMs),
@@ -833,9 +851,18 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     },
 
     refreshBootstrap: async () => {
+      const revision = ++bootstrapRevision;
       try {
-        const bootstrap = await audioRecorderBootstrap();
+        const result = await audioRecorderBootstrap();
+        if (revision !== bootstrapRevision) return;
+        // A failed background check is not evidence that a working model was
+        // disabled. Keep the last choices until a successful check replaces them.
+        const previousCloud = get().bootstrap?.cloud;
+        const bootstrap = result.cloud?.error && previousCloud
+          ? { ...result, cloud: { ...result.cloud, models: previousCloud.models } }
+          : result;
         set({ bootstrap });
+        if (!bootstrap.cloud?.error && isTranscriptionReady(get())) clearCloudAvailabilityError();
         // Clear a stale selection that no longer maps to a real model (e.g. an
         // old Base/Turbo tier) so the user consciously picks + downloads one.
         // Never auto-select a model on their behalf — recording requires an
@@ -848,8 +875,9 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         // lapsed — fall back to a free tier now that bootstrap knows what's
         // installed.
         get().enforcePremiumGate();
-      } catch (error) {
-        set({ error: error instanceof Error ? error.message : String(error) });
+      } catch {
+        // Navigation/focus refreshes must not create sticky recording errors.
+        // Keep the last snapshot; actual recording failures are reported at start.
       }
     },
 

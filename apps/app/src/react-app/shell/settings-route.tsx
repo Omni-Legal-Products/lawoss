@@ -862,7 +862,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const evaluationsOff = useOrgPolicyForbids("evaluations.allow");
   const analyticsEnabled = local.prefs.analyticsEnabled === true && firmAnalytics?.value !== false;
   const onReleaseChannelChange = useCallback(
-    (next: "stable" | "alpha") => {
+    (next: "stable" | "prerelease" | "alpha") => {
       local.setPrefs((previous) => ({ ...previous, releaseChannel: next }));
     },
     [local],

@@ -14,6 +14,10 @@ const bootstrap: AudioRecorderBootstrap = {
   device: { totalMemoryGb: 16, logicalCores: 8, appleSilicon: true, fastDevice: true, recommendedModelId: "test-model" },
   modelsDir: "/tmp/models", recordingsDir: "/tmp/recordings",
 };
+const cloudBootstrap: AudioRecorderBootstrap = { ...bootstrap, cloud: { models: [
+  { model: "gemini-transcribe-live-eu", name: "Cloud", region: "EU", enabled: true, available: true },
+] } };
+let bootstrapResult = () => Promise.resolve(bootstrap);
 const status = {
   appearance: "app", enabled: true, registered: true, accelerator: "Control+D", defaultAccelerator: "Control+D", customAccelerator: false,
   mode: "hold", supportsHold: true, shortcutCaptureActive: false, platform: "darwin", accessibility: "granted", error: null,
@@ -79,7 +83,7 @@ mock.module("../src/app/lib/desktop", () => ({
   },
   audioMeetingOpen: async () => { meetingOpens += 1; },
   audioCaptureOpenSettings: noop, audioCapturePermissionsRequest: noop, audioDiarizationDownload: noop,
-  audioModelDelete: noop, audioModelDownload: noop, audioModelDownloadCancel: noop, audioOverlaySetVisible: noop, audioRecorderBootstrap: async () => bootstrap,
+  audioModelDelete: noop, audioModelDownload: noop, audioModelDownloadCancel: noop, audioOverlaySetVisible: noop, audioRecorderBootstrap: () => bootstrapResult(),
   audioSystemDictationMicrophonesGet: async () => ({ selection: "auto", selectedName: null, devices: [], resolvedDeviceId: null, activeName: null }),
   audioSystemDictationMicrophonesUpdate: noop, audioSystemDictationMicrophoneSelect: noop, audioSystemDictationMicrophoneActive: noop,
   audioSystemDictationGet: async () => status, audioSystemDictationOpenSettings: noop, audioSystemDictationReadiness: noop,
@@ -88,7 +92,7 @@ mock.module("../src/app/lib/desktop", () => ({
   audioLiveTranscriptStart: async (root: string) => { liveShareStarts.push(root); return { ok: true, fileName: "live-call-transcript.md" }; }, audioLiveTranscriptStop: noop, audioImportStart: noop, audioImportSource: noop, audioImportFinish: noop,
   audioRecordingRename: noop, audioRecordingSaveToWorkspace: noop, desktopBridge: {},
 }));
-const { useRecorderStore: store } = await import("../src/react-app/domains/recorder/recorder-store");
+const { useRecorderStore: store, isCloudAvailabilityError, isTranscriptionReady } = await import("../src/react-app/domains/recorder/recorder-store");
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => {};
@@ -105,12 +109,103 @@ beforeEach(async () => {
   retainedRecordings = []; meetingOpens = 0; liveShareStarts = [];
   transcript = "A dictated sentence.";
   captureResult = Promise.resolve(capture); stopResult = Promise.resolve(meta);
+  bootstrapResult = () => Promise.resolve(bootstrap);
   store.setState({ transcriptionSource: "local", cloudModelId: "gemini-transcribe-live-eu", liveTranscriptWorkspacePath: null, liveTranscriptSessionId: null, liveTranscriptNotifiedSessions: [], liveTranscriptDismissedPaths: [], initialized: true, bootstrap, systemDictation: status, modelId: "test-model", recording: null,
     recordingStartedAt: null, dictationRecordingId: null, dictationState: "idle", composerDictation: null, composerDictationLevel: 0, finalizing: false,
-    permissions: { platform: "darwin", packaged: false, microphone: "granted", systemAudio: "granted" }, error: null, recordings: [], sources: ["microphone"] });
+    permissions: { platform: "darwin", packaged: false, microphone: "granted", systemAudio: "granted" }, error: null, recordings: [], sources: ["microphone"],
+    transcriber: { state: "idle", modelId: null, error: null } });
   await store.getState().init();
 });
 afterEach(async () => { if (store.getState().recording) await store.getState().cancelRecording(); });
+
+test("a navigation availability check can fail without adding a sticky recording error", async () => {
+  store.setState({ transcriptionSource: "cloud", bootstrap: cloudBootstrap });
+  bootstrapResult = async () => { throw new Error("Cloud transcription is unavailable."); };
+  await store.getState().refreshBootstrap();
+  expect(store.getState().error).toBeNull();
+  expect(isTranscriptionReady(store.getState())).toBe(true);
+});
+
+test("availability recovery clears the cloud warning without a manual dismissal", async () => {
+  const warning = "Cloud transcription is unavailable. Sign in and check your organisation’s model settings.";
+  store.setState({ transcriptionSource: "cloud", bootstrap: cloudBootstrap, error: warning });
+  expect(isCloudAvailabilityError(store.getState())).toBe(true);
+  bootstrapResult = async () => ({ ...bootstrap, cloud: { models: [], error: "Check failed" } });
+  await store.getState().refreshBootstrap();
+  expect(store.getState().error).toBe(warning);
+  expect(isTranscriptionReady(store.getState())).toBe(true);
+  bootstrapResult = async () => cloudBootstrap;
+  await store.getState().refreshBootstrap();
+  expect(store.getState().error).toBeNull();
+});
+
+test("an unavailable or different cloud model does not clear the selected model's warning", async () => {
+  const warning = "Cloud transcription is currently unavailable.";
+  store.setState({ transcriptionSource: "cloud", error: warning });
+  bootstrapResult = async () => ({ ...bootstrap, cloud: { models: [] } });
+  await store.getState().refreshBootstrap();
+  expect(store.getState().error).toBe(warning);
+  expect(isTranscriptionReady(store.getState())).toBe(false);
+  bootstrapResult = async () => cloudBootstrap;
+  store.setState({ cloudModelId: "gemini-transcribe-live-us" });
+  await store.getState().refreshBootstrap();
+  expect(store.getState().error).toBe(warning);
+});
+
+test("a late unavailable response cannot overwrite a newer healthy availability check", async () => {
+  store.setState({ transcriptionSource: "cloud", error: "Cloud transcription is unavailable." });
+  const pending = deferred<AudioRecorderBootstrap>();
+  bootstrapResult = () => pending.promise;
+  const stale = store.getState().refreshBootstrap();
+  bootstrapResult = async () => cloudBootstrap;
+  await store.getState().refreshBootstrap();
+  pending.resolve({ ...bootstrap, cloud: { models: [] } });
+  await stale;
+  expect(isTranscriptionReady(store.getState())).toBe(true);
+  expect(store.getState().error).toBeNull();
+});
+
+test("only captions from the active cloud recording clear an availability warning", async () => {
+  store.setState({ transcriptionSource: "cloud", bootstrap: cloudBootstrap });
+  await store.getState().startRecording("Cloud meeting");
+  const warning = "Cloud transcription is unavailable. Check your connection or choose local transcription.";
+  store.setState({ error: warning });
+  const segment = { id: "s", text: "Hello", startMs: 0, endMs: 1000, final: false };
+  handleEvent({ type: "transcriber-status", status: { state: "ready", modelId: "gemini-transcribe-live-eu", error: null } });
+  expect(store.getState().error).toBe(warning);
+  handleEvent({ type: "transcript-partial", streamId: "previous-recording", segment });
+  expect(store.getState().error).toBe(warning);
+  handleEvent({ type: "transcript-partial", streamId: meta.id, segment });
+  expect(store.getState().error).toBeNull();
+  store.setState({ error: warning });
+  handleEvent({ type: "transcript-segment", streamId: meta.id, segment: { ...segment, final: true } });
+  expect(store.getState().error).toBeNull();
+});
+
+test("healthy cloud settings and captions do not hide capture or speaker failures", async () => {
+  store.setState({ transcriptionSource: "cloud", bootstrap: cloudBootstrap });
+  await store.getState().startRecording("Cloud meeting");
+  bootstrapResult = async () => cloudBootstrap;
+  for (const error of ["Disk is full", "Cloud transcription disconnected. Your recording is saved on this device.", "Speaker detection is unavailable."]) {
+    store.setState({ error });
+    await store.getState().refreshBootstrap();
+    handleEvent({ type: "transcript-segment", streamId: meta.id, segment: { id: error, text: "Hello", startMs: 0, endMs: 1000, final: true } });
+    expect(store.getState().error).toBe(error);
+    expect(isCloudAvailabilityError(store.getState())).toBe(false);
+  }
+});
+
+test("a settings refresh cannot clear an error while cloud capture is starting or stopping", async () => {
+  const warning = "Cloud transcription is unavailable.";
+  store.setState({ transcriptionSource: "cloud", error: warning, starting: true });
+  bootstrapResult = async () => cloudBootstrap;
+  await store.getState().refreshBootstrap();
+  expect(store.getState().error).toBe(warning);
+  store.setState({ starting: false, finalizing: true });
+  await store.getState().refreshBootstrap();
+  expect(store.getState().error).toBe(warning);
+  store.setState({ finalizing: false });
+});
 
 test("choosing a local model switches away from cloud for the next recording", async () => {
   store.setState({ bootstrap: { ...bootstrap, cloud: { models: [

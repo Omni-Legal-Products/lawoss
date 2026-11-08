@@ -60,5 +60,5 @@ export function resolveUpdaterEndpoint(
 
 /** Narrow an arbitrary string to a valid ReleaseChannel, defaulting to stable. */
 export function coerceReleaseChannel(value: unknown): ReleaseChannel {
-  return value === "alpha" ? "alpha" : "stable";
+  return value === "alpha" || value === "prerelease" ? value : "stable";
 }

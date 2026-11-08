@@ -1,0 +1,42 @@
+name: Refresh alpha update feeds
+
+on:
+  release:
+    types: [published, edited, unpublished, deleted]
+  workflow_run:
+    workflows: ["Alpha Channel (macOS arm64)", "Alpha Channel (Windows x64 + ARM64)"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# A single writer recomputes the newest versions after builds or manual label
+# edits. Replacing a pending invocation is safe: each scan includes all releases.
+concurrency:
+  group: legalwork-alpha-feed-publication
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    # 🟡 LAWOSS: zapisuje len feedy upstreamu (RELEASE_REPOSITORY); alfa forku má vlastný pointer v alpha-*.yml.
+    if: github.repository == 'eigenweltlabs/legalwork' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # workflow_run must execute trusted default-branch tooling, never code
+      # from the triggering workflow's branch or downloaded build artifacts.
+      - uses: actions/checkout@v6
+        with:
+          ref: dev
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Select and pin the newest eligible alpha feeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release/refresh-alpha-feeds.mjs

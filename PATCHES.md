@@ -1,5 +1,22 @@
 # LAWOSS downstream patches
 
+## Sync upstream v0.2.15 (2026-11-08, ADR 0016)
+
+Upstream zaviedol tri kanály aktualizácií (Release, Pre-release, Alpha) s výberom verzie z GitHub releasov `eigenweltlabs/legalwork` a automatické alfy po každom merge do dev. LAWOSS to **neprevzal** (pravidlo: aktualizácie len z feedov forku); ostávajú dva kanály a ručné alfy s vlastným pointrom.
+
+| Súbor | Zmena |
+|---|---|
+| `apps/desktop/electron/updater.mjs` | Základ LAWOSS (feed forku, `update-feed.mjs`, stráž buildu 0.0.0, alfa build ostáva na alfe). Prevzaté len: `resolveAppVersion` číta zabalenú verziu priamo, `serializeUpdaterTasks` (zmena kanála, kontrola, sťahovanie a inštalácia v jednom rade), `changeChannel` zruší pripravenú aktualizáciu pri zmene kanála, `alphaFeedUrl` (Intel Mac nedostane ARM alfu) s URL forku. Bez `release-feeds.mjs`, kanála `prerelease` a zmeny `allowDowngrade`. |
+| `apps/desktop/electron/updater.test.mjs` | Testy LAWOSS + upstream `serializeUpdaterTasks` a `alphaFeedUrl` s URL forku. |
+| `apps/app/src/react-app/domains/settings/pages/{updates-view,debug-view}.tsx`, `apps/app/src/app/lib/release-channels.ts`, `apps/app/src/i18n/locales/{en,de}.ts` | Dva kanály s prekladmi LAWOSS; výber kanála len pri podpore alfy. Typ `ReleaseChannel` má upstream `prerelease`, desktop ho mapuje na stabilný. |
+| `.github/workflows/alpha-macos-aarch64.yml`, `alpha-windows-x64.yml`, `ci-tests.yml` | Bez zmeny oproti LAWOSS (ručná alfa s pointrom forku; testy aj po pushi do dev). |
+| `.github/workflows/refresh-alpha-feeds.yml` | Job beží len v `eigenweltlabs/legalwork` (skript zapisuje feedy upstreamu). |
+| `scripts/release/release-channels.test.mjs` | Test automatických álf je `test.skip` s dôvodom. |
+| `apps/desktop/package.json` | Testy LAWOSS + `release-feeds.test.mjs`. |
+| `lawoss/scripts/check-branding.mjs`, `lawoss/scripts/check-no-eigenwelt.test.mjs` | Stráž značky akceptuje `alpha: alphaFeedUrl()` s alfa tagmi forku; mutácie testu stráže zodpovedajú upstream `OPENCODE_DISABLE_FFF` za `...lawossEnv` (v0.2.12). |
+
+`apps/desktop/electron/release-feeds.mjs` je v strome, ale LAWOSS ho za behu nenačíta.
+
 ## Sync upstream v0.2.14 (2026-11-08, ADR 0016)
 
 Dôvera certifikátov inštalátora Pythonu a seed virtualenv (pip 26.2.2 cez `bootstrap-pip.py`). Odchýlka: `apps/server/resources/agent-sandbox/Dockerfile` má LAWOSS overenie hostovského enginu (`protected-opencode-guest-proof.json`) aj upstream bootstrap pip pred inštaláciou `requirements.txt`.

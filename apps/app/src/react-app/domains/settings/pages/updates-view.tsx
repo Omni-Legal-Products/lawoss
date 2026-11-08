@@ -288,6 +288,7 @@ export function UpdatesView(props: UpdatesViewProps) {
         </Alert>
       ) : (
         <LayoutSection>
+          {/* 🟡 LAWOSS: dva kanály (stabilný, alfa); bez alfy nie je čo vyberať. */}
           {props.alphaChannelSupported && props.releaseChannel ? (
             <LayoutSectionItem>
               <LayoutSectionItemHeader>
@@ -299,9 +300,9 @@ export function UpdatesView(props: UpdatesViewProps) {
                 <LayoutSectionItemHeaderActions>
                   <Select
                     value={props.releaseChannel}
-                    items={RELEASE_CHANNEL_OPTIONS}
+                    items={RELEASE_CHANNEL_OPTIONS.filter((option) => option.value !== "alpha" || props.alphaChannelSupported)}
                     onValueChange={(value) => {
-                      if (value === "stable" || value === "alpha") {
+                      if (value === "stable" || value === "prerelease" || value === "alpha") {
                         props.onReleaseChannelChange?.(value);
                       }
                     }}
@@ -312,7 +313,7 @@ export function UpdatesView(props: UpdatesViewProps) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        {RELEASE_CHANNEL_OPTIONS.map((option) => (
+                        {RELEASE_CHANNEL_OPTIONS.filter((option) => option.value !== "alpha" || props.alphaChannelSupported).map((option) => (
                           <SelectItem key={option.value} value={option.value}>
                             {option.label}
                           </SelectItem>

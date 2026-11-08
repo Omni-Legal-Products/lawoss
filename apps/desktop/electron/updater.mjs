@@ -46,6 +46,7 @@ export function formatUpdaterErrorReason(error) {
 const __updater_dirname = path.dirname(fileURLToPath(import.meta.url));
 let _cachedAppVersion = null;
 function resolveAppVersion(app) {
+  if (app.isPackaged) return app.getVersion();
   if (_cachedAppVersion) return _cachedAppVersion;
   const electronVersion = app.getVersion();
   // If packaged, app.getVersion() is correct (set by electron-builder).
@@ -63,6 +64,16 @@ function resolveAppVersion(app) {
   }
   return _cachedAppVersion;
 }
+const LAWOSS_STABLE_FEED = "https://lawoss.app/update";
+
+// Upstream v0.2.15: an Intel Mac never receives the ARM-only macOS alpha; it
+// stays on the stable feed. 🟡 LAWOSS: fork feeds instead of upstream URLs.
+export function alphaFeedUrl(platform = process.platform, arch = process.arch) {
+  if (platform === "win32") return alphaReleaseDownloadUrl("windows");
+  if (platform === "darwin" && arch === "arm64") return alphaReleaseDownloadUrl("macos");
+  return LAWOSS_STABLE_FEED;
+}
+
 // Exported so main.mjs's arch-mismatch download flow resolves against the same
 // tracked feed. Stable GitHub fallback is selected dynamically in update-feed.mjs.
 export const ELECTRON_UPDATER_FEEDS = Object.freeze({
@@ -78,7 +89,7 @@ export const ELECTRON_UPDATER_FEEDS = Object.freeze({
   // Alpha is a per-platform rolling release: each platform's alpha workflow
   // (alpha-macos-aarch64.yml / alpha-windows-x64.yml) refreshes its own
   // updater manifest on its own tag.
-  alpha: alphaReleaseDownloadUrl(process.platform === "win32" ? "windows" : "macos"),
+  alpha: alphaFeedUrl(),
 });
 
 // 🟡 LAWOSS: lokálny build bez stampnutej verzie (package.json = 0.0.0) by
@@ -401,6 +412,17 @@ export async function downloadUpdateReady(updater, nativeUpdater, timeoutMs = 30
   }
 }
 
+// Channel changes, checks, downloads and installation share one queue so a
+// late check/download cannot restore a feed or installer from the old channel.
+export function serializeUpdaterTasks() {
+  let pending = Promise.resolve();
+  return (task) => {
+    const result = pending.then(task);
+    pending = result.then(() => undefined, () => undefined);
+    return result;
+  };
+}
+
 // electron-updater wiring. Packaged-only; dev builds skip this so the
 // updater doesn't try to probe a non-existent release channel.
 export function registerUpdaterIpc({
@@ -447,6 +469,17 @@ export function registerUpdaterIpc({
   }
   let nativeMacUpdater = null;
   let updateReady = false;
+  const runTask = serializeUpdaterTasks();
+  const handleUpdater = (name, handler) => ipcMain.handle(name, (...args) => runTask(() => handler(...args)));
+  async function changeChannel(rawChannel) {
+    const previous = await readElectronUpdaterChannel(app);
+    const channel = await writeElectronUpdaterChannel(app, rawChannel);
+    if (channel !== previous) {
+      clearCheckedUpdate();
+      updateReady = false;
+    }
+    return channel;
+  }
 
   function sendToRenderer(channel, data) {
     try {
@@ -508,8 +541,8 @@ export function registerUpdaterIpc({
     return updaterChannelState(app, channel);
   });
 
-  ipcMain.handle("legalwork:updater:setChannel", async (_event, rawChannel) => {
-    const channel = await writeElectronUpdaterChannel(app, rawChannel);
+  handleUpdater("legalwork:updater:setChannel", async (_event, rawChannel) => {
+    const channel = await changeChannel(rawChannel);
     clearCheckedUpdate();
     updateReady = false;
     const updater = await ensureAutoUpdater();
@@ -519,9 +552,9 @@ export function registerUpdaterIpc({
     return updaterChannelState(app, channel);
   });
 
-  ipcMain.handle("legalwork:updater:check", async (_event, rawChannel) => {
+  handleUpdater("legalwork:updater:check", async (_event, rawChannel) => {
     if (rawChannel !== undefined) {
-      await writeElectronUpdaterChannel(app, rawChannel);
+      await changeChannel(rawChannel);
       clearCheckedUpdate();
     }
     const updater = await ensureAutoUpdater();
@@ -574,7 +607,7 @@ export function registerUpdaterIpc({
     }
   });
 
-  ipcMain.handle("legalwork:updater:download", async () => {
+  handleUpdater("legalwork:updater:download", async () => {
     const updater = await ensureAutoUpdater();
     if (!updater) return { ok: false, reason: "unavailable" };
     updateReady = false;
@@ -630,7 +663,7 @@ export function registerUpdaterIpc({
     }
   });
 
-  ipcMain.handle("legalwork:updater:installAndRestart", async () => {
+  handleUpdater("legalwork:updater:installAndRestart", async () => {
     const updater = await ensureAutoUpdater();
     if (!updater) return { ok: false, reason: "unavailable" };
     if (!updateReady) return { ok: false, reason: "No update is ready to install. Please download the update again." };

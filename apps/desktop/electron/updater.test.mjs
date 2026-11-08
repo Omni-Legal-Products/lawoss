@@ -13,6 +13,8 @@ import {
   staleUpdaterStatePaths,
   electronUpdaterFeedConfig,
   downloadUpdateReady,
+  alphaFeedUrl,
+  serializeUpdaterTasks,
 } from "./updater.mjs";
 
 // 🟡 LAWOSS: testy čítajú tracked feed z modulu namiesto literálu, aby
@@ -646,4 +648,28 @@ describe("formatUpdaterErrorReason", () => {
     const error = new Error("network timeout");
     assert.equal(formatUpdaterErrorReason(error), "network timeout");
   });
+});
+
+// Upstream v0.2.15 testy prevzaté bez výberu releasu z GitHubu upstreamu (PATCHES.md).
+it("serializes a channel switch behind a download and recovers after failed checks", async () => {
+  const run = serializeUpdaterTasks();
+  const events = [];
+  /** @type {() => void} */
+  let finish = () => assert.fail("download not started");
+  const download = run(async () => { events.push("download"); await new Promise((resolve) => { finish = () => resolve(undefined); }); events.push("downloaded"); });
+  const change = run(() => { events.push("channel changed"); });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ["download"]);
+  finish();
+  await Promise.all([download, change]);
+  await assert.rejects(run(() => { throw new Error("offline"); }));
+  await run(() => events.push("new check"));
+  assert.deepEqual(events, ["download", "downloaded", "channel changed", "new check"]);
+});
+
+it("alpha fallback never offers an ARM-only macOS installer to an Intel Mac", () => {
+  assert.equal(alphaFeedUrl("darwin", "x64"), STABLE_FEED);
+  assert.match(alphaFeedUrl("darwin", "arm64"), /^https:\/\/github\.com\/Omni-Legal-Products\/lawoss\/releases\/download\/alpha-macos-latest$/);
+  assert.match(alphaFeedUrl("win32", "x64"), /alpha-windows-latest$/);
+  assert.match(alphaFeedUrl("win32", "arm64"), /alpha-windows-latest$/);
 });

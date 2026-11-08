@@ -99,22 +99,22 @@ declare global {
         getPreferences?: (legacy?: { autoCheck?: boolean; autoDownload?: boolean }) => Promise<{ autoCheck: boolean; autoDownload: boolean }>;
         setPreferences?: (patch: { autoCheck?: boolean; autoDownload?: boolean }) => Promise<{ autoCheck: boolean; autoDownload: boolean }>;
         getChannel?: () => Promise<{
-          channel: "stable" | "alpha";
+          channel: "stable" | "prerelease" | "alpha";
           feedUrl: string;
           currentVersion: string;
         }>;
-        setChannel?: (channel: "stable" | "alpha") => Promise<{
-          channel: "stable" | "alpha";
+        setChannel?: (channel: "stable" | "prerelease" | "alpha") => Promise<{
+          channel: "stable" | "prerelease" | "alpha";
           feedUrl: string;
           currentVersion: string;
         }>;
-        check?: (channel?: "stable" | "alpha") => Promise<{
+        check?: (channel?: "stable" | "prerelease" | "alpha") => Promise<{
           available: boolean;
           currentVersion?: string;
           latestVersion?: string | null;
           releaseDate?: string | null;
           releaseNotes?: unknown;
-          channel?: "stable" | "alpha";
+          channel?: "stable" | "prerelease" | "alpha";
           feedUrl?: string;
           reason?: string;
         }>;
