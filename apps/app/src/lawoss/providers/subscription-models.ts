@@ -10,6 +10,7 @@ export {
   CHATGPT_SUBSCRIPTION_MODELS,
   isChatgptSubscription,
   isSubscriptionModel,
+  nativeConnectionSource,
 } from "../../../../../lawoss/providers/chatgpt-subscription.mjs";
 
 type Provider = ProviderListResponse["all"][number];
