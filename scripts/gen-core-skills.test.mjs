@@ -32,6 +32,8 @@ test("help generation accepts CRLF checkouts without hiding stale content", () =
       "packages/types/src/project-template-strings.ts",
       // 🟡 LAWOSS: sk/cs/en/de spread the domain dictionaries from here.
       "apps/app/src/lawoss/i18n",
+      // 🟡 LAWOSS: the bundled manual and its screen map.
+      "lawoss/user-guide",
     ]) {
       const destination = join(root, path);
       mkdirSync(dirname(destination), { recursive: true });
@@ -60,7 +62,7 @@ test("help generation accepts CRLF checkouts without hiding stale content", () =
     assert.equal(readFileSync(join(root, generated[0]), "utf8"), translations);
     assert.match(readFileSync(join(root, generated[1]), "utf8"), /export const HELP_I18N_JSON/);
 
-    const page = join(root, "docs/user-guide/email.md");
+    const page = join(root, "lawoss/user-guide/sk/integracie.md"); // 🟡 LAWOSS: a bundled page
     writeFileSync(page, readFileSync(page, "utf8") + "\r\nA real documentation change.\r\n");
     const stale = run("--check");
     assert.equal(stale.status, 1);

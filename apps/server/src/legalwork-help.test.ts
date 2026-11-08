@@ -53,8 +53,9 @@ describe("bundled LegalWork help", () => {
     expect(inventory.routes.map((route) => route.path).sort()).toEqual(
       [...new Set([...router.matchAll(/\bpath="([^"]+)"/g)].map((match) => match[1]))].sort(),
     );
+    // 🟡 LAWOSS: each guide exists in the Slovak and the Czech manual.
     for (const entry of [...inventory.routes, ...inventory.settings]) {
-      expect(bundled(`references/${entry.guide}`).length).toBeGreaterThan(0);
+      for (const language of ["sk", "cs"]) expect(bundled(`references/${language}/${entry.guide}`).length).toBeGreaterThan(0);
     }
     expect(inventory.settings.map((entry) => entry.id)).toContain("recorder");
     const moduleUrl = pathToFileURL(join(repoRoot, "scripts/help-docs.mjs")).href;
@@ -82,11 +83,17 @@ describe("bundled LegalWork help", () => {
   });
 
   test("packages every manual page exactly and resolves links without the source checkout", async () => {
-    const docs = await readdir(join(repoRoot, "docs/user-guide"));
-    for (const file of docs.filter((file) => file.endsWith(".md") || file.endsWith(".json"))) {
+    // 🟡 LAWOSS: the manual is lawoss/user-guide (index.md, sk/, cs/); docs/user-guide supplies only the generated JSON.
+    for (const file of ["i18n.json", "screens.json"]) {
       expect(bundled(`references/${file}`)).toBe((await readFile(join(repoRoot, "docs/user-guide", file), "utf8")).replace(/\r\n/g, "\n"));
-      if (file !== "index.md" && file.endsWith(".md")) {
-        expect(bundled("references/index.md")).toContain(`](${file})`);
+    }
+    const guide = join(repoRoot, "lawoss/user-guide");
+    expect(bundled("references/index.md")).toBe((await readFile(join(guide, "index.md"), "utf8")).replace(/\r\n/g, "\n"));
+    for (const language of ["sk", "cs"]) {
+      expect(bundled("references/index.md")).toContain(`](${language}/index.md)`);
+      for (const file of (await readdir(join(guide, language))).filter((file) => file.endsWith(".md"))) {
+        expect(bundled(`references/${language}/${file}`)).toBe((await readFile(join(guide, language, file), "utf8")).replace(/\r\n/g, "\n"));
+        if (file !== "index.md") expect(bundled(`references/${language}/index.md`)).toContain(`](${file})`);
       }
     }
     const paths = new Set(helpFiles.map((file) => file.path));
@@ -123,8 +130,9 @@ describe("bundled LegalWork help", () => {
       expect(skill?.path).toBe(join(root, skillRoot, "SKILL.md"));
       expect(skill?.scope).toBe("project");
       if (!skill) throw new Error("Help skill is missing");
-      const email = await readSkillPackageFile(skill.path, await skillPackageDirectory(skill.path), "references/email.md");
-      expect(email.content).toBe(bundled("references/email.md"));
+      // 🟡 LAWOSS: a page of the Slovak manual instead of the upstream email guide.
+      const email = await readSkillPackageFile(skill.path, await skillPackageDirectory(skill.path), "references/sk/integracie.md");
+      expect(email.content).toBe(bundled("references/sk/integracie.md"));
       expect(email.nextOffset).toBeUndefined();
       for (const file of helpFiles) {
         expect(await readFile(join(root, file.path), "utf8")).toBe(file.content);

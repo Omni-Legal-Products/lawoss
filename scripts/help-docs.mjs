@@ -4,6 +4,9 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// 🟡 LAWOSS: the bundled manual is the Slovak/Czech LAWOSS guide (lawoss/user-guide), not docs/user-guide.
+import { LAWOSS_GUIDE_LANGUAGES, LAWOSS_HIDDEN_GUIDE, lawossRouteGuides, lawossSettingGuides } from "../lawoss/user-guide/screens.mjs";
+
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(join(repoRoot, "apps/app/package.json"));
 const ts = require("typescript");
@@ -19,6 +22,7 @@ function parse(path, root = repoRoot) {
   return ts.createSourceFile(path, readNormalizedText(join(root, path)), ts.ScriptTarget.Latest, true);
 }
 
+// Upstream map, kept for sync; LAWOSS resolves guides through lawoss/user-guide/screens.mjs.
 const routeGuides = {
   "/welcome": "getting-started.md",
   "/home": "workspaces-chats.md",
@@ -98,18 +102,20 @@ export function generateHelpScreens(root = repoRoot) {
       for (const value of values) if (ts.isStringLiteral(value)) settings.set(value.text, scope);
     });
   }
+  // 🟡 LAWOSS: null = screen hidden in LAWOSS; the entry points at the index and carries `hidden: true`.
   function guide(map, key) {
-    if (!map[key]) throw new Error(`Missing help coverage for ${key}. Add its guide to scripts/help-docs.mjs.`);
-    readFileSync(join(repoRoot, "docs/user-guide", map[key]), "utf8");
-    return map[key];
+    if (!Object.hasOwn(map, key)) throw new Error(`Missing help coverage for ${key}. Add its guide to lawoss/user-guide/screens.mjs.`);
+    const page = map[key] ?? LAWOSS_HIDDEN_GUIDE;
+    for (const language of LAWOSS_GUIDE_LANGUAGES) readFileSync(join(repoRoot, "lawoss/user-guide", language, page), "utf8");
+    return { guide: page, ...(map[key] === null ? { hidden: true } : {}) };
   }
   return JSON.stringify({
     schemaVersion: 1,
     generatedBy: "scripts/gen-core-skills.mjs",
     note: "Source-defined routes and visible settings for the build that bundles this file. Runtime, platform, account and permissions can restrict them.",
-    routes: [...routes].sort().map((path) => ({ path, guide: guide(routeGuides, path), source: routerSource })),
+    routes: [...routes].sort().map((path) => ({ path, ...guide(lawossRouteGuides, path), source: routerSource })),
     settings: [...settings].sort(([a], [b]) => a.localeCompare(b, "en")).map(([id, scope]) => ({
-      id, scope, guide: guide(settingGuides, id), source: settingsSource,
+      id, scope, ...guide(lawossSettingGuides, id), source: settingsSource,
       ...(id === "recorder" || id === "office-addins" ? { desktopOnly: true } : {}),
       ...(id === "debug" ? { developerOnly: true } : {}),
     })),
@@ -249,12 +255,17 @@ export function generateHelpI18n() {
   }, null, 2) + "\n";
 }
 
+// 🟡 LAWOSS: bundle lawoss/user-guide/index.md and its sk/ and cs/ pages; upstream docs/user-guide pages stay unbundled.
 export function helpDocFiles() {
-  return readdirSync(join(repoRoot, "docs/user-guide"))
-    .filter((file) => file.endsWith(".md"))
-    .sort()
-    .map((file) => ({
-      path: `.opencode/skills/legalwork-help/references/${file}`,
-      content: readNormalizedText(join(repoRoot, "docs/user-guide", file)),
-    }));
+  const page = (relative) => ({
+    path: `.opencode/skills/legalwork-help/references/${relative}`,
+    content: readNormalizedText(join(repoRoot, "lawoss/user-guide", relative)),
+  });
+  return [
+    page("index.md"),
+    ...LAWOSS_GUIDE_LANGUAGES.flatMap((language) => readdirSync(join(repoRoot, "lawoss/user-guide", language))
+      .filter((file) => file.endsWith(".md"))
+      .sort()
+      .map((file) => page(`${language}/${file}`))),
+  ];
 }

@@ -1,5 +1,19 @@
 # LAWOSS downstream patches
 
+## SK/CS príručka pre agenta (2026-11-08, MČ)
+
+Agent pri otázkach na appku (skill `legalwork-help`) číta príručku LAWOSS v slovenčine alebo češtine podľa jazyka otázky (inak podľa jurisdikcie kancelárie, predvolene slovensky; pre EN/DE slovenskú stránku s presnými názvami z tabuľky prekladov). Upstream EN príručka `docs/user-guide/*.md` ostáva v strome, ale nepribaľuje sa (Eigenwelt, platené plány, skryté plochy).
+
+| Súbor | Zmena |
+|---|---|
+| `lawoss/user-guide/{index.md,sk/*.md,cs/*.md}`, `lawoss/user-guide/screens.mjs` (nové) | Príručka LAWOSS (rovnaké stránky v `sk/` a `cs/`) a mapa trás a kariet nastavení na jej stránky; `null` = obrazovka skrytá v LAWOSS (`hidden: true` v `screens.json`). |
+| `scripts/help-docs.mjs` | `helpDocFiles()` pribalí `lawoss/user-guide` namiesto `docs/user-guide`; `generateHelpScreens` berie stránky z `lawoss/user-guide/screens.mjs` a overí ich v oboch jazykoch. Upstream mapy `routeGuides`/`settingGuides` ostávajú kvôli syncu nepoužité. |
+| `apps/server/resources/core-opencode/skills/legalwork-help/SKILL.md` | Text skillu LAWOSS: výber jazyka, témy `references/{sk,cs}/…`, pojmy klient/prípad/chat, skryté obrazovky neopisovať. |
+| `apps/server/src/legalwork-help.test.ts`, `scripts/gen-core-skills.test.mjs` | Testy balenia čítajú `lawoss/user-guide` (stránky v oboch jazykoch, `references/sk/integracie.md` namiesto `email.md`); test CRLF kopíruje `lawoss/user-guide`. |
+| `docs/user-guide/screens.json`, `apps/server/src/core-skills.ts` | Pregenerované. |
+| `apps/server/src/lawoss/user-guide.test.ts` (nový) | V pribalenom balíku len SK/CS stránky, rovnaké súbory v oboch jazykoch, bez zakázaných pojmov (Eigenwelt, platené plány, LegalWork cloud, záznamník, diktovanie, cloudový prepis, Slack, Telegram, router, Messaging, hostia, Pre-release, wiki, kalendár, plánované úlohy, dashboardy). |
+| `apps/server/src/lawoss/app-setting-names.ts` | Konektory sú v „Nastavenia → Integrácie“ (karta `sidebar.integrations`), nie „Rozšírenia“. |
+
 ## Počítadlo krokov onboardingu podľa zobrazených krokov (2026-11-08, MČ)
 
 | Súbor | Zmena |
