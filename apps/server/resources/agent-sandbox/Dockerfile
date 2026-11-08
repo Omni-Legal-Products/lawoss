@@ -1,9 +1,11 @@
-FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS node
+FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS node
 FROM python:3.14-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83 AS guest
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash ca-certificates curl git openssl libatomic1 libfuse2 poppler-utils fonts-dejavu-core busybox-static util-linux iproute2 nftables \
     linux-image-cloud-$(dpkg --print-architecture) \
+    && sed -i 's|^mozilla/emSign_ECC_Root_CA_-_G3.crt$|!mozilla/emSign_ECC_Root_CA_-_G3.crt|' /etc/ca-certificates.conf \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 # Build-time execution in the actual guest userspace, using the exact Linux

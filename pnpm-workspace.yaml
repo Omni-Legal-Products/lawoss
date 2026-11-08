@@ -2,7 +2,7 @@ minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
   - "@opencode-ai/sdk"
   # Explicitly allow the reviewed Electron security update.
-  - "electron@43.7.5"
+  - "electron@43.8.3"
   # Pinned standalone OpenUI runtime reviewed for the reversible wiki prototype.
   - "@openuidev/react-lang@0.4.1"
   - "@openuidev/lang-core@0.4.1"
@@ -51,10 +51,12 @@ allowBuilds:
   onnxruntime-node: false
   # Windows releases use NSIS, not the optional Squirrel installer.
   electron-winstaller: false
-# Keep document parsers patched even when a transitive dependency pins an older patch.
+# Keep security fixes when transitive dependencies pin an older version.
 overrides:
   # GHSA-3pq3-5fj3-cg6v and GHSA-542g-h47m-68v8, Slack HTTP client.
   'axios@>=1.0.0 <1.20.0': 1.20.0
+  'proxy-addr@<2.0.8': 2.0.8
+  'seroval@<1.6.2': 1.6.2
   '@xmldom/xmldom@>=0.9.0 <0.9.12': 0.9.12
   '@xmldom/xmldom@>=0.8.0 <0.8.15': 0.8.15
 patchedDependencies:

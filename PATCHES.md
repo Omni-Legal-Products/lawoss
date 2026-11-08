@@ -1,5 +1,9 @@
 # LAWOSS downstream patches
 
+## Sync upstream v0.2.13 (2026-11-08, ADR 0016)
+
+Bezpečnostné opravy z októbra (Node 24.22.1, overrides `proxy-addr`, `seroval`) a spoľahlivejšia notarizácia macOS. Odchýlky: workflowy berú upstream `node-version: 24.22.1`, ale ponechávajú akcie LAWOSS pripnuté na SHA (`pnpm/action-setup`, `oven-sh/setup-bun`) a krok `protected-engine-assets` v `sandbox-runtime.yml`; `pnpm-workspace.yaml` a `pnpm-lock.yaml` majú LAWOSS override `axios` aj nové upstream. Lockfile prešiel `--frozen-lockfile`.
+
 ## Sync upstream v0.2.12 (2026-11-08, ADR 0016)
 
 Krok 2 plného syncu na v0.3.9 (diktovanie, nahrávky pre agenta, zdieľané úložisko tímu, LW-202). Odchýlky:
