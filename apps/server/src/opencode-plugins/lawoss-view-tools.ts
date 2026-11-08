@@ -47,6 +47,35 @@ function invalidInputDetail(args: unknown) {
   return parsed.success ? [] : parsed.error.issues.slice(0, 5).map((issue) => ({ path: ["input", ...issue.path].join("."), message: issue.message }));
 }
 
+// N-A11-24 (akceptácia 8. 11. 2026, kolo 3): view_create vrátil „preview“ aj pre program, ktorý sa nedá
+// vykresliť (dáta cez nedeklarovanú premennú), chyba sa ukázala až v paneli a model ju nevidel. Kontrola pred
+// odovzdaním: zdroj dát komponentov musí byť deklarovaný, Query musí čítať existujúci dataset alebo dotaz a
+// argumenty sú len pozičné (lang-core 0.4.1 nepozná `meno=hodnota`).
+const DATA_COMPONENTS = /\b(Table|Board|BarChart|LineChart|PieChart)\(\s*([A-Za-z_]\w*)/g;
+const QUERY_CALL = /\bQuery\(\s*"(?:data|wiki_query)"\s*,\s*\{\s*name\s*:\s*"([^"]+)"/g;
+const KEYWORD_ARG = /[(,]\s*([a-z][A-Za-z]*)\s*=(?!=)/g;
+export type ViewProgramIssue = { path: string; message: string };
+export function viewProgramIssues(input: unknown): ViewProgramIssue[] {
+  if (!isRecord(input) || typeof input.program !== "string") return [];
+  const program = input.program;
+  const declared = new Set([...program.matchAll(/^\s*([A-Za-z_]\w*)\s*=/gm)].map((match) => match[1]));
+  const bindings = new Set([...Object.keys(isRecord(input.datasets) ? input.datasets : {}), ...Object.keys(isRecord(input.queries) ? input.queries : {})]);
+  const issues: ViewProgramIssue[] = [];
+  for (const [, component, name] of program.matchAll(DATA_COMPONENTS)) {
+    if (declared.has(name)) continue;
+    const hint = bindings.has(name) ? ` Declare ${name}Data = Query("data", {name:"${name}"}, {rows:[],total:0}) and pass ${name}Data.rows.` : "";
+    issues.push({ path: "input.program", message: `${component} reads "${name}", which the program never declares.${hint}` });
+  }
+  for (const [, name] of program.matchAll(QUERY_CALL)) {
+    if (!bindings.has(name)) issues.push({ path: "input.program", message: `Query reads "${name}", but no dataset or query with that name is in input.datasets or input.queries.` });
+  }
+  // Text v úvodzovkách („a, b=1“) nie je argument.
+  for (const [, name] of program.replace(/"(?:[^"\\]|\\.)*"/g, '""').matchAll(KEYWORD_ARG)) {
+    issues.push({ path: "input.program", message: `Named argument "${name}=" is not supported; pass arguments by position in the catalog order.` });
+  }
+  return issues.slice(0, 8);
+}
+
 export const LawossViewTools = async (initial: OpenCodeContext = {}) => {
   const upstream = await LegalWorkWikiTools(initial);
   const tools = {
@@ -65,6 +94,9 @@ export const LawossViewTools = async (initial: OpenCodeContext = {}) => {
         if (!ownerScope.safeParse(raw ?? {}).success) return JSON.stringify({ ok: false, code: "view_workspace_required", error: "Use the current client's workspace for this view." });
         if (name !== "view_create" && name !== "view_update") return tool.execute(raw, context);
         const args = normalizeViewArgs(raw);
+        const programIssues = viewProgramIssues(isRecord(args) ? args.input : undefined);
+        if (programIssues.length) return JSON.stringify({ ok: false, code: "view_program_invalid", issues: programIssues,
+          error: "The view program cannot render. Fix the listed issues and call the tool again." });
         const result = await tool.execute(args, context);
         // Upstream vracia reťazec alebo `{ output }`; tvar odpovede sa zachová.
         const text = typeof result === "string" ? result : isRecord(result) && typeof result.output === "string" ? result.output : "";

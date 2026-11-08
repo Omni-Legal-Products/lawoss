@@ -86,3 +86,38 @@ test("asOf v sekundách sa prepočíta na milisekundy, v milisekundách ostane",
   expect(out.input.datasets.a.asOf).toBe(1_794_048_000_000);
   expect(out.input.datasets.b.asOf).toBe(1_794_048_000_000);
 });
+
+test("N-A11-24: program s nedeklarovaným zdrojom dát sa nevráti ako preview", async () => {
+  const { viewProgramIssues } = await import("./lawoss-view-tools.js");
+  const datasets = { rows: { rows: [{ status: "Aktívny", count: 3 }], total: 1, revision: "r", asOf: 1, truncated: false } };
+  const base = { version: 1, title: "SYN", mode: "report", catalog: "legalwork-1", queries: {}, datasets };
+  // Kolo 3: model vynechal Query a poslal priamo meno datasetu.
+  const missing = viewProgramIssues({ ...base, program: 'root = Stack([BarChart(rows, "status", ["count"], "Stavy")])' });
+  expect(missing).toHaveLength(1);
+  expect(missing[0].message).toContain('Query("data", {name:"rows"}');
+  // Správny tvar prejde.
+  expect(viewProgramIssues({ ...base, program: 'm = Query("data", {name:"rows"}, {rows:[],total:0})\nroot = Stack([Table(m.rows, [{field:"status",label:"Stav"}], true)])' })).toEqual([]);
+  // Query na neexistujúci dataset a pomenovaný argument.
+  const wrong = viewProgramIssues({ ...base, program: 'm = Query("data", {name:"veci"}, {rows:[],total:0})\nroot = Stack([Table(m.rows, [{field:"a",label:"A"}], searchable=true)])' });
+  expect(wrong.map((issue) => issue.message).join(" ")).toContain('"veci"');
+  expect(wrong.map((issue) => issue.message).join(" ")).toContain('"searchable="');
+  // Priradenie na začiatku riadku nie je pomenovaný argument.
+  expect(viewProgramIssues({ ...base, program: 'root = Stack([Text("a")])' })).toEqual([]);
+});
+
+test("N-A11-24: view_create s chybným programom vráti view_program_invalid, nie preview", async () => {
+  const plugin = await LawossViewTools();
+  const raw = await plugin.tool.view_create!.execute({ input: { version: 1, title: "SYN", mode: "report", catalog: "legalwork-1", queries: {},
+    datasets: { rows: { rows: [], total: 0, revision: "r", asOf: 1, truncated: false } }, program: 'root = Stack([Table(rows, [{field:"a",label:"A"}], true)])' } }, {});
+  const result = JSON.parse(typeof raw === "string" ? raw : raw.output);
+  expect(result.ok).toBe(false);
+  expect(result.code).toBe("view_program_invalid");
+});
+
+test("N-A11-24: vzor z katalógu a text so znakom = nie sú chybou", async () => {
+  const { viewProgramIssues } = await import("./lawoss-view-tools.js");
+  const { OPENUI_CATALOG } = await import("@legalwork/openui/catalog");
+  const base = { version: 1, title: "SYN", mode: "dashboard", catalog: "legalwork-1", queries: { clients: {} } };
+  expect(viewProgramIssues({ ...base, program: OPENUI_CATALOG.example })).toEqual([]);
+  expect(viewProgramIssues({ ...base, program: 'root = Stack([Text("Suma, x=1 a (y=2)")])' })).toEqual([]);
+});

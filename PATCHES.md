@@ -8,7 +8,7 @@ Akceptácia testovacej alfy 8. 11. 2026 (N-A11-24). `@openuidev/lang-core` 0.4.1
 |---|---|
 | `packages/openui/src/catalog.ts` | Signatúry Stack, Heading, Table, Badge a Callout pozične (`columns?`, `level?`, `searchable?`, `tone?` s predvolenou hodnotou v texte) a pravidlo „Arguments are positional only“. Test v `catalog.test.tsx`. |
 
-LAWOSS súbor `apps/server/src/opencode-plugins/lawoss-view-tools.ts`: polia pohľadu mimo `input` presunie dovnútra, pri `wiki_invalid_data` vráti pole a dôvod a `asOf` v sekundách prepočíta na milisekundy.
+LAWOSS súbor `apps/server/src/opencode-plugins/lawoss-view-tools.ts`: polia pohľadu mimo `input` presunie dovnútra, pri `wiki_invalid_data` vráti pole a dôvod a `asOf` v sekundách prepočíta na milisekundy. Pred odovzdaním skontroluje program: zdroj dát Table/Board/grafov musí byť deklarovaný, Query musí čítať existujúci dataset alebo dotaz a argumenty sú pozičné; inak vráti `view_program_invalid` s chybami namiesto náhľadu, ktorý sa nedá vykresliť.
 
 ## Tichá obnova prehľadov nesťahuje nezmenené súbory (2026-11-07, #367)
 
