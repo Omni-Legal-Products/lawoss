@@ -13,6 +13,7 @@ import {
 } from "@/react-app/domains/session/sidebar/session-management-store";
 import { startRequestPolling } from "@/app/lib/request-poller";
 import { onSyncPoke, useSyncEventsLive } from "@/react-app/kernel/sync-events";
+import { useSessionGroupSyncAdmission, type SessionGroupSyncTicket } from "@/lawoss/shell/session-group-sync-admission";
 import type { RouteWorkspace } from "./route-workspaces";
 
 const MIGRATION_PREFIX = "legalwork.sessionGroups.migrated.v2";
@@ -72,6 +73,8 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
   const endpointForWorkspaceRef = useRef(endpointForWorkspace);
   const eventCursorByWorkspaceRef = useRef<Record<string, number | null>>({});
   const pollers = useRef<ReturnType<typeof startRequestPolling>[]>([]);
+  // LAWOSS: an unavailable project folder pauses only its own generation (AGENTS.md); keep before the poller effect.
+  const admission = useSessionGroupSyncAdmission({ workspaces, endpointForWorkspace, wake: () => { for (const poller of pollers.current) poller.wake(); } });
   const sync = useSyncEventsLive();
   const previousSync = useRef(sync);
   const syncRef = useRef(sync);
@@ -142,9 +145,9 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
     for (const [serverKey, { endpoint, workspaces: serverWorkspaces }] of servers) {
       let batchSupported = true;
       const migrations = new Map<string, Promise<LegalworkSessionGroupState>>();
-      const apply = async (workspace: RouteWorkspace, state: LegalworkSessionGroupState, version: number, signal: AbortSignal) => {
+      const apply = async (workspace: RouteWorkspace, state: LegalworkSessionGroupState, version: number, signal: AbortSignal, ticket: SessionGroupSyncTicket) => {
         const target = endpointForWorkspaceRef.current(workspace);
-        if (!target || signal.aborted) return;
+        if (!target || signal.aborted || !admission.isCurrent(ticket)) return;
         let next = state;
         const local = localGroupStateForWorkspace(workspace, target);
         const ongoing = migrations.get(target.workspaceId);
@@ -154,14 +157,15 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
           migrations.set(target.workspaceId, migration);
           try { next = await migration; } finally { migrations.delete(target.workspaceId); }
         }
-        if (signal.aborted) return;
+        if (signal.aborted || !admission.isCurrent(ticket)) return;
         writeMigrationComplete(target);
         applySessionGroupServerState(workspace.id, next, version);
       };
       const poller = startRequestPolling(async signal => {
         const targets = serverWorkspaces.flatMap(workspace => {
           const target = endpointForWorkspaceRef.current(workspace);
-          return target ? [{ workspace, target, key: `${serverKey}:${target.workspaceId}`, version: beginSessionGroupServerSync(workspace.id) }] : [];
+          const ticket = target ? admission.admit(workspace.id) : null;
+          return target && ticket ? [{ workspace, target, ticket, key: `${serverKey}:${target.workspaceId}`, version: beginSessionGroupServerSync(workspace.id) }] : [];
         });
         if (batchSupported) {
           try {
@@ -172,12 +176,12 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
               const response = await endpoint.client.listSessionGroupsBatch(cursors, signal);
               const applied = await Promise.allSettled(chunk.map(async item => {
                 const result = response.items.find(result => result.workspaceId === item.target.workspaceId);
-                if (!result || signal.aborted) return;
-                if (result.state) await apply(item.workspace, result.state, item.version, signal);
+                if (!result || signal.aborted || !admission.isCurrent(item.ticket)) return;
+                if (result.state) await apply(item.workspace, result.state, item.version, signal, item.ticket);
                 // Advance only after applying, so a failed migration remains retryable.
-                if (!signal.aborted) eventCursorByWorkspaceRef.current[item.key] = result.cursor;
+                if (!signal.aborted && admission.isCurrent(item.ticket)) eventCursorByWorkspaceRef.current[item.key] = result.cursor;
               }));
-              const failed = applied.find(result => result.status === "rejected");
+              const failed = admission.firstUnhandled(chunk, applied);
               if (failed?.status === "rejected") throw failed.reason;
             }
             return;
@@ -190,14 +194,14 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
         const results = await Promise.allSettled(targets.map(async item => {
           const since = eventCursorByWorkspaceRef.current[item.key];
           const response = await item.target.client.listSessionGroupEvents(item.target.workspaceId, { ...(typeof since === "number" ? { since } : {}), signal });
-          if (signal.aborted) return;
+          if (signal.aborted || !admission.isCurrent(item.ticket)) return;
           if (since == null || (response.cursor ?? 0) < since || response.items.length > 0) {
             const groups = await item.target.client.getSessionGroups(item.target.workspaceId, signal);
-            await apply(item.workspace, groups.state, item.version, signal);
+            await apply(item.workspace, groups.state, item.version, signal, item.ticket);
           }
-          if (!signal.aborted) eventCursorByWorkspaceRef.current[item.key] = response.cursor ?? 0;
+          if (!signal.aborted && admission.isCurrent(item.ticket)) eventCursorByWorkspaceRef.current[item.key] = response.cursor ?? 0;
         }));
-        const failed = results.find(result => result.status === "rejected");
+        const failed = admission.firstUnhandled(targets, results);
         if (failed?.status === "rejected") throw failed.reason;
       }, { intervalMs: () => syncRef.current.live && syncRef.current.metadata && syncRef.current.baseUrl === endpoint.client.baseUrl ? 30_000 : 3000 });
       pollers.current.push(poller);
