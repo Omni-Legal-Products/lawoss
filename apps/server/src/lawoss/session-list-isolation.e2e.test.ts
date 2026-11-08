@@ -260,6 +260,12 @@ for (const [name, bin] of engines) {
     expect((await get(`${a}/api/fs/list?${new URLSearchParams({ path: "Vnorený klient/Spis" })}`)).status).toBe(403);
     expect((await get(`${a}/api/fs/read/${encodeURIComponent(join(folders.nested, "x.md"))}`)).status).toBe(403);
     expect((await get(`${a}/api/fs/read/${encodeURIComponent(join(folders.clientB, "x.md"))}`)).status).toBe(403);
+    // MCP sa spúšťa po lokáciách: proxy A nesiahne na MCP lokácie klienta B ani vnoreného klienta.
+    expect((await get(`${a}/api/mcp`)).status).toBe(200);
+    for (const directory of [folders.clientB, folders.nested]) {
+      expect((await get(`${a}/api/mcp?${new URLSearchParams({ "location[directory]": directory })}`)).status).toBeGreaterThanOrEqual(403);
+      expect((await get(`${a}/api/experimental/mcp/fixture/connect?${new URLSearchParams({ "location[directory]": directory })}`, { method: "POST", body: "{}" })).status).toBeGreaterThanOrEqual(403);
+    }
     // Terminály, ladenie, RPC a globálna história ostávajú mimo proxy.
     for (const [method, path] of [["GET", "/api/pty"], ["POST", "/api/pty"], ["GET", "/api/experimental/persistent-pty/x"], ["GET", "/api/debug/location"], ["POST", "/api/rpc/x/y"], ["GET", "/experimental/session"]] as const)
       expect({ method, path, status: (await get(`${a}${path}`, { method, ...(method === "POST" ? { body: "{}" } : {}) })).status }).toEqual({ method, path, status: 403 });
