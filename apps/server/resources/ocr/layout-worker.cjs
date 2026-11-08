@@ -69,7 +69,9 @@ async function detect(request) {
     const directory = process.argv[process.argv.indexOf("--model-dir") + 1];
     if (!directory) throw new Error("Missing model directory");
     const model = readFileSync(join(directory, "pp-doclayout-v3-onnx", "inference.onnx"));
-    session = await ort.InferenceSession.create(model, { executionProviders: ["cpu"], intraOpNumThreads: 4, interOpNumThreads: 1 });
+    session = await ort.InferenceSession.create(model, { executionProviders: ["cpu"], intraOpNumThreads: 4, interOpNumThreads: 1,
+      // LAWOSS (RAM 2 GB, #367): bez CPU arény vráti ONNX Runtime pamäť po každej strane (layout 1,2 GB → 0,3 GB medzi stranami).
+      enableCpuMemArena: false, enableMemPattern: false });
   }
   {
     const feeds = {

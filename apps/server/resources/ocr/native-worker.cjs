@@ -25,6 +25,8 @@ async function load() {
   return PaddleOcrService.createInstance({
     ort: { Tensor: ort.Tensor, InferenceSession: { create: buffer => ort.InferenceSession.create(buffer, {
       executionProviders: ["cpu"], intraOpNumThreads: 4, interOpNumThreads: 1,
+      // LAWOSS (RAM 2 GB, #367): bez CPU arény vráti ONNX Runtime pamäť po každej strane (layout 1,2 GB → 0,3 GB medzi stranami).
+      enableCpuMemArena: false, enableMemPattern: false,
     }) } },
     modelPreset: "PP-OCRv6_small",
     detection: { modelBuffer: modelBuffer(manifest.det), maxSideLength: 960, limitType: "max" },
