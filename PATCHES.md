@@ -105,7 +105,7 @@ Issue #367. Nový `scripts/memory-budget/run.mjs` spustí zabalenú appku s izol
 
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
-| `.github/workflows/ci-desktop-packaging.yml` | Na macOS po „Verify Windows and macOS packaged startup“: cache datasetu, krok „Verify RAM budget (2 GB) with the packaged app“ (overenie SHA-256 datasetu, klon `lawoss-marketplace` s commitom snapshotu, `node --test scripts/memory-budget/memory.test.mjs`, meranie) a upload `memory-budget.json`. Windows a Linux zatiaľ nie (Windows bez merania súkromnej pamäte stromu; Linux runner bez overenia). |
+| `.github/workflows/ci-desktop-packaging.yml` | Samostatný job `memory-budget` („RAM budget 2 GB (macos-15)“, od 2026-11-08): závisí len od `sandbox-runtime`, postaví a zabalí appku pre macOS bez natívneho testu ISIR, potom cache datasetu, krok „Verify RAM budget (2 GB) with the packaged app“ (overenie SHA-256 datasetu, klon `lawoss-marketplace` s commitom snapshotu, meranie), `node --test scripts/memory-budget/memory.test.mjs` a upload `memory-budget.json`. Pôvodne bol krok v „Package and launch (macos-15)“ za nestabilným natívnym testom ISIR, ktorý ho pri zlyhaní preskočil (#378 sa tak zlúčil bez merania). Job je určený ako povinná kontrola rulesetu `dev`. Windows a Linux zatiaľ nie (Windows bez merania súkromnej pamäte stromu; Linux runner bez overenia). |
 
 ## MCP len pre otvoreného klienta, strop a uvoľnenie nečinných inštancií enginu (2026-11-05)
 
