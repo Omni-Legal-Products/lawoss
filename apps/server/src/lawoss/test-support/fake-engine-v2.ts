@@ -178,7 +178,7 @@ export type FakeEngineV2 = ReturnType<typeof fakeEngineV2>;
  * Skutočný engine v2 (`LEGALWORK_TEST_OPENCODE_BIN`) v izolovanom HOME/XDG pod `home`, s heslom
  * ako spravovaný engine (`OPENCODE_PASSWORD`, používateľ `opencode`). Bez modelu a bez sťahovania.
  */
-export async function startRealEngineV2(bin: string, home: string, cleanups: (() => Promise<unknown> | unknown)[]) {
+export async function startRealEngineV2(bin: string, home: string, cleanups: (() => Promise<unknown> | unknown)[], env: Record<string, string> = {}) {
   for (const folder of ["home", "config", "data", "cache", "state", "opencode-config"]) await mkdir(join(home, folder), { recursive: true });
   // Voľný port: krátko otvorený a zatvorený poslucháč (engine dostane pevný `--port`).
   const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
@@ -187,7 +187,7 @@ export async function startRealEngineV2(bin: string, home: string, cleanups: (()
   const child = Bun.spawn([bin, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: home, stdout: "ignore", stderr: "ignore", env: {
     PATH: process.env.PATH ?? "", HOME: join(home, "home"), XDG_CONFIG_HOME: join(home, "config"), XDG_DATA_HOME: join(home, "data"), XDG_CACHE_HOME: join(home, "cache"), XDG_STATE_HOME: join(home, "state"),
     OPENCODE_CONFIG_DIR: join(home, "opencode-config"), OPENCODE_DB: join(home, "engine.db"), OPENCODE_DISABLE_MODELS_FETCH: "1", OPENCODE_DISABLE_CLAUDE_CODE: "1", OPENCODE_DISABLE_AUTOUPDATE: "1",
-    OPENCODE_CONFIG_CONTENT: JSON.stringify({ update: "disable", warming: false }), OPENCODE_PASSWORD: password,
+    OPENCODE_CONFIG_CONTENT: JSON.stringify({ update: "disable", warming: false }), ...env, OPENCODE_PASSWORD: password,
   } });
   cleanups.push(async () => { child.kill(); await child.exited; });
   const engine = { url: `http://127.0.0.1:${port}`, username: "opencode", password };

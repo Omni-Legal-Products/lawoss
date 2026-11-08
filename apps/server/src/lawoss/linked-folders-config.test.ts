@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildLegalworkRuntimeConfigObject, keepLegalworkRuntimeConfigFileFresh, legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "../legalwork-runtime-config.js";
+import { buildLegalworkRuntimeConfigObject, keepLegalworkRuntimeConfigFileFresh, legalworkRuntimeConfigFilePath, mandatoryRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "../legalwork-runtime-config.js";
 import { readRuntimeOpencodeConfig, runtimeExternalDirectory, runtimeStorageDir, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import { clientCardFolder, documentLinkedFolders, linkableFolders, linkedFoldersMapPath, writeLinkedFoldersMap } from "./linked-folders.js";
 import { externalDirectoryOtherClient, parseLinkedFoldersMap } from "./linked-folders-rules.js";
@@ -105,7 +105,9 @@ describe("pripojené priečinky klienta: spoločný súbor enginu a mapa pre plu
     const file: unknown = JSON.parse(await readFile(await writeLegalworkRuntimeConfigFile(config, "ws_client"), "utf8"));
     // The common file carries no linked folder of any client.
     expect(JSON.stringify(file)).not.toContain(linked);
-    expect(await hasBundledPlugin(Array.isArray(built.plugins) ? built.plugins : [], "lawoss-linked-folders")).toBe(true);
+    // The plugin itself is mandatory, after the managed folder permissions (legalwork-runtime-config.ts).
+    const mandatory: unknown = JSON.parse(await readFile(mandatoryRuntimeConfigFilePath(config), "utf8"));
+    expect(await hasBundledPlugin(mandatory !== null && typeof mandatory === "object" && "plugins" in mandatory && Array.isArray(mandatory.plugins) ? mandatory.plugins : [], "lawoss-linked-folders")).toBe(true);
   });
 
   test("mapa: každý klient so svojím koreňom a pripojenými priečinkami; zápis iného klienta ju obnoví bez prepisu súboru", async () => {
