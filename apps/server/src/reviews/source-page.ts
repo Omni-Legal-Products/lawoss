@@ -9,6 +9,7 @@ import { within } from "./storage.js";
 import { sourceQuote } from "./citations.js";
 import { ocrQuoteRegions } from "../document-preparation/highlights.js";
 import { pageReviewReasons } from "../document-preparation/structure.js";
+import { textOnlyReviewReasons } from "../lawoss/layout-on-demand.js";
 
 async function preparedEvidence(workspace: string, preparationPath: string, hash: string, source: string) {
   const root = await realpath(workspace), path = await realpath(resolve(root, preparationPath));
@@ -79,7 +80,8 @@ export async function reviewRecognitionPage(workspace: string, file: string, pre
     const pages = Array.from({ length: document.pageCount }, (_, index): ReviewRecognitionPage["pages"][number] => {
       const page = prepared.pages.find(item => item.page === index + 1);
       if (!page) return { page: index + 1, status: "missing", reasons: [] };
-      const reasons = page.status === "needs-review" && page.ocr && page.structure ? pageReviewReasons({ nativeText: page.nativeText, ocr: page.ocr, structure: page.structure }) : [];
+      // LAWOSS: an OCR page prepared without layout has no structure (lawoss/layout-on-demand.ts).
+      const reasons = page.status === "needs-review" && page.ocr ? page.structure ? pageReviewReasons({ nativeText: page.nativeText, ocr: page.ocr, structure: page.structure }) : textOnlyReviewReasons({ nativeText: page.nativeText, ocr: page.ocr }) : [];
       return { page: page.page, status: page.status, reasons };
     });
     const number = requestedPage ?? pages.find(page => page.status !== "complete")?.page ?? 1;

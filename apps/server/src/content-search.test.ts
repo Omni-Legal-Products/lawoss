@@ -75,17 +75,18 @@ test("a clause split across pages returns every contributing passage", () => {
   expect(result.sources[1].quote).toContain("terminate");
 });
 
-test("missing layout preserves searchable OCR locations but reports incomplete evidence", async () => {
+// LAWOSS: page layout runs only on an explicit request (lawoss/layout-on-demand.ts), so a missing layout model
+// no longer makes automatically prepared OCR evidence incomplete.
+test("without a layout request a missing layout model keeps OCR locations searchable and evidence complete", async () => {
   const f = await fixture(false, false);
   await writeFile(join(f.root, "scan.png"), await readFile(new URL("./ocr/fixtures/bilingual.png", import.meta.url)));
   const shared = await extractCorpusText(f.root, "scan.png", f.preparation, signal());
-  expect(shared.complete).toBe(false);
+  expect(shared.complete).toBe(true);
   expect(shared.pages.find(page => page.source === "ocr")?.regions?.[0].box).toEqual(f.box);
   const result = await settled(f, "quarterly escrow");
   expect(result.items).toHaveLength(1);
-  expect(result.items[0].incomplete).toBe(true);
-  expect(result.incomplete).toBe(1);
-  expect(result.retryable).toBe(true);
+  expect(result.items[0].incomplete).toBeFalsy();
+  expect(result.incomplete).toBe(0);
   expect(f.calls()).toBe(1);
 });
 

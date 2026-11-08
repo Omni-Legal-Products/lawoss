@@ -246,7 +246,7 @@ export class ReviewService {
   }
   async start(workspace: WorkspaceInfo, id: string, raw: unknown) {
     const input = RunReviewSchema.parse(raw), key = this.key(workspace, id), store = new ReviewStore(workspace.path);
-    if (input.retryFailed && (input.rerun || input.reprocess)) throw new ApiError(400, "review_retry_options", "Retry failed cells cannot be combined with rerun or reprocess.");
+    if (input.retryFailed && (input.rerun || input.reprocess || input.layout)) throw new ApiError(400, "review_retry_options", "Retry failed cells cannot be combined with rerun or reprocess.");
     return serialized(`${key}:start`, async () => {
       if (this.active.has(key)) {
         const current = await this.get(workspace, id);
@@ -272,7 +272,7 @@ export class ReviewService {
           current.runId = randomUUID(); current.status = "running"; current.error = null; current.runner = null;
           for (const cell of current.cells) {
             const selected = (!input.columnKeys || input.columnKeys.includes(cell.columnKey)) && (!input.documentIds || input.documentIds.includes(cell.documentId));
-            if (selected && (input.retryFailed ? cell.status === "error" : input.rerun || input.reprocess || !["complete", "needs_review"].includes(cell.status))) {
+            if (selected && (input.retryFailed ? cell.status === "error" : input.rerun || input.reprocess || input.layout || !["complete", "needs_review"].includes(cell.status))) { // LAWOSS: `layout` reruns like `rerun`
               cell.blockedBy = blocked.get(cell.columnKey); cell.error = null;
               cell.status = cell.blockedBy ? "blocked" : "queued";
               if (!cell.blockedBy) cell.result = null;
@@ -305,7 +305,8 @@ export class ReviewService {
       signal.throwIfAborted();
       const files = snapshot.documents.filter(document => /\.(pdf|png|jpe?g|webp)$/i.test(document.path)
         && snapshot.cells.some(cell => cell.documentId === document.id && cell.status === "queued")).map(document => document.path);
-      preparationJobId = (await this.preparation.start(workspace.path, { files, force: input.reprocess, ocr: reviewOcr(snapshot.settings) })).id;
+      // LAWOSS: page layout only on the lawyer's explicit request (lawoss/layout-on-demand.ts).
+      preparationJobId = (await this.preparation.start(workspace.path, { files, force: input.reprocess, ocr: reviewOcr(snapshot.settings), layout: input.layout ?? false })).id;
       if (signal.aborted) cancelPreparation();
       signal.throwIfAborted();
       return preparationJobId;

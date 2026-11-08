@@ -11,6 +11,7 @@ import type { DocumentLayout } from "./structure.js";
 import { openDocument } from "./render.js";
 import { writeOcrEnabled } from "../lawoss/ocr-opt-in.js";
 
+// LAWOSS: page layout runs only on request (lawoss/layout-on-demand.ts); tests about layout pass `layout: true`.
 const layout: DocumentLayout = { fingerprint: "test-layout-1", async detect() {
   return { model: "test-layout", regions: [{ label: "text", box: { x: 0, y: 0, width: 1, height: 1 }, confidence: 1, order: 0 }] };
 } };
@@ -70,7 +71,7 @@ test("pages reach OCR in page order even when a later page is laid out first", a
     } },
     snapshot: async () => ({ fingerprint: "A", service: new OcrService([{ info, async recognize(page) { calls.push(page.pageNumber); return content; } }], "test") }),
   });
-  expect((await done(service, root, (await service.start(root, { files: ["contract.pdf"] })).id)).status).toBe("complete");
+  expect((await done(service, root, (await service.start(root, { files: ["contract.pdf"], layout: true })).id)).status).toBe("complete");
   expect(calls).toEqual([1, 2]);
 });
 
@@ -87,14 +88,14 @@ test("with OCR only for missing text, pages with their own text skip layout and 
     layout: { fingerprint: "counted-layout", async detect(page, signal) { layoutCalls++; return layout.detect(page, signal); } },
     snapshot: async () => ({ fingerprint: "A", service: new OcrService([{ info, async recognize(page) { calls.push(page.pageNumber); return content; } }], "test") }),
   });
-  const result = await done(service, root, (await service.start(root, { files: ["mixed.pdf"], ocr: "missing-text" })).id);
+  const result = await done(service, root, (await service.start(root, { files: ["mixed.pdf"], ocr: "missing-text", layout: true })).id);
   expect(result.status).toBe("complete");
   // Only a page number of its own is not enough text: that page is read like the scan.
   expect(calls).toEqual([2, 3]); expect(layoutCalls).toBe(2);
   const doc = preparedSchema.parse(JSON.parse(await readFile(join(root, result.documents[0]!.preparationPath!), "utf8")));
   expect(doc.pages[0]).toMatchObject({ status: "complete", ocr: null }); expect(doc.pages[0]!.nativeText).toContain("thirty days");
   // OCR on every page is prepared separately, so switching back reads the first page too.
-  await done(service, root, (await service.start(root, { files: ["mixed.pdf"] })).id);
+  await done(service, root, (await service.start(root, { files: ["mixed.pdf"], layout: true })).id);
   expect(calls).toEqual([2, 3, 1, 2, 3]);
 });
 
@@ -152,13 +153,13 @@ test("layout failure preserves OCR and retry recovers without another OCR reques
     layout: { fingerprint: "retry-layout", async detect(page, signal) { layoutCalls++; if (fail) throw new OcrError("runtime-unavailable", "offline"); return layout.detect(page, signal); } },
     snapshot: async () => ({ fingerprint: "ocr", service: new OcrService([{ info, async recognize() { calls++; return content; } }], "test") }),
   });
-  const first = await done(service, root, (await service.start(root, { files: ["contract.pdf"] })).id);
+  const first = await done(service, root, (await service.start(root, { files: ["contract.pdf"], layout: true })).id);
   const read = async (path: string) => preparedSchema.parse(JSON.parse(await readFile(join(root, path), "utf8")));
   const partial = await read(first.documents[0]!.preparationPath!);
   expect(first.status).toBe("needs-review"); expect(layoutCalls).toBe(1);
   expect(partial.pages.every(page => page.ocr?.text === content.text && page.structure?.status === "unavailable")).toBe(true);
   fail = false;
-  const second = await done(service, root, (await service.start(root, { files: ["contract.pdf"] })).id);
+  const second = await done(service, root, (await service.start(root, { files: ["contract.pdf"], layout: true })).id);
   expect(second.status).toBe("complete"); expect(calls).toBe(2);
   expect((await read(second.documents[0]!.preparationPath!)).pages.every(page => page.structure?.regions[0]?.text === content.text)).toBe(true);
 }, 10_000);
@@ -168,7 +169,7 @@ test("text-only OCR without line boxes still completes recognition", async () =>
   const service = new DocumentPreparation(new OcrManager(join(root, "ocr")), { layout, snapshot: async () => ({ fingerprint: "text-only", service: new OcrService([{ info: { ...info, regions: false }, async recognize() {
     return { text: content.text, regions: [], truncated: false };
   } }], "test") }) });
-  const result = await done(service, root, (await service.start(root, { files: ["contract.pdf"] })).id);
+  const result = await done(service, root, (await service.start(root, { files: ["contract.pdf"], layout: true })).id);
   const doc = preparedSchema.parse(JSON.parse(await readFile(join(root, result.documents[0]!.preparationPath!), "utf8")));
   expect(result.status).toBe("complete");
   expect(doc.pages.every(page => page.status === "complete" && page.structure?.issues.join() === "ocr-coordinates-unavailable")).toBe(true);
@@ -186,7 +187,7 @@ test("block-reading OCR receives layout blocks in reading order and fills the st
       return { text: "Title\nBody", regions: [{ text: "Title", box: top }, { text: "Body", box: bottom }], truncated: false };
     } }], "test") }),
   });
-  const result = await done(service, root, (await service.start(root, { files: ["contract.pdf"] })).id);
+  const result = await done(service, root, (await service.start(root, { files: ["contract.pdf"], layout: true })).id);
   const doc = preparedSchema.parse(JSON.parse(await readFile(join(root, result.documents[0]!.preparationPath!), "utf8")));
   expect(received).toEqual(Array(2).fill([{ label: "doc_title", box: top, confidence: 1 }, { label: "text", box: bottom, confidence: 1 }]));
   expect(result.status).toBe("complete");
@@ -212,7 +213,7 @@ test("blank pages and inferred table cells do not flag a page; text without layo
       return { text: regions.map(region => region.text).join("\n"), regions, truncated: false };
     } }], "test") }),
   });
-  const result = await done(service, root, (await service.start(root, { files: ["pages.pdf"] })).id);
+  const result = await done(service, root, (await service.start(root, { files: ["pages.pdf"], layout: true })).id);
   const doc = preparedSchema.parse(JSON.parse(await readFile(join(root, result.documents[0]!.preparationPath!), "utf8")));
   expect(doc.pages.map(page => page.status)).toEqual(["complete", "complete", "needs-review"]);
   expect(doc.pages[1]!.structure?.tables[0]?.status).toBe("uncertain");
@@ -242,8 +243,44 @@ test("cancellation during layout resumes and completes the document", async () =
       return layout.detect(page, signal);
     } }, snapshot: async () => ({ fingerprint: "ocr", service: new OcrService([{ info, async recognize() { calls++; return content; } }], "test") }),
   });
-  const run = await service.start(root, { files: ["contract.pdf"] }); await gate;
+  const run = await service.start(root, { files: ["contract.pdf"], layout: true }); await gate;
   await service.cancel(root, run.id);
-  const resumed = await done(service, root, (await service.start(root, { files: ["contract.pdf"] })).id);
+  const resumed = await done(service, root, (await service.start(root, { files: ["contract.pdf"], layout: true })).id);
   expect(resumed.status).toBe("complete"); expect(calls).toBe(2);
+}, 10_000);
+
+// LAWOSS: page layout only on demand (MČ 8. 11. 2026, RAM budget #367; lawoss/layout-on-demand.ts).
+test("automatic preparation reads scans with text OCR only and never invokes layout", async () => {
+  const root = await fixture(); let layoutCalls = 0, closed = 0, calls = 0;
+  const service = new DocumentPreparation(new OcrManager(join(root, "ocr")), {
+    layout: { fingerprint: "counted-layout", async detect(page, signal) { layoutCalls++; return layout.detect(page, signal); }, close() { closed++; } },
+    snapshot: async () => ({ fingerprint: "A", service: new OcrService([{ info, async recognize(page) { calls++; expect(page.blocks).toBeUndefined(); return content; } }], "test") }),
+  });
+  const result = await done(service, root, (await service.start(root, { files: ["contract.pdf"] })).id);
+  const doc = preparedSchema.parse(JSON.parse(await readFile(join(root, result.documents[0]!.preparationPath!), "utf8")));
+  expect(result.status).toBe("complete"); expect(layoutCalls).toBe(0); expect(calls).toBe(2);
+  expect(doc.pages.every(page => page.status === "complete" && page.ocr?.text === content.text && page.structure === undefined)).toBe(true);
+  // A second automatic run reuses the text-only pages instead of treating them as unfinished.
+  await done(service, root, (await service.start(root, { files: ["contract.pdf"] })).id);
+  expect(layoutCalls).toBe(0); expect(calls).toBe(2); expect(closed).toBe(2);
+}, 10_000);
+
+test("an explicit layout request adds the page layout and reuses recognized text", async () => {
+  const root = await fixture(); let layoutCalls = 0, calls = 0;
+  const service = new DocumentPreparation(new OcrManager(join(root, "ocr")), {
+    layout: { fingerprint: "counted-layout", async detect(page, signal) { layoutCalls++; return layout.detect(page, signal); } },
+    snapshot: async () => ({ fingerprint: "A", service: new OcrService([{ info, async recognize() { calls++; return content; } }], "test") }),
+  });
+  const first = await done(service, root, (await service.start(root, { files: ["contract.pdf"] })).id);
+  expect(layoutCalls).toBe(0);
+  const second = await done(service, root, (await service.start(root, { files: ["contract.pdf"], layout: true })).id);
+  // The same prepared file gains layout; OCR is not repeated.
+  expect(second.documents[0]!.preparationPath).toBe(first.documents[0]!.preparationPath!);
+  expect(second.status).toBe("complete"); expect(layoutCalls).toBe(2); expect(calls).toBe(2);
+  const doc = preparedSchema.parse(JSON.parse(await readFile(join(root, second.documents[0]!.preparationPath!), "utf8")));
+  expect(doc.pages.every(page => page.structure?.status === "complete" && page.structure.regions[0]?.text === content.text)).toBe(true);
+  // Pages with layout stay as they are for later automatic runs and for another request.
+  await done(service, root, (await service.start(root, { files: ["contract.pdf"] })).id);
+  await done(service, root, (await service.start(root, { files: ["contract.pdf"], layout: true })).id);
+  expect(layoutCalls).toBe(2); expect(calls).toBe(2);
 }, 10_000);
