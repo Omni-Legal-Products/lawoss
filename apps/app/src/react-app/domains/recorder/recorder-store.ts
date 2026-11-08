@@ -21,6 +21,7 @@ import {
   audioOverlaySetVisible,
   audioRecorderBootstrap,
   audioSystemDictationGet,
+  audioMiniBarSetEnabled,
   audioSystemDictationMicrophoneActive,
   audioSystemDictationMicrophoneSelect,
   audioSystemDictationOpenSettings,
@@ -64,6 +65,7 @@ import type {
   AudioRecordingDetail,
   AudioRecordingMeta,
   AudioMeetingStatus,
+  AudioMeetingNotesSettings,
   AudioSystemDictationRuntimeState,
   AudioSystemDictationStatus,
   AudioDictationAppearance,
@@ -86,6 +88,7 @@ const LANGUAGE_PREF_KEY = "legalwork.recorder.language";
 const SOURCES_PREF_KEY = "legalwork.recorder.sources";
 const TRANSCRIPTION_SOURCE_PREF_KEY = "legalwork.recorder.transcription-source";
 const CLOUD_MODEL_PREF_KEY = "legalwork.recorder.cloud-model";
+const NOTES_PREF_KEY = "legalwork.recorder.meeting-notes";
 
 function setDictationFeedback(state: AudioSystemDictationRuntimeState, message = "") {
   // Composer dictation owns its feedback and inserts directly into its draft.
@@ -133,6 +136,7 @@ let liveTranscriptShareRevision = 0;
 export type RecorderState = {
   transcriptionSource: "local" | "cloud";
   cloudModelId: string;
+  meetingNotes: AudioMeetingNotesSettings;
   initialized: boolean;
   bootstrap: AudioRecorderBootstrap | null;
   permissions: AudioCapturePermissions | null;
@@ -186,6 +190,7 @@ export type RecorderState = {
 };
 
 type RecorderActions = {
+  setMeetingNotes: (settings: Partial<AudioMeetingNotesSettings>) => void;
   setTranscriptionSource: (source: "local" | "cloud", cloudModelId?: string) => void;
   init: () => Promise<void>;
   refreshBootstrap: () => Promise<void>;
@@ -235,6 +240,7 @@ type RecorderActions = {
   /** Reset the app's own stale TCC entries for one permission, then re-prompt. */
   repairDictationPermission: (kind: AudioDictationPermissionKind) => Promise<void>;
   setDictationAppearance: (appearance: AudioDictationAppearance) => Promise<void>;
+  setMiniBarEnabled: (enabled: boolean) => Promise<void>;
   setSystemDictationEnabled: (enabled: boolean) => Promise<void>;
   setSystemDictationShortcut: (accelerator: string) => Promise<boolean>;
   setSystemDictationShortcutCapture: (active: boolean) => Promise<void>;
@@ -776,6 +782,15 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
   return {
     transcriptionSource: readPref(TRANSCRIPTION_SOURCE_PREF_KEY, "local") === "cloud" ? "cloud" : "local",
     cloudModelId: readPref(CLOUD_MODEL_PREF_KEY, ""),
+    meetingNotes: { enabled: readPref(`${NOTES_PREF_KEY}.enabled`,
+      readPref(`${NOTES_PREF_KEY}.title`, "true") === "true" && readPref(`${NOTES_PREF_KEY}.summary`, "true") === "true" ? "true" : "false") === "true",
+      model: readPref(`${NOTES_PREF_KEY}.model`, ""), instructions: readPref(`${NOTES_PREF_KEY}.instructions`, "") },
+    setMeetingNotes: (settings) => {
+      const meetingNotes = { ...get().meetingNotes, ...settings };
+      meetingNotes.instructions = meetingNotes.instructions.slice(0, 1000);
+      for (const [key, value] of Object.entries(meetingNotes)) writePref(`${NOTES_PREF_KEY}.${key}`, String(value));
+      set({ meetingNotes });
+    },
     initialized: false,
     bootstrap: null,
     permissions: null,
@@ -978,6 +993,10 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       } catch {
         // Bridge unavailable — the wizard's settings links remain the manual path.
       }
+    },
+
+    setMiniBarEnabled: async (enabled) => {
+      set({ systemDictation: await audioMiniBarSetEnabled(enabled) });
     },
 
     setDictationAppearance: async (appearance) => {
@@ -1323,6 +1342,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
             ephemeral: options?.systemDictation === true,
             projectId: options?.projectId,
             diarize,
+            ...(get().transcriptionSource === "cloud" && !options?.systemDictation
+              ? { meetingNotes: get().meetingNotes } : {}),
           });
           startedMetaId = meta.id;
           startController?.signal.throwIfAborted();

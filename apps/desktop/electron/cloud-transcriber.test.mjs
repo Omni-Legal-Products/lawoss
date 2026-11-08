@@ -73,6 +73,7 @@ async function backgroundFixture(t) {
   const service = new RecorderService({ userDataDir, resolveCloudConnection: transport.resolveConnection,
     powerSessions: { acquire: key => held.add(key), release: key => held.delete(key) } });
   service.broadcast = event => events.push(event);
+  service.modelManager.downloadDiarization = async () => { throw new Error("Speaker model unavailable in transport fixture"); };
   t.after(async () => { service.dispose(); await Promise.all(service.speakerJobs.values()); await fsp.rm(userDataDir, { recursive: true, force: true }); });
   const modelId = "gemini-transcribe-live-eu";
   await service.startTranscriber({ modelId, language: "de" });
@@ -91,7 +92,7 @@ test("Stop saves immediately; an older speaker job survives model changes and ca
   assert.deepEqual([...held], [`speakers:${first.id}`]);
   const job = service.speakerJobs.get(first.id);
   await until(() => requests.filter(request => request.request.url.includes("/diarize") && request.frames.length).length === 2);
-  assert.ok((await service.getRecording(first.id)).segments.every(segment => segment.speaker === null));
+  assert.deepEqual((await service.getRecording(first.id)).segments.map(segment => segment.speaker), [0, 1]);
   await service.renameRecording(first.id, "Renamed while processing");
   await service.setRecordingProject(first.id, "project-one", true);
   await assert.rejects(service.editTranscript(first.id, { type: "add-speaker", name: "Test" }), /speaker detection/);
@@ -174,6 +175,19 @@ test("shutdown cancels background work and a restart clears the interrupted proc
 test("PCM conversion keeps the sample count and gain; clips non-finite input safely", () => {
   const buffer = pcm16(new Float32Array([-1, -.5, 0, .5, 1, NaN, 2]).buffer);
   assert.deepEqual(Array.from({ length: 7 }, (_, i) => buffer.readInt16LE(i * 2)), [-32768, -16384, 0, 16384, 32767, 0, 32767]);
+});
+
+test("speaker recognition retries one failed connection lookup before sending audio", async t => {
+  const { worker, requests, resolveConnection } = await fixture(t, { begin: false });
+  let attempts = 0;
+  worker.resolveConnection = async model => {
+    if (++attempts === 1) throw new Error("Settings request timed out");
+    return resolveConnection(model);
+  };
+  const words = await worker.recognizeSpeakers(Buffer.alloc(64000), new AbortController().signal);
+  assert.equal(attempts, 2);
+  assert.equal(words.length, 1);
+  assert.equal(requests.length, 1, "retry connection setup without duplicating a paid audio request");
 });
 
 test("silent dictation finishes locally without resolving a cloud connection", async t => {
@@ -367,4 +381,27 @@ test("speaker endpoint failure warns while live text and finalization still succ
   assert.ok(events.some(event => event.type === "diarize-error"));
   assert.ok(events.some(event => event.type === "segment"));
   assert.equal(events.some(event => event.type === "stream-error"), false);
+});
+
+test("a failed live connection preserves both input speaker passes and their known labels", { timeout: 5000 }, async t => {
+  const { service, requests, modelId } = await backgroundFixture(t);
+  const meta = await service.startRecording({ modelId, sources: ["microphone", "system"], separateSources: true });
+  for (const source of meta.sources) service.feedPcm(meta.id, new Float32Array(48000).fill(.1).buffer, source);
+  await until(() => requests.filter(request => request.request.url.includes("/live") && request.frames.length).length === 2);
+  for (const source of meta.sources) service.handleWorkerMessage({ type: "segment", streamId: `${meta.id}:${source}`, id: "saved", text: "Saved words.", startMs: 0, endMs: 2000 });
+  requests.find(request => request.request.url.includes("/live")).socket.send(JSON.stringify({ type: "error", error: "Connection failed" }));
+  await until(() => service.activeRecordings.get(meta.id).meta.status === "error");
+  const saved = await service.stopRecording(meta.id);
+  assert.equal(saved.speakerProcessing, true);
+  assert.equal(saved.speakerCount, 2);
+  await until(() => requests.filter(request => request.request.url.includes("/diarize") && request.frames.length).length === 2);
+  const job = service.speakerJobs.get(meta.id);
+  for (const request of requests.filter(request => request.request.url.includes("/diarize"))) {
+    request.socket.send(JSON.stringify({ type: "speakers", words: [{ text: "Saved words.", startMs: 0, endMs: 2000, speaker: "person" }] }));
+  }
+  await job;
+  const detail = await service.getRecording(meta.id);
+  assert.equal(detail.meta.speakerProcessing, false);
+  assert.deepEqual(detail.segments.map(segment => segment.speaker), [0, 1]);
+  assert.equal(detail.meta.status, "error", "speaker success does not hide the transcription error");
 });

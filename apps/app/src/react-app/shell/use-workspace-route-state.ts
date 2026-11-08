@@ -7,6 +7,7 @@ import { isReviewWorkerSession } from "@legalwork/types/reviews";
 // session-route.tsx as the final step of its decomposition; the route keeps
 // composition, handlers, and JSX.
 import { createCoalescedRefresh } from "./coalesced-refresh";
+import { usePanelTabStore } from "../domains/session/panel/panel-tab-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 
@@ -484,6 +485,9 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       clientConnectionRef.current = { key: connectionKey, client: legalworkClient };
       const list = await legalworkClient.listWorkspaces();
       if (!isCurrent()) return;
+      // Restore saved dashboard tabs to the current desktop port before
+      // exposing the new client. Only server-confirmed local owners can move.
+      if (isDesktopRuntime()) usePanelTabStore.getState().reconnectLocalTabs(normalizedBaseUrl, [], list.items.filter(workspace => workspace.workspaceType !== "remote").map(workspace => workspace.id));
       const { routeWorkspaceId, selectedSessionId } = routeSelectionRef.current;
       hasLoadedServerWorkspacesRef.current = true;
       setHasLoadedServerWorkspaces(true);

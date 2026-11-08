@@ -64,6 +64,40 @@ const render = (detail?: AudioRecordingDetail, surface: "panel" | "inline" | "pa
   } finally { client.clear(); }
 };
 
+test("saved cloud transcripts offer Summarize even when automatic processing is disabled", () => {
+  setRenderState({ meetingNotes: { enabled: false, model: "", instructions: "" } });
+  const detail = { meta: { ...recording, status: "complete", transcriptionSource: "cloud", modelId: "gemini-transcribe-live-eu" },
+    segments: [segment("saved", "Review the contract.", 0)] } satisfies AudioRecordingDetail;
+  for (const surface of ["panel", "inline", "page"] satisfies Array<"panel" | "inline" | "page">) {
+    const html = render(detail, surface);
+    const button = html.match(/<button[^>]*aria-label="Summarize"[^>]*>/)?.[0];
+    expect(button).toBeDefined();
+    expect(button).not.toContain('disabled=""');
+  }
+  expect(render({ ...detail, meta: { ...detail.meta, summary: "Existing summary" } })).not.toContain("Summarize");
+  expect(render({ ...detail, meta: { ...detail.meta, transcriptionSource: "local" } })).not.toContain("Summarize");
+  expect(render({ ...detail, segments: [] })).not.toContain("Summarize");
+});
+
+test("Summarize is disabled while processing is in progress", () => {
+  for (const processing of [{ summaryProcessing: true }, { speakerProcessing: true }]) {
+    const html = render({ meta: { ...recording, status: "complete", transcriptionSource: "cloud", ...processing }, segments: [segment("saved", "Words", 0)] });
+    const button = html.match(/<button[^>]*aria-label="Summarize"[^>]*>/)?.[0];
+    expect(button).toContain('disabled=""');
+  }
+});
+
+test("speaker detection and summary generation are shown as successive stages", () => {
+  const detail = { meta: { ...recording, status: "complete", transcriptionSource: "cloud", summaryProcessing: true },
+    segments: [segment("saved", "Words", 0)] } satisfies AudioRecordingDetail;
+  const waiting = render({ ...detail, meta: { ...detail.meta, speakerProcessing: true } });
+  expect(waiting).not.toContain("Preparing meeting notes");
+  expect(waiting).not.toContain("Summarizing");
+  const generating = render({ ...detail, meta: { ...detail.meta, speakerProcessing: false } });
+  expect(generating).toContain("Preparing meeting notes");
+  expect(generating).toContain("Summarizing");
+});
+
 test("speaker turns group consecutive speech without changing input segments", () => {
   const segments = [segment("a", "First", 0), segment("b", "continued", 0), segment("c", "Reply", 1), segment("d", "Again", 0)];
   const turns = transcriptTurns(segments, null);
@@ -248,4 +282,21 @@ test("a split recording shows both simultaneous input labels in chronological or
   expect(html).toContain("Microphone");
   expect(html).toContain("System audio");
   expect(html.indexOf("Local words")).toBeLessThan(html.indexOf("Remote words"));
+});
+
+test("long monologues and pauses start readable new transcript turns", () => {
+  const words = Array.from({ length: 20 }, (_, i) => ({ ...segment(String(i), "A complete sentence. ".repeat(5), 0), startMs: i * 2000, endMs: (i + 1) * 2000 }));
+  const turns = transcriptTurns(words, null);
+  expect(turns.length).toBeGreaterThan(1);
+  expect(turns.every(turn => turn.segments.reduce((n, part) => n + part.text.length, 0) <= 600)).toBe(true);
+  expect(turns.flatMap(turn => turn.segments)).toEqual(words);
+  expect(transcriptTurns([words[0], { ...words[1], startMs: 10000, endMs: 12000 }], null)).toHaveLength(2);
+});
+
+test("saved meeting summaries render separately from the verbatim transcript", () => {
+  const html = render({ meta: { ...recording, status: "complete", summary: "Review the draft by Friday." }, segments: [segment("saved", "Um, Friday would work.", 0)] });
+  expect(html).toContain("Summary");
+  expect(html).toContain("Review the draft by Friday.");
+  expect(html).toContain("Um, Friday would work.");
+  expect(html.indexOf("Review the draft")).toBeLessThan(html.indexOf("Um, Friday"));
 });

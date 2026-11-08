@@ -123,6 +123,8 @@ export type AudioRecorderBootstrap = {
 };
 
 export type AudioCloudTranscriptionStatus = {
+  summaryModels?: { model: string; name: string; region: string }[];
+  defaultSummaryModels?: Partial<Record<"EU" | "US", string>>;
   models: { model: string; name: string; region: "EU" | "US"; enabled: boolean; available: boolean }[];
   error: string | null;
 };
@@ -202,6 +204,9 @@ export type AudioMeetingStatus = {
 };
 
 export type AudioRecordingMeta = {
+  summary?: string;
+  summaryProcessing?: boolean;
+  summaryError?: string;
   transcriptionSource?: "local" | "cloud";
   speakerDetection?: "cloud";
   /** Saved and available while speaker detection finishes in the background. */
@@ -285,6 +290,8 @@ export type AudioDictationNativeInputs = {
 
 export type AudioSystemDictationStatus = {
   appearance: AudioDictationAppearance;
+  /** Visibility preference, independent of dictation and meeting capture. */
+  miniBarEnabled: boolean;
   enabled: boolean;
   registered: boolean;
   accelerator: string;
@@ -352,6 +359,7 @@ export type AudioSystemDictationPasteResult = {
 };
 
 export type AudioRecordingStartInput = {
+  meetingNotes?: AudioMeetingNotesSettings;
   title?: string;
   projectId?: string;
   language: AudioTranscribeLanguage;
@@ -362,6 +370,13 @@ export type AudioRecordingStartInput = {
   separateSources?: boolean;
   /** Identify speakers during retained recordings with the selected engine. */
   diarize?: boolean;
+};
+
+export type AudioMeetingNotesSettings = {
+  enabled: boolean;
+  /** Empty selects an available model in the transcription region. */
+  model: string;
+  instructions: string;
 };
 
 export type AudioSaveToWorkspaceResult = {

@@ -44,7 +44,7 @@ import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager, externalWorkspaceAppFilesRoot, resolveLegalworkServerConfigPath } from "./runtime.mjs";
 import { architectureInfo, findArchitectureDownload, normalizeRuntimeArch, resolveSystemArch as nativeSystemArch } from "./architecture.mjs";
 import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
-import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
+import { buildSupportBundleText, collectTechnicalSupportBundle, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import { installMainErrorLog, logWindowErrors } from "./main-error-log.mjs";
 import {
   ELECTRON_UPDATER_FEEDS,
@@ -66,7 +66,7 @@ import { composeAppleMailDraft, composeOutlookDraft } from "./mail-draft.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { ensureLawossHomeWorkspace } from "./lawoss-home-workspace.mjs";
 import { createRuntimeBootstrapGate } from "./runtime-bootstrap-gate.mjs";
-import { copyFilesIntoProject, resolveProjectFolder } from "./project-file-copy.mjs";
+import { copyFilesIntoProject, resolveProjectFolder, dashboardFileImporter } from "./project-file-copy.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
 import { describeBlockedUrl, guardNavigation } from "./window-allowlist.mjs";
 import { extractDescription } from "./skill-description.mjs";
@@ -390,7 +390,7 @@ async function showSupportLogsProgressWindow(parent) {
 // path, or null when the user cancels the dialog. `runtimeManager` is created
 // later at module scope; the click/IPC always happens after startup, so the
 // late binding via closure is safe.
-async function collectSupportLogsAndReveal() {
+async function collectSupportLogsAndReveal(technical = false, days = 7) {
   let defaultDir;
   try {
     defaultDir = app.getPath("desktop");
@@ -399,9 +399,10 @@ async function collectSupportLogsAndReveal() {
   }
   const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
   const options = {
-    title: nativeCopy(uiLocales.forWindow(mainWindow)).support,
-    defaultPath: path.join(defaultDir, defaultSupportBundleFileName()),
-    filters: [{ name: "Text", extensions: ["txt"] }],
+    // 🟡 LAWOSS: localized title for the support bundle; technical diagnostics follow upstream.
+    title: technical ? "Export Technical Diagnostics" : nativeCopy(uiLocales.forWindow(mainWindow)).support,
+    defaultPath: path.join(defaultDir, technical ? defaultSupportBundleFileName().replace("support-", "diagnostics-").replace(/\.txt$/, ".json") : defaultSupportBundleFileName()),
+    filters: technical ? [{ name: "JSON", extensions: ["json"] }] : [{ name: "Text", extensions: ["txt"] }],
   };
   const { canceled, filePath } = parent
     ? await dialog.showSaveDialog(parent, options)
@@ -410,6 +411,12 @@ async function collectSupportLogsAndReveal() {
 
   const progressWindow = await showSupportLogsProgressWindow(parent);
   try {
+    if (technical) {
+      const text = await collectTechnicalSupportBundle({ app, runtimeManager, serverInfo: await runtimeManager.legalworkServerInfo(), days });
+      writeFileSync(filePath, text, { encoding: "utf8", mode: 0o600 });
+      shell.showItemInFolder(filePath);
+      return filePath;
+    }
     // Give the progress window one paint before the synchronous diagnostics
     // snapshot starts probing binaries and reading log tails.
     await new Promise((resolve) => setTimeout(resolve, 80));
@@ -792,6 +799,7 @@ function recorderService() {
       powerSessions,
       pinProcessQoS: pinWindowsProcessQoS,
       resolveCloudConnection: (model) => recorderServerRequest("/transcription/connection", { model }),
+      generateMeetingNotes: (input, signal) => recorderServerRequest("/transcription/summary", input, AbortSignal.any([signal, AbortSignal.timeout(100_000)])),
     });
     if (mainWindow && !mainWindow.isDestroyed()) {
       recorderServiceInstance.subscribe(mainWindow.webContents);
@@ -800,7 +808,7 @@ function recorderService() {
   return recorderServiceInstance;
 }
 
-async function recorderServerRequest(route, body) {
+async function recorderServerRequest(route, body, signal = AbortSignal.timeout(10_000)) {
   const info = assertLegalworkServerReady(await runtimeManager.legalworkServerInfo());
   const response = await fetch(`${info.baseUrl}${route}`, {
     method: body ? "POST" : "GET",
@@ -808,7 +816,7 @@ async function recorderServerRequest(route, body) {
       ...(info.hostToken ? { "X-LegalWork-Host-Token": info.hostToken } : {}),
       ...(body ? { "Content-Type": "application/json" } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
-    signal: AbortSignal.timeout(10_000), redirect: "error",
+    signal, redirect: "error",
   });
   if (!response.ok) throw new Error("Cloud transcription is unavailable. Sign in and check your organisation’s model settings.");
   return response.json();
@@ -1898,8 +1906,9 @@ const desktopCommandHandlers = {
   "workspaceCopyFiles": async (event, ...args) => {
       const input = args[0];
       const state = await workspaceStore.readWorkspaceState();
-      const root = await resolveProjectFolder(input.workspaceId, state.workspaces, await runtimeManager.legalworkServerInfo());
-      return copyFilesIntoProject(root, input.paths, undefined, input.folder);
+      const server = await runtimeManager.legalworkServerInfo();
+      const root = await resolveProjectFolder(input.workspaceId, state.workspaces, server);
+      return copyFilesIntoProject(root, input.paths, undefined, input.folder, dashboardFileImporter(server, input.workspaceId));
   },
   "workspaceCreateRemote": async (event, ...args) => {
       return workspaceStore.createRemoteWorkspace(args[0] ?? {});
@@ -1964,6 +1973,7 @@ const desktopCommandHandlers = {
       const bundlePath = await collectSupportLogsAndReveal();
       return { path: bundlePath };
   },
+  "technicalSupportBundleCollect": async (event, ...args) => ({ path: await collectSupportLogsAndReveal(true, args[0]?.days) }),
   "runtimeStatus": async (event, ...args) => {
       return runtimeManager.runtimeStatus();
   },
@@ -2592,6 +2602,9 @@ const desktopCommandHandlers = {
   "audioRecordingEditTranscript": async (event, ...args) => {
       return recorderService().editTranscript(String(args[0] ?? ""), args[1]);
   },
+  "audioRecordingSummarize": async (event, ...args) => {
+      return recorderService().summarizeRecording(String(args[0] ?? ""), args[1]);
+  },
   "audioRecordingDelete": async (event, ...args) => {
       return recorderService().deleteRecording(String(args[0] ?? ""));
   },
@@ -2639,6 +2652,9 @@ const desktopCommandHandlers = {
   },
   "audioSystemDictationGet": async (event, ...args) => {
       return systemDictation.status();
+  },
+  "audioMiniBarSetEnabled": async (event, ...args) => {
+      return systemDictation.setMiniBarEnabled(args[0]);
   },
   "audioSystemDictationSetAppearance": async (event, ...args) => {
       return systemDictation.setAppearance(args[0]);

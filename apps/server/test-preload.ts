@@ -1,7 +1,12 @@
 import { mock } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import * as os from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Source tests also need the ignored translation module on a fresh checkout.
+execFileSync("node", [fileURLToPath(new URL("../../scripts/gen-core-skills.mjs", import.meta.url)), "--check"]);
 
 /**
  * Keeps every test off the real LegalWork profile. A server a test starts

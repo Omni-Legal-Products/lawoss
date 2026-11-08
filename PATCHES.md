@@ -1,5 +1,18 @@
 # LAWOSS downstream patches
 
+## Sync upstream v0.2.19 (2026-11-08, ADR 0016)
+
+Pribalená používateľská príručka (`docs/user-guide`, skill `legalwork-help`), presné preklady, podrobný export pre podporu, prehľady v súboroch klienta, opravy rečníkov a rozpoznania Meet.
+
+| Súbor | Zmena |
+|---|---|
+| `scripts/help-docs.mjs`, `scripts/gen-core-skills.test.mjs`, `apps/server/src/legalwork-help.test.ts` | Generátor číta aj LAWOSS slovníky rozprestreté v `sk.ts`/`cs.ts`/`en.ts`/`de.ts` (`...diagnosticsCs` a pod.), vynechá trasy `LAWOSS_ROUTES` (nemajú stránku príručky) a kartu `appearance` mapuje na všeobecné nastavenia. Test CRLF kopíruje aj `apps/app/src/lawoss/i18n`; test pokrytia vkladá kartu pred `liteSettingsTabs`. `docs/user-guide/screens.json` a `apps/server/src/core-skills.ts` sú pregenerované. |
+| `apps/app/src/react-app/domains/views/view-renderer.tsx` | Upstream ukladanie a export prehľadov + LAWOSS lenivé načítanie OpenUI, preklady (`views.display_failed`, `views.limited_data`) a bez 15 s obnovy otvoreného prehľadu (`staleTime`/`gcTime`, #367). |
+| `apps/desktop/electron/main.mjs`, `apps/desktop/package.json`, `apps/server/package.json`, `package.json` | Lokalizovaný názov okna exportu pre podporu ostáva; upstream technický export, `dashboardFileImporter`, `gen-core-skills` v builde a nové testy popri LAWOSS. |
+| `AGENTS.md`, `README.md` | LAWOSS (upstream pravidlá príručky neprevzaté). |
+
+Overené: `meeting-monitor.mjs` má ďalej `detectionDefault` (LAWOSS `false`), akcie LAWOSS v `ci-tests.yml` ostávajú pripnuté na SHA. `sk.ts` a `cs.ts`: 61 nových kľúčov, 2 zrušené odstránené. `opencodeVersion` ostáva 1.18.29.
+
 ## Sync upstream v0.2.18 (2026-11-08, ADR 0016, rozhodnutie MČ 8. 11.)
 
 Doplnok Office s vlastným tokenom, odstránený router Slack/Telegram a zdieľanie s hosťami, import pluginov s výberom skillov pre workflowy, Actaport v trezore konektorov, Firecrawl, nedostupný cloudový klient neblokuje štart.

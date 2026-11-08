@@ -76,10 +76,14 @@ jobs:
         with:
           version: 11.4.0
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify bundled help generation on Windows
+        run: node --test scripts/gen-core-skills.test.mjs
       - name: Test portable drafts
         run: pnpm test:drafts
       - name: Test Windows Outlook handoff
         run: node --test apps/desktop/electron/mail-draft.test.mjs
+      - name: Test detailed support exports on Windows
+        run: node --test apps/desktop/electron/technical-support-bundle.test.mjs
       - name: Test packaged server archive imports on Windows
         run: node --test apps/desktop/electron/packaged-server-deps.test.mjs
 
@@ -116,6 +120,11 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Verify bundled user documentation and translations
+        run: |
+          node --test scripts/gen-core-skills.test.mjs
+          pnpm docs:check
 
       - name: Typecheck app and build server
         if: runner.os == 'Linux'

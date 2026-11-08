@@ -574,7 +574,7 @@ export function SessionRoute() {
   const openingWiki = showWikis && !manageWikis && !activeWiki && (Boolean(preferredWiki)
     || (!wikis.data && !wikis.isError && (Boolean(client) || effectiveLoading)));
   useEffect(() => {
-    if (isDesktopRuntime() && wikis.data) usePanelTabStore.getState().reconnectWikiTabs(baseUrl, wikis.data.items.map(wiki => wiki.id));
+    if (isDesktopRuntime() && wikis.data) usePanelTabStore.getState().reconnectLocalTabs(baseUrl, wikis.data.items.map(wiki => wiki.id));
   }, [baseUrl, wikis.data]);
   const openWikiWorkspace = useCallback((wiki: WikiVault, options?: { replace?: boolean }) => {
     // Wikis created by another window or API can precede the workspace list.

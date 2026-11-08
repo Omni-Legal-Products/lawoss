@@ -45,8 +45,9 @@ class LegalworkPcmBatcher extends AudioWorkletProcessor {
   }
   process(inputs) {
     if (this.flushed) return false;
-    const channel = inputs[0]?.[0];
-    if (!channel) return true;
+    // Missing/muted input still advances the shared capture clock. Skipping
+    // those quanta shifts this source ahead of the other person's audio.
+    const channel = inputs[0]?.[0] ?? new Float32Array(128);
     let read = 0;
     while (read < channel.length) {
       const take = Math.min(channel.length - read, this.buffer.length - this.offset);

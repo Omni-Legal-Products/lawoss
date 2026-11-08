@@ -191,6 +191,10 @@ async function stopAll(exitCode = 0) {
 process.once("SIGINT", () => void stopAll(130));
 process.once("SIGTERM", () => void stopAll(143));
 
+// Dev worktrees need the same engine SDK and Node runtime resources as packaged builds.
+runSync(nodeCmd, [resolve(__dirname, "prepare-node-runtime.mjs")], { cwd: desktopRoot });
+runSync(nodeCmd, [resolve(__dirname, "prepare-opencode-sdk.mjs")], { cwd: desktopRoot });
+
 if (process.env.LEGALWORK_ELECTRON_SKIP_SHARED_PREPARE !== "1") {
   runSync(nodeCmd, [resolve(__dirname, "prepare-actaport-mcp.mjs")], { cwd: desktopRoot });
   runSync(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], { cwd: desktopRoot });

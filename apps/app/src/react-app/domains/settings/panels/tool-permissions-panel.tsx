@@ -365,10 +365,13 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
 
   const busy = state.loading || state.saving;
   const quick = props.variant === "quick";
+  const sandbox = props.legalworkServerClient && legalworkServerReady
+    ? <SandboxStatus client={props.legalworkServerClient} canWrite={canWriteConfig} variant={props.variant} />
+    : null;
 
   return (
     <LayoutSectionItem className={cn("gap-6", props.className)}>
-      {props.legalworkServerClient && legalworkServerReady ? <SandboxStatus client={props.legalworkServerClient} canWrite={canWriteConfig} variant={props.variant} /> : null}
+      {quick ? null : sandbox}
       {quick ? null : (
         <LayoutSectionItemHeader>
           <LayoutSectionItemTitle>
@@ -525,6 +528,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
           ) : null}
         </>
       )}
+      {quick ? sandbox : null}
     </LayoutSectionItem>
   );
 }

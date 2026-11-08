@@ -39,6 +39,7 @@ import {
 } from "./legalmemory-ref";
 import { t } from "@/i18n";
 import { parseTaskLink } from "@/react-app/domains/tasks/task-reference";
+import { parseAppLink, requestAppLink } from "@/lib/app-link";
 
 function escapeHtml(value: string) {
   return value
@@ -209,6 +210,9 @@ const baseMarkedOptions = {
     link({ href, title, tokens }) {
       const safe = escapeAttribute(safeHref(href));
       const originalHref = escapeAttribute(href);
+      if (parseAppLink(href)) {
+        return `<a href="#" data-legalwork-app-link="${originalHref}" class="text-indigo-10 underline underline-offset-2 transition-colors hover:text-indigo-8">${this.parser.parseInline(tokens)}</a>`;
+      }
       const titleAttr = title ? ` title="${escapeAttribute(title)}"` : "";
 
       // LegalMemory reference chip: a sibling of the file-mention chip for
@@ -425,6 +429,13 @@ function MarkdownBlockInner({
 
     const handleClick = (event: MouseEvent) => {
       if (!(event.target instanceof Element)) return;
+
+      const appLink = event.target.closest<HTMLElement>("a[data-legalwork-app-link]");
+      if (appLink) {
+        event.preventDefault(); event.stopPropagation();
+        requestAppLink(appLink.dataset.legalworkAppLink ?? "");
+        return;
+      }
 
       const wikiLink = event.target.closest<HTMLElement>("[data-legalwork-wiki-ref]");
       if (wikiLink) {
