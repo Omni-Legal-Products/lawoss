@@ -4,8 +4,9 @@ import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRuntimeManager } from "./runtime.mjs";
+import { stageOpencodeSdk } from "../scripts/prepare-opencode-sdk.mjs";
 
 // Keep disposal and listener close at one fixture boundary.
 async function withFixtureCleanup(run, { dispose, close, remove }) {
@@ -73,6 +74,15 @@ async function fixture(run) {
   try {
     await withFixtureCleanup(async () => {
       await mkdir(selected); await mkdir(path.join(root, "user-data"));
+      // Upstream v0.2.11 requires the locked plugin SDK under desktopRoot/resources; stage it
+      // from the installed server dependency exactly as prepare-opencode-sdk.mjs does (no network).
+      const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
+      const constants = JSON.parse(await readFile(path.join(repoRoot, "constants.json"), "utf8"));
+      await stageOpencodeSdk({
+        sourcePackage: path.join(repoRoot, "apps/server/node_modules/@opencode-ai/plugin"),
+        destination: path.join(root, "desktop", "resources", "opencode-sdk"),
+        expectedVersion: constants.opencodeVersion.replace(/^v/, ""),
+      });
       manager = createRuntimeManager({
         app: { isPackaged: false, getPath: key => key === "exe" ? process.execPath : key === "userData" ? path.join(root, "user-data") : root },
         desktopRoot: path.join(root, "desktop"), listLocalWorkspacePaths: async () => [selected],
