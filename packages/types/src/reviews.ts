@@ -114,6 +114,8 @@ export const RunReviewSchema = z.strictObject({
   columnKeys: z.array(z.string()).min(1).optional(), documentIds: z.array(z.string()).min(1).optional(),
   rerun: z.boolean().default(false), reprocess: z.boolean().default(false),
   retryFailed: z.boolean().optional(),
+  /** LAWOSS: prepare the selected documents again with page layout; their cells run again (apps/server/src/lawoss/layout-on-demand.ts). */
+  layout: z.boolean().optional(),
 });
 export const WaitReviewsSchema = z.strictObject({
   reviewIds: z.array(z.string().uuid()).min(1).max(20),
