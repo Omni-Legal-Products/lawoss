@@ -20,14 +20,27 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 export function normalizeViewArgs(raw: unknown): unknown {
   if (!isRecord(raw)) return raw;
   const stray = Object.keys(raw).filter((key) => VIEW_INPUT_FIELDS.has(key));
-  if (!stray.length) return raw;
+  if (!stray.length) return withMillisecondAsOf(raw);
   const input: Record<string, unknown> = isRecord(raw.input) ? { ...raw.input } : {};
   const rest: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) {
     if (key === "input") continue;
     if (VIEW_INPUT_FIELDS.has(key)) { if (!(key in input)) input[key] = value; } else rest[key] = value;
   }
-  return { ...rest, input };
+  return withMillisecondAsOf({ ...rest, input });
+}
+// `asOf` je v milisekundách; model ho niekedy pošle v sekundách a prehľad potom ukáže rok 1970.
+const SECONDS_LIMIT = 100_000_000_000;
+function withMillisecondAsOf(args: Record<string, unknown>): Record<string, unknown> {
+  const input = args.input;
+  if (!isRecord(input) || !isRecord(input.datasets)) return args;
+  let changed = false;
+  const datasets = Object.fromEntries(Object.entries(input.datasets).map(([name, dataset]) => {
+    if (!isRecord(dataset) || typeof dataset.asOf !== "number" || dataset.asOf <= 0 || dataset.asOf >= SECONDS_LIMIT) return [name, dataset];
+    changed = true;
+    return [name, { ...dataset, asOf: dataset.asOf * 1000 }];
+  }));
+  return changed ? { ...args, input: { ...input, datasets } } : args;
 }
 function invalidInputDetail(args: unknown) {
   const parsed = ViewInputSchema.safeParse(isRecord(args) ? args.input : undefined);

@@ -77,3 +77,12 @@ test("N-A11-24: neplatný vstup povie, ktoré pole chýba", async () => {
   expect(result.code).toBe("wiki_invalid_data");
   expect(result.issues.map((issue: { path: string }) => issue.path)).toContain("input.program");
 });
+
+test("asOf v sekundách sa prepočíta na milisekundy, v milisekundách ostane", async () => {
+  const { normalizeViewArgs } = await import("./lawoss-view-tools.js");
+  const input = { version: 1, title: "SYN", mode: "report", catalog: "legalwork-1", program: "p", queries: {},
+    datasets: { a: { rows: [], total: 0, revision: "r", asOf: 1_794_048_000, truncated: false }, b: { rows: [], total: 0, revision: "r", asOf: 1_794_048_000_000, truncated: false } } };
+  const out = normalizeViewArgs({ input }) as { input: { datasets: Record<string, { asOf: number }> } };
+  expect(out.input.datasets.a.asOf).toBe(1_794_048_000_000);
+  expect(out.input.datasets.b.asOf).toBe(1_794_048_000_000);
+});
