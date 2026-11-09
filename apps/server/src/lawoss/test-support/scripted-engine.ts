@@ -140,11 +140,11 @@ export async function startScriptedEngine(input: {
 export async function waitForPlugins(client: OpenCodeClient, directory: string, ids: string[]) {
   const location = { directory };
   await client.model.list({ location });
-  let states: { id: string; status: string }[] = [];
+  let states: { id?: string; status: string }[] = [];
   for (let attempt = 0; attempt < 200; attempt++) {
     states = (await client.plugin.list({ location })).data.map((entry) => ({ id: entry.id, status: entry.state.status }));
     if (ids.every((id) => states.some((entry) => entry.id === id && entry.status === "active"))) return;
-    if (states.some((entry) => ids.includes(entry.id) && entry.status === "failed")) break;
+    if (states.some((entry) => entry.id !== undefined && ids.includes(entry.id) && entry.status === "failed")) break;
     await Bun.sleep(100);
   }
   throw new Error(`Plugins not active in ${directory}: ${JSON.stringify(states)}`);
