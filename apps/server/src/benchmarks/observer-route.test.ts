@@ -44,6 +44,8 @@ test("observer relay requires host authority and fixes native plugin, method and
     await writeFile(generated, original);
     const allowed = await fetch(base + path + "?plugin=other&method=execute&location[directory]=/unrelated", { headers: { "x-legalwork-host-token": "observer-host" } });
     expect(allowed.status).toBe(200); expect(await allowed.json()).toEqual(output);
+    // LAWOSS (RAM 2 GB): prijatie lokácie do rozpočtu MCP ju najprv aktivuje (server.ts activateEngineDirectory).
+    expect(calls.shift()).toEqual({ path: "/api/model", location: directory });
     expect(calls).toEqual([{ path: "/api/model", location: directory }, { path: "/api/rpc/legalwork-benchmark-observer/catalog", location: directory, body: { input: {} } }]);
     expect((await fetch(base + "/workspace/unknown/benchmarks/observer/catalog", { headers: { "x-legalwork-host-token": "observer-host" } })).status).toBe(404);
     const blocked = await fetch(base + "/workspace/matter/opencode/api/rpc/legalwork-benchmark-observer/catalog", { method: "POST", headers: { "x-legalwork-host-token": "observer-host", "content-type": "application/json" }, body: JSON.stringify({ input: {} }) });
