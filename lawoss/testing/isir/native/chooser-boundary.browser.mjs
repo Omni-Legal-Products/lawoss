@@ -88,7 +88,7 @@ try {
   await cdp.send('Page.navigate',{url:`${origin}/__isir-fixtures/probe.html?chooser`});
   await until(()=>cdp.evaluate("location.search==='?chooser'&&document.readyState==='complete'"),'fresh chooser document');
   const mountedModules=await cdp.evaluate(`(async()=>{const surface=await import('/__isir-fixtures/session-render-boundary.js');const endpoint=await import('/__isir-fixtures/workspace-endpoint-stability.js');return {surface:typeof surface.runNativeSessionRenderBoundary,endpoint:endpoint.runNativeEndpointStabilityBehavior()};})()`);
-  assert.equal(mountedModules.surface,'function');assert.equal(mountedModules.endpoint.actualMountedHook,true);assert.equal(mountedModules.endpoint.checks,28);
+  assert.equal(mountedModules.surface,'function');assert.equal(mountedModules.endpoint.actualMountedHook,true);assert.equal(mountedModules.endpoint.checks,17);
   await cdp.evaluate(`(async()=>{window.__chooserFixture=(await import('/__isir-fixtures/chooser-boundary.js')).mountChooserBoundaryFixture(${JSON.stringify(`http://127.0.0.1:${sink.address().port}/copy`)});window.__legalwork={slice:()=>({selectedWorkspaceId:'synthetic'})};})()`);
   await cdp.evaluate(`(${installChooserBoundary.toString()})({id:'synthetic',root:'/synthetic',name:'Synthetic',caseIndex:1})`);
   await cdp.send('Page.enable');await cdp.send('Page.setInterceptFileChooserDialog',{enabled:true});

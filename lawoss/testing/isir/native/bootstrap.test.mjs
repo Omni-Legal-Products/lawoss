@@ -94,6 +94,8 @@ test('bootstrap uses the authenticated production host reload for the selected w
     // The host reload awaits the managed location refresh; holding it holds the reload readiness.
     // Like the engine's managed-settings plugin, read what the host published for this location.
     if(req.method==='POST'&&url.pathname==='/api/rpc/legalwork.managed-settings/refresh'){
+      // Only the first (post-definition) reload is held; the later key reload answers at once.
+      if(readyResponse){json(200,{refreshed:true});return;}
       published=await readManagedEngineSettings(managedEngineSettingsFilePath(config),directory).catch(error=>({error}));
       readyResponse=res;ready();return;
     }
@@ -124,7 +126,7 @@ test('bootstrap uses the authenticated production host reload for the selected w
     if(first.error)throw first.error;
     assert.equal(first.ready,true,'Production scoped reload must reach engine readiness');
     assert.equal(finished,false,'Catalogue must await host readiness response');
-    assert.equal(received.some(r=>r.pathname==='/api/provider'),false);
+    assert.equal(received.some(r=>['/api/model','/api/provider'].includes(r.pathname)||r.pathname.includes('/connect/key')),false,'The definition reload precedes the location catalogue and key');
     // LAWOSS v2: the host's settings GET projects the engine's resolved documents; what the host
     // persisted reaches the engine as the managed settings file it publishes before the refresh.
     assert.equal(published?.error,undefined);
@@ -135,7 +137,7 @@ test('bootstrap uses the authenticated production host reload for the selected w
     const result=await outcome;
     assert.equal(result.error,undefined);
     assert.deepEqual(result.value.connected,['isir-native']);
-    assert.deepEqual(received.map(r=>`${r.method} ${r.pathname}`),['GET /api/model','POST /api/integration/isir-native/connect/key','POST /api/rpc/legalwork.managed-settings/refresh','GET /api/provider']);
+    assert.deepEqual(received.map(r=>`${r.method} ${r.pathname}`),['POST /api/rpc/legalwork.managed-settings/refresh','GET /api/model','POST /api/integration/isir-native/connect/key','POST /api/rpc/legalwork.managed-settings/refresh','GET /api/provider']);
     assert.ok(received.every(r=>r.authorized));
     // LAWOSS v2: every request here is location-bound, including the credential connect.
     assert.ok(received.every(r=>r.directory===selected.path));

@@ -5,26 +5,30 @@ import { PassThrough } from "node:stream";
 import path from "node:path";
 import { parseRuntimeOutput, collectRuntimeProbe, syntheticRuntimeEnvironment } from "./engine-runtime-smoke.mjs";
 
-const valid = "LAWOSS_ENGINE_RUNTIME_BUN=1.3.14\n1.18.29\n";
+const VERSION = "2.1.4-legalwork.http-policy.3";
+const valid = `LAWOSS_ENGINE_RUNTIME_BUN=1.4.4\nopencode v${VERSION}\n`;
 const unknown = outcome => ({ outcome, engineVersion: null, bunVersion: null, preloadObserved: false });
 
 test("only the closed exact marker plus pinned version yields runtime metadata", () => {
-  assert.deepEqual(parseRuntimeOutput(valid, "", 0), {
-    outcome: "observed", engineVersion: "1.18.29", bunVersion: "1.3.14", preloadObserved: true,
+  assert.deepEqual(parseRuntimeOutput(valid, "", 0, VERSION), {
+    outcome: "observed", engineVersion: VERSION, bunVersion: "1.4.4", preloadObserved: true,
   });
-  assert.deepEqual(parseRuntimeOutput("1.18.29\r\n", "", 0), {
-    outcome: "missing-preload", engineVersion: "1.18.29", bunVersion: null, preloadObserved: false,
+  assert.deepEqual(parseRuntimeOutput(`opencode v${VERSION}\r\n`, "", 0, VERSION), {
+    outcome: "missing-preload", engineVersion: VERSION, bunVersion: null, preloadObserved: false,
   });
+  // The selected version is the only identity: v1 output and a missing selection are unknown.
+  assert.deepEqual(parseRuntimeOutput("LAWOSS_ENGINE_RUNTIME_BUN=1.4.4\n1.18.29\n", "", 0, VERSION), unknown("invalid-output"));
+  assert.deepEqual(parseRuntimeOutput(valid, "", 0, undefined), unknown("identity-failed"));
 });
 
 test("hostile, partial, non-semver, unexpected and stderr output stay content-free unknown", () => {
-  for (const output of ["", valid + "secret", valid.slice(0, -1), valid.replace("1.3.14", "unknown"),
-    valid.replace("1.3.14", "01.3.14"), valid.replace("1.3.14", "https://private.invalid/token"),
-    valid.replace("1.18.29", "1.18.28"), valid + valid, valid.replace("1.3.14", "1.2.3" + "a".repeat(80))]) {
-    assert.deepEqual(parseRuntimeOutput(output, "", 0), unknown("invalid-output"));
+  for (const output of ["", valid + "secret", valid.slice(0, -1), valid.replace("1.4.4", "unknown"),
+    valid.replace("1.4.4", "01.4.4"), valid.replace("1.4.4", "https://private.invalid/token"),
+    valid.replace(VERSION, "2.1.4"), valid.replace("opencode v", "v"), valid + valid, valid.replace("1.4.4", "1.2.3" + "a".repeat(80))]) {
+    assert.deepEqual(parseRuntimeOutput(output, "", 0, VERSION), unknown("invalid-output"));
   }
-  assert.deepEqual(parseRuntimeOutput(valid, "private stderr", 0), unknown("invalid-output"));
-  assert.deepEqual(parseRuntimeOutput(valid, "", 1), unknown("child-error"));
+  assert.deepEqual(parseRuntimeOutput(valid, "private stderr", 0, VERSION), unknown("invalid-output"));
+  assert.deepEqual(parseRuntimeOutput(valid, "", 1, VERSION), unknown("child-error"));
 });
 
 function childFixture() {
@@ -45,26 +49,26 @@ test("owned probe waits for close and drained pipes rather than trusting exit", 
   // real event-loop turn and stream/close assertions remain unchanged.
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
-  const child = childFixture(), result = collectRuntimeProbe(child, 100);
+  const child = childFixture(), result = collectRuntimeProbe(child, 100, VERSION);
   child.stdout.write(valid); child.exitCode = 0; child.emit("exit", 0, null);
   let settled = false; result.then(() => { settled = true; });
   await new Promise(resolve => setImmediate(resolve)); assert.equal(settled, false);
   t.mock.timers.tick(99); assert.equal(settled, false);
   child.stdout.end(); child.stderr.end(); child.emit("close", 0, null);
-  assert.deepEqual(await result, { outcome: "observed", engineVersion: "1.18.29", bunVersion: "1.3.14", preloadObserved: true, closed: true });
+  assert.deepEqual(await result, { outcome: "observed", engineVersion: VERSION, bunVersion: "1.4.4", preloadObserved: true, closed: true });
   } finally { t.mock.timers.reset(); }
 });
 
 test("timeout and combined output overflow kill only the owned child then close with unknown metadata", async () => {
   for (const mode of ["timeout", "output-limit"]) {
-    const child = childFixture(), result = collectRuntimeProbe(child, 10);
+    const child = childFixture(), result = collectRuntimeProbe(child, 10, VERSION);
     if (mode === "output-limit") { child.stdout.write("x".repeat(4096)); child.stderr.write("y".repeat(4097)); }
     assert.deepEqual(await result, { ...unknown(mode), closed: true });
   }
 });
 
 test("spawn and stream errors do not retain raw errors or infer a runtime", async () => {
-  const child = childFixture(), result = collectRuntimeProbe(child, 100);
+  const child = childFixture(), result = collectRuntimeProbe(child, 100, VERSION);
   child.emit("error", new Error("private spawn details"));
   child.stdout.end(); child.stderr.end(); child.emit("close", -2, null);
   assert.deepEqual(await result, { ...unknown("child-error"), closed: true });
@@ -73,7 +77,7 @@ test("spawn and stream errors do not retain raw errors or infer a runtime", asyn
 test("an exited leader is never signalled and absent close stays unknown", async () => {
   const child = childFixture(); child.exitCode = 0;
   child.kill = () => assert.fail("must not signal an exited leader");
-  const result = collectRuntimeProbe(child, 10);
+  const result = collectRuntimeProbe(child, 10, VERSION);
   child.stdout.write(valid); child.emit("exit", 0, null);
   assert.deepEqual(await result, { ...unknown("child-unclosed"), closed: false });
 });

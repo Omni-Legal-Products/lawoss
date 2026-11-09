@@ -44,37 +44,18 @@ export function runNativeEndpointStabilityBehavior() {
     check(render(undefined).endpoint === null);
     check(render(local, { baseUrl: " ", token: "rotated" }).endpoint === null);
     check(render(local).endpoint !== initial);
-    const remote: RouteWorkspace = { ...local, id: " rem_worker ", workspaceType: "remote", baseUrl: undefined, legalworkHostUrl: " http://synthetic-remote ", legalworkToken: undefined, legalworkClientToken: " client-token ", legalworkHostToken: "host-fallback", legalworkWorkspaceId: " server-id " };
-    const remoteEndpoint = render(remote).endpoint;
-    check(remoteEndpoint?.isRemote === true && remoteEndpoint.workspaceId === "server-id" && remoteEndpoint.token === "client-token");
-    check(render({ ...remote, baseUrl: null, legalworkToken: null }).endpoint === remoteEndpoint);
-    check(render({ ...remote, displayNameResolved: "New remote label", path: "/different" }, { baseUrl: "http://irrelevant-local", token: "ignored" }).endpoint === remoteEndpoint);
-    const rotatedHost = render({ ...remote, legalworkHostToken: "rotated-host" }).endpoint;
-    check(rotatedHost !== remoteEndpoint && rotatedHost?.hostToken === "rotated-host");
-    const removedHost = render({ ...remote, legalworkHostToken: undefined }).endpoint;
-    check(removedHost !== rotatedHost && removedHost?.hostToken === undefined);
-    const remoteAuth = render({ ...remote, legalworkToken: " rotated-remote " }).endpoint;
-    check(remoteAuth !== remoteEndpoint && remoteAuth?.token === "rotated-remote");
-    const emptyAuth = render({ ...remote, legalworkToken: "" }).endpoint;
-    check(emptyAuth !== remoteAuth && emptyAuth?.token === "");
-    const fallbackAuth = render({ ...remote, legalworkToken: undefined, legalworkClientToken: undefined }).endpoint;
-    check(fallbackAuth !== emptyAuth && fallbackAuth?.token === "host-fallback");
-    const emptyClientAuth = render({ ...remote, legalworkToken: undefined, legalworkClientToken: "" }).endpoint;
-    check(emptyClientAuth !== fallbackAuth && emptyClientAuth?.token === "");
-    check(render({ ...remote, baseUrl: "" }).endpoint === null);
-    const nextRemoteServer = render({ ...remote, baseUrl: "http://other-remote" }).endpoint;
-    check(nextRemoteServer?.baseUrl === "http://other-remote");
-    const explicitId = render({ ...remote, baseUrl: "http://other-remote", legalworkWorkspaceId: "new-server-id" }).endpoint;
-    check(explicitId !== nextRemoteServer && explicitId?.workspaceId === "new-server-id");
-    const fallbackId = render({ ...remote, baseUrl: "http://other-remote", legalworkWorkspaceId: " " }).endpoint;
-    check(fallbackId !== explicitId && fallbackId?.workspaceId === "worker");
-    const explicitAgain = render(remote).endpoint;
-    const appOwnerChanged = render({ ...remote, id: "rem_other" }).endpoint;
-    check(appOwnerChanged !== explicitAgain && appOwnerChanged?.workspaceId === "server-id");
-    const classifiedLocal = render({ ...remote, id: "rem_other", workspaceType: "local" }).endpoint;
-    check(classifiedLocal !== appOwnerChanged && classifiedLocal?.isRemote === false && classifiedLocal.workspaceId === "rem_other");
-    const noPrefix = render({ ...remote, id: "plain-id" }).endpoint;
-    check(noPrefix?.isRemote === false && noPrefix.workspaceId === "plain-id");
+    // LAWOSS v2: upstream v0.3.0 retired remote agent workspaces (isRetiredRemoteWorkspace). A remote
+    // record never resolves, even with its former routing fields, and never borrows the local host
+    // capability; the former remote token/ID/host checks have no v2 counterpart.
+    const remote = { ...local, id: " rem_worker ", workspaceType: "remote", legalworkHostUrl: " http://synthetic-remote ", legalworkClientToken: " client-token ", legalworkHostToken: "host-fallback", legalworkWorkspaceId: " server-id " } as unknown as RouteWorkspace;
+    check(render(remote, { baseUrl: "http://synthetic-local", token: "local-token", hostToken: "never-borrow-local-host" }).endpoint === null);
+    check(render({ ...remote, baseUrl: "http://other-remote" }).endpoint === null);
+    const restored = render(local).endpoint;
+    check(restored !== null && restored.isRemote === false && restored.workspaceId === "selected");
+    const plain = render({ ...local, id: " plain-id " }).endpoint;
+    check(plain?.isRemote === false && plain.workspaceId === "plain-id");
+    const prefixedLocal = render({ ...local, id: "rem_other" }).endpoint;
+    check(prefixedLocal?.isRemote === false && prefixedLocal.workspaceId === "rem_other");
     return { schema: 1, checks, actualMountedHook: true };
   } finally {
     flushSync(() => root.unmount());

@@ -8,17 +8,23 @@ test('owned engine fetch observation preserves results/errors and excludes exter
   const original=async(...args)=>{calls.push(args);if(args[1]?.fail)throw failure;return response;};
   const observed=module.observeNativeEngineFetch(original,record=>records.push(record));
   const options={method:'POST',headers:{authorization:'secret'},body:'private'};
-  assert.equal(await observed('http://127.0.0.1:4321/instance/dispose?directory=private',options),response);
-  assert.equal(calls[0][1],options);
-  await assert.rejects(observed('http://127.0.0.1:4321/mcp',{fail:true}),error=>error===failure);
+  assert.equal(await observed('http://127.0.0.1:4321/api/debug/location?location%5Bdirectory%5D=private',{...options,method:'DELETE'}),response);
+  assert.deepEqual(calls[0][1],{...options,method:'DELETE'});
+  await assert.rejects(observed('http://127.0.0.1:4321/api/mcp',{fail:true}),error=>error===failure);
+  // v1 routes no longer exist on engine 2.1.4 and are not observed.
+  await observed('http://127.0.0.1:4321/instance/dispose',{method:'POST'});
+  await observed('http://127.0.0.1:4321/mcp');
   const before=records.length;
-  await observed('https://external.invalid/mcp');
+  await observed('https://external.invalid/api/mcp');
   await observed('http://127.0.0.1:4321/unknown');
   assert.equal(records.length,before);
   assert.deepEqual(records.map(r=>[r.endpoint,r.state]),[['engine.dispose','pending'],['engine.dispose','headers'],['engine.warmup','pending'],['engine.warmup','failed']]);
+  await observed('http://127.0.0.1:4321/api/experimental/mcp/synthetic/connect',{method:'POST'});
+  await observed('http://127.0.0.1:4321/api/location/reload',{method:'POST'});
+  assert.deepEqual(records.slice(4).map(r=>[r.endpoint,r.state]),[['engine.mcp','pending'],['engine.mcp','headers'],['engine.reload','pending'],['engine.reload','headers']]);
   assert.doesNotMatch(JSON.stringify(records),/secret|private|credential|127\.0|directory|external|authorization/);
   const brokenObserver=module.observeNativeEngineFetch(original,()=>{throw new Error('observer failed');});
-  assert.equal(await brokenObserver('http://127.0.0.1:4321/mcp'),response);
+  assert.equal(await brokenObserver('http://127.0.0.1:4321/api/mcp'),response);
 });
 
 test('owned engine fetch stdout parsing validates its allowlist and caps records', async () => {
@@ -26,7 +32,7 @@ test('owned engine fetch stdout parsing validates its allowlist and caps records
   assert.equal(typeof module?.nativeEngineFetchRecords,'function','Only validated bounded fetch receipts can reach CI logs');
   const lines=[];
   const observed=module.observeNativeEngineFetch(async()=>new Response('{}'),record=>lines.push(module.ENGINE_FETCH_PREFIX+JSON.stringify(record)));
-  for(const [route,method] of [['/mcp','GET'],['/mcp','POST'],['/instance/dispose','POST']])
+  for(const [route,method] of [['/api/mcp','GET'],['/api/experimental/mcp/synthetic','PUT'],['/api/debug/location','DELETE']])
     for(let i=0;i<100;i++)await observed('http://127.0.0.1:4321'+route,{method});
   assert.equal(lines.length,64);
   const invalid=[
@@ -45,9 +51,9 @@ test('early MCP pressure cannot displace later disposal receipts or concurrent c
   const records=[],releases=[],response=new Response('{}');
   const observed=observeNativeEngineFetch(()=>new Promise(resolve=>releases.push(()=>resolve(response))),record=>records.push(record));
   const calls=[
-    ...Array.from({length:100},()=>observed('http://127.0.0.1:4321/mcp')),
-    ...Array.from({length:100},()=>observed('http://127.0.0.1:4321/mcp',{method:'POST'})),
-    ...Array.from({length:8},()=>observed('http://127.0.0.1:4321/instance/dispose',{method:'POST'})),
+    ...Array.from({length:100},()=>observed('http://127.0.0.1:4321/api/mcp')),
+    ...Array.from({length:100},()=>observed('http://127.0.0.1:4321/api/experimental/mcp/synthetic/connect',{method:'POST'})),
+    ...Array.from({length:8},()=>observed('http://127.0.0.1:4321/api/debug/location',{method:'DELETE'})),
   ];
   assert.equal(releases.length,208,'Every original fetch executes, regardless of admission to observation');
   for(const release of releases)release();

@@ -4,30 +4,33 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { PINNED_ENGINE_VERSION, prepareNativeEngineFiles, verifyNativeEngineFiles } from "./engine-identity.mjs";
+import { prepareNativeEngineFiles, printedEngineVersion, verifyNativeEngineFiles } from "./engine-identity.mjs";
 
 const marker = "LAWOSS_ENGINE_RUNTIME_BUN=";
 const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*)?$/;
 const unknown = outcome => ({ outcome, engineVersion: null, bunVersion: null, preloadObserved: false });
 
 // Exact complete lines only: incidental log/version fragments confer no identity.
-export function parseRuntimeOutput(stdout, stderr, code) {
+// LAWOSS v2: the selected derivative prints `opencode v<selected version>`.
+export function parseRuntimeOutput(stdout, stderr, code, expectedVersion) {
+  if (typeof expectedVersion !== "string" || !semver.test(expectedVersion)) return unknown("identity-failed");
   if (code !== 0) return unknown("child-error");
   if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) > 8192) return unknown("output-limit");
   if (stderr) return unknown("invalid-output");
+  const versionLine = `opencode v${expectedVersion}`;
   const lines = stdout.replace(/\r\n/g, "\n").split("\n");
-  if (lines.length === 2 && lines[0] === PINNED_ENGINE_VERSION && lines[1] === "") {
-    return { ...unknown("missing-preload"), engineVersion: PINNED_ENGINE_VERSION };
+  if (lines.length === 2 && lines[0] === versionLine && lines[1] === "") {
+    return { ...unknown("missing-preload"), engineVersion: printedEngineVersion(lines[0]) };
   }
-  if (lines.length !== 3 || lines[1] !== PINNED_ENGINE_VERSION || lines[2] !== "" || !lines[0].startsWith(marker)) return unknown("invalid-output");
+  if (lines.length !== 3 || lines[1] !== versionLine || lines[2] !== "" || !lines[0].startsWith(marker)) return unknown("invalid-output");
   const bunVersion = lines[0].slice(marker.length);
   if (bunVersion.length > 64 || !semver.test(bunVersion)) return unknown("invalid-output");
-  return { outcome: "observed", engineVersion: PINNED_ENGINE_VERSION, bunVersion, preloadObserved: true };
+  return { outcome: "observed", engineVersion: expectedVersion, bunVersion, preloadObserved: true };
 }
 
 // No shell, numeric PID/group signal or process-table inspection. close, unlike
 // exit, proves that the owned CLI and its captured output pipes have closed.
-export function collectRuntimeProbe(child, timeoutMs = 5000) {
+export function collectRuntimeProbe(child, timeoutMs = 5000, expectedVersion) {
   assert.ok(Number.isInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 5000);
   return new Promise(resolve => {
     let stdout = [], stderr = [], bytes = 0, failure, drainTimer, settled = false;
@@ -35,7 +38,7 @@ export function collectRuntimeProbe(child, timeoutMs = 5000) {
       if (settled) return;
       settled = true; clearTimeout(timer); clearTimeout(drainTimer);
       const result = !closed ? unknown("child-unclosed") : failure ? unknown(failure)
-        : parseRuntimeOutput(Buffer.concat(stdout).toString("utf8"), Buffer.concat(stderr).toString("utf8"), code);
+        : parseRuntimeOutput(Buffer.concat(stdout).toString("utf8"), Buffer.concat(stderr).toString("utf8"), code, expectedVersion);
       stdout = []; stderr = [];
       resolve({ ...result, closed });
     };
@@ -81,22 +84,22 @@ export function syntheticRuntimeEnvironment(root, preload, platform = process.pl
   return env;
 }
 
-export async function runEngineRuntimeSmoke(bundleDir) {
+export async function runEngineRuntimeSmoke(resourcesDir) {
   const started = performance.now();
   let root, prepared, closed = true, result = unknown("identity-failed"), engineSha256 = null;
   try {
-    // No external fixture fallback: select the same platform-target-first bytes
-    // and current manifests as the ordinary native gate, without provisioning.
-    prepared = await prepareNativeEngineFiles({ bundleDir });
+    root = await mkdtemp(path.join(tmpdir(), "lawoss-engine-runtime-"));
+    // No external fixture fallback: select the same bundled selected artifact as the
+    // ordinary native gate, without staging (the owned profile stays empty).
+    prepared = await prepareNativeEngineFiles({ resourcesDir, profileDir: path.join(root, "profile") });
     await verifyNativeEngineFiles(prepared, prepared.path);
     engineSha256 = prepared.expectedHash;
-    root = await mkdtemp(path.join(tmpdir(), "lawoss-engine-runtime-"));
     const preload = path.join(root, "preload.mjs"), env = syntheticRuntimeEnvironment(root, preload);
     for (const directory of new Set(Object.values(env).filter(value => value !== preload && value !== env.SystemRoot))) await mkdir(directory, { recursive: true });
     await writeFile(preload, `const v = Bun.version; console.log(${JSON.stringify(marker)} + (typeof v === "string" && v.length <= 64 && ${semver}.test(v) ? v : "unknown"));\n`, { flag: "wx" });
     const child = spawn(prepared.path, ["--version"], { cwd: root, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     closed = false;
-    const probe = await collectRuntimeProbe(child);
+    const probe = await collectRuntimeProbe(child, 5000, prepared.version);
     closed = probe.closed;
     result = probe;
   } catch {
@@ -124,8 +127,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   try {
     assert.equal(process.versions.node.split(".")[0], "24");
     assert.ok(process.argv[2] && path.isAbsolute(process.argv[2]));
-    const bundleDir = process.argv[3] ?? fileURLToPath(new URL("../../../../apps/desktop/resources/sidecars/", import.meta.url));
-    const receipt = await runEngineRuntimeSmoke(bundleDir);
+    const resourcesDir = process.argv[3] ?? fileURLToPath(new URL("../../../../apps/desktop/resources/", import.meta.url));
+    const receipt = await runEngineRuntimeSmoke(resourcesDir);
     await writeFile(process.argv[2], `${JSON.stringify(receipt)}\n`, { flag: "wx" });
     process.exitCode = receipt.status === "observed" ? 0 : 1;
   } catch { process.stderr.write("Engine runtime smoke could not produce its allowlisted receipt.\n"); process.exitCode = 1; }

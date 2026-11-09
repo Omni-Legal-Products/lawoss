@@ -15,26 +15,33 @@ import { createNativeProtectedApprover } from "../lawoss/testing/isir/native/pro
 import { stopForRelaunch } from "../lawoss/testing/isir/native/relaunch-stop.mjs";
 import { readNativeQuitAcceptance } from "../lawoss/testing/isir/native/quit-acceptance.mjs";
 import { stopNativeChild } from "../lawoss/testing/isir/native/owned-process.mjs";
-import { createNativeDiagnostics, settleCleanup, errorMetadata, observePromptClick, summarizeRecoveryVerification, recoveryRendererIdentity } from "../lawoss/testing/isir/native/diagnostics.mjs";
+import { createNativeDiagnostics, settleCleanup, errorMetadata, observePromptClick, summarizeRecoveryVerification, recoveryRendererIdentity, observeGenerationPanel } from "../lawoss/testing/isir/native/diagnostics.mjs";
 import { configureNativeProvider } from "../lawoss/testing/isir/native/bootstrap.mjs";
 import { syntheticNativeEngineConfig } from "../lawoss/testing/isir/native/engine-config.mjs";
 import { openNativeProjectFiles } from "../lawoss/testing/isir/native/project-files-navigation.mjs";
 import { awaitNativeStartup } from "../lawoss/testing/isir/native/startup-readiness.mjs";
 import { parseCsv } from "../apps/server/dist/lawoss/documents/validation.js";
 import { sha256 } from "../lawoss/testing/isir/corpus.mjs";
-import { validateProbeOption, applyProducer } from "../lawoss/testing/isir/native/engine-empty-auth-probe.mjs";
-import { prepareNativeEngineFiles, probeNativeEngineVersion, verifyNativeEngineRuntime } from "../lawoss/testing/isir/native/engine-identity.mjs";
+import { prepareNativeEngineFiles, probeNativeEngineVersion, selectedNativeEngine, verifyNativeEngineRuntime } from "../lawoss/testing/isir/native/engine-identity.mjs";
 import { createNativeEngineClient } from "../lawoss/testing/isir/native/engine-client.mjs";
 import { nativeRendererLaunch } from "../lawoss/testing/isir/native/renderer.mjs";
 import { nativeEngineFetchRecords } from "../lawoss/testing/isir/native/engine-fetch.mjs";
 import { startNativeEngineTraceReceiver } from "../lawoss/testing/isir/native/engine-traces.mjs";
 
-const emptyAuthProbe = await validateProbeOption(process.argv.slice(2));
 const debugPair=process.argv.includes('--debug-case-pair');
 const requestedEndpointRefresh=process.env.LAWOSS_ISIR_NATIVE_ENDPOINT_REFRESH==='1';
 assert.ok(!debugPair || !process.env.CI,'CI must run the complete ten-case native gate');
 if(debugPair)console.log('DEBUG: real cases1+10 only; this is not the full native gate');
 const repo = fileURLToPath(new URL("../", import.meta.url));
+// LAWOSS v2 history (engine 2.1.4): the turn of the first matching user message runs until the
+// next user message; its assistants and the closing `idle` record (outcome) belong to it.
+const nativeTurn=(messages,matchUser)=>{
+  if(!Array.isArray(messages))return null;
+  const start=messages.findIndex(m=>m?.type==='user'&&matchUser(m));
+  if(start<0)return null;
+  const rest=messages.slice(start+1),end=rest.findIndex(m=>m?.type==='user'),own=end<0?rest:rest.slice(0,end);
+  return {user:messages[start],assistants:own.filter(m=>m.type==='assistant'),idle:own.find(m=>m.type==='idle')??null};
+};
 const requireDesktop = createRequire(path.join(repo, "apps/desktop/package.json"));
 const requireApp = createRequire(path.join(repo, "apps/app/package.json"));
 const electron = process.env.LAWOSS_ISIR_NATIVE_ELECTRON ?? requireDesktop("electron");
@@ -48,17 +55,20 @@ let cdp;
 const diagnostics = createNativeDiagnostics({ enabled: process.env.LAWOSS_ISIR_NATIVE_DIAGNOSTICS === '1', ci: Boolean(process.env.CI), mode: corpus.mode, outputFile: process.env.LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE, readGenerationResponseBody: requestId => cdp.send('Network.getResponseBody',{requestId}) });
 const nativeFetch = diagnostics.fetch;
 const stop = child => stopNativeChild(child,3000,{observe:diagnostics.ownedProcess});
-// An explicit fixture is preflighted, but never substitutes for a prepared
-// platform target or bypasses its manifest. PATH discovery is not permitted.
+// LAWOSS v2: the selected derivative (packages/opencode-release/generated/selection.json) defines
+// the engine version and exact artifact. An explicit fixture is preflighted and, only when the bundled
+// selected engine is absent, staged as a verified artifact into the owned profile. PATH discovery is not permitted.
 const externalEngine = process.env.LAWOSS_ISIR_NATIVE_ENGINE;
-if (externalEngine !== undefined) probeNativeEngineVersion(externalEngine);
-const preparedEngine = await prepareNativeEngineFiles({ bundleDir: path.join(repo, "apps/desktop/resources/sidecars"), externalEngine });
+const engineSelection = await selectedNativeEngine();
+if (externalEngine !== undefined) probeNativeEngineVersion(externalEngine, engineSelection.selection.version);
+let preparedEngine;
 let primaryError = null;
 try {
-const engine = preparedEngine.path;
-probeNativeEngineVersion(engine);
 const root = await realpath(await mkdtemp(path.join(tmpdir(), "lawoss-isir-native-")));
 const profile = path.join(root, "profile");
+preparedEngine = await prepareNativeEngineFiles({ resourcesDir: path.join(repo, "apps/desktop/resources"), profileDir: profile, externalEngine, engine: engineSelection });
+const engine = preparedEngine.path;
+probeNativeEngineVersion(engine, preparedEngine.version);
 diagnostics.bindOwnedRoot(root);
 let engineLogLaunchWallMs=null,engineLogDeadlineWallMs=null;
 const children = [];
@@ -91,7 +101,6 @@ Object.assign(env, {
 // LAWOSS v2: the embedded server gives the engine its own OPENCODE_CONFIG_CONTENT (mandatory plugins), so the
 // synthetic provider reaches it only through the native settings flow (bootstrap.mjs) in the 2.1.4 shape.
 const syntheticEngine = syntheticNativeEngineConfig(provider.url);
-await applyProducer(env, emptyAuthProbe, preparedEngine.expectedHash);
 for (const dir of [profile,env.APPDATA,env.LOCALAPPDATA,env.HOME, path.join(root, "documents"), path.join(root, "runtime"), env.XDG_CONFIG_HOME, env.XDG_DATA_HOME, env.XDG_CACHE_HOME, env.XDG_STATE_HOME]) await mkdir(dir, { recursive: true });
 const configDir = path.join(profile, "legalwork-dev-data/xdg/config/opencode");
 await mkdir(configDir, {recursive:true});
@@ -132,7 +141,7 @@ const cleanup = () => cleanupPromise ??= (async () => {
     ...[...children].reverse().map(({child}) => () => stop(child)),
     () => engineTraces?.close(),
     () => provider.close(),
-    () => preparedEngine.cleanup(),
+    () => preparedEngine?.cleanup(),
   ]);
   if(corpus.mode==='synthetic'&&result.failures.length){
     try {
@@ -179,8 +188,9 @@ try {
   const liveEngine = await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('engineInfo')");
   let serverInfo = await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('legalworkServerInfo')");
   let engineRequest = createNativeEngineClient(serverInfo, workspaces[0].id, nativeFetch);
-  const healthResponse = await engineRequest('/global/health');
-  assert.equal(healthResponse.status, 200, 'Owned workspace engine health must authenticate');
+  // LAWOSS v2: instance-free engine identity (`GET /api/info`), never a location-bound probe.
+  const healthResponse = await engineRequest('/info');
+  assert.equal(healthResponse.status, 200, 'Owned workspace engine /api/info must authenticate');
   const health = await healthResponse.json();
   const initialEngineIdentity = await verifyNativeEngineRuntime(preparedEngine, liveEngine.opencodeBinPath, health);
   const engineIdentities = [{ phase: 'initial', ...initialEngineIdentity }];
@@ -188,7 +198,7 @@ try {
   let serverAuth = {authorization:'Bearer '+(serverInfo.ownerToken||serverInfo.clientToken),'content-type':'application/json'};
   // Initial registered root only. A restart after moving the folder must never
   // probe or recreate its missing historical root.
-  const startupReceipt=await awaitNativeStartup({engineRequest,request:nativeFetch,serverInfo,workspace:workspaces[0],observe:diagnostics.startup,onDeadline:deadline=>{engineLogDeadlineWallMs=deadline;}});
+  const startupReceipt=await awaitNativeStartup({engineRequest,request:nativeFetch,serverInfo,workspace:workspaces[0],expectedVersion:preparedEngine.version,observe:diagnostics.startup,onDeadline:deadline=>{engineLogDeadlineWallMs=deadline;}});
   console.log('Native selected-instance startup',JSON.stringify(startupReceipt));
   diagnostics.phase("configure-provider");
   await configureNativeProvider({request:nativeFetch,serverInfo,serverAuth,engineRequest,workspace:workspaces[0],providerConfig:syntheticEngine.providers});
@@ -262,12 +272,16 @@ try {
     const chooser=await until(()=>cdp.events.slice(eventStart).find(e=>e.method==='Page.fileChooserOpened'),'actual native HTML chooser request');
     // The display-name ACK is independent of client identity: GREEN must keep
     // the same client. All raw connection operands remain inside the renderer.
+    // `PATCH /workspaces/:id/display-name` is a host route. Since upstream v0.2.18 a host route
+    // accepts only the host token (X-LegalWork-Host-Token), as the app's updateWorkspaceDisplayName
+    // sends it; the retired owner bearer no longer authorizes it (401).
     const refreshName = async name => {
+      assert.ok(typeof serverInfo.hostToken==='string'&&serverInfo.hostToken,'Controlled display-name refresh requires the owned host token');
       const receipt=await cdp.evaluate(`(async()=>{
-        const headers=${JSON.stringify(serverAuth)},base=${JSON.stringify(serverInfo.baseUrl)},id=${JSON.stringify(workspace.id)};
+        const headers=${JSON.stringify(serverAuth)},hostHeaders={...headers,'x-legalwork-host-token':${JSON.stringify(serverInfo.hostToken)}},base=${JSON.stringify(serverInfo.baseUrl)},id=${JSON.stringify(workspace.id)};
         const read=async(response)=>{if(response.status!==200)throw new Error('Controlled metadata HTTP status');return response.json()};
         const before=(await read(await fetch(base+'/workspaces',{headers}))).workspaces.find(w=>w.id===id);
-        const after=(await read(await fetch(base+'/workspaces/'+encodeURIComponent(id)+'/display-name',{method:'PATCH',headers,body:JSON.stringify({displayName:${JSON.stringify(name)}})}))).workspaces.find(w=>w.id===id);
+        const after=(await read(await fetch(base+'/workspaces/'+encodeURIComponent(id)+'/display-name',{method:'PATCH',headers:hostHeaders,body:JSON.stringify({displayName:${JSON.stringify(name)}})}))).workspaces.find(w=>w.id===id);
         const fields=['id','workspaceType','path','baseUrl','legalworkHostUrl','legalworkToken','legalworkClientToken','legalworkHostToken','legalworkWorkspaceId'];
         const unchanged=!!before&&!!after&&fields.every(key=>Object.is(before[key],after[key]));
         if(!unchanged)throw new Error('Controlled metadata changed connection or root');
@@ -348,7 +362,8 @@ try {
     await until(async()=>{try{return sha256(await readFile(path.join(workspace.path,'Dokumenty',entry.documents[0].name)))===sha256(entry.documents[0].bytes)}catch{return false}},'actual picker copied bytes');
     if(endpointRefresh && index===0){
       const behavior=await cdp.evaluate(`(async()=>{const tests=await import('/__isir-fixtures/workspace-endpoint-stability.js');return tests.runNativeEndpointStabilityBehavior()})()`);
-      assert.equal(behavior.actualMountedHook,true);assert.equal(behavior.checks,28,'Every mounted routing/auth/root transition completed');
+      // LAWOSS v2: 12 local routing/auth/root transitions and 5 retired-remote checks (upstream v0.3.0).
+      assert.equal(behavior.actualMountedHook,true);assert.equal(behavior.checks,17,'Every mounted routing/auth/root transition completed');
       await writeFile(path.join(root,'endpoint-hook-behavior.json'),JSON.stringify(behavior,null,2),{mode:0o600});
       console.log(`Mounted native endpoint behavior: ${JSON.stringify(behavior)}`);
     }
@@ -435,7 +450,8 @@ try {
     diagnostics.generationStart(index+1,cdp.events,eventStart,{origin:serverInfo.baseUrl,workspaceId:workspace.id,sessionId:provision.session.id});
     const binding=await until(()=>cdp.evaluate(`JSON.parse(localStorage.getItem('lawoss.document-generations.v1')??'[]').map(x=>x[1]).find(b=>b.workspaceId===${JSON.stringify(workspace.id)}&&b.transport==='protected-documents-v1')`),'persisted native protected generation binding');
     assert.equal(provision.session.id,binding.sessionId,"Actual provisioned VM session owns the native prompt");
-    assert.match(binding.messageId,/^msg_[a-f0-9]{12}[A-Za-z0-9]{14}$/);
+    // LAWOSS v2: the queued protected task's message ID is `msg_` + its queue UUID hex.
+    assert.match(binding.messageId,/^msg_[a-f0-9]{32}$/);
     assert.ok(['accepted','running'].includes(binding.phase),'Immediate acknowledgment stays active');
     const inferenceStartedAtMs=Date.now();
     console.log('Native generation ready',JSON.stringify({elapsedMs:Date.now()-provisionStartedAtMs,providerReceiptCount:provider.receipts.length-receiptStart,sourceRequestCount:provider.receipts.slice(receiptStart).filter(receipt=>receipt.sources.length).length,latestOrdinal:Math.max(0,...provider.receipts.slice(receiptStart).map(receipt=>receipt.ordinal??0)),nativeReviewCount:(protectedApprovals?.receipts.length??0)-nativeReviewStart,initialReviewCount:protectedApprovals?.receipts.slice(nativeReviewStart).filter(receipt=>receipt.action==='ai.documents.synthetic').length??0,wireReviewCount:protectedApprovals?.receipts.slice(nativeReviewStart).filter(receipt=>receipt.action==='ai.protected.synthetic').length??0}));
@@ -470,15 +486,20 @@ try {
     assert.equal(rows.length,new Set(entry.documents.map(d=>sha256(d.bytes))).size+1,'One row per distinct selected original');
     assert.ok(rows.every(row=>row.length===7),'Quoted multiline CSV retains seven columns');
     if(entry.reference) assert.deepEqual(new Set(rows.slice(1).map(r=>r[1])),new Set(entry.reference.documents.map(r=>r.documentId)));
-    const snapshot=await until(async()=>{const {body}=await api(workspace,`sessions/${binding.sessionId}/snapshot?limit=20`);return body.item?.status.type==='idle'&&body.item.messages.some(m=>m.info.parentID===binding.messageId&&m.info.finish==='stop')?body.item:false},'real terminal engine message and idle snapshot');
-    assert.equal(snapshot.session.directory,workspace.path);assert.ok(snapshot.messages.some(m=>m.info.role==='assistant'&&m.info.agent==='legalwork'&&m.info.parentID===binding.messageId),'Real engine uses selected native agent');
-    const parts=snapshot.messages.flatMap(m=>m.parts);
-    for(const name of ['lawoss_documents_list','lawoss_documents_read','lawoss_documents_export','lawoss_documents_validate']) assert.ok(parts.some(p=>p.type==='tool'&&p.tool===name&&p.state.status==='completed'),`Actual engine tool receipt ${name}`);
-    const requests=cdp.events.slice(eventStart).filter(e=>e.method==='Network.requestWillBeSent'&&e.params.request.url.endsWith('/prompt_async')&&e.params.request.method==='POST');
-    assert.equal(requests.length,1,'One actual native SDK submission');
+    // LAWOSS v2 history: messages are typed records without parent links. The turn of the
+    // submitted user message runs until the next user message and ends with the guest's `idle`
+    // record (protected-ai/runtime.ts deliver); tool receipts are assistant `content` items.
+    const snapshot=await until(async()=>{const {body}=await api(workspace,`sessions/${binding.sessionId}/snapshot?limit=100`);const turn=nativeTurn(body.item?.messages,m=>m.id===binding.messageId);return body.item?.status.type==='idle'&&turn&&turn.idle?.outcome==='succeeded'&&turn.assistants.some(m=>m.finish==='stop')?{...body.item,turn}:false},'real terminal engine message and idle snapshot');
+    assert.equal(snapshot.session.location.directory,workspace.path);assert.ok(snapshot.turn.assistants.some(m=>m.agent==='legalwork'),'Real engine uses selected native agent');
+    const parts=snapshot.turn.assistants.flatMap(m=>m.content);
+    for(const name of ['lawoss_documents_list','lawoss_documents_read','lawoss_documents_export','lawoss_documents_validate']) assert.ok(parts.some(p=>p.type==='tool'&&p.name===name&&p.state.status==='completed'),`Actual engine tool receipt ${name}`);
+    const generationQueuePath=`/workspace/${workspace.id}/sessions/${binding.sessionId}/queue`;
+    const requests=cdp.events.slice(eventStart).filter(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&new URL(e.params.request.url).pathname===generationQueuePath&&JSON.parse(e.params.request.postData??'{}').type==='enqueue');
+    assert.equal(requests.length,1,'One actual native queued submission');
     const payload=JSON.parse(requests[0].params.request.postData);
-    assert.equal(payload.messageID,binding.messageId);assert.deepEqual(payload.model,{providerID:'isir-native',modelID:'synthetic'});assert.equal(payload.agent,'legalwork');assert.equal(payload.variant,'high');
-    assert.ok(cdp.events.slice(eventStart).some(e=>e.method==='Network.responseReceived'&&e.params.requestId===requests[0].params.requestId&&e.params.response.status===204),'Immediate production204 response');
+    assert.equal(`msg_${payload.id.replaceAll('-','')}`,binding.messageId,'The queued entry carries the bound message identity');
+    assert.equal(payload.execution.kind,'prompt');assert.deepEqual(payload.execution.model,{providerID:'isir-native',id:'synthetic',variant:'high'});assert.equal(payload.execution.agent,'legalwork');
+    assert.ok(cdp.events.slice(eventStart).some(e=>e.method==='Network.responseReceived'&&e.params.requestId===requests[0].params.requestId&&e.params.response.status===200),'Production queue admission returned200');
     await openFiles(workspace);await click('Dokumenty');await click('Prepare this folder');
     await until(async()=>{const text=await panelText();return text.includes('Chat run ended; separate checks')&&text.includes('Format and sources verified')},'renderer completed binding and current output verification');
     const terminalBinding=await cdp.evaluate(`JSON.parse(localStorage.getItem('lawoss.document-generations.v1')??'[]').map(x=>x[1]).find(b=>b.workspaceId===${JSON.stringify(workspace.id)}&&b.transport==='protected-documents-v1')`);
@@ -491,8 +512,8 @@ try {
     if(index<workspaces.length-1)assert.ok(!siblingFiles.includes('native-registry.csv'),'Generate must not write to the next project');
     const foreign=await api(sibling,`lawoss/documents/${prepared[0].id}/read`);
     assert.notEqual(foreign.response.status,200,'A different selected project cannot read this evidence ID');
-    evidence.push({workspaceId:workspace.id,pickerReceipt,nativeRevision:terminalBinding.nativeRevision,directoryMapping:provision.directoryMapping,operationId:provision.operationId,documentIds:prepared.map(d=>d.id),sessionId:binding.sessionId,messageId:binding.messageId,sourceHashes:entry.documents.map(d=>sha256(d.bytes)),outputHashes:actualHashes,nativeSubmission:{messageID:payload.messageID,model:payload.model,agent:payload.agent,variant:payload.variant,status:204},assistantParentIds:[...new Set(snapshot.messages.filter(m=>m.info.role==='assistant').map(m=>m.info.parentID))],toolNames:parts.filter(p=>p.type==='tool').map(p=>p.tool)});
-    console.log(`${debugPair?"DEBUG":"PASS"} native case ${index+1}/10: picker/drop, all sources, real engine tools, saved/validated hashes, native204+terminal`);
+    evidence.push({workspaceId:workspace.id,pickerReceipt,nativeRevision:terminalBinding.nativeRevision,directoryMapping:provision.directoryMapping,operationId:provision.operationId,documentIds:prepared.map(d=>d.id),sessionId:binding.sessionId,messageId:binding.messageId,sourceHashes:entry.documents.map(d=>sha256(d.bytes)),outputHashes:actualHashes,nativeSubmission:{queueId:payload.id,model:payload.execution.model,agent:payload.execution.agent,status:200},assistantIds:snapshot.turn.assistants.map(m=>m.id),turnOutcome:snapshot.turn.idle.outcome,toolNames:parts.filter(p=>p.type==='tool').map(p=>p.name)});
+    console.log(`${debugPair?"DEBUG":"PASS"} native case ${index+1}/10: picker/drop, all sources, real engine tools, saved/validated hashes, queued200+terminal`);
   }
   await writeFile(path.join(root,'native-receipts.json'),JSON.stringify({mode:corpus.mode,fullMatrix:!debugPair,engineVersion:health.version,engineIdentities,cases:evidence},null,2),{mode:0o600});
 
@@ -529,10 +550,11 @@ try {
   const chatQueuePath=`/workspace/${chatWorkspace.id}/sessions/${chatEvidence.sessionId}/queue`;
   const chatRequest=await until(()=>cdp.events.slice(chatStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&new URL(e.params.request.url).pathname===chatQueuePath&&JSON.parse(e.params.request.postData??'{}').type==='enqueue'),'ordinary native chat queue submission');
   const queuedChat=JSON.parse(chatRequest.params.request.postData);
-  assert.equal(queuedChat.execution.kind,'prompt');assert.deepEqual(queuedChat.execution.model,{providerID:'isir-native',modelID:'synthetic'});assert.equal(queuedChat.execution.agent,'legalwork');assert.equal(queuedChat.execution.variant,'high');
-  const queuedAttachmentFiles=queuedChat.execution.parts.filter(part=>part.type==='file');
+  // LAWOSS v2 queued prompt (system-reminder.ts queuedNativePrompt): text, typed `files` and a native model reference.
+  assert.equal(queuedChat.execution.kind,'prompt');assert.deepEqual(queuedChat.execution.model,{providerID:'isir-native',id:'synthetic',variant:'high'});assert.equal(queuedChat.execution.agent,'legalwork');
+  const queuedAttachmentFiles=queuedChat.execution.files??[];
   assert.equal(queuedAttachmentFiles.length,1,'The structured upload mention becomes one actual typed file capability');
-  assert.equal(queuedAttachmentFiles[0].url,pathToFileURL(attachment).href,'Protected upload uses the registered physical workspace root, not a subcase or Markdown inference');
+  assert.equal(queuedAttachmentFiles[0].uri,pathToFileURL(attachment).href,'Protected upload uses the registered physical workspace root, not a subcase or Markdown inference');
 
   await until(()=>cdp.events.slice(chatStart).some(e=>e.method==='Network.responseReceived'&&e.params.requestId===chatRequest.params.requestId&&e.params.response.status===200),'ordinary native queue admission returned200');
   diagnostics.promptEnd('attachment');
@@ -542,10 +564,12 @@ try {
   const uploaded=cdp.events.slice(attachStart).find(e=>e.method==='Network.responseReceived'&&e.params.response.url.endsWith(`/workspace/${chatWorkspace.id}/files/raw`)&&e.params.response.status===200);
   assert.ok(uploaded,'Actual authenticated binary upload returned200');
   extraEvidence.chat={path:attachmentPath,hash:sha256(await readFile(attachment)),uploadStatus:200,promptRequestId:chatRequest.params.requestId};
-  const attachmentSnapshot=await until(async()=>{const {body}=await api(chatWorkspace,`sessions/${chatEvidence.sessionId}/snapshot?limit=20`);const user=body.item?.messages.find(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('Native attachment submission fixture.')));return body.item?.status.type==='idle'&&user&&body.item.messages.some(m=>m.info.parentID===user.info.id&&m.info.finish==='stop')?body.item:false},'real engine stores and completes native attachment turn');
-  const attachmentUser=attachmentSnapshot.messages.find(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('Native attachment submission fixture.')));
-  assert.ok(attachmentUser.parts.every(part=>part.type!=='file'),'The guest never receives a host file URL');
-  const normalizedAttachments=attachmentUser.parts.flatMap(part=>{if(part.type!=='text')return [];try{const value=JSON.parse(part.text);return value?.untrustedSelectedDocument===true?[value]:[]}catch{return []}});
+  const attachmentMarker=m=>typeof m.text==='string'&&m.text.includes('Native attachment submission fixture.');
+  const attachmentSnapshot=await until(async()=>{const {body}=await api(chatWorkspace,`sessions/${chatEvidence.sessionId}/snapshot?limit=100`);const turn=nativeTurn(body.item?.messages,attachmentMarker);return body.item?.status.type==='idle'&&turn&&turn.idle?.outcome==='succeeded'&&turn.assistants.some(m=>m.finish==='stop')?{...body.item,turn}:false},'real engine stores and completes native attachment turn');
+  const attachmentUser=attachmentSnapshot.turn.user;
+  assert.equal((attachmentUser.files??[]).length,0,'The guest never receives a host file URL');
+  // The host joins the task text and each normalized source block with blank lines (protected-ai/runtime.ts).
+  const normalizedAttachments=attachmentUser.text.split('\n\n').flatMap(block=>{try{const value=JSON.parse(block);return value?.untrustedSelectedDocument===true?[value]:[]}catch{return []}});
   assert.equal(normalizedAttachments.length,1,'Actual engine history contains one host-normalized selected source, not only an uploaded path');
   const normalizedAttachment=normalizedAttachments[0];
   assert.ok(chatEvidence.documentIds.includes(normalizedAttachment.documentId),'Normalized evidence belongs to this exact protected selection');
@@ -629,7 +653,7 @@ try {
     await cdp.evaluate(`(()=>{const e=document.querySelector('[aria-label="Document processing"] label input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'../case-01');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
     await until(()=>cdp.evaluate(`document.querySelector('[aria-label="Document processing"] label input').value==='../case-01'`),'actual cross-project working-directory input');
     await until(()=>cdp.evaluate(`(()=>{const panel=document.querySelector('[aria-label="Document processing"]');const alert=[...panel.querySelectorAll('[role="alert"]')].some(e=>e.textContent.includes('Enter an existing subdirectory of the selected client.'));const controls=[...panel.querySelectorAll('button')].filter(e=>['Generate through chat','Start a new generation','Retry in created chat'].includes(e.textContent.trim())&&e.getBoundingClientRect().width>0);return alert&&controls.length===1&&controls[0].disabled})()`),'cross-project working directory has an immediate visible refusal and disabled generation control');
-    const crossRequests=cdp.events.slice(before).filter(e=>{if(e.method!=='Network.requestWillBeSent'||e.params.request.method!=='POST')return false;const pathname=new URL(e.params.request.url).pathname;return pathname.endsWith('/lawoss/documents/generation')||pathname.endsWith('/prompt_async')||/\/opencode\/session(?:\/|$)/.test(pathname)||/\/sessions\/[^/]+\/queue$/.test(pathname)});
+    const crossRequests=cdp.events.slice(before).filter(e=>{if(e.method!=='Network.requestWillBeSent'||e.params.request.method!=='POST')return false;const pathname=new URL(e.params.request.url).pathname;return pathname.endsWith('/lawoss/documents/generation')||/\/opencode\/session(?:\/|$)/.test(pathname)||/\/sessions\/[^/]+\/queue$/.test(pathname)});
     assert.equal(crossRequests.length,0,'Invalid working scope cannot create or submit an engine session');
     await cdp.evaluate(`(()=>{const e=document.querySelector('[aria-label="Document processing"] label input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
     console.log('PASS native pending/partial states, collision bytes, edited and wrong-identity invalidation, cross-project no writes');
@@ -673,13 +697,13 @@ try {
   assert.equal(persisted.workspaces.length,10);assert.ok(persisted.workspaces.find(w=>w.id===first.id).previousPaths.includes(oldPath));
   diagnostics.phase("recovery");
   diagnostics.recoveryStage('snapshot-request');
-  const recovered=await api(first,`sessions/${evidence[0].sessionId}/snapshot?limit=20`,undefined,()=>diagnostics.recoveryStage('snapshot-body'));
+  const recovered=await api(first,`sessions/${evidence[0].sessionId}/snapshot?limit=100`,undefined,()=>diagnostics.recoveryStage('snapshot-body'));
   diagnostics.recoveryStage('snapshot-save');
   await writeFile(path.join(root,'recovered-snapshot.json'),JSON.stringify(recovered.body,null,2),{mode:0o600});
   diagnostics.recoveryStage('snapshot-check');
   assert.equal(recovered.response.status,200);assert.equal(recovered.body.item.session.id,evidence[0].sessionId);
-  assert.equal(recovered.body.item.session.directory,moved);
-  assert.ok(recovered.body.item.messages.some(m=>m.info.id===evidence[0].messageId),'Original engine message ID/history survives native reconnect');
+  assert.equal(recovered.body.item.session.location.directory,moved);
+  assert.ok(recovered.body.item.messages.some(m=>m.type==='user'&&m.id===evidence[0].messageId),'Original engine message ID/history survives native reconnect');
   const mappingResponse = await engineRequest(`/session/${encodeURIComponent(evidence[0].sessionId)}/protected-transport`);
   assert.equal(mappingResponse.status,200,'The actual owning protected runtime publishes its current measured mapping');
   const recoveredTransport = await mappingResponse.json();
@@ -719,24 +743,24 @@ try {
   },'recovered protected runtime is ready after fresh native admission and cold provision',240000);
   diagnostics.recoveryStage('fresh-poll');
   const freshRead=await until(async()=>{
-    const {body}=await api(first,`sessions/${evidence[0].sessionId}/snapshot?limit=20`),item=body.item;
-    const user=item?.messages.find(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('NATIVE_RECOVERED_CWD_PROOF')));
-    const assistant=user&&item.messages.find(m=>m.info.parentID===user.info.id&&m.info.finish==='stop');
-    const read=user&&item.messages.filter(m=>m.info.parentID===user.info.id).flatMap(m=>m.parts).find(p=>p.type==='tool'&&p.tool==='lawoss_documents_read'&&p.state.status==='completed');
-    const tools=user&&item.messages.filter(m=>m.info.parentID===user.info.id).flatMap(m=>m.parts).filter(p=>p.type==='tool');
-    return item?.status.type==='idle'&&assistant&&read?{session:item.session,user:user.info.id,read,tools}:false;
+    const {body}=await api(first,`sessions/${evidence[0].sessionId}/snapshot?limit=100`),item=body.item;
+    const turn=nativeTurn(item?.messages,m=>typeof m.text==='string'&&m.text.includes('NATIVE_RECOVERED_CWD_PROOF'));
+    const assistant=turn?.idle?.outcome==='succeeded'&&turn.assistants.find(m=>m.finish==='stop');
+    const tools=turn?.assistants.flatMap(m=>m.content).filter(p=>p.type==='tool')??[];
+    const read=tools.find(p=>p.name==='lawoss_documents_read'&&p.state.status==='completed');
+    return item?.status.type==='idle'&&assistant&&read?{session:item.session,user:turn.user.id,read,tools}:false;
   },'real engine executes a fresh scoped document read after native reconnect',60000);
   diagnostics.recoveryStage('fresh-check');
-  assert.equal(freshRead.session.directory,moved);assert.equal(freshRead.session.id,evidence[0].sessionId);
+  assert.equal(freshRead.session.location.directory,moved);assert.equal(freshRead.session.id,evidence[0].sessionId);
   assert.ok(evidence[0].documentIds.includes(freshRead.read.state.input.id));
-  const readEvidence = decodeNativeToolOutput(freshRead.read.state.output);
+  const readEvidence = decodeNativeToolOutput(freshRead.read.state.content);
   assert.equal(readEvidence.workspaceId,first.id);
   assert.equal(readEvidence.id,freshRead.read.state.input.id);
   assert.ok(evidence[0].sourceHashes.includes(readEvidence.hash),'Recovered real tool evidence still belongs to the independently hashed selected originals');
   if (corpus.mode === 'synthetic') assert.ok(readEvidence.text.includes('SYNTHETIC case 1 '),'The fresh VM tool read returns the selected synthetic source bytes');
-  assert.ok(freshRead.tools.every(part=>['lawoss_documents_list','lawoss_documents_read','lawoss_documents_export','lawoss_documents_validate'].includes(part.tool)),'Recovered protected execution never invokes a general host shell or unrelated capability');
+  assert.ok(freshRead.tools.every(part=>['lawoss_documents_list','lawoss_documents_read','lawoss_documents_export','lawoss_documents_validate'].includes(part.name)),'Recovered protected execution never invokes a general host shell or unrelated capability');
   assert.equal(await access(oldPath).then(()=>true,()=>false),false);
-  extraEvidence.recoveryRead={sessionId:freshRead.session.id,messageId:freshRead.user,directory:freshRead.session.directory,directoryMapping:recoveredTransport.directoryMapping,sourceHash:readEvidence.hash,documentId:freshRead.read.state.input.id,promptRequestId:recoveryRequest.params.requestId};
+  extraEvidence.recoveryRead={sessionId:freshRead.session.id,messageId:freshRead.user,directory:freshRead.session.location.directory,directoryMapping:recoveredTransport.directoryMapping,sourceHash:readEvidence.hash,documentId:freshRead.read.state.input.id,promptRequestId:recoveryRequest.params.requestId};
   // Every output, source and project is independently reread after an actual
   // Electron shutdown and launch with the same profile, not store reconstruction.
   diagnostics.recoveryStage('retained-files');
@@ -765,8 +789,8 @@ try {
   diagnostics.recoveryStage('engine-info');
   const finalEngine=await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('engineInfo')");
   diagnostics.recoveryStage('engine-health');
-  const relaunchedHealthResponse=await engineRequest('/global/health');
-  assert.equal(relaunchedHealthResponse.status,200,'Relaunched workspace engine health must authenticate');
+  const relaunchedHealthResponse=await engineRequest('/info');
+  assert.equal(relaunchedHealthResponse.status,200,'Relaunched workspace engine /api/info must authenticate');
   const relaunchedHealth=await relaunchedHealthResponse.json();
   diagnostics.recoveryStage('engine-identity');
   const relaunchedEngineIdentity=await verifyNativeEngineRuntime(preparedEngine,finalEngine.opencodeBinPath,relaunchedHealth);
@@ -786,6 +810,18 @@ try {
   const failure = diagnostics.failure(error);
   try { diagnostics.captureGenerationHostErrors(children); } catch { /* Diagnostics cannot replace the primary failure. */ }
   console.error('Primary native failure before cleanup', JSON.stringify(failure));
+  if(failure.phase==='generation'&&cdp){
+    let timer;
+    try {
+      const snapshot=await Promise.race([
+        cdp.send('Runtime.evaluate',{returnByValue:true,timeout:5000,expression:`(${observeGenerationPanel.toString()})(${JSON.stringify({workspaceId:workspaces[failure.caseIndex-1]?.id??null})})`}).then(result=>result.result?.value??null).catch(()=>null),
+        new Promise(resolve=>{timer=setTimeout(()=>resolve(null),5000)}),
+      ]);
+      diagnostics.generationPanel(snapshot);
+      console.error('Owned generation panel state',JSON.stringify(snapshot?{capture:'captured'}:{capture:'unavailable'}));
+    } catch { /* Failure diagnostics must preserve the primary native error. */ }
+    finally {clearTimeout(timer);}
+  }
   await diagnostics.captureEngineLog({error,selectedDirectory:workspaces[0].path,launchWallMs:engineLogLaunchWallMs,deadlineWallMs:engineLogDeadlineWallMs}).catch(()=>undefined);
   const fetchPhases=children.filter(owner=>['electron','electron-relaunch'].includes(owner.label)).flatMap(owner=>nativeEngineFetchRecords(owner.output()).map(record=>({process:owner.label,...record}))).slice(-64);
   console.error('Owned engine fetch boundaries',JSON.stringify(fetchPhases));
@@ -827,6 +863,6 @@ try {
   throw primaryError;
 } finally {
   // Also cover pre-launch/version/setup failures without masking the primary.
-  const result = await settleCleanup(primaryError, [() => preparedEngine.cleanup()]);
+  const result = await settleCleanup(primaryError, [() => preparedEngine?.cleanup()]);
   if (result.error) throw result.error;
 }
