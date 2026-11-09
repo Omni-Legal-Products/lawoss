@@ -518,6 +518,8 @@ jobs:
       # 🟡 LAWOSS: oddelenie klientov a schvaľovanie so skutočným enginom a skriptovaným modelom (review #221).
       # Načítajú pluginy z apps/server/dist, preto bežia po builde servera v predchádzajúcom kroku.
       - name: Verify client isolation and approval cards with the shipped engine
+        # Upstream v0.3.9 (#356): checkout and the engine exist in this job only when engine checks are selected.
+        if: needs.changes.outputs.engine == 'true'
         env:
           LAWOSS_APPROVAL_ENGINE: "1"
           LAWOSS_TRIEDENIE_ENGINE: "1"
