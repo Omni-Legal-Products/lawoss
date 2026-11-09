@@ -38,6 +38,7 @@ import type { ServerConfig } from "./types.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./managed-engine-lifecycle.js";
 import { legacyMcpAuthPath } from "./legacy-mcp-credentials.js";
+import { prepareIsolatedEngineHome } from "./lawoss/engine-home.js";
 import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
 import { issueWikiAgentTicket } from "./wiki/agent-access.js";
 import { settleEngineAgentTicket } from "./lawoss/engine-agent-ticket.js";
@@ -272,6 +273,8 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         // pribalený katalóg a nič nesťahuje (lawossEngineEnv v managed-opencode.ts).
         const engineHome = join(engineStorageDir(config), "engine-home");
         await mkdir(engineHome, { recursive: true });
+        // 🟡 LAWOSS: dáta a cache enginu pod engine-home, raz prenesené prihlásenia (lawoss/engine-home.ts).
+        const isolatedEngineEnv = await prepareIsolatedEngineHome(engineHome);
         const database = managedDb?.path || (process.env.OPENCODE_DB ? resolve(cwd, process.env.OPENCODE_DB) : "");
         if (!database) throw new Error("A private managed engine database is required for native restart recovery.");
         process.env.OPENCODE_DB = database;
@@ -303,6 +306,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
             OPENCODE_TEST_HOME: engineHome,
             XDG_CONFIG_HOME: join(engineHome, "config"),
             XDG_STATE_HOME: service.stateDirectory,
+            ...isolatedEngineEnv,
             OPENCODE_CONFIG_CONTENT: await legalworkMandatoryRuntimeConfigContent(config),
             OPENCODE_DB: database,
           },

@@ -1,5 +1,12 @@
 # LAWOSS downstream patches
 
+## Opravy po syncu v2 (2026-11-10)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/embedded.ts`, `apps/server/src/cli.ts`, `apps/server/src/lawoss/engine-home.ts` (nový, + test) | Izolovaný domov enginu (rozhodnutie MČ 10. 11. 2026): engine dostáva aj `XDG_DATA_HOME=<engine-home>/data` a `XDG_CACHE_HOME=<engine-home>/cache` (konfigurácia, stav a DB už boli pod úložiskom enginu), takže nepíše do globálneho `~/.local/share/opencode` ani `~/.cache/opencode` vlastného OpenCode používateľa. Pred prvým štartom sa raz skopírujú `auth.json` a `mcp-auth.json` z doterajšieho dátového priečinka enginu (dočasný súbor + premenovanie, existujúci cieľ sa neprepíše, značka `engine-home/lawoss-data-import.json`); originály ostávajú. `cli.ts` namiesto vlastného `LEGALWORK_ENGINE_DATA_HOME` používa ten istý pomocník (premenná má naďalej prednosť). `legacyMcpAuthPath()` ostáva na pôvodnom súbore (potvrdenky importu MCP v1 sú viazané na jeho cestu). |
+| `apps/desktop/electron/runtime.mjs` (`ensureWritableOpencodeHome`) | Produkčná sonda zápisu už nezakladá ani nesonduje globálne `~/.config/opencode` a `~/.local/share/opencode`; overuje `~/.config/legalwork` (konfigurácia servera a úložisko enginu). Záložné presmerovanie do `<userData>/opencode-home` pri nezapisovateľnom priečinku ostáva. |
+
 ## CI po zlúčení dev do v2 (2026-11-09)
 
 | Súbor | Zmena |

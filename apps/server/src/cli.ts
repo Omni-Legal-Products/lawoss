@@ -26,6 +26,7 @@ import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
 import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js";
 import { prepareManagedOpencodeDependencies } from "./managed-opencode-dependencies.js";
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
+import { prepareIsolatedEngineHome } from "./lawoss/engine-home.js";
 import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import { issueWikiAgentTicket } from "./wiki/agent-access.js";
 import { settleEngineAgentTicket } from "./lawoss/engine-agent-ticket.js";
@@ -105,6 +106,8 @@ const server = await startServer(config, { publicEngineBinary: () => managedOpen
       if (managedDb) process.env.OPENCODE_DB = managedDb.path;
       const engineHome = join(engineStorageDir(config), "engine-home");
       await mkdir(engineHome, { recursive: true });
+      // 🟡 LAWOSS: dáta a cache enginu pod engine-home, raz prenesené prihlásenia (lawoss/engine-home.ts).
+      const isolatedEngineEnv = await prepareIsolatedEngineHome(engineHome);
       const database = managedDb?.path || (process.env.OPENCODE_DB ? resolve(managedOpencodeCwd, process.env.OPENCODE_DB) : "");
       if (!database) throw new Error("A private managed engine database is required for native restart recovery.");
       process.env.OPENCODE_DB = database;
@@ -137,7 +140,7 @@ const server = await startServer(config, { publicEngineBinary: () => managedOpen
           XDG_STATE_HOME: service.stateDirectory,
           OPENCODE_DB: database,
           // LAWOSS: no OPENCODE_MODELS_URL; the engine reads only the bundled catalog (lawossEngineEnv in managed-opencode.ts).
-          ...(process.env.LEGALWORK_ENGINE_DATA_HOME ? { XDG_DATA_HOME: process.env.LEGALWORK_ENGINE_DATA_HOME } : {}),
+          ...isolatedEngineEnv,
         },
         });
         managedOpencode = engine;
