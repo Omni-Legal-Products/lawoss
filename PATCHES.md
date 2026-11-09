@@ -4,6 +4,7 @@
 
 | Súbor | Zmena |
 |---|---|
+| `.github/workflows/ci-tests.yml` (joby `unit-tests`, `legalwork-tests`) | `NODE_OPTIONS=--max-old-space-size=6144`: `tsc` väčšieho servera LAWOSS na macOS runneri inak skončí s nedostatkom heapu (exit 134). |
 | `.github/workflows/ci-tests.yml` | Volania `ci-desktop-packaging.yml` dávajú `actions: read` (volaný job `opencode-engine` ho žiada) a neposielajú nedefinovaný vstup `engine-build-mode`; inak GitHub workflow nespustí (`startup_failure`). |
 | `lawoss/okf-handoff/host-memory-grants.test.ts`, `.github/workflows/ci-okf-pamat.yml` | Produkčný vstup handoffu je natívny plugin v2 (len `default`); test volá prenosné háky v režime `native`. Workflow pamäte inštaluje aj závislosti servera (`@opencode/plugin`). |
 | `apps/server/scripts/{opencode-session-seed,provider-plugin-packaging}.node.test.mjs` (zmazané), `runtime-db-lifecycle.node.test.mjs` | LAWOSS testy v1: priamy zápis histórie do DB enginu (vo v2 neexistuje, engine migruje sám) a samostatný helper pozorovateľa poskytovateľa (vo v2 je v balíku pluginov, stráži ho `check-plugin-bundles.mjs`). Prázdna konfigurácia v2 je `{ configurationVersion: 2 }`. |
