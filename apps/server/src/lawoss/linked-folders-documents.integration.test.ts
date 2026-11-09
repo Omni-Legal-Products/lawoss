@@ -2,35 +2,33 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { z } from "zod";
 import { DocumentPreparation } from "../document-preparation/service.js";
 import { ApiError } from "../errors.js";
-import { buildLegalworkRuntimeConfigObject } from "../legalwork-runtime-config.js";
 import { OcrManager } from "../ocr/manager.js";
-import { closeRuntimeOpencodeConfig, runtimeStorageDir, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import { closeRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { LawossDocuments } from "./documents/service.js";
 import { documentLinkedFolders, writeLinkedFoldersMap } from "./linked-folders.js";
-import { WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PATH } from "./engine-agent-contract.js";
+import { WIKI_AGENT_TICKET_PATH } from "./engine-agent-contract.js";
+import { startScriptedEngine } from "./test-support/scripted-engine.js";
 import { nativeRow } from "./test-support/native-config.js";
 
 /**
- * LAWOSS alfa2 A3 (N-18, N-19) v pribalenom engine 1.18.29: klient A má pripojený priečinok s PDF, klient B nie.
- * Produkčné pluginy (`legalwork-project-tools`, `lawoss-linked-folders`) zostavené z tohto stromu, produkčné
- * oprávnenia (`buildLegalworkRuntimeConfigObject`), mapa a pravidlá servera, skutočná `LawossDocuments` s produkčným
+ * LAWOSS alfa2 A3 (N-18, N-19) v pribalenom engine v2 (2.1.4): klient A má pripojený priečinok s PDF, klient B nie.
+ * Produkčné pluginy (`legalwork-managed-config`, `lawoss-linked-folders`, `legalwork-project-tools`) zostavené
+ * `pnpm --filter legalwork-server build`, produkčné pravidlá (`test-support/scripted-engine.ts`), mapa a pravidlá servera, skutočná `LawossDocuments` s produkčným
  * `documentLinkedFolders`. Server je nahradený malým prípravkom, ktorý volá tú istú službu dokumentov (autorizácia
  * chatu cez token agenta je mimo tohto testu, pozri úlohu A2).
  * - Chat klienta A aj chat jeho prípadu: pripomienka so zoznamom pripojených priečinkov; príprava a čítanie PDF bez karty.
  * - Chat klienta B: pripomienka bez priečinka A; príprava odmietnutá bez obsahu, bez mena A a bez záznamu; natívne
  *   čítanie vyvolá kartu `external_directory`, ktorú možno zamietnuť.
+ * Karta je otázka enginu (`permission.request.list`), na ktorú plugin neodpovedal; test ju zaznamená a zamietne.
  *   LEGALWORK_TEST_OPENCODE_BIN=/Applications/LAWOSS.app/Contents/Resources/sidecars/opencode \
  *     pnpm --filter legalwork-server exec bun test src/lawoss/linked-folders-documents.integration.test.ts
  */
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-const toolPartsSchema = z.array(z.object({ parts: z.array(z.object({ tool: z.string().optional(),
-  state: z.object({ status: z.string(), input: z.unknown().optional(), output: z.string().optional(), error: z.string().optional() }).optional() })) }));
 type ToolCall = { name: string; args: Record<string, unknown> };
 type Step = (previousToolOutput: string) => ToolCall | null;
 
@@ -122,66 +120,26 @@ test.skipIf(!binary)("pripojený priečinok: chat klienta aj prípadu čítajú 
     const id = /"id":"([0-9a-f-]{36})"/.exec(output)?.[1];
     return id ? { name: "lawoss_documents_read", args: { id } } : null;
   };
-  const nativeRead: Step = () => ({ name: "read", args: { filePath: pdfPath } });
+  const nativeRead: Step = () => ({ name: "read", args: { path: pdfPath } });
 
-  let engineBase = "";
-  const at = (directory: string, path: string) => `${engineBase}${path}${path.includes("?") ? "&" : "?"}directory=${encodeURIComponent(directory)}`;
-  /**
-   * Jeden chat v `directory`. Bez `rejectCards` test na otázky enginu neodpovedá: odpovedať má plugin, a otázka, ktorá
-   * ostane visieť, je karta pre používateľa (beh skončí na limite cyklu a vráti ju v `prompts`). S `rejectCards` sa
-   * každá otázka hneď zamietne ako na karte. O karte tak nerozhoduje čas (prvá verzia: ≥ 3 s), ktorý na pomalom
-   * runneri prekročí aj odpoveď pluginu (#221).
-   */
-  const attempt = async (directory: string, plan: Step[], rejectCards = false) => {
+  const cleanups: (() => Promise<unknown> | unknown)[] = [];
+  let chat: (directory: string) => ReturnType<Awaited<ReturnType<typeof startScriptedEngine>>["chat"]> = () => { throw new Error("Engine not started"); };
+  /** Jeden nový chat v `directory` so skriptom `plan`; vráti karty, požiadavky na model a nástroje. */
+  const attempt = async (directory: string, plan: Step[]) => {
     steps = plan;
     modelRequests.length = 0;
-    const json = { "content-type": "application/json" };
-    const created = z.object({ id: z.string() }).parse(await (await fetch(at(directory, "/session"), { method: "POST", headers: json, body: "{}" })).json());
-    const accepted = await fetch(at(directory, `/session/${created.id}/prompt_async`), { method: "POST", headers: json,
-      body: JSON.stringify({ agent: "legalwork", model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: "Prečítaj dokumenty v pripojenom priečinku." }] }) });
-    expect(accepted.ok).toBe(true);
-    const prompts: string[] = [], rejected = new Set<string>();
-    let pending: { id: string; permission: string }[] = [];
-    for (let i = 0; i < 900; i++) {
-      pending = z.array(z.object({ id: z.string(), permission: z.string() })).parse(await (await fetch(at(directory, "/permission"))).json());
-      for (const ask of pending) {
-        if (!rejectCards || rejected.has(ask.id)) continue;
-        rejected.add(ask.id);
-        prompts.push(ask.permission);
-        const reply = await fetch(at(directory, `/permission/${ask.id}/reply`), { method: "POST", headers: json, body: JSON.stringify({ reply: "reject" }) });
-        expect(reply.ok).toBe(true);
-      }
-      const status = z.record(z.string(), z.object({ type: z.string() })).parse(await (await fetch(at(directory, "/session/status"))).json());
-      if (i > 5 && pending.length === 0 && (status[created.id]?.type ?? "idle") === "idle") break;
-      await Bun.sleep(100);
-    }
-    // Otázka, na ktorú plugin neodpovedal, je karta pre používateľa.
-    if (!rejectCards) prompts.push(...pending.map((ask) => ask.permission));
-    const parts = toolPartsSchema.parse(await (await fetch(at(directory, `/session/${created.id}/message`))).json()).flatMap((message) => message.parts).filter((part) => part.tool);
-    return { prompts, model: modelRequests.join("\n"), tools: parts.map((part) => ({ tool: part.tool, status: part.state?.status, output: part.state?.output ?? part.state?.error ?? "" })) };
+    const session = await chat(directory);
+    const cards = await session.turn("Prečítaj dokumenty v pripojenom priečinku.");
+    const tools = await session.tools();
+    return { prompts: cards.map((card) => card.action), model: modelRequests.join("\n"), tools: tools.map((tool) => ({ tool: tool.name, status: tool.status, output: tool.output })) };
   };
 
-  const production = await buildLegalworkRuntimeConfigObject(config, "ws_a");
   await writeLinkedFoldersMap(config);
-  const engineConfig = join(runtimeStorageDir(config), "config-linked-documents.json");
-  await writeFile(engineConfig, JSON.stringify({ enabled_providers: ["fixture"], model: "fixture/fixture", small_model: "fixture/fixture", share: "disabled", autoupdate: false,
-    provider: { fixture: { npm: "@ai-sdk/openai-compatible", name: "Fixture", options: { baseURL: fixture.url.origin + "/v1", apiKey: "fixture" }, models: { fixture: { name: "Fixture", limit: { context: 100000, output: 4000 } } } } },
-    plugin: build.outputs.map((output) => pathToFileURL(output.path).href), permission: production.permission, agent: production.agent, lsp: false, formatter: false }));
-  const reservation = Bun.serve({ port: 0, fetch: () => new Response() }), port = reservation.port;
-  reservation.stop(true);
-  const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: clientA, env: {
-    ...process.env, HOME: root, XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
-    OPENCODE_TEST_HOME: root, OPENCODE_CONFIG: engineConfig, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-    LEGALWORK_SERVER_URL: fixture.url.origin, [WIKI_AGENT_TICKET_ENV]: "synthetic-ticket",
-  }, stdout: "ignore", stderr: "pipe" });
-  const logs = new Response(engine.stderr).text();
-  engineBase = `http://127.0.0.1:${port}`;
   try {
-    let ready = false;
-    for (let i = 0; i < 300 && !ready && engine.exitCode === null; i++) {
-      try { ready = (await fetch(engineBase + "/global/health", { signal: AbortSignal.timeout(1000) })).ok; } catch { await Bun.sleep(100); }
-    }
-    if (!ready) throw new Error("Engine did not start: " + (engine.exitCode !== null ? await logs : "timed out"));
+    const engine = await startScriptedEngine({ binary, config, workspaceId: "ws_a", home: join(root, "engine"), cleanups, managedConfig: true,
+      plugins: ["lawoss-linked-folders", "legalwork-project-tools"], pluginIds: ["lawoss.linked-folders", "legalwork.project"],
+      serverUrl: fixture.url.origin, modelUrl: fixture.url.origin + "/v1" });
+    chat = engine.chat;
 
     const reminder = '<system-reminder topic=\\"linked-folders\\">';
     for (const directory of [clientA, matterA]) {
@@ -205,13 +163,13 @@ test.skipIf(!binary)("pripojený priečinok: chat klienta aj prípadu čítajú 
     expect(await documents.list(workspaces[1]!)).toEqual([]);
 
     // Natívne čítanie v chate B: karta, ktorú možno zamietnuť; obsah nepríde.
-    const native = await attempt(clientB, [nativeRead], true);
+    const native = await attempt(clientB, [nativeRead]);
     expect(native.prompts).toEqual(["external_directory"]);
     expect(native.tools.map((part) => part.status)).toEqual(["error"]);
     expect(native.model).not.toContain("SYN obsah pripojeneho podkladu");
     console.log(JSON.stringify({ clientRead: "ok", otherClient: { prepare: other.tools[0]?.output.slice(0, 300), nativePrompts: native.prompts } }, null, 1));
   } finally {
-    engine.kill("SIGKILL"); await engine.exited;
+    for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
     fixture.stop(true);
     await documents.stop(); preparation.stop(); ocr.stop();
     await closeRuntimeOpencodeConfig(config); Bun.gc(true);

@@ -62,6 +62,8 @@ export async function startScriptedEngine(input: {
   modelUrl: string;
   /** Plugin ids that must be active in a location before a chat starts there. */
   pluginIds?: string[];
+  /** Loads `legalwork-managed-config` first, with every workspace's production settings, as the app's mandatory plugins do. */
+  managedConfig?: boolean;
   /** Replaces the production rules (each test states what its profile is). */
   configuration?: (production: Record<string, unknown>) => Record<string, unknown>;
 }) {
@@ -74,7 +76,15 @@ export async function startScriptedEngine(input: {
   const direct = join(input.home, "direct-tools");
   await mkdir(direct, { recursive: true });
   await writeFile(join(direct, "index.js"), DIRECT_TOOLS_PLUGIN);
-  const plugins = [...input.plugins.map((plugin) => typeof plugin === "string" ? builtPlugin(plugin) : { package: builtPlugin(plugin.name), options: plugin.options }), direct];
+  const managed: PluginSpec[] = [];
+  if (input.managedConfig) {
+    const settingsPath = join(runtimeStorageDir(input.config), "engine-settings.json");
+    const workspaces = Object.fromEntries(await Promise.all(input.config.workspaces.map(async (workspace) =>
+      [workspace.id, { ...await buildLegalworkRuntimeSettings(input.config, workspace.id), directory: workspace.path }] as const)));
+    await writeFile(settingsPath, JSON.stringify({ version: 2, workspaces, sharedConfiguration: {} }));
+    managed.push({ name: "legalwork-managed-config", options: { settingsPath } });
+  }
+  const plugins = [...[...managed, ...input.plugins].map((plugin) => typeof plugin === "string" ? builtPlugin(plugin) : { package: builtPlugin(plugin.name), options: plugin.options }), direct];
   const content = { update: "disable", warming: false, plugins, model: "fixture/fixture",
     providers: { fixture: { package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: input.modelUrl, apiKey: "fixture" },
       models: { fixture: { limit: { context: 100000, output: 4000 }, capabilities: { tools: true } } } } } };
@@ -83,7 +93,7 @@ export async function startScriptedEngine(input: {
     LEGALWORK_SERVER_URL: input.serverUrl, [WIKI_AGENT_TICKET_ENV]: "synthetic-ticket",
   });
   const client = OpenCode.make({ baseUrl: engine.url, headers: { authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
-  const pluginIds = [...input.pluginIds ?? [], "lawoss.test-direct-tools"];
+  const pluginIds = [...input.managedConfig ? ["legalwork.managed-config"] : [], ...input.pluginIds ?? [], "lawoss.test-direct-tools"];
   return { engine, client, file, chat: (directory: string, agent = "legalwork") => openChat(client, directory, agent, pluginIds) };
 }
 
