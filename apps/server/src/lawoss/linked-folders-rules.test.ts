@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { allowedFolders, canonicalPath, expandScope, externalDirectoryAllowed, externalDirectoryOtherClient, folderOfGrant, isOfficeMemoryFolder, linkedFolderConflict, parseLinkedFoldersMap, patternDirectory, refusedEarlier, type LinkedFoldersMap } from "./linked-folders-rules.js";
+import { allowedFolders, canonicalPath, commandMentionsFolder, expandScope, externalDirectoryAllowed, externalDirectoryOtherClient, folderOfGrant, isOfficeMemoryFolder, linkedFolderConflict, parseLinkedFoldersMap, patternDirectory, refusedEarlier, separateNestedClientOf, type LinkedFoldersMap } from "./linked-folders-rules.js";
 import { withoutClientFolderGrants } from "./linked-folders.js";
 
 const map = (over: Partial<LinkedFoldersMap> = {}): LinkedFoldersMap => ({
@@ -266,4 +266,44 @@ describe("priečinok iného klienta", () => {
     expect(refusedEarlier(refused, [`${P}/Klienti/C0021`, `${P}/Klienti/Hron`, `${P}/Klienti`])).toBe(false);
     expect(refusedEarlier([], [`${P}/Klienti/C002`])).toBe(false);
   });
+});
+
+// #264: klient vnorený v klientovi (rozhodnutie MČ 23. 10. 2026) a príkaz s cestou do jeho priečinka.
+test("separateNestedClients a separateNestedClientOf: karty rozhodnú, kontajner praxe klient nie je", () => {
+  const map = (parentCard: string | null, nestedCard: string | null): LinkedFoldersMap => ({ version: 1, officeRoot: "/p/prax", firmManaged: false, clients: [
+    { root: "/p/prax", folders: [], client: null },
+    { root: "/p/prax/Klienti/A", folders: [], client: parentCard },
+    { root: "/p/prax/Klienti/A/B", folders: [], client: nestedCard },
+  ] });
+  const both = map("/p/prax/Klienti/A", "/p/prax/Klienti/A/B");
+  expect(separateNestedClientOf(both, "/p/prax/Klienti/A", "/p/prax/Klienti/A/B/x.txt")?.root).toBe("/p/prax/Klienti/A/B");
+  expect(separateNestedClientOf(both, "/p/prax/Klienti/A", "/p/prax/Klienti/A/C/x.txt")).toBeNull();
+  // Opačný smer: chat vnoreného do priečinka nadradeného.
+  expect(separateNestedClientOf(both, "/p/prax/Klienti/A/B", "/p/prax/Klienti/A/x.txt")?.root).toBe("/p/prax/Klienti/A");
+  // Bez karty oboch = oddelení; vnorený bez karty pod kartou nadradeného = spis.
+  expect(separateNestedClientOf(map(null, null), "/p/prax/Klienti/A", "/p/prax/Klienti/A/B")?.root).toBe("/p/prax/Klienti/A/B");
+  expect(separateNestedClientOf(map("/p/prax/Klienti/A", "/p/prax/Klienti/A"), "/p/prax/Klienti/A", "/p/prax/Klienti/A/B")).toBeNull();
+  // Kontajner praxe nie je nadradený klient.
+  expect(separateNestedClientOf(both, "/p/prax", "/p/prax/Klienti/A/x.txt")).toBeNull();
+  // Vzory: `**` z koreňa siaha do vnoreného, `*.txt` v koreni nie; rekurzívne hľadanie z koreňa áno.
+  expect(separateNestedClientOf(both, "/p/prax/Klienti/A", "/p/prax/Klienti/A/**/*.txt")?.root).toBe("/p/prax/Klienti/A/B");
+  expect(separateNestedClientOf(both, "/p/prax/Klienti/A", "/p/prax/Klienti/A/*.txt")).toBeNull();
+  expect(separateNestedClientOf(both, "/p/prax/Klienti/A", "/p/prax/Klienti/A", true)?.root).toBe("/p/prax/Klienti/A/B");
+  expect(separateNestedClientOf(both, "/p/prax/Klienti/A", "/p/prax/Klienti/A/Spisy", true)).toBeNull();
+  // Chat vnoreného: rekurzívne vo vlastnom priečinku nadradeného nezasiahne.
+  expect(separateNestedClientOf(both, "/p/prax/Klienti/A/B", "/p/prax/Klienti/A/B", true)).toBeNull();
+});
+
+test("commandMentionsFolder: absolútna, relatívna aj cesta v chránenom prostredí; podobné mená nie", () => {
+  const root = "/p/A/Dcéra s.r.o.";
+  expect(commandMentionsFolder(`cat "/p/A/Dcéra s.r.o./zmluva.txt"`, "/p/A", [root])).toBe(true);
+  expect(commandMentionsFolder(`ls 'Dcéra s.r.o.'`, "/p/A", [root])).toBe(true);
+  expect(commandMentionsFolder(`grep -r x ./Dcéra\\ s.r.o.`, "/p/A", [root])).toBe(true);
+  expect(commandMentionsFolder(`cd "Dcéra s.r.o." && ls`, "/p/A", [root])).toBe(true);
+  expect(commandMentionsFolder(`ls /workspace/Dcéra\\ s.r.o.`, "/p/A", [root], { host: "/p/A", guest: "/workspace" })).toBe(true);
+  expect(commandMentionsFolder(`ls "/workspace/Dcéra s.r.o./x"`, "/p/A", [root], { host: "/p/A", guest: "/workspace" })).toBe(true);
+  expect(commandMentionsFolder(`cat "Dcéra s.r.o.-kópia/x"`, "/p/A", [root])).toBe(false);
+  // Priečinok s rovnakým začiatkom a medzerou za ním sa radšej pýta (karta navyše, nie prístup bez karty).
+  expect(commandMentionsFolder(`cat "Dcéra s.r.o. kópia/x"`, "/p/A", [root])).toBe(true);
+  expect(commandMentionsFolder(`ls Spisy`, "/p/A", [root])).toBe(false);
 });

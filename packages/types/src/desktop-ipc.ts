@@ -949,6 +949,8 @@ export interface HostApprovalRequest {
   command?: string;
   /** LAWOSS: the command runs on this computer, so the one card covers files, internet and outside folders. */
   hostWide?: boolean;
+  /** LAWOSS (#264): the command names the folder of another client registered inside this client (canonical root); the card warns. */
+  otherClientFolder?: string;
   createdAt: number;
   actor: { type: "remote" | "host"; clientId?: string; scope?: string };
   network?: {

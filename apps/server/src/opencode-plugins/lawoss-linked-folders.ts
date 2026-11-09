@@ -21,8 +21,9 @@
 import { Plugin } from "@opencode/plugin";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
-import { allowedFolders, canonicalPath, CHAT_AGENT, expandScope, externalDirectoryAllowed, externalDirectoryOtherClient, LINKED_FOLDERS_MAP_FILE, ownerOf, parseLinkedFoldersMap, patternDirectory, refusedEarlier } from "../lawoss/linked-folders-rules.js";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { allowedFolders, canonicalPath, CHAT_AGENT, commandMentionsFolder, expandScope, externalDirectoryAllowed, externalDirectoryOtherClient, LINKED_FOLDERS_MAP_FILE, NESTED_CLIENT_CARD_PREFIX, ownerOf, parseLinkedFoldersMap, patternDirectory, refusedEarlier, separateNestedClientOf, type LinkedFoldersMap } from "../lawoss/linked-folders-rules.js";
+import { isPathWithin } from "../lawoss/path-within.js";
 import { registerAppStateReminders } from "./native-app-state-reminders.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
 import { nativeEvents } from "./native-events.js";
@@ -47,7 +48,7 @@ async function readMap() {
  * „open“ = karta pre advokáta; `otherClient`: rozsah siaha na iného klienta (karta aj v YOLO), `yolo`: mapa hlási
  * režim YOLO (ostatné žiadosti chat agenta bez karty).
  */
-type Decision = { kind: "once" } | { kind: "reject" } | { kind: "open"; targets: (string | null)[]; otherClient: boolean; yolo: boolean };
+type Decision = { kind: "once" } | { kind: "reject" } | { kind: "open"; targets: (string | null)[]; otherClient: boolean; yolo: boolean; nested?: string };
 
 /** Rozhodnutie pre jednu otázku: „once“, odmietnutie (nejednoznačný rozsah) alebo „open“. `null` = nerozhodovať. Neexportuje sa: engine volá každý export. */
 async function linkedFolderDecision(directory: string, request: Asked): Promise<Decision | null> {
@@ -62,10 +63,63 @@ async function linkedFolderDecision(directory: string, request: Asked): Promise<
   const read = await readMap();
   if (!read) return { kind: "open", targets, otherClient: false, yolo: false };
   const chat = await canonicalPath(directory);
+  // #264: priečinok klienta vnoreného v klientovi chatu (alebo nadradeného) je iný klient: karta aj v YOLO,
+  // aj keď ho pravidlá priečinkov klienta inak povolia alebo karta klienta chatu chýba.
+  const nested = ambiguous ? null : targets.map((target) => target ? separateNestedClientOf(read.map, chat, target) : null).find(Boolean);
+  if (nested) return { kind: "open", targets, otherClient: true, yolo: read.map.yolo === true, nested: nested.root };
   if (!ambiguous && externalDirectoryAllowed(read.map, chat, targets, [read.appData])) return { kind: "once" };
   const scope = externalDirectoryOtherClient(read.map, chat, targets, ambiguous);
   if (scope === "ambiguous") return { kind: "reject" };
   return { kind: "open", targets, otherClient: scope !== null, yolo: read.map.yolo === true };
+}
+
+/** Natívne nástroje enginu 2.1.4 s cestou (zápis, úprava a záplata sa pýtajú ako `edit`, výpis priečinka je `read`). */
+const PATH_ACTIONS = new Set(["read", "edit", "list"]);
+const SEARCH_ACTIONS = new Set(["glob", "grep"]);
+const SHELL_ACTIONS = new Set(["shell", "bash"]);
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * #264: natívny nástroj v priečinku chatu siaha do priečinka iného klienta, ktorý je v klientovi chatu zaregistrovaný
+ * (priečinok mimo chatu rieši otázka `external_directory`). Vráti koreň toho klienta, inak `null`. Ciele enginu sú
+ * relatívne k priečinku chatu; glob a grep majú rozsah v `metadata.path`/`metadata.root` a hľadajú rekurzívne;
+ * príkaz sa posúdi podľa ciest v jeho texte (odhad).
+ */
+async function nestedClientTarget(map: LinkedFoldersMap, directory: string, event: { action: string; resources: readonly string[]; metadata?: Record<string, unknown> }): Promise<string | null> {
+  const chat = await canonicalPath(directory);
+  const owner = ownerOf(map, chat);
+  if (!owner) return null;
+  const inChat = async (path: string) => {
+    const target = await canonicalPath(isAbsolute(path) ? path : resolve(chat, path));
+    return isPathWithin(chat, target) ? target : null;
+  };
+  if (PATH_ACTIONS.has(event.action)) {
+    for (const resource of event.resources) {
+      const target = await inChat(resource);
+      const found = target ? separateNestedClientOf(map, chat, target) : null;
+      if (found) return found.root;
+    }
+    return null;
+  }
+  if (SEARCH_ACTIONS.has(event.action)) {
+    const scope = isRecord(event.metadata) && typeof event.metadata.path === "string" ? event.metadata.path
+      : isRecord(event.metadata) && typeof event.metadata.root === "string" ? event.metadata.root : ".";
+    const root = await inChat(scope);
+    if (!root) return null;
+    // glob: vzor (aj `**`) voči rozsahu; grep: celý rozsah rekurzívne.
+    const targets = event.action === "glob" ? event.resources.map((pattern) => isAbsolute(pattern) ? pattern : join(root, pattern)) : [root];
+    for (const target of targets) {
+      const found = separateNestedClientOf(map, chat, target, event.action === "grep");
+      if (found) return found.root;
+    }
+    return null;
+  }
+  if (SHELL_ACTIONS.has(event.action)) {
+    const nested = map.clients.filter((client) => client !== owner && separateNestedClientOf(map, chat, client.root) === client);
+    const found = nested.find((client) => event.resources.some((command) => commandMentionsFolder(command, chat, [client.root])));
+    return found?.root ?? null;
+  }
+  return null;
 }
 
 /** Spoločný záver viet pre agenta (N-A8-2): agent nikdy neradí povoliť priečinok iného klienta ani zmeniť nastavenia. */
@@ -139,29 +193,49 @@ export default Plugin.define({
       const oldest = map.size > limit ? map.keys().next() : null;
       if (oldest && !oldest.done) map.delete(oldest.value);
     };
+    /** Karta pre advokáta: rozsah, ktorý v tomto rozhovore už zamietol, sa mu znova neukáže (`false` = zamietnuté bez karty). */
+    const openCard = async (event: { sessionID: string; resources: readonly string[]; effect: string; message?: string }, parentID: string | undefined, targets: string[]) => {
+      const root = await rootSession(ctx, event.sessionID, parentID);
+      if (refusedEarlier(refused.get(root) ?? [], targets)) { event.effect = "deny"; event.message = REFUSALS.repeated; return false; }
+      if (targets.length) bounded(cards, cardKey(event.sessionID, event.resources), { root, targets }, PENDING_LIMIT);
+      return true;
+    };
     const evaluate = await ctx.permission.hook("evaluate", async (event) => {
-      // Zákaz (konfigurácia, firma, agent) ostáva zákazom; povolené sa nerieši.
-      if (event.action !== "external_directory" || event.effect !== "ask") return;
+      // Zákaz (konfigurácia, firma, agent) ostáva zákazom.
+      if (event.effect === "deny") return;
       try {
+        if (event.action !== "external_directory") {
+          if (!PATH_ACTIONS.has(event.action) && !SEARCH_ACTIONS.has(event.action) && !SHELL_ACTIONS.has(event.action)) return;
+          // #264: nástroj v priečinku chatu siaha do vnoreného iného klienta: karta s varovaním aj v YOLO a aj nad `allow`.
+          const read = await readMap();
+          if (!read) return;
+          const session = await ctx.session.get({ sessionID: event.sessionID });
+          const nested = await nestedClientTarget(read.map, session.location.directory, event);
+          if (!nested) return;
+          event.effect = "ask";
+          event.message = `${NESTED_CLIENT_CARD_PREFIX}${nested}`;
+          await openCard(event, session.parentID, [nested]);
+          return;
+        }
+        // Povolené pravidlom sa nerieši, okrem priečinka vnoreného iného klienta (#264).
         const session = await ctx.session.get({ sessionID: event.sessionID });
         const decision = await linkedFolderDecision(session.location.directory, { id: "", sessionID: event.sessionID, permission: event.action, patterns: [...event.resources] });
         if (!decision) return;
+        if (event.effect !== "ask" && !(decision.kind === "open" && decision.nested)) return;
         if (decision.kind === "reject") { event.effect = "deny"; event.message = REFUSALS.ambiguous; return; }
         if (decision.kind === "once") { event.effect = "allow"; return; }
         // YOLO: chat agent ide bez karty všade okrem priečinka iného klienta (ten má kartu s varovaním aj v YOLO).
         if (decision.yolo && !decision.otherClient && (event.agent ?? session.agent) === CHAT_AGENT) { event.effect = "allow"; return; }
-        // Karta pre advokáta: rozsah, ktorý v tomto rozhovore už zamietol, sa mu znova neukáže.
-        const root = await rootSession(ctx, event.sessionID, session.parentID);
-        if (refusedEarlier(refused.get(root) ?? [], decision.targets)) { event.effect = "deny"; event.message = REFUSALS.repeated; return; }
         const targets = decision.targets.filter((target): target is string => target !== null);
-        if (targets.length) bounded(cards, cardKey(event.sessionID, event.resources), { root, targets }, PENDING_LIMIT);
+        if (!await openCard(event, session.parentID, decision.nested ? [...targets, decision.nested] : targets)) return;
+        event.effect = "ask";
+        if (decision.nested) event.message = `${NESTED_CLIENT_CARD_PREFIX}${decision.nested}`;
       } catch {
         // Bez rozhodnutia ostane bežná otázka používateľovi.
       }
     });
     const events = nativeEvents(ctx, (event) => {
       if (event.type === "permission.asked") {
-        if (event.data.action !== "external_directory") return;
         const key = cardKey(event.data.sessionID, event.data.resources);
         const card = cards.get(key);
         if (!card) return;

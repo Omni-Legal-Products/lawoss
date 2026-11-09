@@ -12,10 +12,11 @@
  */
 import type { PendingPermission } from "@/app/types";
 import { mayDeleteFiles } from "./file-operation-card";
+import { nestedClientCardFolder } from "./nested-client-card";
 
 type Kind = "edit" | "folder";
 type Grant = { edit: boolean; folders: Set<string> };
-type Request = Pick<PendingPermission, "protocol" | "permission" | "patterns" | "metadata">;
+type Request = Pick<PendingPermission, "protocol" | "permission" | "patterns" | "metadata"> & Partial<Pick<PendingPermission, "message" | "host">>;
 
 const grants = new Map<string, Grant>();
 /**
@@ -28,6 +29,8 @@ const leftToLawyer = new Set<string>();
 
 function kind(permission: Request): Kind | null {
   if (permission.protocol === "host") return null;
+  // #264: kartu iného klienta vnoreného v klientovi (aj `edit` či `read`) povolenie pre sedenie nepokryje.
+  if (nestedClientCardFolder({ message: permission.message, host: permission.host })) return null;
   if (permission.metadata && typeof permission.metadata === "object" && "lawossMemory" in permission.metadata) return null;
   if (permission.metadata && typeof permission.metadata === "object" && mayDeleteFiles(permission.metadata)) return null;
   if (permission.permission === "edit" || permission.permission === "lawoss_file_change") return "edit";
