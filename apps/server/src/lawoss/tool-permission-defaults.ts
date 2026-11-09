@@ -87,3 +87,18 @@ export function fileChangeRules(rules: readonly LawossPermissionRule[], yolo: bo
   return [{ action: FILE_CHANGE_PERMISSION, resource: "*", effect: yolo ? "allow" : "ask" },
     ...denied.map(rule => ({ action: FILE_CHANGE_PERMISSION, resource: rule.resource, effect: "deny" as const }))];
 }
+
+/**
+ * The permission `legalwork_browser_add_website` asks with before a saved login changes
+ * (opencode-plugins/lawoss-browser-login-card.ts, MČ 9. 11. 2026).
+ */
+export const BROWSER_LOGIN_PERMISSION = "lawoss_browser_login";
+
+/**
+ * The saved-login card always asks: placed after the lawyer's and firm's rules, so a `*` allow cannot
+ * silence it, and YOLO Mode keeps it too, because the password is filled on the added sign-in domain.
+ * A denial of the tool itself (`legalwork_browser_add_website` or `*`) still applies first.
+ */
+export function browserLoginRules(): LawossPermissionRule[] {
+  return [{ action: BROWSER_LOGIN_PERMISSION, resource: "*", effect: "ask" }];
+}

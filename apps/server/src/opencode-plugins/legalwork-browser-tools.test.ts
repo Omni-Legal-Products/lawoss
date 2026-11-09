@@ -115,8 +115,32 @@ test("agents add destination URLs directly with a narrow metadata mutation and o
     const expanded = await tool("legalwork_browser_add_website").execute({ password_id, url: "https://research.example.net/", login_url: "https://signin.example.net/login" }, nativeTestInvocation("ses_upload"));
     expect(websiteAdds.at(-1)).toEqual({ id: password_id, url: "https://research.example.net/", loginUrl: "https://signin.example.net/login" });
     expect(expanded.output).toMatchObject({ item: { additionalOrigins: ["https://signin.example.net"] } });
-    expect(native.permissions.slice(permissionCount)).toMatchObject([{ action: "legalwork_browser_add_website" }, { action: "legalwork_browser_add_website" }]);
+    // 🟡 LAWOSS (MČ 9. 11. 2026): each addition also asks the lawyer's saved-login card, never remembered.
+    const login = { passwordId: password_id, label: "Portal", origin: "https://auth.example.com", website: "https://research.example.net/" };
+    expect(native.permissions.slice(permissionCount)).toMatchObject([{ action: "legalwork_browser_add_website" },
+      { action: "lawoss_browser_login", resources: ["https://research.example.net"], save: [], metadata: { lawossBrowserLogin: { ...login, name: "Library", loginOrigin: null } } },
+      { action: "legalwork_browser_add_website" },
+      { action: "lawoss_browser_login", resources: ["https://signin.example.net"], save: [], metadata: { lawossBrowserLogin: { ...login, name: null, loginOrigin: "https://signin.example.net" } } }]);
+    expect(JSON.stringify(native.permissions.slice(permissionCount))).not.toContain("must-not-leak");
   } finally { blockNetwork = false; }
+});
+
+test("LAWOSS: a declined saved-login card changes nothing; an unknown login asks no card", async () => {
+  const password_id = "a8b2378c-4bf0-492a-a113-5ef80723e089";
+  const before = websiteAdds.length;
+  const asked: Array<{ permission: string }> = [];
+  native.permissionHandler(async input => {
+    asked.push(input);
+    if (input.permission === "lawoss_browser_login") throw new Error("The user rejected the saved-login card");
+  });
+  try {
+    await expect(tool("legalwork_browser_add_website").execute({ password_id, url: "https://research.example.net/", login_url: "https://signin.example.net/login" }, nativeTestInvocation("ses_upload"))).rejects.toThrow("rejected");
+    expect(websiteAdds).toHaveLength(before);
+    expect(asked.map(input => input.permission)).toEqual(["lawoss_browser_login"]);
+    await expect(tool("legalwork_browser_add_website").execute({ password_id: "0f1e2d3c-4b5a-4968-8776-655443322110", url: "https://research.example.net/" }, nativeTestInvocation("ses_upload"))).rejects.toThrow("No saved login");
+    expect(asked).toHaveLength(1);
+    expect(websiteAdds).toHaveLength(before);
+  } finally { native.permissionHandler(async () => {}); }
 });
 
 test("direct website additions retain native permission denials, owner errors and strict secure URL validation", async () => {

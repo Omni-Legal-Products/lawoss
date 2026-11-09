@@ -15,6 +15,7 @@
  */
 import { t } from "@/i18n";
 import type { PendingPermission } from "@/app/types";
+import { browserLoginCard } from "./browser-login-card";
 import { memoryWriteCard } from "./memory-write-card";
 import { nestedClientCardFolder } from "./nested-client-card";
 
@@ -113,7 +114,8 @@ export type FileOperationDetails = { reason: string | null; lines: string[] };
 export function fileOperationCard(metadata: Record<string, unknown>): { title: string; message: string; permissionLabel: string; scopeLabel: string; scopeValue: string; details: FileOperationDetails } | null {
   const changes = plannedChanges(metadata);
   // `lawoss_memory_write` asks with the same permission: one card "what and where" (memory-write-card.ts).
-  if (!changes) return memoryWriteCard(metadata);
+  // `legalwork_browser_add_website` asks `lawoss_browser_login`: login, website, password domain (browser-login-card.ts).
+  if (!changes) return memoryWriteCard(metadata) ?? browserLoginCard(metadata);
   const reason = typeof metadata.description === "string" && metadata.description.trim() ? t("lawoss.files.reason", undefined, { text: metadata.description.trim() }) : null;
   return {
     details: { reason, lines: changes.flatMap((change) => [detailLine(change), ...warnings(change)]) },
