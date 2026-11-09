@@ -5,14 +5,17 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { startServer } from "../server.js";
 import { openSqlite, runtimeDbPath } from "../runtime-db.js";
+import { NATIVE_CONFIG_TABLE } from "../native-config-state.js";
 import { syntheticHostConfig } from "./test-support/host-config.js";
+import { createEngineClient } from "../engine-client.js";
+import { findApiError } from "../errors.js";
 import { enforceAiBoundaries } from "./test-support/ai-boundaries.js";
 
 // This proves host admission only. It does not claim engine-internal provider egress isolation.
 test("with AI boundaries on, protected prompt/attachment/compaction/command are refused before the engine receiver; manual files remain available", async () => {
   const {root, config} = await syntheticHostConfig();
   const received: string[] = [];
-  const receiver = Bun.serve({hostname: "127.0.0.1", port: 0, async fetch(request) { if (request.method === "GET") return Response.json({id: "fixture", directory: config.workspaces[0]?.path}); received.push(await request.text()); return Response.json({id: "synthetic"});}});
+  const receiver = Bun.serve({hostname: "127.0.0.1", port: 0, async fetch(request) { if (request.method === "GET") return Response.json({data: {id: "fixture", projectID: "p", title: "Synthetic", location: {directory: config.workspaces[0]?.path}, cost: 0, tokens: {input: 0, output: 0, reasoning: 0, cache: {read: 0, write: 0}}, time: {created: 1, updated: 1}}}); received.push(await request.text()); return Response.json({id: "synthetic"});}});
   const previous = {LEGALWORK_TOKEN_STORE: process.env.LEGALWORK_TOKEN_STORE, LEGALWORK_RUNTIME_DB: process.env.LEGALWORK_RUNTIME_DB};
   process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");
   process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
@@ -72,6 +75,36 @@ test("with AI boundaries on, a mounted SDK transport also rejects dispatch befor
   } finally {receiver.stop(true); await rm(root, {recursive: true});}
 });
 
+test("with AI boundaries on, the server-internal engine client refuses every model route before a receiver gets content", async () => {
+  const {root, config} = await syntheticHostConfig();
+  const received: string[] = [];
+  const receiver = Bun.serve({hostname: "127.0.0.1", port: 0, async fetch(request) {received.push(`${request.method} ${new URL(request.url).pathname} ${await request.text()}`); return Response.json({data: {}});}});
+  const restore = await enforceAiBoundaries(config);
+  try {
+    await fetch(receiver.url, {method: "POST", body: "PUBLIC-SYNTHETIC-PROBE"});
+    expect(received).toEqual(["POST / PUBLIC-SYNTHETIC-PROBE"]); received.length = 0;
+    const workspace = join(root, "matter"); await mkdir(workspace);
+    // Titles, schedules, delegations, /dispatch and the queue all reach the engine through this client.
+    const client = createEngineClient(config, {id: "fixture", name: "Synthetic", path: workspace, workspaceType: "local", preset: "starter", baseUrl: receiver.url.origin});
+    const sessionID = "ses_fixture", text = "PROTECTED-INTERNAL-CANARY";
+    const calls: Array<() => Promise<unknown>> = [
+      () => client.session.prompt({sessionID, text}),
+      () => client.session.synthetic({sessionID, text}),
+      () => client.session.command({sessionID, name: "review", text}),
+      () => client.session.shell({sessionID, command: text}),
+      () => client.session.compact({sessionID}),
+      () => client.session.generate({sessionID, prompt: text}),
+      () => client.session.interrupt({sessionID, resume: true}),
+    ];
+    for (const call of calls) {
+      // The SDK wraps transport failures; the server's error handler unwraps the typed denial.
+      const error: unknown = await call().then(() => null, (failure: unknown) => failure);
+      expect(findApiError(error)).toMatchObject({status: 403, code: "ai_transfer_denied"});
+    }
+    expect(received).toEqual([]);
+  } finally {await restore(); receiver.stop(true); await rm(root, {recursive: true});}
+});
+
 test("acknowledgment cannot inject an actor or approve a provider", async () => {
   const {root, config} = await syntheticHostConfig();
   const previous = {LEGALWORK_TOKEN_STORE: process.env.LEGALWORK_TOKEN_STORE, LEGALWORK_RUNTIME_DB: process.env.LEGALWORK_RUNTIME_DB};
@@ -114,7 +147,7 @@ test("read-only native governance refuses notice and migration writes without ch
     const before = await fetch(base, {headers}).then(response => response.json());
     const preview = await request("/migration/preview", {}).then(response => response.json());
     const db = await openSqlite(runtimeDbPath(config));
-    const storedRows = () => db.all("SELECT workspace_id,config_json,updated_at FROM runtime_opencode_configs WHERE workspace_id IN (?,?) ORDER BY workspace_id", ["__global_ai_guidance__", "__global_ai_legacy_preference__"]);
+    const storedRows = () => db.all(`SELECT workspace_id,config_json,updated_at FROM ${NATIVE_CONFIG_TABLE} WHERE workspace_id IN (?,?) ORDER BY workspace_id`, ["__global_ai_guidance__", "__global_ai_legacy_preference__"]);
     const beforeRows = storedRows();
     try {
     for (const [path, body] of [["/acknowledge", {textVersion: AI_GUIDANCE_VERSION, jurisdiction: "CZ"}], ["/migration/apply", {sourceHash: preview.sourceHash}]] satisfies Array<[string, unknown]>) {

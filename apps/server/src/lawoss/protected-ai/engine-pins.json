@@ -1,6 +1,8 @@
 {
   "engineVersion": "2.1.4-legalwork.http-policy.3",
-  "repository": "legalwork-derivative:anomalyco/opencode@68bc26b7da1990ce10ffecfbc1e09eb13aa5d824",
+  "repository": "Omni-Legal-Products/lawoss",
+  "releaseTag": "opencode-v2.1.4-legalwork.http-policy.3-lawoss.1",
+  "source": "legalwork-derivative:anomalyco/opencode@68bc26b7da1990ce10ffecfbc1e09eb13aa5d824",
   "releaseId": "recipe-sha256:6e091b7f5aa124f687826b0812a46c73ed622dfc05904b9d4470e76ed50f8c8a",
   "architectures": {
     "arm64": {

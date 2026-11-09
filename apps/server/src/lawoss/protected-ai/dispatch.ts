@@ -3,8 +3,10 @@ import type { ServerConfig } from "../../types.js";
 import { activeProtectedRuntime, type ProtectedDocumentRuntime } from "./runtime.js";
 
 const owners = new WeakMap<ServerConfig, Set<ProtectedDocumentRuntime>>();
-const sessionsSchema = z.array(z.object({id: z.string()}).passthrough());
-const statusesSchema = z.record(z.string(), z.unknown());
+// Engine v2 envelopes: `session.list` `{data, cursor}`, `session.active` `{data}`.
+const sessionsSchema = z.object({data: z.array(z.object({id: z.string()}).passthrough())}).passthrough();
+const statusesSchema = z.object({data: z.record(z.string(), z.unknown())}).passthrough();
+const sessionEnvelope = z.object({data: z.object({id: z.string()}).passthrough()});
 
 /** Several listeners can share a config; each session retains its creating owner. */
 export function registerProtectedRuntime(config: ServerConfig, runtime: ProtectedDocumentRuntime): () => void {
@@ -14,7 +16,7 @@ export function registerProtectedRuntime(config: ServerConfig, runtime: Protecte
 }
 
 function sessionOwner(config: ServerConfig, workspaceId: string, path: string) {
-  const id = /^\/session\/([A-Za-z0-9_-]+)(?:\/|$)/.exec(path)?.[1];
+  const id = /^(?:\/api)?\/session\/([A-Za-z0-9_-]+)(?:\/|$)/.exec(path)?.[1];
   const runtime = id ? protectedRuntimeForSession(config, workspaceId, id) : undefined;
   return runtime && id ? { runtime, id } : undefined;
 }
@@ -69,31 +71,31 @@ export function protectedEngineFetch(config: ServerConfig, workspaceId: string, 
     if (direct) return direct;
     const runtimes = [...owners.get(config) ?? []];
     if (!runtimes.length || request.method !== "GET") return fallback(request);
-    const path = new URL(request.url).pathname;
+    const path = new URL(request.url).pathname.replace(/^\/api(?=\/)/, "");
     const response = await fallback(request);
     if (!response.ok) return response;
-    if (path === "/event" || path === "/global/event") return mergeEvents([response, ...runtimes.map(runtime => runtime.events(workspaceId, request.signal))], request.signal);
+    if (path === "/event") return mergeEvents([response, ...runtimes.map(runtime => runtime.events(workspaceId, request.signal))], request.signal);
     if (!runtimes.some(runtime => runtime.sessionIds(workspaceId).length)) return response;
-    if (path === "/session/status") {
+    if (path === "/session/active") {
       let current: z.infer<typeof statusesSchema>;
       try {current = statusesSchema.parse(await response.json());}
       catch {return Response.json({code: "opencode_invalid_response", message: "The ordinary engine returned invalid session statuses."}, {status: 502});}
-      for (const runtime of runtimes) Object.assign(current, statusesSchema.parse(await (await runtime.workspaceStatus(workspaceId, request)).json()));
+      for (const runtime of runtimes) Object.assign(current.data, statusesSchema.parse(await (await runtime.workspaceStatus(workspaceId, request)).json()).data);
       return Response.json(current);
     }
     if (path === "/session") {
       let current: z.infer<typeof sessionsSchema>;
       try {current = sessionsSchema.parse(await response.json());}
       catch {return Response.json({code: "opencode_invalid_response", message: "The ordinary engine returned an invalid session list."}, {status: 502});}
-      const merged = new Map(current.map(session => [session.id, session]));
+      const merged = new Map(current.data.map(session => [session.id, session]));
       for (const runtime of runtimes) for (const id of runtime.sessionIds(workspaceId)) {
         const target = new URL(`/session/${id}`, request.url);
         const session = await runtime.proxy({workspaceId, sessionId: id, request: new Request(target, {signal: request.signal})});
         if (session.ok) {
-          const [actual] = sessionsSchema.parse([await session.json()]); merged.set(actual.id, actual);
+          const actual = sessionEnvelope.parse(await session.json()).data; merged.set(actual.id, actual);
         }
       }
-      return Response.json([...merged.values()]);
+      return Response.json({...current, data: [...merged.values()]});
     }
     return response;
   }, {preconnect: fallback.preconnect});

@@ -8,6 +8,7 @@ import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { assertEngineProjectReady } from "./engine-project.js";
 import { recoverSessionMcp } from "./workspace-mcp-recovery.js";
 import { ensureLegacySessionPermissions } from "./session-history-permissions.js";
+import { requireGovernedEngineDispatch } from "./lawoss/ai-governance-engine.js";
 import { workspaceOwnsChat } from "./lawoss/session-ownership.js";
 
 // LAWOSS: the server config of each client this module made, for the chat ownership check below.
@@ -23,6 +24,9 @@ export function createEngineClient(config: ServerConfig, workspace: WorkspaceInf
     fetch: Object.assign(async (request: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const url = new URL(typeof request === "string" ? request : request instanceof URL ? request.href : request.url);
       const method = (init?.method ?? (request instanceof Request ? request.method : "GET")).toUpperCase();
+      // LAWOSS: AI hranice for every server-internal model route too (titles, schedules,
+      // delegations, dispatch, queue, reviews), before any project or MCP admission.
+      await requireGovernedEngineDispatch(config, workspace.id, method, url.pathname + url.search);
       const passive = method === "GET" && (url.pathname === "/api/info" || url.pathname === "/api/event" || /^\/api\/session\/[^/]+$/.test(url.pathname))
         || method === "POST" && (/^\/api\/session\/[^/]+\/interrupt$/.test(url.pathname) || /\/legalwork\.commands\/cancel$/.test(url.pathname));
       if (!passive) {

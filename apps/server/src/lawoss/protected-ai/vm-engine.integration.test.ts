@@ -105,13 +105,14 @@ function retirementProbe() {
   };
   return { wrap, async run(engine: ProtectedVmEngine, sessionId: string) {
     const signal = AbortSignal.timeout(30_000);
-    const replacement = () => engine.fetch(new Request(`http://private-engine/session/${sessionId}/abort?retirement-replacement=1`, {
+    // Engine v2: the idle barrier is a body-carrying POST that never starts model work.
+    const replacement = () => engine.fetch(new Request(`http://private-engine/api/experimental/session/${sessionId}/wait?retirement-replacement=1`, {
       method: "POST", signal, body: new ReadableStream<Uint8Array>({ pull(controller) { pulls++; notify(); controller.close(); } }, { highWaterMark: 0 }), duplex: "half",
     } as RequestInit));
     try {
       mode = "health";
-      const bodies = Array.from({ length: 12 }, (_, index) => engine.fetch(new Request(`http://private-engine/global/health?retirement-health=${index}`, { signal })).then(async response => {
-        expect(response.ok).toBe(true); expect(object(await response.json()).healthy).toBe(true);
+      const bodies = Array.from({ length: 12 }, (_, index) => engine.fetch(new Request(`http://private-engine/api/session/active?retirement-health=${index}`, { signal })).then(async response => {
+        expect(response.ok).toBe(true); expect(object(await response.json()).data).toEqual({});
       }));
       // Old guests can finish public bodies but never retire their issued leases.
       await Promise.all(bodies);
@@ -124,7 +125,7 @@ function retirementProbe() {
       expect(health.size).toBe(12); expect(pulls).toBe(1); expect(replacements).toBe(1);
       mode = "cancel";
       const callers = Array.from({ length: 12 }, () => new AbortController());
-      const streams = await Promise.all(callers.map((controller, index) => engine.fetch(new Request(`http://private-engine/event?retirement-event=${index}`, { signal: AbortSignal.any([signal, controller.signal]) }))));
+      const streams = await Promise.all(callers.map((controller, index) => engine.fetch(new Request(`http://private-engine/api/event?retirement-event=${index}`, { signal: AbortSignal.any([signal, controller.signal]) }))));
       expect(events.size).toBe(12);
       for (let index = 0; index < 6; index++) callers[index].abort();
       await Promise.all(streams.slice(6).map(response => response.body!.cancel()));
@@ -155,7 +156,8 @@ function retirementProbe() {
   const { root, config } = await syntheticHostConfig();
   const sourceRoot = join(root, "case"), emptyDirectory = join(root, "empty"), bundleDirectory = join(root, "bundle");
   await Promise.all([mkdir(sourceRoot), mkdir(emptyDirectory), mkdir(bundleDirectory)]);
-  for (const name of ["opencode", "plugin.mjs", "config.json", "protected-engine.mjs"]) await copyFile(join(sourceBundleDirectory, name), join(bundleDirectory, name), fsConstants.COPYFILE_FICLONE);
+  await mkdir(join(bundleDirectory, "plugin"));
+  for (const name of ["opencode", join("plugin", "index.js"), "config.json", "protected-engine.mjs"]) await copyFile(join(sourceBundleDirectory, name), join(bundleDirectory, name), fsConstants.COPYFILE_FICLONE);
   const workspace: WorkspaceInfo = { id: "protected-vm-synthetic", name: "Synthetic VM transport", path: sourceRoot, preset: "", workspaceType: "local" };
   config.workspaces = [workspace];
   const ocr = new OcrManager(join(root, "ocr"));
@@ -211,7 +213,7 @@ function retirementProbe() {
     // These private test-owned bundle bytes remain immutable for the operation.
     // Measure them once; source ownership/content is still rechecked on every dispatch.
     const measuredFiles = { engineSha256: join(bundleDirectory, "opencode"), runtimeManifestSha256: join(runtimeDirectory, "manifest.json"),
-      pluginSha256: join(bundleDirectory, "plugin.mjs"), configSha256: join(bundleDirectory, "config.json"), launcherSha256: join(bundleDirectory, "protected-engine.mjs") };
+      pluginSha256: join(bundleDirectory, "plugin", "index.js"), configSha256: join(bundleDirectory, "config.json"), launcherSha256: join(bundleDirectory, "protected-engine.mjs") };
     const measured: Record<string, string> = {}, identities: Record<string, string> = {};
     for (const [name, file] of Object.entries(measuredFiles)) {
       identities[name] = await fileIdentity(file); measured[name] = await sha256(file);
@@ -244,19 +246,29 @@ function retirementProbe() {
     console.info("ACTUAL_VM_READY", JSON.stringify({ warmupMs: Date.now() - started }));
     // The inference budget begins only after VM/runtime provisioning and readiness.
     const inference = AbortSignal.timeout(90_000);
-    const creation = await engine.fetch(new Request("http://private-engine/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Synthetic protected VM evidence" }), signal: inference }));
+    // Engine v2: create at the guest's private location, admit one turn, await its idle barrier.
+    const api = (path: string, signal: AbortSignal, body?: unknown) => engine!.fetch(new Request(`http://private-engine/api${path}`, { method: body === undefined ? "GET" : "POST", signal,
+      ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) }));
+    const turn = async (sessionId: string, id: string, text: string, signal: AbortSignal) => {
+      const admitted = await api(`/session/${sessionId}/prompt`, signal, { id, text, delivery: "queue" });
+      expect(admitted.ok).toBe(true); expect(object(object(await admitted.json()).data).id).toBe(id);
+      const waited = await engine!.fetch(new Request(`http://private-engine/api/experimental/session/${sessionId}/wait`, { method: "POST", signal }));
+      expect(waited.status).toBe(204);
+      const history = await api(`/session/${sessionId}/message?order=asc&limit=200`, signal);
+      return array(object(await history.json()).data).map(object);
+    };
+    const contentOf = (records: Array<Record<string, unknown>>) => records.filter(record => record.type === "assistant").flatMap(record => array(record.content)).map(object);
+    const creation = await api("/session", inference, { title: "Synthetic protected VM evidence", agent: "legalwork", model: { providerID: "protected-documents", id: "synthetic" }, location: { directory: "/tmp/home/protected-engine/workspace" } });
     console.info("ACTUAL_VM_SESSION_CREATED", JSON.stringify({ status: creation.status, elapsedMs: Date.now() - proofStarted }));
     expect(creation.ok).toBe(true);
-    const session = object(await creation.json());
+    const session = object(object(await creation.json()).data);
     expect(typeof session.id).toBe("string");
-    const sent = await engine.fetch(new Request(`http://private-engine/session/${session.id}/message`, { method: "POST", headers: { "content-type": "application/json" }, signal: inference,
-      body: JSON.stringify({ agent: "legalwork", model: { providerID: "protected-documents", modelID: "synthetic" }, parts: [{ type: "text", text: "Read the selected synthetic document, create a registry CSV and summary Markdown using the four available tools, validate both actual saved files, then report completion." }] }) }));
-    const actual = object(await sent.json());
-    expect(sent.ok).toBe(true);
-    const snapshot = await engine.fetch(new Request(`http://private-engine/session/${session.id}/message`, { signal: inference }));
-    const messages = array(await snapshot.json()).map(object);
-    const parts = messages.flatMap(message => array(message.parts)).map(object);
-    const completedTools = parts.filter(part => part.type === "tool" && object(part.state).status === "completed");
+    expect(object(session.location).directory).toBe("/tmp/home/protected-engine/workspace");
+    const messages = await turn(String(session.id), "msg_0000000000000000000000000000vm01", "Read the selected synthetic document, create a registry CSV and summary Markdown using the four available tools, validate both actual saved files, then report completion.", inference);
+    const actual = [...messages].reverse().find(record => record.type === "idle") ?? {};
+    expect(actual.outcome).toBe("succeeded");
+    const parts = contentOf(messages);
+    const completedTools = parts.filter(part => part.type === "tool" && object(part.state).status === "completed").map(part => ({ ...part, tool: part.name }));
     const texts = parts.filter(part => part.type === "text").map(part => String(part.text));
     expect(texts.some(text => text.includes("ACTUAL_VM_DOCUMENT_TRANSPORT_COMPLETE"))).toBe(true);
     expect(completedTools.map(part => part.tool)).toEqual(operations);
@@ -302,23 +314,20 @@ function retirementProbe() {
       handleTool: async (call, signal) => { toolCalls.push(call.name); return tools.invoke(call.name, call.arguments, signal); },
     }, { createSandbox: broker => new VmSandbox(runtimeDirectory, "auto", { request: retirement.wrap(broker), maxRequests: 4096 }) });
     const continuationBudget = AbortSignal.timeout(90_000);
-    const restoredSessionResponse = await engine.fetch(new Request(`http://private-engine/session/${session.id}`, { signal: continuationBudget }));
-    const restoredSession = object(await restoredSessionResponse.json());
+    const restoredSessionResponse = await api(`/session/${session.id}`, continuationBudget);
+    const restoredSession = object(object(await restoredSessionResponse.json()).data);
     expect(restoredSession.id).toBe(session.id);
-    const restoredMessagesResponse = await engine.fetch(new Request(`http://private-engine/session/${session.id}/message`, { signal: continuationBudget }));
-    const restoredMessages = array(await restoredMessagesResponse.json()).map(object);
+    const restoredMessagesResponse = await api(`/session/${session.id}/message?order=asc&limit=200`, continuationBudget);
+    const restoredMessages = array(object(await restoredMessagesResponse.json()).data).map(object);
     expect(restoredMessages).toEqual(messages);
     const beforeContinuationReviews = nativeReviews.length;
-    const continued = await engine.fetch(new Request(`http://private-engine/session/${session.id}/message`, { method: "POST", headers: { "content-type": "application/json" }, signal: continuationBudget,
-      body: JSON.stringify({ agent: "legalwork", model: { providerID: "protected-documents", modelID: "synthetic" }, parts: [{ type: "text", text: "CONTINUATION_FRESH_READ: Reread the selected synthetic source with the actual document tool, then report completion." }] }) }));
-    expect(continued.ok).toBe(true); await continued.arrayBuffer();
+    const continuedMessages = await turn(String(session.id), "msg_0000000000000000000000000000vm02", "CONTINUATION_FRESH_READ: Reread the selected synthetic source with the actual document tool, then report completion.", continuationBudget);
+    expect([...continuedMessages].reverse().find(record => record.type === "idle")?.outcome).toBe("succeeded");
     expect(nativeReviews.length).toBeGreaterThan(beforeContinuationReviews);
     expect(toolCalls.at(-1)).toBe("lawoss_documents_read");
     expect(toolCalls.length).toBe(operations.length + 1);
-    const continuedResponse = await engine.fetch(new Request(`http://private-engine/session/${session.id}/message`, { signal: continuationBudget }));
-    const continuedMessages = array(await continuedResponse.json()).map(object);
-    const continuedParts = continuedMessages.flatMap(message => array(message.parts)).map(object);
-    const continuedTools = continuedParts.filter(part => part.type === "tool" && object(part.state).status === "completed");
+    const continuedParts = contentOf(continuedMessages);
+    const continuedTools = continuedParts.filter(part => part.type === "tool" && object(part.state).status === "completed").map(part => ({ ...part, tool: part.name }));
     expect(continuedTools.slice(0, operations.length)).toEqual(completedTools);
     expect(continuedTools.length).toBe(operations.length + 1);
     expect(await Promise.all(saved.map(path => sha256(join(sourceRoot, path))))).toEqual(savedOutputHashes);

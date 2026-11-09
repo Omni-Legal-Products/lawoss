@@ -59,15 +59,19 @@ test("off: an ordinary chat prompt passes the engine proxy; on: it is refused be
   let directory = "";
   const receiver = Bun.serve({hostname: "127.0.0.1", port: 0, async fetch(request) {
     if (request.method === "POST") received.push(await request.text());
-    // #190: the proxy checks that the chat belongs to this client folder before forwarding.
-    if (request.method === "GET" && new URL(request.url).pathname === "/session/fixture") return Response.json({id: "fixture", directory});
+    // #190: the proxy checks that the chat belongs to this client folder before forwarding (engine v2).
+    const path = new URL(request.url).pathname;
+    if (request.method === "GET" && path === "/api/session/fixture")
+      return Response.json({data: {id: "fixture", projectID: "p", title: "Synthetic", location: {directory}, cost: 0,
+        tokens: {input: 0, output: 0, reasoning: 0, cache: {read: 0, write: 0}}, time: {created: 1, updated: 1}}});
+    if (request.method === "POST" && path === "/api/session/fixture/prompt") return Response.json({data: {id: "msg_fixture"}});
     return Response.json({ok: true});
   }});
   cleanups.push(() => receiver.stop(true));
   const {base, client, setEnforced, workspace} = await fixture(receiver);
   directory = workspace;
-  const send = () => fetch(`${base}/workspace/fixture/opencode/session/fixture/prompt_async`, {method: "POST", headers: client,
-    body: JSON.stringify({parts: [{type: "text", text: "SYNTHETIC-CHAT"}]})});
+  const send = () => fetch(`${base}/workspace/fixture/opencode/api/session/fixture/prompt`, {method: "POST", headers: client,
+    body: JSON.stringify({text: "SYNTHETIC-CHAT"})});
   const passed = await send();
   expect(passed.status).not.toBe(403);
   expect(received.some(body => body.includes("SYNTHETIC-CHAT"))).toBe(true);

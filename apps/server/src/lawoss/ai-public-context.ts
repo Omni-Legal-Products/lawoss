@@ -12,11 +12,14 @@ import { readGlobalProviderMap } from "../runtime-opencode-config-store.js";
 import { serve, type ServeResult } from "../serve-node.js";
 import type { ServerConfig } from "../types.js";
 import { createHostDecisionPort } from "./host-decision.js";
+import pins from "./protected-ai/engine-pins.json" with {type: "json"};
 
 export const PublicAiInputSchema = z.strictObject({providerId: z.string().min(1).max(128), modelId: z.string().min(1).max(200), text: z.string().trim().min(1).max(16000)});
 export type PublicAiInput = z.infer<typeof PublicAiInputSchema>;
 const providerSchema = /* Engine v2 provider block (v1: npm/options). */ z.object({package: z.literal("@opencode/ai/providers/openai-compatible"), settings: z.object({baseURL: z.url(), apiKey: z.string().optional()}), models: z.record(z.string(), z.unknown())});
-const modelResponse = z.object({info: z.object({error: z.unknown().optional()}), parts: z.array(z.object({type: z.string(), text: z.string().optional()}))});
+// Engine v2 history records; the turn is terminal at its own idle outcome.
+const historyResponse = z.object({data: z.array(z.object({id: z.string(), type: z.string(), outcome: z.string().optional(),
+  content: z.array(z.object({type: z.string(), text: z.string().optional()}).passthrough()).optional()}).passthrough())}).passthrough();
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 async function fileHash(path: string) {
   const digest = createHash("sha256");
@@ -113,25 +116,42 @@ export async function runPublicAiPrompt(config: ServerConfig, approvals: Approva
       }
     }});
     const engineConfig = join(root, "engine.json");
-    await writeFile(engineConfig, JSON.stringify({enabled_providers: ["public-synthetic"], model: `public-synthetic/${input.modelId}`, small_model: `public-synthetic/${input.modelId}`,
-      share: "disabled", autoupdate: false, plugin: [], mcp: {}, permission: {"*": "deny"}, lsp: false, formatter: false,
-      provider: {"public-synthetic": {npm: "@ai-sdk/openai-compatible", name: "Public scratch", options: {baseURL: `http://127.0.0.1:${relay.port}/${capability}`, apiKey: "public-relay-only"},
+    // Engine v2 configuration: one relay-only provider, no plugins, MCP, skills or instructions,
+    // and every tool permission denied (no tool definition reaches the provider).
+    const deny = [{action: "*", resource: "*", effect: "deny"}];
+    await writeFile(engineConfig, JSON.stringify({model: `public-synthetic/${input.modelId}`, default_agent: "public-scratch", share: "disabled", update: "disable", snapshots: false,
+      plugins: [], mcp: {servers: {}}, skills: [], instructions: [], permissions: deny, lsp: false, formatter: false, compaction: {auto: false},
+      agents: {"public-scratch": {mode: "primary", description: "Public scratch", permissions: deny}},
+      providers: {"public-synthetic": {name: "Public scratch", package: "@opencode/ai/providers/openai-compatible", settings: {baseURL: `http://127.0.0.1:${relay.port}/${capability}`, apiKey: "public-relay-only"},
         models: {[input.modelId]: {name: "Public scratch", limit: {context: 100000, output: 4000}}}}}}), {mode: 0o600});
     engine = await createManagedOpencodeServer({bin: binary, cwd: directory, inheritEnvironment: false,
       env: {PATH: process.env.PATH ?? "/usr/bin:/bin", OPENCODE_CONFIG: engineConfig, OPENCODE_TEST_HOME: root, OPENCODE_DB: join(root, "engine.sqlite"),
         XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
-        OPENCODE_CONFIG_DIR: join(root, "empty-config"), OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true",
-        OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: "false", OPENCODE_DISABLE_AUTOCOMPACT: "true", OPENCODE_DISABLE_LSP_DOWNLOAD: "true"}});
+        OPENCODE_CONFIG_DIR: join(root, "empty-config"), OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true",
+        OPENCODE_DISABLE_MODELS_FETCH: "true", OPENCODE_DISABLE_FREE_MODELS: "true", OPENCODE_DISABLE_FFF: "true", OPENCODE_DISABLE_FILEWATCHER: "true"}});
     const headers = {Authorization: "Basic " + Buffer.from(`${engine.username}:${engine.password}`).toString("base64"), "content-type": "application/json"};
-    const health = await fetch(engine.url + "/global/health", {headers, signal: active}).then(response => response.json());
-    if (health.version !== expectedEngineVersion) throw new ApiError(409, "public_ai_engine_version", "The public scratch engine does not match the pinned version.");
-    const session = z.object({id: z.string()}).parse(await fetch(engine.url + "/session", {method: "POST", headers, signal: active, body: JSON.stringify({title: "Public scratch", permission: [{permission: "*", pattern: "*", action: "deny"}]})}).then(response => response.json()));
-    const response = await fetch(`${engine.url}/session/${session.id}/message`, {method: "POST", headers, signal: active,
-      body: JSON.stringify({model: {providerID: "public-synthetic", modelID: input.modelId}, parts: [{type: "text", text: input.text}]})});
-    const result = modelResponse.safeParse(await response.json());
+    const health = await fetch(engine.url + "/api/info", {headers, signal: active}).then(response => response.json());
+    // The reviewed LegalWork derivative of the configured upstream version (ADR 0016) reports
+    // its own exact version; it is the same host-owned pin as the confined guest engine.
+    const derivative = pins.engineVersion.startsWith(`${expectedEngineVersion}-`) ? pins.engineVersion : undefined;
+    if (health.version !== expectedEngineVersion && health.version !== derivative) throw new ApiError(409, "public_ai_engine_version", "The public scratch engine does not match the pinned version.");
+    const location = `location%5Bdirectory%5D=${encodeURIComponent(directory)}`;
+    // `GET /api/model` waits for the location's plugin activation before the session exists.
+    await fetch(`${engine.url}/api/model?${location}`, {headers, signal: active}).then(response => response.body?.cancel());
+    const session = z.object({data: z.object({id: z.string()})}).parse(await fetch(engine.url + "/api/session", {method: "POST", headers, signal: active,
+      body: JSON.stringify({title: "Public scratch", agent: "public-scratch", model: {providerID: "public-synthetic", id: input.modelId}, location: {directory}, permissions: deny})}).then(response => response.json())).data;
+    const messageID = `msg_${capability.replaceAll("-", "")}`;
+    const admitted = await fetch(`${engine.url}/api/session/${session.id}/prompt`, {method: "POST", headers, signal: active, body: JSON.stringify({id: messageID, text: input.text})});
+    await admitted.body?.cancel();
+    const waited = admitted.ok ? await fetch(`${engine.url}/api/experimental/session/${session.id}/wait`, {method: "POST", headers, signal: active}) : undefined;
+    await waited?.body?.cancel();
+    const history = historyResponse.safeParse(await fetch(`${engine.url}/api/session/${session.id}/message?order=asc&limit=200`, {headers, signal: active}).then(response => response.json()));
     if (denied) throw new ApiError(403, "public_ai_denied", "The public transmission was denied; protected AI remains unavailable.");
-    if (!response.ok || !result.success || result.data.info.error) throw new ApiError(502, "public_ai_model_failed", "The public scratch model did not produce a successful answer.");
-    const reply = result.data.parts.filter(part => part.type === "text").map(part => part.text ?? "").join("\n").trim();
+    const start = history.success ? history.data.data.findIndex(record => record.id === messageID && record.type === "user") : -1;
+    const turn = history.success && start >= 0 ? history.data.data.slice(start + 1) : [];
+    const idle = turn.find(record => record.type === "idle");
+    if (!admitted.ok || !waited?.ok || !idle || idle.outcome !== "succeeded") throw new ApiError(502, "public_ai_model_failed", "The public scratch model did not produce a successful answer.");
+    const reply = turn.filter(record => record.type === "assistant").flatMap(record => record.content ?? []).filter(part => part.type === "text").map(part => part.text ?? "").join("\n").trim();
     if (!reply) throw new ApiError(502, "public_ai_empty_reply", "The public scratch model returned no text.");
     return {reply, operationId, scope: "public-text-scratch", legalApproval: false};
   } finally {

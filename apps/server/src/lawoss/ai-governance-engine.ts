@@ -6,17 +6,39 @@ import type { OcrFetch } from "../ocr/server-engine.js";
 import { requireTransferAllowed } from "./ai-governance.js";
 import { readAiBoundaries } from "./ai-boundaries.js";
 
-/** Host admission guard, not proof of engine-internal provider egress isolation. */
-export async function requireGovernedEngineDispatch(config: ServerConfig, workspaceId: string | null, method: string, path: string): Promise<void> {
-  if (method.toUpperCase() !== "POST") return;
+const SESSION = String.raw`(?:/api)?(?:/experimental)?/session/[^/]+`;
+/** Every engine route that sends content to a model or resumes execution that will,
+ * legacy v1 spellings and installed engine v2 (`/api/...`) alike. Paths may carry a
+ * mounted SDK prefix; the query is read only for `interrupt?resume=true`. */
+const GOVERNED_ROUTES: Array<{ methods: string[]; pattern: RegExp; kind: TransferKind }> = [
+  { methods: ["POST"], pattern: new RegExp(String.raw`${SESSION}/(?:message|prompt_async|prompt|command|shell|synthetic|generate|init|skill|background)/?$`), kind: "chat" },
+  { methods: ["POST"], pattern: new RegExp(String.raw`${SESSION}/(?:summarize|compact)/?$`), kind: "compaction" },
+  // Continuations: a permission/form answer or steered inbox item resumes the model run.
+  { methods: ["POST"], pattern: new RegExp(String.raw`${SESSION}/(?:permissions?|form)/[^/]+(?:/reply)?/?$`), kind: "chat" },
+  { methods: ["PATCH"], pattern: new RegExp(String.raw`${SESSION}/inbox/[^/]+/?$`), kind: "chat" },
+  { methods: ["POST"], pattern: /\/(?:tui|question)(?:\/|$)/, kind: "chat" },
+  { methods: ["POST"], pattern: /(?:\/api)?\/rpc\/legalwork\.legalmemory\/reply\/?$/, kind: "chat" },
+  { methods: ["POST"], pattern: /(?:\/api)?\/experimental\/generate\/?$|\/experimental\/project\/[^/]+\/copy\/generate-name\/?$/, kind: "title" },
+  { methods: ["POST"], pattern: /(?:\/api)?\/experimental\/voice\/session(?:\/|$)/, kind: "voice" },
+  { methods: ["POST"], pattern: /(?:\/api)?\/websearch\/?$/, kind: "external-tool" },
+];
+
+/** The content transfer kind of one engine request, or null for a non-model route. */
+export function governedEngineTransfer(method: string, target: string): TransferKind | null {
+  const verb = method.toUpperCase(), query = target.indexOf("?");
+  const path = query < 0 ? target : target.slice(0, query), search = new URLSearchParams(query < 0 ? "" : target.slice(query + 1));
+  if (!["POST", "PATCH", "PUT"].includes(verb)) return null;
   // Mounted SDK base URLs retain their prefix; encoded operation names must not
   // reach an engine router through a path spelling the guard did not inspect.
-  const ambiguous = /[%\\]/.test(path);
-  const operation = path.match(/\/session\/[^/]+\/(message|prompt_async|prompt|command|shell|summarize|compact|init)\/?$/)?.[1];
-  if (ambiguous || /\/(?:tui|permissions?|question)(?:\/|$)/.test(path) || /\/experimental\/(?:session\/[^/]+\/background|project\/[^/]+\/copy\/generate-name)\/?$/.test(path))
-    await requireAiBoundariesAdmission(config, "chat", workspaceId);
-  if (!operation) return;
-  await requireAiBoundariesAdmission(config, (operation === "summarize" || operation === "compact") ? "compaction" : "chat", workspaceId);
+  if (/[%\\]/.test(path)) return "chat";
+  if (verb === "POST" && new RegExp(String.raw`${SESSION}/interrupt/?$`).test(path)) return /^(?:true|1)$/i.test(search.get("resume") ?? "") ? "chat" : null;
+  return GOVERNED_ROUTES.find(route => route.methods.includes(verb) && route.pattern.test(path))?.kind ?? null;
+}
+
+/** Host admission guard, not proof of engine-internal provider egress isolation. */
+export async function requireGovernedEngineDispatch(config: ServerConfig, workspaceId: string | null, method: string, path: string): Promise<void> {
+  const kind = governedEngineTransfer(method, path);
+  if (kind) await requireAiBoundariesAdmission(config, kind, workspaceId);
 }
 
 /** „AI hranice" host admission for every non-protected transport (chat, queue, schedules, reviews,
@@ -42,7 +64,8 @@ export async function requireAiBoundariesAdmission(config: ServerConfig, kind: T
 export function createGovernedEngineFetch(config: ServerConfig, workspaceId: string, fetcher: typeof fetch = fetch): typeof fetch {
   return Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const request = new Request(input, init);
-    await requireGovernedEngineDispatch(config, workspaceId, request.method, new URL(request.url).pathname);
+    const url = new URL(request.url);
+    await requireGovernedEngineDispatch(config, workspaceId, request.method, url.pathname + url.search);
     return fetcher(request);
   }, {preconnect: fetcher.preconnect});
 }

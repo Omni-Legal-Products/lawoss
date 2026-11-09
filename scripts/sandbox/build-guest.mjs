@@ -10,8 +10,11 @@ const arch = process.argv[2] ?? process.arch;
 if (!['arm64', 'x64'].includes(arch)) throw new Error('Guest architecture must be arm64 or x64');
 const destination = resolve(process.argv[3] ?? `${root}/apps/server/resources/agent-sandbox/runtime`);
 const image = `legalwork-sandbox-guest:${arch}`;
-const reviewedVersion = JSON.parse(await readFile(resolve(root, 'constants.json'), 'utf8')).opencodeVersion?.replace(/^v/, '');
-if (reviewedVersion !== protectedEngineVersion) throw new Error('Review protected engine assets for the configured engine version');
+// LAWOSS (ADR 0016): the guest runs the reviewed derivative of the configured upstream engine.
+const configuredVersion = JSON.parse(await readFile(resolve(root, 'constants.json'), 'utf8')).opencodeVersion?.replace(/^v/, '');
+const recipe = JSON.parse(await readFile(resolve(root, 'packages/opencode-release/build/recipe.json'), 'utf8'));
+const reviewedVersion = recipe.version;
+if (recipe.baseVersion !== configuredVersion || reviewedVersion !== protectedEngineVersion) throw new Error('Review protected engine assets for the configured engine version');
 // Stage into the Docker context even when the caller selects another output.
 // The guest executes these exact measured bytes before publication.
 const contextRuntime = resolve(root, 'apps/server/resources/agent-sandbox/runtime');
