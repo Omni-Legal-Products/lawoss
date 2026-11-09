@@ -14,7 +14,8 @@ import { Model } from "@opencode/schema/model";
 import { Skill } from "@opencode/schema/skill";
 import { Schema } from "effect";
 import { readFile, realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { ManagedSettingsWorkspaceMissingError, readManagedEngineSettings } from "../managed-engine-settings.js";
 import { nativeEngineLocationApprovedSync } from "../native-engine-project-registry.js";
 import { outsideConfigRpc, outsideDelivery, outsideSkillsDirectory, parseOutsideClientsMap, scanOutsideSkills, type OutsideClient, type OutsideDelivery } from "../lawoss/outside-engine-config.js";
@@ -51,10 +52,10 @@ export const LawossOutsideConfig = Plugin.define({
       if (!client) return null;
       const delivery = outsideDelivery(settings.configuration, settings.sharedConfiguration);
       const skills = new Map<string, Skill.Info>();
-      for (const directory of [...delivery.skills, outsideSkillsDirectory(client.configDirectory)]) {
-        const folder = directory.startsWith("~/") || !isAbsolute(directory) ? resolve(ctx.location.directory, directory) : directory;
-        for (const skill of await scanOutsideSkills(folder)) skills.set(skill.id, decodeSkill(skill));
-      }
+      // Like the native skill source: `~/` is the engine home, a relative path the location directory.
+      const folders = [...delivery.skills, outsideSkillsDirectory(client.configDirectory)].map(directory => directory.startsWith("~/")
+        ? join(process.env.OPENCODE_TEST_HOME || homedir(), directory.slice(2)) : isAbsolute(directory) ? directory : resolve(ctx.location.directory, directory));
+      for (const folder of new Set(folders)) for (const skill of await scanOutsideSkills(folder)) skills.set(skill.id, decodeSkill(skill));
       const instructions: string[] = [];
       for (const path of delivery.instructions) {
         const content = await readFile(path, "utf8").catch(() => undefined);

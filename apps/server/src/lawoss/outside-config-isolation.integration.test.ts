@@ -46,9 +46,10 @@ test.skipIf(!ready)("klient outside: príkaz, skill a konektor A len v lokáciá
   await writeFile(join(clientC, ".opencode", "commands", "c-prikaz.md"), command("Príkaz klienta C"));
   const before = { A: await tree(clientA), B: await tree(clientB) };
 
-  const previous = { data: process.env.LEGALWORK_DATA_DIR, xdg: process.env.XDG_CONFIG_HOME };
-  process.env.LEGALWORK_DATA_DIR = join(root, "data"); process.env.XDG_CONFIG_HOME = join(root, "xdg");
-  cleanups.push(() => { for (const [key, value] of Object.entries({ LEGALWORK_DATA_DIR: previous.data, XDG_CONFIG_HOME: previous.xdg })) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
+  // The embedded server exports its private engine DB path to process.env; never inherit another test's.
+  const previous = { LEGALWORK_DATA_DIR: process.env.LEGALWORK_DATA_DIR, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, OPENCODE_DB: process.env.OPENCODE_DB };
+  process.env.LEGALWORK_DATA_DIR = join(root, "data"); process.env.XDG_CONFIG_HOME = join(root, "xdg"); delete process.env.OPENCODE_DB;
+  cleanups.push(() => { for (const [key, value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
   const server = await startEmbeddedServer({
     host: "127.0.0.1", port: 0, configPath: join(root, "private", "server.json"), workspaces: [clientA, clientB, clientC],
     token: "client-token", hostToken: "host-token", logRequests: false, wordAddin: false,
