@@ -11,7 +11,9 @@ export type RuntimeConfigUpgradeNotice = {
   fields: string[];
 } | { code: "legacy_workspace_tool_permissions_inactive"; fields: string[] }
   | { code: "retired_managed_browser_replaced"; fields: string[] }
-  | { code: "sandbox_settings_repaired"; fields: string[] };
+  | { code: "sandbox_settings_repaired"; fields: string[] }
+  // LAWOSS: a damaged „AI hranice" row replaced after the owner's confirmation (lawoss/ai-boundaries.ts).
+  | { code: "ai_boundaries_repaired"; fields: string[] };
 export type RuntimeConfigUpgradeResult = {
   configuration: NativeRuntimeConfiguration;
   application: RecordValue;

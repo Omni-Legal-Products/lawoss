@@ -1877,6 +1877,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     aiGovernance: () => requestJson<AiGovernanceView>(baseUrl, "/lawoss/ai-governance", {token, hostToken, timeoutMs: timeouts.config}),
     runPublicAiPrompt: (input: {providerId: string; modelId: string; text: string}) => requestJson<PublicAiResult>(baseUrl, "/lawoss/ai-governance/public-text", {token, hostToken, method: "POST", body: input, timeoutMs: 120000}),
     setAiBoundaries: (enforced: boolean) => requestJson<AiGovernanceView>(baseUrl, "/lawoss/ai-governance/boundaries", {token, hostToken, method: "PUT", body: {enforced}, timeoutMs: timeouts.config}),
+    // LAWOSS: confirmed repair of a damaged „AI hranice" row; the result is always enforced.
+    repairAiBoundaries: () => requestJson<AiGovernanceView>(baseUrl, "/lawoss/ai-governance/boundaries/repair", {token, hostToken, method: "POST", body: {confirmed: true}, timeoutMs: timeouts.config}),
     acknowledgeAiGuidance: (textVersion: string, jurisdiction: "CZ" | "SK") => requestJson<AiGovernanceView>(baseUrl, "/lawoss/ai-governance/acknowledge", {token, hostToken, method: "POST", body: {textVersion, jurisdiction}, timeoutMs: timeouts.config}),
     lawossOcr: () => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr", { token, hostToken, timeoutMs: timeouts.config }),
     setLawossOcr: (enabled: boolean) => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),

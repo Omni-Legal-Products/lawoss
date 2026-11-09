@@ -4,7 +4,7 @@ import { AI_BOUNDARIES_DENIAL_SOURCE } from "@legalwork/types/ai-governance";
 import { writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import { openSqlite, runtimeDbPath } from "../runtime-db.js";
 import { NATIVE_CONFIG_TABLE } from "../native-config-state.js";
-import { AI_BOUNDARIES_DEVICE_ENV, GLOBAL_AI_GUIDANCE_ID, preservedAiBoundaries, readAiBoundaries, writeAiBoundaries } from "./ai-boundaries.js";
+import { AI_BOUNDARIES_DEVICE_ENV, GLOBAL_AI_GUIDANCE_ID, preservedAiBoundaries, readAiBoundaries, repairAiBoundaries, writeAiBoundaries } from "./ai-boundaries.js";
 import { createGovernedEngineFetch, requireGovernedEngineDispatch, requireAiBoundariesAdmission } from "./ai-governance-engine.js";
 import { syntheticHostConfig } from "./test-support/host-config.js";
 
@@ -112,4 +112,32 @@ test("a damaged stored value fails closed until it is saved again or its profile
     damage(JSON.stringify({configurationVersion: 2}));
   } finally {db.close();}
   expect(await writeAiBoundaries(config, false)).toEqual({enforced: false, locked: false, source: "user"});
+});
+
+test("a damaged AI boundaries row is repaired only after confirmation, to enforced boundaries, keeping the original as a backup", async () => {
+  delete process.env[AI_BOUNDARIES_DEVICE_ENV];
+  const {readAiGovernanceView} = await import("./ai-governance-routes.js");
+  const {readRuntimeConfigUpgradeBackups, runtimeConfigUpgradeNotices} = await import("../runtime-opencode-config-store.js");
+  const config = await fixture();
+  await expect(repairAiBoundaries(config)).rejects.toMatchObject({status: 409, code: "ai_boundaries_not_damaged"});
+  await writeRuntimeOpencodeConfig(config, GLOBAL_AI_GUIDANCE_ID, current => ({...current, aiBoundaries: {enforced: false}}));
+  await expect(repairAiBoundaries(config)).rejects.toMatchObject({status: 409, code: "ai_boundaries_not_damaged"});
+  const db = await openSqlite(runtimeDbPath(config));
+  const damage = (value: string) => db.run(`UPDATE ${NATIVE_CONFIG_TABLE} SET config_json = ? WHERE workspace_id = ?`, [value, GLOBAL_AI_GUIDANCE_ID]);
+  try {
+    // A readable row with a damaged value: the repair sets „on", never „off".
+    damage(JSON.stringify({configurationVersion: 2, aiBoundaries: {enforced: "no"}, guidanceAck: {textVersion: "x"}}));
+    expect(await repairAiBoundaries(config)).toEqual({enforced: true, locked: false, source: "user"});
+    for (const damaged of ['{not json', '[]', '{"aiBoundaries":{"enforced":false}}']) {
+      damage(damaged);
+      // The settings view still loads and shows the damage instead of failing as a whole.
+      expect((await readAiGovernanceView(config)).boundaries).toEqual({enforced: true, locked: false, source: "invalid"});
+      await expect(requireGovernedEngineDispatch(config, "fixture", "POST", "/session/s/prompt_async")).rejects.toMatchObject({code: "ai_transfer_denied"});
+      expect(await repairAiBoundaries(config)).toEqual({enforced: true, locked: false, source: "user"});
+      expect((await readRuntimeConfigUpgradeBackups(config, GLOBAL_AI_GUIDANCE_ID)).map(backup => backup.configJson)).toContain(damaged);
+      // After the repair the ordinary switch works again.
+      expect(await writeAiBoundaries(config, false)).toEqual({enforced: false, locked: false, source: "user"});
+    }
+    expect(await runtimeConfigUpgradeNotices(config, GLOBAL_AI_GUIDANCE_ID)).toContainEqual({code: "ai_boundaries_repaired", fields: ["aiBoundaries"]});
+  } finally {db.close();}
 });

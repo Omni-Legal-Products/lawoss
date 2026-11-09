@@ -1,6 +1,6 @@
 import type { AiBoundaries } from "@legalwork/types/ai-governance";
 import { ApiError } from "../errors.js";
-import { readRuntimeOpencodeConfigText, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import { readRuntimeOpencodeConfigText, repairApplicationRuntimeConfig, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
 
 /**
@@ -28,7 +28,8 @@ function storedBoundaries(text: string | null): AiBoundaries {
   if (text === null) return {enforced: ALPHA_DEFAULT, locked: false, source: "default"};
   let row: unknown;
   try {row = JSON.parse(text);} catch {return INVALID;}
-  if (!isRecord(row)) return INVALID;
+  // A row the settings store cannot read (not native configuration version 2) is damaged as a whole.
+  if (!isRecord(row) || row.configurationVersion !== 2) return INVALID;
   const value = row.aiBoundaries;
   if (value === undefined) return {enforced: ALPHA_DEFAULT, locked: false, source: "default"};
   if (!isRecord(value) || typeof value.enforced !== "boolean" || Object.keys(value).length !== 1) return INVALID;
@@ -44,6 +45,17 @@ export async function writeAiBoundaries(config: ServerConfig, enforced: boolean)
   if ((await readAiBoundaries(config)).locked && !enforced)
     throw new ApiError(409, "ai_boundaries_locked", "AI boundaries are enforced by a setting of this computer.");
   await writeRuntimeOpencodeConfig(config, GLOBAL_AI_GUIDANCE_ID, current => ({...current, aiBoundaries: {enforced}}));
+  return readAiBoundaries(config);
+}
+
+/** Confirmed repair of a damaged „AI hranice" value (source `invalid`, possibly an unreadable row).
+ * It restores the state the damage already enforces, „on", and never switches the boundaries off;
+ * the owner can then change them with the ordinary switch. An unreadable original is backed up. */
+export async function repairAiBoundaries(config: ServerConfig): Promise<AiBoundaries> {
+  if ((await readAiBoundaries(config)).source !== "invalid")
+    throw new ApiError(409, "ai_boundaries_not_damaged", "AI boundaries are readable; change them with the switch.");
+  await repairApplicationRuntimeConfig(config, GLOBAL_AI_GUIDANCE_ID, current => ({...current, aiBoundaries: {enforced: true}}),
+    {code: "ai_boundaries_repaired", fields: ["aiBoundaries"]});
   return readAiBoundaries(config);
 }
 

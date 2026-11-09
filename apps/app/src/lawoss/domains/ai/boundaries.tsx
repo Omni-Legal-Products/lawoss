@@ -23,6 +23,13 @@ export async function saveAiBoundaries(connection: ResolvedLegalworkConnection, 
   return view.boundaries;
 }
 
+/** Confirmed repair of a damaged stored value; the server keeps the boundaries on. */
+export async function repairDamagedAiBoundaries(connection: ResolvedLegalworkConnection): Promise<AiBoundaries> {
+  const view = await createAiGuidanceClient(connection).repairAiBoundaries();
+  if (!view.boundaries) throw new Error("AI boundaries were not returned");
+  return view.boundaries;
+}
+
 function stateText(boundaries: AiBoundaries | null, locale: Language) {
   if (boundaries?.locked) return {state: "locked", text: t("lawoss.ai_boundaries.state_locked", locale)};
   if (boundaries?.source === "invalid") return {state: "invalid", text: t("lawoss.ai_boundaries.state_invalid", locale)};
@@ -30,8 +37,10 @@ function stateText(boundaries: AiBoundaries | null, locale: Language) {
   return {state: "off", text: t("lawoss.ai_boundaries.state_off", locale)};
 }
 
-export function AiBoundariesRowView(props: {locale: Language; boundaries: AiBoundaries | null; canWrite: boolean; busy: boolean; failed: boolean; loadFailed?: boolean; onChange: (enforced: boolean) => void}) {
+export function AiBoundariesRowView(props: {locale: Language; boundaries: AiBoundaries | null; canWrite: boolean; busy: boolean; failed: boolean; loadFailed?: boolean; onChange: (enforced: boolean) => void;
+  confirmingRepair?: boolean; repairFailed?: boolean; onRepairRequest?: () => void; onRepairCancel?: () => void; onRepairConfirm?: () => void}) {
   const {state, text} = stateText(props.boundaries, props.locale);
+  const repairable = state === "invalid" && props.canWrite && Boolean(props.onRepairConfirm);
   const title = t("lawoss.ai_boundaries.title", props.locale);
   return (
     <LayoutSection>
@@ -46,6 +55,18 @@ export function AiBoundariesRowView(props: {locale: Language; boundaries: AiBoun
           </LayoutSectionItemHeaderActions>
         </LayoutSectionItemHeader>
         <p role="status" data-lawoss-ai-boundaries={state} className="text-[13px] leading-relaxed text-foreground">{text}</p>
+        {repairable ? props.confirmingRepair ? (
+          <div role="group" data-lawoss-ai-boundaries-repair="confirm" className="flex flex-col gap-2 text-[13px]">
+            <p className="text-foreground">{t("lawoss.ai_boundaries.repair_confirm", props.locale)}</p>
+            <div className="flex gap-2">
+              <button type="button" className="rounded-md border px-3 py-1" disabled={props.busy} onClick={() => props.onRepairConfirm?.()}>{t("lawoss.ai_boundaries.repair_confirm_action", props.locale)}</button>
+              <button type="button" className="rounded-md px-3 py-1 text-muted-foreground" disabled={props.busy} onClick={() => props.onRepairCancel?.()}>{t("lawoss.ai_boundaries.repair_cancel", props.locale)}</button>
+            </div>
+          </div>
+        ) : (
+          <div><button type="button" data-lawoss-ai-boundaries-repair="request" className="rounded-md border px-3 py-1 text-[13px]" disabled={props.busy} onClick={() => props.onRepairRequest?.()}>{t("lawoss.ai_boundaries.repair", props.locale)}</button></div>
+        ) : null}
+        {props.repairFailed ? <p role="alert" className="text-[13px] text-destructive">{t("lawoss.ai_boundaries.repair_failed", props.locale)}</p> : null}
         {props.loadFailed ? <p role="alert" className="text-[13px] text-destructive">{t("lawoss.ai_boundaries.load_failed", props.locale)}</p>
           : !props.canWrite ? <p className="text-[13px] text-muted-foreground">{t("lawoss.ai_boundaries.host_only", props.locale)}</p> : null}
         {props.failed ? <p role="alert" className="text-[13px] text-destructive">{t("lawoss.ai_boundaries.save_failed", props.locale)}</p> : null}
@@ -58,6 +79,7 @@ export function AiBoundariesRow({locale}: {locale: Language}) {
   const [connection, setConnection] = useState<ResolvedLegalworkConnection | null>(null);
   const boundaries = useAiBoundaries();
   const [busy, setBusy] = useState(false), [failed, setFailed] = useState(false), [loadFailed, setLoadFailed] = useState(false);
+  const [confirmingRepair, setConfirmingRepair] = useState(false), [repairFailed, setRepairFailed] = useState(false);
   useEffect(() => {
     let active = true;
     void resolveLegalworkConnection().then(async current => {
@@ -74,10 +96,18 @@ export function AiBoundariesRow({locale}: {locale: Language}) {
     try {publishAiBoundaries(await saveAiBoundaries(connection, enforced)); setLoadFailed(false);}
     catch {setFailed(true);} finally {setBusy(false);}
   };
+  const repair = async () => {
+    if (!connection) return;
+    setBusy(true); setRepairFailed(false); setFailed(false);
+    try {publishAiBoundaries(await repairDamagedAiBoundaries(connection)); setConfirmingRepair(false); setLoadFailed(false);}
+    catch {setRepairFailed(true);} finally {setBusy(false);}
+  };
   // C1: kto prišiel zo sprievodcu („Pripojiť poskytovateľa“), má hore cestu späť do nastavenia praxe.
   return <>
     <OnboardingReturnLink locale={locale} />
     <AiBoundariesRowView locale={locale} boundaries={boundaries} canWrite={Boolean(connection?.resolvedHostToken)}
-      busy={busy} failed={failed} loadFailed={loadFailed} onChange={enforced => void change(enforced)} />
+      busy={busy} failed={failed} loadFailed={loadFailed} onChange={enforced => void change(enforced)}
+      confirmingRepair={confirmingRepair} repairFailed={repairFailed} onRepairRequest={() => {setRepairFailed(false); setConfirmingRepair(true);}}
+      onRepairCancel={() => setConfirmingRepair(false)} onRepairConfirm={() => void repair()} />
   </>;
 }
