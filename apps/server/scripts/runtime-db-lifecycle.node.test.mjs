@@ -96,7 +96,8 @@ test("Node native SQLite releases every adapter after overlapping servers, recon
     await verifyAtomicSchema();
     assert.equal(await runtimeDbHandles(db), 0);
     await rm(root, { recursive: true }); await mkdir(root);
-    assert.deepEqual(await readRuntimeOpencodeConfig(config, "stable"), {});
+    // LAWOSS v2: an empty store reads as the current configuration version only.
+    assert.deepEqual(await readRuntimeOpencodeConfig(config, "stable"), { configurationVersion: 2 });
     await mkdir(config.workspaces[0].path, { recursive: true });
     const fresh = await start();
     assert.deepEqual((await calendarRequest(fresh)).items, []);

@@ -6,6 +6,7 @@
 |---|---|
 | `.github/workflows/ci-tests.yml` | Volania `ci-desktop-packaging.yml` dávajú `actions: read` (volaný job `opencode-engine` ho žiada) a neposielajú nedefinovaný vstup `engine-build-mode`; inak GitHub workflow nespustí (`startup_failure`). |
 | `lawoss/okf-handoff/host-memory-grants.test.ts`, `.github/workflows/ci-okf-pamat.yml` | Produkčný vstup handoffu je natívny plugin v2 (len `default`); test volá prenosné háky v režime `native`. Workflow pamäte inštaluje aj závislosti servera (`@opencode/plugin`). |
+| `apps/server/scripts/{opencode-session-seed,provider-plugin-packaging}.node.test.mjs` (zmazané), `runtime-db-lifecycle.node.test.mjs` | LAWOSS testy v1: priamy zápis histórie do DB enginu (vo v2 neexistuje, engine migruje sám) a samostatný helper pozorovateľa poskytovateľa (vo v2 je v balíku pluginov, stráži ho `check-plugin-bundles.mjs`). Prázdna konfigurácia v2 je `{ configurationVersion: 2 }`. |
 | `scripts/ci/cache-opencode-derivative.mjs` (+ test) | Base commit bez vstupu derivátu (`dev` pred enginom v2) nevyhodí chybu `git show`, ale nič neponúkne na opätovné použitie; inak padal job `opencode-engine / build`. |
 | `.github/workflows/ci-desktop-packaging.yml` (job `isir-native` z #385) | Závisí aj od `opencode-engine`, stiahne derivát (`opencode-derivative-ci`), pripraví ho cez `setup-opencode` (vývojový režim) a pri zostavení odovzdá `LEGALWORK_OPENCODE_ARCHIVES`, rovnako ako `package-smoke`. |
 
