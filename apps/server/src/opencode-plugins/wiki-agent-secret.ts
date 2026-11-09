@@ -11,10 +11,15 @@ export { adoptWikiAgentSecret, wikiAgentSecret, wikiAgentSecretFailed } from "..
 const REDEEM_TIMEOUT_MS = 10_000;
 const REDEEM_ATTEMPTS = 5;
 
-/** The engine read these when it started; its children have no use for them. See coordination record. */
-const ENGINE_START_ENV = ["OPENCODE_SERVER_USERNAME", "OPENCODE_SERVER_PASSWORD", "OPENCODE_CONFIG"];
+/**
+ * The engine read these when it started; its children have no use for them. See coordination record.
+ * Engine 2.1.4 keeps the DB path and config sources (`OPENCODE_DB`, `OPENCODE_CONFIG_DIR`, `OPENCODE_CONFIG_CONTENT`) from
+ * its start and builds every child's environment from `process.env` at spawn, so removing them here also keeps them
+ * from local MCP servers, Marketplace packages included (MČ 10. 11. 2026).
+ */
+const ENGINE_START_ENV = ["OPENCODE_SERVER_USERNAME", "OPENCODE_SERVER_PASSWORD", "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG_CONTENT", "OPENCODE_DB"];
 // LAWOSS v2: engine 2.x reads its password from OPENCODE_PASSWORD (service mode strips it; this hides it from shells otherwise).
-const SHELL_HIDDEN_ENV = [...ENGINE_START_ENV, "OPENCODE_PASSWORD", "OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG_CONTENT", "OPENCODE_DB", "LEGALWORK_CONNECTOR_TOKEN", WIKI_AGENT_TICKET_ENV];
+const SHELL_HIDDEN_ENV = [...ENGINE_START_ENV, "OPENCODE_PASSWORD", "LEGALWORK_CONNECTOR_TOKEN", WIKI_AGENT_TICKET_ENV];
 
 /** For the `shell.env` hook; the engine merges this over its environment. See coordination record. */
 export function hideEngineEnvFromShell(output: { env: Record<string, string | undefined> }): void {

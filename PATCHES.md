@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Opravy po syncu v2 (2026-11-10)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/opencode-plugins/wiki-agent-secret.ts` (+ test), `apps/server/src/lawoss/engine-agent-ticket.integration.test.ts` (LAWOSS) | Lokálne MCP vrátane balíkov z Marketplace a pribalených dedili od enginu `OPENCODE_DB` (cesta k DB so všetkými chatmi), `OPENCODE_CONFIG_DIR` a `OPENCODE_CONFIG_CONTENT` (rozhodnutie MČ 10. 11. 2026: opraviť). Engine 2.1.4 si tieto hodnoty načíta pri štarte a prostredie dieťaťa skladá z `process.env` až pri spustení, preto ich prvý plugin LAWOSS po vyzdvihnutí lístka odstráni z prostredia enginu rovnako ako `OPENCODE_CONFIG`. Platí pre všetky deti enginu bez ohľadu na pôvod konfigurácie MCP a na platformu; engine ani konfigurácia MCP sa nemenia. Test so skutočným enginom kontroluje tieto premenné aj vo výpisoch MCP. |
+
 ## CI po zlúčení dev do v2 (2026-11-09)
 
 | Súbor | Zmena |
