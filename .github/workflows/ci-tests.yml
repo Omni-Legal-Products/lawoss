@@ -146,11 +146,14 @@ jobs:
   windows-desktop-acceptance:
     needs: [windows-archive-inputs, opencode-derivative, windows-protected-runtime]
     if: github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.native_source_acceptance && needs.windows-archive-inputs.result == 'success' && needs.opencode-derivative.result == 'success' && needs.windows-protected-runtime.result == 'success'
+    # 🟡 LAWOSS: volaný workflow si pri samostatnom behu zostaví engine (job opencode-engine s actions: read).
+    permissions:
+      contents: read
+      actions: read
     uses: ./.github/workflows/ci-desktop-packaging.yml
     with:
       windows-only: true
       derivative-manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
-      engine-build-mode: development
   mac-signing-acceptance:
     needs: [signing-inputs, changes]
     # 🟡 LAWOSS: podpis enginu identitou Eigenwelt beží len v upstreame.
@@ -202,6 +205,10 @@ jobs:
       needs.opencode-derivative.result == 'success' &&
       (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'failure')
     needs: [sandbox-runtime, opencode-derivative]
+    # 🟡 LAWOSS: volaný workflow si pri samostatnom behu zostaví engine (job opencode-engine s actions: read).
+    permissions:
+      contents: read
+      actions: read
     uses: ./.github/workflows/ci-desktop-packaging.yml
     with:
       runtime_provided: true

@@ -178,8 +178,8 @@ jobs:
   # inferencia) sa nemenia.
   isir-native:
     name: Native ISIR (${{ matrix.os }}, nepovinné)
-    needs: sandbox-runtime
-    if: ${{ !cancelled() && (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'skipped') }}
+    needs: [sandbox-runtime, opencode-engine]
+    if: ${{ !cancelled() && (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'skipped') && (needs.opencode-engine.result == 'success' || needs.opencode-engine.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 100
     strategy:
@@ -240,6 +240,16 @@ jobs:
         run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v4
         with:
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative
+      # 🟡 LAWOSS: len vývojová (ad-hoc) príprava enginu, rovnako ako package-smoke.
+      - uses: ./.github/actions/setup-opencode
+        with:
+          archive-directory: ${{ format('{0}/opencode-derivative/archives', runner.temp) }}
+          manifest-sha256: ${{ inputs.derivative-manifest-sha256 || needs.opencode-engine.outputs.manifest-sha256 }}
+          build-mode: development
+      - uses: actions/download-artifact@v4
+        with:
           # LAWOSS: matica má aj macOS (platform mac); runtime sa volá darwin-<arch>.
           name: sandbox-runtime-${{ matrix.platform == 'win' && 'win32' || matrix.platform == 'mac' && 'darwin' || matrix.platform }}-${{ matrix.arch }}
           path: ${{ runner.temp }}/sandbox-runtime
@@ -254,6 +264,7 @@ jobs:
       - name: Build desktop app and native dependencies
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          LEGALWORK_OPENCODE_ARCHIVES: ${{ format('{0}/opencode-derivative/archives', runner.temp) }}
         run: pnpm --filter @legalwork/desktop build:electron
       # Real isolated dev renderer + pinned sidecar + provider protocol fixture.
       # The packaged CDP prohibition stays covered by the existing security gate.

@@ -1,5 +1,12 @@
 # LAWOSS downstream patches
 
+## CI po zlúčení dev do v2 (2026-11-09)
+
+| Súbor | Zmena |
+|---|---|
+| `.github/workflows/ci-tests.yml` | Volania `ci-desktop-packaging.yml` dávajú `actions: read` (volaný job `opencode-engine` ho žiada) a neposielajú nedefinovaný vstup `engine-build-mode`; inak GitHub workflow nespustí (`startup_failure`). |
+| `.github/workflows/ci-desktop-packaging.yml` (job `isir-native` z #385) | Závisí aj od `opencode-engine`, stiahne derivát (`opencode-derivative-ci`), pripraví ho cez `setup-opencode` (vývojový režim) a pri zostavení odovzdá `LEGALWORK_OPENCODE_ARCHIVES`, rovnako ako `package-smoke`. |
+
 ## Sync upstream v0.3.1 až v0.3.9 (2026-11-09, ADR 0016, rozhodnutia MČ 8. 11.)
 
 Merge presného tagu `v0.3.9` (obsahuje v0.3.1 až v0.3.9) na základ v0.3.0 s OpenCode 2.1.4. 52 konfliktných súborov. Prevzaté: priame prihlásenie Microsoft (#345, bez účtu Eigenwelt), wiki rešerš a nasmerovanie fronty (#354, #355), čas migrácie histórie a obrazovka aktualizácie (#357, appka a server), integrácie podľa kategórií a uložené prihlásenia webov (#359, #374, #375, #377), otázky s voľbami (#372), neuložené zmeny pri zatvorení a reštarte (#369), kalendár (#367), prílohy úloh (#368), presuny a kópie v úložiskách (#373), obnova návodu k nástrojom (#371), firemné konektory (#376, #394), mapované disky a UNC (#379), dlhšie overenie podpisu aktualizácie na Windows (#383, patch `electron-updater`), Azure a Vertex (#381), PDF v sandboxe (#388, celé), pevné odkazy v overení enginu (#389, `derivative.mjs`), náhľad PDF s absolútnou cestou (#393), Office „Ready/Bereit“ (#397, celé), opätovné použitie enginu v CI (#356), QEMU s pinmi (#363).
