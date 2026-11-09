@@ -2,7 +2,8 @@ import { isReviewWorkerSession } from "./native-shared-values.js";
 import type { HistoricalMessage, SessionHistoryProvenance } from "@legalwork/types/session-history";
 import type { OpenCodeClient, SessionInfo, SessionMessageInfo } from "@opencode/client";
 import { canonicalFilePath } from "./file-write-lock.js";
-import { workspaceEngineLocation, getWorkspaceEngineSession, listEngineMessages } from "./engine-client.js";
+import { getWorkspaceEngineSession, listEngineMessages } from "./engine-client.js";
+import { workspaceOwnsChat } from "./lawoss/session-ownership.js";
 import { REVIEW_AGENT } from "./reviews/worker-identity.js";
 import { ApiError } from "./errors.js";
 import { readCurrentHistory, historyBytesHash } from "./current-history-state.js";
@@ -26,8 +27,9 @@ export async function readScopedSessionHistoryProvenance(config:ServerConfig,wor
 /** Call only after authoritative native session authorization. Recheck both
  * native and original directories here; provenance never grants file access. */
 export async function readSessionHistoryProvenance(config: ServerConfig, workspace: WorkspaceInfo, session: SessionInfo, nativeMessages: readonly SessionMessageInfo[]): Promise<SessionHistoryProvenance> {
-  const [expected, actual] = await Promise.all([canonicalFilePath(workspaceEngineLocation(workspace).directory), canonicalFilePath(session.location.directory)]);
-  if (expected !== actual) throw new ApiError(404, "session_not_found", "Chat not found in this project.");
+  // LAWOSS: a case chat in a case subfolder belongs to its client (lawoss/session-ownership.ts).
+  const actual = await canonicalFilePath(session.location.directory);
+  if (!await workspaceOwnsChat(config, workspace, { id: session.id, directory: session.location.directory })) throw new ApiError(404, "session_not_found", "Chat not found in this project.");
   try {
     const state = await readCurrentHistory(config), original = state?.sessions[session.id];
     if (!original) return { version: 1, status: "not-migrated", messages: {} };

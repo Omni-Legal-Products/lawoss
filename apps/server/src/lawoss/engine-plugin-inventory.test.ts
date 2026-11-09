@@ -7,7 +7,7 @@ import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { buildLegalworkRuntimeConfigObject } from "../legalwork-runtime-config.js";
+import { buildLegalworkRuntimeConfigObject, mandatoryRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "../legalwork-runtime-config.js";
 import { legalworkPluginPath } from "../legalwork-extensions-plugin-path.js";
 import type { ServerConfig } from "../types.js";
 import { LAWOSS_PLUGIN_NAMES } from "./engine-plugin-names.js";
@@ -58,7 +58,11 @@ test("konfigurácia enginu zaregistruje každý plugin LAWOSS a prihlásenie Ant
     workspaces: [{ id: "ws_1", name: "Klient", path: root, preset: "starter", workspaceType: "local" }],
   };
   const built = await buildLegalworkRuntimeConfigObject(config, "ws_1");
-  const plugins = Array.isArray(built.plugins) ? built.plugins : [];
+  // LAWOSS: lawoss-linked-folders is a mandatory plugin after legalwork-managed-config (hook order).
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const mandatory: unknown = JSON.parse(await readFile(mandatoryRuntimeConfigFilePath(config), "utf8"));
+  const mandatoryPlugins = mandatory !== null && typeof mandatory === "object" && "plugins" in mandatory && Array.isArray(mandatory.plugins) ? mandatory.plugins : [];
+  const plugins = [...(Array.isArray(built.plugins) ? built.plugins : []), ...mandatoryPlugins];
   const targets = plugins.map((plugin: unknown) => typeof plugin === "string" ? plugin
     : plugin !== null && typeof plugin === "object" && "package" in plugin && typeof plugin.package === "string" ? plugin.package : "");
   expect(targets).toContain(NPM_PLUGIN);

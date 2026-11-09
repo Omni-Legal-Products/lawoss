@@ -15,7 +15,7 @@ import { acquireRuntimeDbLifetime, runtimeDbResource, withRuntimeDb } from "./ru
 import { resolveWorkspaceFilePath, recheckWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { LawossDocuments } from "./lawoss/documents/service.js";
 import { registerLawossDocumentRoutes } from "./routes/lawoss-documents.js";
-import { sessionFolder, sessionOwnershipChecked, workspaceReadsSession } from "./lawoss/session-ownership.js";
+import { sessionFolder, sessionOwnershipChecked, workspaceChatOwnership, workspaceOwnsChat } from "./lawoss/session-ownership.js";
 import { getWorkspaceMemoryContext, getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
 import { readMatterMemoryForChat, writeMatterMemoryForChat } from "./lawoss/matter-memory.js";
 import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
@@ -1104,7 +1104,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: LawossSe
   });
   // LAWOSS: a case chat lives in a subfolder of its client workspace (session-ownership.ts).
   const sandboxOwnsSession = async (workspace: WorkspaceInfo, session: { id: string; location: { directory: string } }) => {
-    if (sessionOwnershipChecked(workspace)) return workspaceReadsSession(workspace, { id: session.id, directory: session.location.directory });
+    if (sessionOwnershipChecked(workspace)) return workspaceOwnsChat(config, workspace, { id: session.id, directory: session.location.directory });
     const directory = resolveOpencodeDirectory(workspace);
     return !!directory && resolve(session.location.directory) === resolve(directory);
   };
@@ -1534,10 +1534,12 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
   const client = createEngineClient(input.config, workspace);
   const wikis = await new WikiStore(input.config).list();
   const root = workspaceEngineLocation(workspace).directory;
+  // LAWOSS (#264): a folder of a client nested in this one belongs to that client (lawoss/session-ownership.ts).
+  const ownsChat = await workspaceChatOwnership(input.config, workspace);
   const allowed = async (directory: string) => {
     try {
       assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await realpath(directory).catch(() => resolve(directory))));
-      return await pathWithin(root, directory);
+      return await pathWithin(root, directory) && await ownsChat({ id: "", directory });
     } catch { return false; }
   };
   const target = new URL(connection.baseUrl);
@@ -1644,6 +1646,8 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
     const value = z.record(z.string(), z.unknown()).parse(JSON.parse(Buffer.from(body).toString()));
     if (isRecord(value.metadata) && Object.hasOwn(value.metadata, "legalworkInternal")) throw new ApiError(403, "internal_session_owned", "Internal operation contexts are managed by LegalWork.");
     if (isRecord(value.location) && typeof value.location.directory === "string" && !await allowed(value.location.directory)) throw new ApiError(403, "workspace_location_mismatch", "The chat location does not belong to this project.");
+    // LAWOSS: a chat moves only within its own client (v2 `POST /session/:id/move` carries `directory`).
+    if (path.endsWith("/move") && (typeof value.directory !== "string" || !await allowed(value.directory))) throw new ApiError(403, "workspace_location_mismatch", "The chat location does not belong to this project.");
     if (path === "/session") {
       value.location = { directory };
       if (typeof value.parentID === "string") {
@@ -1674,7 +1678,10 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
   if (method === "GET" && path === "/session" && response.ok) {
     const result: unknown = await response.json();
     if (!isRecord(result) || !Array.isArray(result.data)) throw new ApiError(502, "opencode_invalid_response", "The engine returned an invalid chat list.");
-    return jsonResponse({ ...result, data: result.data.filter(session => !isInternalSession(session)) });
+    // LAWOSS: a cursor carries its own filters, so the engine may page beyond this client; only owned chats leave.
+    const owned = await Promise.all(result.data.map(async session => !isInternalSession(session) && isRecord(session) && isRecord(session.location)
+      && typeof session.location.directory === "string" && await allowed(session.location.directory)));
+    return jsonResponse({ ...result, data: result.data.filter((_, index) => owned[index]) });
   }
     await input.config.observeManagedEngineResponse?.({ method, path: `/api${path}`, directory }, response);
     return response;
@@ -5669,7 +5676,8 @@ function resolveWorkspaceMetadata(config: ServerConfig, id: string): WorkspaceIn
     throw new ApiError(404, "workspace_not_found", "Workspace not found");
   }
   const path = resolve(workspace.path);
-  if (!config.authorizedRoots.some(root => path === resolve(root) || path.startsWith(resolve(root) + sep))) {
+  // 🟡 LAWOSS: an authorized drive or share root (`/`, `D:\`, `\\nas\share\`) ends in a separator; a `root + sep` prefix never matched.
+  if (!config.authorizedRoots.some(root => isPathWithin(resolve(root), path))) {
     throw new ApiError(403, "workspace_unauthorized", "Workspace is not authorized");
   }
   return { ...workspace, path };

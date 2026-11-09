@@ -3,7 +3,8 @@ import type { HistoryUndoStatus } from "@legalwork/types/session-history";
 import { engineStorageDir } from "./engine-storage.js";
 import { ApiError } from "./errors.js";
 import { canonicalFilePath } from "./file-write-lock.js";
-import { getWorkspaceEngineSession,workspaceEngineLocation } from "./engine-client.js";
+import { getWorkspaceEngineSession } from "./engine-client.js";
+import { workspaceOwnsChat } from "./lawoss/session-ownership.js";
 import { readCurrentHistory, updateCurrentHistoryReceipt, type CurrentHistoryState } from "./current-history-state.js";
 import type { ServerConfig,WorkspaceInfo } from "./types.js";
 import { assertEngineProjectReady } from "./engine-project.js";
@@ -43,8 +44,9 @@ export async function prepareSessionHistoryUndo(config:ServerConfig,workspace:Wo
  const task=prepare();preparing.set(key,task);
  try{return await task;}finally{preparing.delete(key);}
  async function prepare():Promise<Result>{
-  const [expected,actual]=await Promise.all([canonicalFilePath(workspaceEngineLocation(workspace).directory),canonicalFilePath(session.location.directory)]);
-  if(expected!==actual)throw new ApiError(404,"session_not_found","Chat not found in this project.");
+  // LAWOSS: a case chat in a case subfolder belongs to its client (lawoss/session-ownership.ts).
+  const actual=await canonicalFilePath(session.location.directory);
+  if(!await workspaceOwnsChat(config,workspace,{id:session.id,directory:session.location.directory}))throw new ApiError(404,"session_not_found","Chat not found in this project.");
   const original=state.sessions[session.id];
   if(!original)return {session};
   const receipt=state.undoReceipts[session.id];

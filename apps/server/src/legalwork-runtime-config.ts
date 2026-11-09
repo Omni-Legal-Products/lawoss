@@ -413,7 +413,7 @@ export async function buildLegalworkRuntimeSettings(
       bundledPluginSpec(legalworkToolRecoveryPluginPath(), config),
       bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
       bundledPluginSpec(legalworkPluginPath("lawoss-okf-handoff"), config),
-      bundledPluginSpec(legalworkPluginPath("lawoss-linked-folders"), config),
+      // LAWOSS: lawoss-linked-folders loads after legalwork-managed-config (mandatory plugins below).
       // LAWOSS: premenovanie/presun/zmazanie s jednou kartou (lawoss/file-operations.ts).
       bundledPluginSpec(legalworkPluginPath("lawoss-file-operations"), config),
       // LAWOSS: čítanie pamäte spisu bez shellu a bez karty (lawoss/matter-memory.ts).
@@ -558,6 +558,9 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
       await bundledPluginSpec(legalworkPluginPath("legalwork-tool-image-original-capture"), config),
       await bundledPluginSpec(legalworkPluginPath("legalwork-tool-image-originals"), config),
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-managed-config"), config), options: { settingsPath } },
+      // LAWOSS: hooks run in setup order; the linked-folders decision must follow the managed folder permissions,
+      // which otherwise raise its `allow` of a client's linked folder back to `ask` (lawoss-linked-folders.ts).
+      await bundledPluginSpec(legalworkPluginPath("lawoss-linked-folders"), config),
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-model-catalog"), config), options: { connectionProviders: await orgChatProviderTemplates(config) } },
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-commands"), config), options: { settingsPath } },
       await bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),

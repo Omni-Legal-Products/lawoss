@@ -348,6 +348,11 @@ describe("legalwork runtime config files", () => {
     await expectBundle(guards, "legalwork-managed-config");
     await expectBundle(guards, "legalwork-org-policy-guard");
     await expectBundle(guards, "legalwork-product-scope");
+    // LAWOSS: the linked-folders decision follows the managed folder permissions (hooks run in setup order).
+    await expectBundle(guards, "lawoss-linked-folders");
+    const position = async (name: string) => { const original = await readFile(legalworkPluginPath(name), "utf8"); return guards.findIndex(plugin => plugin.source === original); };
+    expect(await position("legalwork-managed-config")).toBeLessThan(await position("lawoss-linked-folders"));
+    expect(sources.some(plugin => plugin.source.includes('"lawoss.linked-folders"'))).toBe(false);
     const workspace = config.workspaces[0]!;
     const status = await engineProjectStatus(config, workspace);
     expect(status.projection.diagnostic).toBeUndefined();
@@ -360,7 +365,7 @@ describe("legalwork runtime config files", () => {
     // LAWOSS: "Sign in with Anthropic" stays wired (MČ decision), and every LAWOSS engine plugin is bundled.
     // A package plugin belongs to the project layer; the common layer holds bundled directories only.
     expect(pluginTargets(parsed.plugins)).toContain("opencode-anthropic-auth");
-    for (const name of ["lawoss-okf-handoff", "lawoss-linked-folders", "lawoss-file-operations", "lawoss-memory-tools", "lawoss-view-tools"]) await expectBundle(sources, name);
+    for (const name of ["lawoss-okf-handoff", "lawoss-file-operations", "lawoss-memory-tools", "lawoss-view-tools"]) await expectBundle(sources, name);
   });
 
   test("bundled plugins use host-resolved directory entrypoints on every platform", async () => {
