@@ -106,7 +106,7 @@ import { externalOpencodeConfigDir, usesExternalWorkspaceAppFiles } from "./lawo
 import { retireOutsideProjection } from "./lawoss/outside-stale-projection.js";
 import { OUTSIDE_CLIENTS_FILE, outsideSkillsDirectory, shareableConfiguration, withOutsideAgentSkeletons } from "./lawoss/outside-engine-config.js";
 import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
-import { LAWOSS_MEMORY_TOOL, fileChangeRules } from "./lawoss/tool-permission-defaults.js";
+import { LAWOSS_MEMORY_TOOL, browserLoginRules, fileChangeRules } from "./lawoss/tool-permission-defaults.js";
 import { lawossToolDenialRules, LAWOSS_LOAD_WIKI_TOOLS } from "./lawoss/hidden-upstream-tools.js";
 import { yoloModeActive, yoloNativeAgentRules } from "./lawoss/yolo-mode.js";
 import { nativeHostExecutionActions } from "./agent-sandbox/engine-policy.js";
@@ -324,6 +324,8 @@ export async function buildLegalworkRuntimeSettings(
     ...memberPermission,
     // LAWOSS: lawoss_files asks with its own key, derived from edit, after any `*` rule (lawoss/tool-permission-defaults.ts).
     ...fileChangeRules(configuredPermission, false),
+    // LAWOSS: a saved login's new website asks always, also after a `*` allow (MČ 9. 11. 2026).
+    ...browserLoginRules(),
     { action: "legalwork_project_set_instructions", resource: "*", effect:
       permissionAction(configuredPermission, "legalwork_project_set_instructions", "*") === "deny" ? "deny" : "ask" },
   ];
@@ -365,7 +367,7 @@ export async function buildLegalworkRuntimeSettings(
         description: "Scheduled task with access to all authorized local projects", mode: "primary", hidden: true,
         system: agentPrompt + "\nThis scheduled run may access all authorized local projects. Use legalwork_schedule_projects and legalwork_schedule_project_list/read to find and read project data. Use legalwork_recordings_list and legalwork_recording_read for recordings across those projects and unassigned global recordings. Read chat transcripts directly using kind=sessions and exact chat IDs. Do not open chats or navigate the LegalWork UI to retrieve data. If direct reads are unavailable, report that limitation. Existing tool permissions and approvals still apply.",
         // LAWOSS: after the copied rules, so a `*` allow there cannot silence lawoss_files.
-        permissions: [...allProjectTaskPermissions(memberPermission), ...fileChangeRules(configuredPermission, false)],
+        permissions: [...allProjectTaskPermissions(memberPermission), ...fileChangeRules(configuredPermission, false), ...browserLoginRules()],
       },
       legalwork: {
         ...runtimeAgentMap(runtimeConfig).legalwork,
@@ -374,7 +376,7 @@ export async function buildLegalworkRuntimeSettings(
         system: agentPrompt,
         // LAWOSS: „YOLO Mode" (lawoss/yolo-mode.ts) for the chat agent only; scheduled and other agents keep the shared rules.
         ...(config && await yoloModeActive(config) ? { permissions: [...runtimeAgentMap(runtimeConfig).legalwork?.permissions ?? [],
-          ...yoloNativeAgentRules(configuredPermission), ...fileChangeRules(configuredPermission, true)] } : {}),
+          ...yoloNativeAgentRules(configuredPermission), ...fileChangeRules(configuredPermission, true), ...browserLoginRules()] } : {}),
       },
     },
     commands: { ...core.commands, ...runtimeConfig.commands },

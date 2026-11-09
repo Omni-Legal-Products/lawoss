@@ -301,7 +301,9 @@ for (const development of [false, true]) test.skipIf(!nativeBinary || !legacyBin
       process.env.XDG_DATA_HOME = join(root, "data");
       const config = {
         configPath: join(root, "state", "server.json"),
-      } as ServerConfig;
+        // 🟡 LAWOSS: chat ownership checks the other registered clients (lawoss/session-ownership.ts).
+        workspaces: [],
+      } as Partial<ServerConfig> as ServerConfig;
       const prepared = await prepareManagedOpencodeEngineDb(config);
       if (!prepared) throw new Error("No managed copy was prepared");
       expect(prepared.seededFrom).toBe(source);

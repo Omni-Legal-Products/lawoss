@@ -1,25 +1,25 @@
 {
-  "engineVersion": "2.1.4-legalwork.http-policy.3",
+  "engineVersion": "2.1.4-legalwork.http-policy.4",
   "repository": "Omni-Legal-Products/lawoss",
-  "releaseTag": "opencode-v2.1.4-legalwork.http-policy.3-lawoss.1",
+  "releaseTag": "opencode-v2.1.4-legalwork.http-policy.4-lawoss.1",
   "source": "legalwork-derivative:anomalyco/opencode@68bc26b7da1990ce10ffecfbc1e09eb13aa5d824",
-  "releaseId": "recipe-sha256:6e091b7f5aa124f687826b0812a46c73ed622dfc05904b9d4470e76ed50f8c8a",
+  "releaseId": "recipe-sha256:b8a9b3934af7974ca705fe379290140f1b72100d28ddab295c78231459889873",
   "architectures": {
     "arm64": {
       "target": "linux-arm64",
-      "name": "opencode-2.1.4-legalwork.http-policy.3-linux-arm64.tar.gz",
-      "size": 112935272,
-      "sha256": "52d2a6eb73d54abf4ad7591188743d235ccad9f60025dde944c83d979b4f0f02",
+      "name": "opencode-2.1.4-legalwork.http-policy.4-linux-arm64.tar.gz",
+      "size": 112935213,
+      "sha256": "51d5feb0d5ed2d4a32bb24ba80489aaf380585dde136e204ef77fdcda9c926d1",
       "binarySize": 236309496,
-      "binarySha256": "d53dffc2bcd9250a49b72faca4d0f6b166f007992e08e73c706dcba89eee7673"
+      "binarySha256": "ad287906c85f5c386f22475d9ed519834c5e038577cc68d631cb6811b763e365"
     },
     "x64": {
       "target": "linux-x64-baseline",
-      "name": "opencode-2.1.4-legalwork.http-policy.3-linux-x64-baseline.tar.gz",
-      "size": 114147038,
-      "sha256": "50fc241d5c3a18a2317cc9874aefacaa38bc5b401289280ed90b8a749f03dc88",
+      "name": "opencode-2.1.4-legalwork.http-policy.4-linux-x64-baseline.tar.gz",
+      "size": 114146884,
+      "sha256": "df510f3fec3a8f214e197c4d8d4494ec720ac6fca0ddbe154cd251563e279bf7",
       "binarySize": 240556208,
-      "binarySha256": "639468c3dff3346643dcf81fee8b5aa017c42cf23939222aeb3e755aadf65842"
+      "binarySha256": "6738b597ce2c5f371b1d3d931e38ffb8d405d3af51290c63a3c467b291b0f39b"
     }
   }
 }

@@ -1,4 +1,4 @@
-// LAWOSS (ADR 0016, rozhodnutie MČ 8. 11. 2026): engine 2.1.4-legalwork.http-policy.3 sa pre LAWOSS
+// LAWOSS (ADR 0016, rozhodnutie MČ 8. 11. 2026): engine 2.1.4-legalwork.http-policy.4 sa pre LAWOSS
 // pripravuje len vývojovou cestou s ad-hoc podpisom. Ostrá príprava (matica 12 cieľov, Mac podpis
 // identitou Eigenwelt z packages/opencode-release/selection.json) sa vo workflowoch forku nespúšťa.
 // Nepodpísané alfy ostávajú ručné so vstupom `allow_unsigned_internal`.

@@ -71,8 +71,11 @@ function ascendingId(prefix: "msg" | "prt", timestamp: number, counter: number):
   return `${prefix}_${bytes.toString("hex")}${[...randomBytes(14)].map(byte => alphabet[byte % 62]).join("")}`;
 }
 
+/** Assistant replies are written again after they finish: the row's update time is later than the completion. */
+const LATER_ROW_WRITE_MS = 2_000;
+
 /** Synthetic v1 history: user and assistant text in the v1 row format (as LAWOSS v1 seeded templates). */
-function seedV1Messages(dbPath: string, sessionID: string, directory: string, texts: string[]): string[] {
+function seedV1Messages(dbPath: string, sessionID: string, directory: string, texts: string[], completed: Map<string, number>): string[] {
   const db = new Database(dbPath);
   try {
     const ids: string[] = [];
@@ -85,7 +88,8 @@ function seedV1Messages(dbPath: string, sessionID: string, directory: string, te
           ? { role: "user", time: { created: at }, summary: { diffs: [] }, agent: "build", model: { providerID: "synthetic", modelID: "synthetic-model" } }
           : { role: "assistant", time: { created: at, completed: at + 10 }, parentID: lastUser, modelID: "synthetic-model", providerID: "synthetic", mode: "build", agent: "build",
             path: { cwd: directory, root: directory }, cost: 0, tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } } };
-        db.query("insert into message (id, session_id, time_created, time_updated, data) values (?, ?, ?, ?, ?)").run(id, sessionID, at, at, JSON.stringify(data));
+        db.query("insert into message (id, session_id, time_created, time_updated, data) values (?, ?, ?, ?, ?)").run(id, sessionID, at, user ? at : at + LATER_ROW_WRITE_MS, JSON.stringify(data));
+        if (!user) completed.set(id, at + 10);
         db.query("insert into part (id, message_id, session_id, time_created, time_updated, data) values (?, ?, ?, ?, ?, ?)").run(part, id, sessionID, at, at, JSON.stringify({ type: "text", text }));
         if (user) lastUser = id;
         ids.push(id);
@@ -103,6 +107,21 @@ function consistentBackup(dbPath: string, backupPath: string) {
 }
 
 const textOf = (message: unknown): string => JSON.stringify(message);
+
+/** `time.completed` of the message with this ID anywhere in an API response. */
+function completedOf(value: unknown, id: string): unknown {
+  if (Array.isArray(value)) {
+    for (const item of value) { const found = completedOf(item, id); if (found !== undefined) return found; }
+    return undefined;
+  }
+  if (value === null || typeof value !== "object") return undefined;
+  if (Reflect.get(value, "id") === id) {
+    const time: unknown = Reflect.get(value, "time");
+    if (time !== null && typeof time === "object" && "completed" in time) return time.completed;
+  }
+  for (const item of Object.values(value)) { const found = completedOf(item, id); if (found !== undefined) return found; }
+  return undefined;
+}
 
 engineTest("história chatov v1 prejde migráciou v2 s pôvodnými ID a správami; obnovená záloha sa zhoduje hashom a otvorí ju engine v1", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "lawoss-history-migration-")));
@@ -127,7 +146,10 @@ engineTest("história chatov v1 prejde migráciou v2 s pôvodnými ID a správam
     sessions.push({ id, texts: [`${title}: otázka SYNT-${id.slice(-6)}`, `${title}: odpoveď SYNT-${id.slice(-6)}`, `${title}: doplnenie`], messages: [] });
   }
   await stopEngine(v1);
-  for (const session of sessions) session.messages = seedV1Messages(dbPath, session.id, client, session.texts);
+  // Derivát http-policy.4 (upstream #357): migrácia zachová pôvodný čas dokončenia odpovede, nie čas zápisu riadku,
+  // takže prečítaná odpoveď nie je po migrácii znova neprečítaná.
+  const completed = new Map<string, number>();
+  for (const session of sessions) session.messages = seedV1Messages(dbPath, session.id, client, session.texts, completed);
 
   // 2. Konzistentná záloha pred migráciou a jej hash.
   const backup = join(root, "db", "opencode.v1-backup.db");
@@ -163,9 +185,11 @@ engineTest("história chatov v1 prejde migráciou v2 s pôvodnými ID a správam
     expect(migrated).toMatchObject({ data: { id: session.id, location: { directory: client } } });
     const messages = await fetch(new URL(`/api/session/${session.id}/message`, v2.url), { headers: v2Headers });
     expect(messages.status).toBe(200);
-    const body = textOf(await messages.json());
+    const listed: unknown = await messages.json();
+    const body = textOf(listed);
     for (const text of session.texts) expect(body).toContain(text);
     for (const id of session.messages) expect(body).toContain(id);
+    for (const id of session.messages.filter(message => completed.has(message))) expect([id, completedOf(listed, id)]).toEqual([id, completed.get(id)]);
   }
   await stopEngine(v2);
   // Pôvodné riadky v1 v migrovanej databáze ostali (upstream V1Migration ich nemaže).

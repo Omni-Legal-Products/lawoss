@@ -10,7 +10,7 @@ import {
   closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, readGlobalToolPermissions, readRuntimeOpencodeConfigText, writeRuntimeOpencodeConfig,
 } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
-import { LAWOSS_MEMORY_TOOL, fileChangeRule, fileChangeRules, withLawossToolDefaultRules, withLawossToolDefaults } from "./tool-permission-defaults.js";
+import { BROWSER_LOGIN_PERMISSION, LAWOSS_MEMORY_TOOL, fileChangeRule, fileChangeRules, withLawossToolDefaultRules, withLawossToolDefaults } from "./tool-permission-defaults.js";
 import { permissionAction, type NativePermissionRule } from "../agent-sandbox/permissions.js";
 import { writeYoloMode } from "./yolo-mode.js";
 import { engineSettings, hasBundledPlugin } from "./test-support/native-config.js";
@@ -112,6 +112,21 @@ test("the engine file carries the lawoss_files rule after any wildcard, for chat
   expect(lastIndex(scheduled, "lawoss_file_change")).toBeGreaterThan(lastIndex(scheduled, "*"));
   await writeYoloMode(config, true);
   const yolo = await engineFile(config);
+  expect(evaluate([...yolo.permissions, ...yolo.agents.legalwork?.permissions ?? []], "lawoss_file_change")).toBe("allow");
+});
+
+test("a saved login's new website asks a card always: after a broad allow, for scheduled runs and in YOLO Mode (MČ 9. 11. 2026)", async () => {
+  const { config } = await setup();
+  expect(evaluate((await engineFile(config)).permissions, BROWSER_LOGIN_PERMISSION)).toBe("ask");
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, rules([{ action: "*", resource: "*", effect: "allow" }, { action: BROWSER_LOGIN_PERMISSION, resource: "*", effect: "allow" }]));
+  const broad = await engineFile(config);
+  expect(lastIndex(broad.permissions, BROWSER_LOGIN_PERMISSION)).toBeGreaterThan(lastIndex(broad.permissions, "*"));
+  expect(evaluate(broad.permissions, BROWSER_LOGIN_PERMISSION)).toBe("ask");
+  expect(evaluate(broad.agents["legalwork-scheduled-all"]?.permissions ?? [], BROWSER_LOGIN_PERMISSION)).toBe("ask");
+  await writeYoloMode(config, true);
+  const yolo = await engineFile(config);
+  expect(evaluate([...yolo.permissions, ...yolo.agents.legalwork?.permissions ?? []], BROWSER_LOGIN_PERMISSION)).toBe("ask");
+  // YOLO still removes the file-change card, only the saved-login card stays.
   expect(evaluate([...yolo.permissions, ...yolo.agents.legalwork?.permissions ?? []], "lawoss_file_change")).toBe("allow");
 });
 

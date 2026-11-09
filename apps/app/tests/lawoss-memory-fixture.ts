@@ -60,7 +60,7 @@ export async function memoryFixture() {
       if (location !== null && typeof location === "object" && "directory" in location && typeof location.directory === "string") directory = location.directory;
     }
     engineCalls.push({ method: request.method, path, directory });
-    if (url.pathname === "/api/info") return Response.json({ version: "2.1.4-legalwork.http-policy.3", pid: process.pid });
+    if (url.pathname === "/api/info") return Response.json({ version: "2.1.4-legalwork.http-policy.4", pid: process.pid });
     if (path === "/session" && request.method === "POST") {
       createdSessions += 1;
       const id = createdSessions === 1 ? "synthetic-session" : `synthetic-session-${createdSessions}`;
