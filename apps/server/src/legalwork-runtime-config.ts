@@ -102,6 +102,7 @@ import { eigenweltHasPremiumModels } from "./eigenwelt-auth.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { repairRuntimeProviders } from "./runtime-provider-repair.js";
 import { externalOpencodeConfigDir, usesExternalWorkspaceAppFiles } from "./lawoss/workspace-app-files.js";
+import { retireOutsideProjection } from "./lawoss/outside-stale-projection.js";
 import { OUTSIDE_CLIENTS_FILE, outsideSkillsDirectory, shareableConfiguration, withOutsideAgentSkeletons } from "./lawoss/outside-engine-config.js";
 import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
 import { LAWOSS_MEMORY_TOOL, fileChangeRules } from "./lawoss/tool-permission-defaults.js";
@@ -576,7 +577,11 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
       const configuration = managedConfigurationDiff(runtimeEngineConfiguration(settings.configuration), sharedConfiguration);
       const projectConfiguration = { ...configuration, plugins: (configuration.plugins ?? []).filter(plugin => typeof plugin !== "string" || !commonPlugins.has(plugin)) };
       // LAWOSS: nothing is written into an outside client's folder; lawoss-outside-config delivers its settings.
-      if (usesExternalWorkspaceAppFiles(workspace)) continue;
+      if (usesExternalWorkspaceAppFiles(workspace)) {
+        // LAWOSS: a projection an earlier v2 build wrote there is retired (only the server's own bytes, copy in app files).
+        await retireOutsideProjection(config, workspace).catch(error => console.warn("[lawoss] An earlier generated settings file of an outside client could not be retired.", error instanceof Error ? error.message : error));
+        continue;
+      }
       try { await writeNativeProjectProjection(config, workspace, projectConfiguration); }
       catch (error) {
         // A project conflict holds only that project's agent. Its authored files
