@@ -6,7 +6,10 @@ import { createManagedOpencodeServer } from "../managed-opencode.js";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { buildNativePluginFixture } from "./native-plugin-build.test-support.js";
-import { ensureWikiAgentToken } from "../wiki/agent-access.js";
+import { ensureWikiAgentToken, issueWikiAgentTicket } from "../wiki/agent-access.js";
+// 🟡 LAWOSS: the engine holds a single-use ticket instead of the server token (engine-agent-contract.ts).
+import { WIKI_AGENT_TICKET_ENV } from "../lawoss/engine-agent-contract.js";
+import { settleEngineAgentTicket } from "../lawoss/engine-agent-ticket.js";
 
 /** A real released host and real LegalWork domain routes. Direct tool exposure
  * defaults on for permission/resource scenarios; disable it to check normal
@@ -60,7 +63,7 @@ export async function nativeDomainEngine(options: {
     engine = await createManagedOpencodeServer({ bin: options.binary, cwd: directory, timeoutMs: 30_000, env: {
       HOME: join(root, "home"), USERPROFILE: join(root, "home"), XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_STATE_HOME: join(root, "state"), XDG_CACHE_HOME: join(root, "cache"),
       OPENCODE_CONFIG_DIR: join(root, "config"), OPENCODE_DB: join(root, "engine.db"), OPENCODE_CONFIG_PROJECT_DISABLE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1", OPENCODE_DISABLE_CLAUDE_CODE: "1",
-      LEGALWORK_SERVER_URL: `http://127.0.0.1:${server.port}`, LEGALWORK_SERVER_TOKEN: config.token,
+      LEGALWORK_SERVER_URL: `http://127.0.0.1:${server.port}`, [WIKI_AGENT_TICKET_ENV]: issueWikiAgentTicket(config),
       ...(options.scopedRuntime ? { LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config) } : {}),
       OPENCODE_CONFIG_CONTENT: JSON.stringify({ update: "disable", warming: false, plugins, model: "fixture/fixture",
         providers: { fixture: { package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: options.modelURL, apiKey: "synthetic-fixture" }, models: { fixture: { limit: { context: 128000, output: 4096 }, capabilities: { tools: true } } } } },
@@ -69,6 +72,8 @@ export async function nativeDomainEngine(options: {
       }),
     } });
     config.opencodeBaseUrl = engine.url; config.opencodeUsername = engine.username; config.opencodePassword = engine.password;
+    // 🟡 LAWOSS: redeem the ticket as embedded.ts does before plugins call the server.
+    await settleEngineAgentTicket(config, engine, directory);
     let exchange = 0;
     const makeClient = (channel: string, baseUrl: string, authorization: string) => OpenCode.make({ baseUrl, headers: { authorization },
       ...(options.evidenceDirectory ? { fetch: Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {

@@ -7,6 +7,7 @@ import { upsertSkillResource } from "../skill-resources.js";
 import { writeSandboxDefault } from "../agent-sandbox/settings.js";
 import { waitForNativeFixture } from "../native-mcp.test-support.js";
 import { nativeChatResponse, nativeDomainEngine } from "./native-domain-engine.test-support.js";
+import { grantWikiAgentSession } from "../wiki/agent-access.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 test.skipIf(!binary)("shipped engine reads global workflow resources with sandbox on and off while other folders still ask", async () => {
@@ -44,6 +45,8 @@ test.skipIf(!binary)("shipped engine reads global workflow resources with sandbo
     for (const enabled of [false, true]) {
       await writeSandboxDefault(config, { enabled, networkMode: "block" });
       const session = await client.session.create({ location, agent: "build" });
+      // 🟡 LAWOSS: the prompt bypasses the server proxy, which registers the chat's credential (server.ts).
+      await grantWikiAgentSession(config, { sessionId: session.id, directory, scope: "owner" });
       await client.session.prompt({ sessionID: session.id, text: "Read the workflow resources." });
       await client.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(30_000) });
       const messages = await client.session.context({ sessionID: session.id });
