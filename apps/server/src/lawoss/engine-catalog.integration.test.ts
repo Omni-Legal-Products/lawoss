@@ -3,6 +3,8 @@
  * `lawossEngineEnv()` (engine-network.ts, rozhodnutie MČ 5. 10. 2026), nie z
  * katalógu ani zrkadla, ktoré mu podstrčí volajúci. Nahrádza upstream test
  * `model-catalog-engine.e2e.test.ts` (#230), ktorého relay LAWOSS nespúšťa.
+ * Engine v2 (2.1.4) vypíše modely poskytovateľa až s prihlásením; syntetický
+ * `ANTHROPIC_API_KEY` (premenná z katalógu) ho zapne bez siete a bez modelu.
  */
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -26,7 +28,7 @@ afterEach(async () => {
 function catalogWith(modelId: string) {
   return {
     anthropic: {
-      id: "anthropic", name: "Anthropic", env: [], npm: "@ai-sdk/anthropic",
+      id: "anthropic", name: "Anthropic", env: ["ANTHROPIC_API_KEY"], npm: "@ai-sdk/anthropic",
       models: {
         [modelId]: {
           id: modelId, name: modelId, release_date: "2026-11-02",
@@ -68,19 +70,20 @@ test.skipIf(!engineBin)("studený engine vidí katalóg LAWOSS, katalóg ani zrk
         OPENCODE_CONFIG: configPath, OPENCODE_DB: join(root, "engine.db"),
         // Ako upstream relay (#230): volajúci ponúkne vlastné zrkadlo aj súbor.
         OPENCODE_MODELS_URL: `http://127.0.0.1:${mirror.port}`, OPENCODE_MODELS_PATH: callerCatalog,
+        // Syntetický kľúč: poskytovateľ z katalógu sa vo v2 vypíše až s prihlásením (nič sa nevolá).
+        ANTHROPIC_API_KEY: "synthetic-catalog-key",
       },
     });
-    const response = await fetch(`${engine.url}/provider`, {
+    const response = await fetch(`${engine.url}/api/model?${new URLSearchParams({ "location[directory]": root })}`, {
       headers: { Authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` },
       signal: AbortSignal.timeout(10000),
     });
     expect(response.status).toBe(200);
-    const providers = z.object({
-      all: z.array(z.object({ id: z.string(), models: z.record(z.string(), z.unknown()) })),
-    }).parse(await response.json());
-    const anthropic = providers.all.find((provider) => provider.id === "anthropic");
-    expect(anthropic?.models[lawossModel]).toBeDefined();
-    expect(anthropic?.models[callerModel]).toBeUndefined();
+    const models = z.object({
+      data: z.array(z.object({ id: z.string(), providerID: z.string() }).passthrough()),
+    }).parse(await response.json()).data.filter((model) => model.providerID === "anthropic").map((model) => model.id);
+    expect(models).toContain(lawossModel);
+    expect(models).not.toContain(callerModel);
     expect(mirrorRequests).toBe(0);
   } finally {
     await engine?.close();
