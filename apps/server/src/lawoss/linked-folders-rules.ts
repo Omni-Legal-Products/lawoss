@@ -367,6 +367,26 @@ export function separateNestedClientOf(map: LinkedFoldersMap, directory: string,
 }
 
 /**
+ * #264 (rozhodnutie MČ 9. 11. 2026): vyhľadávanie (glob, grep) cielené do priečinka iného klienta vnoreného v klientovi
+ * chatu: doslovný začiatok rozsahu alebo vzoru leží v jeho priečinku. Vyhľadávanie z vyššieho priečinka, ktoré doň zasiahne
+ * len rekurziou, cielené nie je (výsledky z neho plugin vynechá, `separateNestedClientRoots`).
+ */
+export function targetedNestedClientOf(map: LinkedFoldersMap, directory: string, target: string): LinkedFoldersClient | null {
+  const owner = ownerOf(map, directory);
+  if (!owner) return null;
+  const prefix = literalPrefix(target);
+  return map.clients.filter((client) => separateNestedClients(map, owner, client) && isPathWithin(owner.root, client.root) && isPathWithin(client.root, prefix))
+    .sort((a, b) => b.root.length - a.root.length)[0] ?? null;
+}
+
+/** Korene iných klientov vnorených v klientovi chatu (spis bez vlastnej karty medzi nimi nie je). */
+export function separateNestedClientRoots(map: LinkedFoldersMap, directory: string): string[] {
+  const owner = ownerOf(map, directory);
+  if (!owner) return [];
+  return map.clients.filter((client) => separateNestedClients(map, owner, client) && isPathWithin(owner.root, client.root)).map((client) => client.root);
+}
+
+/**
  * Spomína príkaz priečinok `root`? Absolútne (aj kanonicky), relatívne k pracovnému priečinku príkazu, alebo cestou
  * v chránenom prostredí (`/workspace/…`). Zhoda musí byť celá súčasť cesty (pred ňou začiatok, medzera, úvodzovky,
  * `=` alebo `./`; za ňou koniec, oddeľovač, medzera alebo úvodzovky; `\ ` je medzera). Je to len odhad: príkaz bez cesty (napr.
