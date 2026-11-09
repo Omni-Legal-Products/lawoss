@@ -250,6 +250,9 @@ jobs:
       - name: LAWOSS app logic (OKF views, onboarding, Lite)
         working-directory: apps/app
         run: bun test lawoss- okf- document-processing native-document-generation project-folder-recovery workspace-attachment home-submission fusion-routing session-sync-permissions session-sync-tool-parts message-queue-runner session-sync-retention session-render-boundary
+      # 🟡 LAWOSS (engine v2): runtime konfigurácia odkazuje na zostavené balíky pluginov (dist/opencode-plugins).
+      - name: Build native engine plugins for server tests
+        run: pnpm --filter legalwork-server build:plugins
       # Server s onboardingom, registráciou existujúceho priečinka, roztriedením,
       # pamäťou a kanonickými cestami. Explicitné ./src cesty fungujú aj
       # na Windows a nevložia Node helpery do Bun; dist zostavujeme až potom.
