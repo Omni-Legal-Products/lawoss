@@ -29,7 +29,7 @@ import { WikiSync } from "../wiki/sync.js";
 import { assertWikiWorkspaceAccess, ownsWikis, wikiAgentCanAccess, wikiForDirectory } from "../wiki/access.js";
 import { buildWikiFilePolicy, wikiContentPath, wikiSafeSandboxMounts } from "../wiki/file-access-policy.js";
 // LAWOSS: do sandboxu len priečinky, ktoré pravidlá pripojených priečinkov dovolia (iný klient, prax, dáta aplikácie nie).
-import { linkableFolders } from "../lawoss/linked-folders.js";
+import { linkableFolders, nestedClientInCommand } from "../lawoss/linked-folders.js";
 import { joinSessionFolder } from "../lawoss/session-ownership.js";
 import { canonicalFolderPath } from "../wiki/workspace-safety.js";
 import { rawHttpRequest, type RawHttpInput, type RawHttpNetwork } from "./raw-http.js";
@@ -172,13 +172,16 @@ export class AgentSandboxService {
         // it declares, so one card covers all of it (earlier: a separate card for each capability).
         // Upstream v2 asks no separate host-folder card; the folder step only denies or joins this one card.
         const folderRules = runtimeExternalDirectory(runtime);
+        // LAWOSS (#264): a command naming the folder of another client registered inside this one always asks, also in YOLO.
+        const nestedClient = await nestedClientInCommand(this.config, workspace, command, command.workdir || joinSessionFolder(workspace, command.folder ?? [], workspace.path));
         await askOnce([
           { permission: "bash", pattern: command.command, override: commandAction("bash") },
           { permission: "read", pattern: "*", override: commandAction("read") },
           { permission: "edit", pattern: "*", override: commandAction("edit") },
           { permission: "webfetch", pattern: "*", override: commandAction("webfetch") },
           { permission: "external_directory", pattern: "*", override: restrictive([wholeCommandAction(await yoloModeActive(this.config) ? yoloNativeExternalDirectory(folderRules) : folderRules, "external_directory"), wholeAgentAction(agentRules, "external_directory")]) },
-        ], `Run this command on this computer?\n\n${command.command}\n\nSandboxing is off, so this one approval covers everything the command does: reading and changing files, contacting websites and accessing folders outside the project.`, [workspace.path], { command: command.command, hostWide: true });
+          ...(nestedClient ? [{ permission: "external_directory", pattern: nestedClient, override: "ask" as const }] : []),
+        ], `Run this command on this computer?\n\n${command.command}\n\nSandboxing is off, so this one approval covers everything the command does: reading and changing files, contacting websites and accessing folders outside the project.`, [workspace.path], { command: command.command, hostWide: true, ...(nestedClient ? { otherClientFolder: nestedClient } : {}) });
         if (command.skills?.length) {
           const skills = await listSkills(workspace.path, true);
           for (const name of command.skills) {
@@ -191,7 +194,11 @@ export class AgentSandboxService {
         if (!isAbsolute(cwd)) throw new ApiError(400, "command_directory", "Use an absolute folder path on this computer.");
         return { ...await withFileEditorHandoff({ ...command, signal }, () => { signal.throwIfAborted(); return runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, capture: command.capture, signal }); }), sandbox: "host" };
       }
-      await ask("bash", command.command, `Run this command in the protected environment?\n\n${command.command}`, [workspace.path], commandAction("bash"));
+      // LAWOSS (#264): the folder of another client registered inside this one is shared at /workspace too; naming it always asks.
+      const nestedClient = await nestedClientInCommand(this.config, workspace, command, joinSessionFolder(workspace, command.folder ?? [], workspace.path), "/workspace");
+      if (nestedClient) await askOnce([{ permission: "bash", pattern: command.command, override: commandAction("bash") }, { permission: "external_directory", pattern: nestedClient, override: "ask" }],
+        `Run this command in the protected environment?\n\n${command.command}`, [workspace.path], { command: command.command, otherClientFolder: nestedClient });
+      else await ask("bash", command.command, `Run this command in the protected environment?\n\n${command.command}`, [workspace.path], commandAction("bash"));
       const writeAction = commandAction("edit");
       const externalRules = runtimeExternalDirectory(runtime);
       const folderPermissions = { ...runtime, permissions, projectPermissionApprovals: [...runtime.projectPermissionApprovals ?? [],
@@ -317,7 +324,7 @@ export class AgentSandboxService {
       permissions: readonly NativePermissionRule[];
       signal: AbortSignal;
       ask: (permission: string, pattern: string, summary: string, paths: string[], override?: PermissionAction, reviewable?: boolean, network?: ApprovalRequest["network"]) => Promise<void>;
-      askOnce: (steps: PermissionStep[], summary: string, paths: string[], card?: Pick<ApprovalRequest, "command" | "hostWide">) => Promise<void>;
+      askOnce: (steps: PermissionStep[], summary: string, paths: string[], card?: Pick<ApprovalRequest, "command" | "hostWide" | "otherClientFolder">) => Promise<void>;
       authorizeNetwork: (request: OutboundRequest, completeReview?: boolean) => Promise<boolean>;
     }) => Promise<T>): Promise<T> {
     if (this.stopping) throw new ApiError(503, "server_stopping", "LegalWork is stopping.");
@@ -356,12 +363,12 @@ export class AgentSandboxService {
         if (action === "deny") throw new ApiError(403, "sandbox_permission_denied", PERMISSION_RULE_MESSAGE(step.permission));
         return action;
       };
-      const confirm = async (permission: string, key: unknown, summary: string, paths: string[], network?: ApprovalRequest["network"], card: Pick<ApprovalRequest, "command" | "hostWide"> = {}) => {
+      const confirm = async (permission: string, key: unknown, summary: string, paths: string[], network?: ApprovalRequest["network"], card: Pick<ApprovalRequest, "command" | "hostWide" | "otherClientFolder"> = {}) => {
         const result = await this.approvals.requestApproval({ workspaceId: workspace.id, actor,
           action: `sandbox.${permission}`, summary, paths, sessionID: operation.sessionID, description: operation.description,
           ...(network ? { network } : {}), ...card }, signal, true,
-          // LAWOSS: a card that covers this whole computer (folders of other clients too) is never remembered.
-          operation.sessionID && !card.hostWide ? JSON.stringify([root, actor, this.config.readOnly, permission, key, paths, network, permissions,
+          // LAWOSS: a card that covers this whole computer (folders of other clients too) or names another client is never remembered.
+          operation.sessionID && !card.hostWide && !card.otherClientFolder ? JSON.stringify([root, actor, this.config.readOnly, permission, key, paths, network, permissions,
             agentRules.map(({ session: _, ...rule }) => rule), settings.enabled, settings.networkMode]) : undefined);
         // LAWOSS: a one-time decline is not a rule; the model may show a new card on a later explicit request.
         // No answer (timeout) or a cancelled card is reported as such, not as the user's decision.
@@ -379,7 +386,7 @@ export class AgentSandboxService {
         signal.throwIfAborted();
       };
       // LAWOSS: one card for one command. Every step is decided first; the first step that asks names the card.
-      const askOnce = async (steps: PermissionStep[], summary: string, paths: string[], card: Pick<ApprovalRequest, "command" | "hostWide"> = {}) => {
+      const askOnce = async (steps: PermissionStep[], summary: string, paths: string[], card: Pick<ApprovalRequest, "command" | "hostWide" | "otherClientFolder"> = {}) => {
         signal.throwIfAborted();
         const asking = steps.filter((step) => decide(step) === "ask");
         if (asking.length) await confirm(asking[0].permission, asking.map(({ permission, pattern }) => [permission, pattern]), summary, paths, undefined, card);

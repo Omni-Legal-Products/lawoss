@@ -21,6 +21,7 @@ import { describeMemoryWrite, keepsMemoryWriteGate } from "@/lawoss/lite/memory-
 import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
 import { fileOperationCard, offersRememberedApproval, rememberedApprovalKeys, type FileOperationDetails } from "@/lawoss/lite/file-operation-card";
 import { useOtherClientFolderText } from "@/lawoss/lite/other-client-folder";
+import { permissionCardNote } from "@/lawoss/lite/nested-client-card";
 import { offersSessionApproval } from "@/lawoss/lite/session-approvals";
 import { OtherClientWarning } from "@/lawoss/lite/other-client-warning";
 import { useMissingFolderText } from "@/lawoss/lite/missing-folder";
@@ -238,7 +239,7 @@ function describePermissionRequest(permission: PendingPermission): PermissionPre
     scopeLabel: t("session.scope_label"),
     scopeValue: patterns.join(", ") || t("session.permission_scope_empty"),
     isDoomLoop: false,
-    note: permission.message ?? null,
+    note: permissionCardNote(permission.message), // LAWOSS (#264): správu pluginu o inom klientovi nahrádza varovanie
   };
 }
 

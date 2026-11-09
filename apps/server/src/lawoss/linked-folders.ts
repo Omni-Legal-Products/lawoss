@@ -13,12 +13,12 @@
  */
 import { access, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { basename, dirname, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { ApiError } from "../errors.js";
 import { appliedOrgPolicy } from "../org-policy.js";
 import { readRuntimeOpencodeConfig, runtimeExternalDirectory, runtimeStorageDir } from "../runtime-opencode-config-store.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
-import { canonicalPath, folderOfGrant, isOfficeMemoryFolder, LINKED_FOLDERS_MAP_FILE, linkedFolderConflict, type LinkedFolderConflict, type LinkedFoldersMap } from "./linked-folders-rules.js";
+import { canonicalPath, commandMentionsFolder, folderOfGrant, isOfficeMemoryFolder, LINKED_FOLDERS_MAP_FILE, linkedFolderConflict, separateNestedClients, type LinkedFolderConflict, type LinkedFoldersMap } from "./linked-folders-rules.js";
 import { surveyLinkedFolder } from "./linked-folder-survey.js";
 import { isPathWithin } from "./path-within.js";
 import { yoloModeActive } from "./yolo-mode.js";
@@ -151,8 +151,13 @@ export async function clientCardFolder(root: string, practice: string | null): P
  */
 export async function buildLinkedFoldersMap(config: ServerConfig): Promise<LinkedFoldersMap> {
   const firm = await appliedOrgPolicy(config, "tools.permissions").catch(() => null);
-  if (firm?.value.external_directory !== undefined) return { version: 1, officeRoot: null, clients: [], firmManaged: true };
   const practice = await officeRoot(config);
+  // Priečinky mimo projektu určuje firma; korene a karty klientov plugin aj tak potrebuje pre vnorených klientov (#264).
+  if (firm?.value.external_directory !== undefined) {
+    const roots = await Promise.all((await clientWorkspaces(config)).map((workspace) => existingCanonical(workspace.path)));
+    const clients = await Promise.all(roots.filter((root): root is string => root !== null).map(async (root) => ({ root, folders: [], client: await clientCardFolder(root, practice) })));
+    return { version: 1, officeRoot: practice, clients, firmManaged: true };
+  }
   const clients = [];
   for (const workspace of await clientWorkspaces(config)) {
     const linked = await clientLinkedFolders(config, workspace);
@@ -320,4 +325,36 @@ export function externalDirectoryMap(rules: readonly { action: string; resource:
   const map: Record<string, string> = {};
   for (const rule of rules) if (rule.action === "external_directory") { delete map[rule.resource]; map[rule.resource] = rule.effect; }
   return map;
+}
+
+/**
+ * #264: kanonické korene klientov, ktoré sú s týmto klientom vnorené (vnútri neho alebo on v nich) a pritom sú iným
+ * klientom (pravidlo `separateNestedClients`, rovnaké ako v plugine `lawoss-linked-folders`). Kontajner praxe sa nepočíta.
+ */
+export async function separateNestedClientRoots(config: ServerConfig, workspace: WorkspaceInfo): Promise<string[]> {
+  const practice = await officeRoot(config);
+  const entries = await Promise.all((await clientWorkspaces(config)).map(async (entry) => {
+    const root = await existingCanonical(entry.path);
+    return root ? { id: entry.id, client: { root, folders: [], client: await clientCardFolder(root, practice) } } : null;
+  }));
+  const clients = entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  const own = clients.find((entry) => entry.id === workspace.id)?.client;
+  if (!own) return [];
+  const map: LinkedFoldersMap = { version: 1, officeRoot: practice, clients: clients.map((entry) => entry.client), firmManaged: false };
+  return map.clients.filter((client) => separateNestedClients(map, own, client)).map((client) => client.root);
+}
+
+/**
+ * Príkaz spravovaného shellu (`legalwork_shell`), ktorý spomína priečinok vnoreného iného klienta (`commandMentionsFolder`,
+ * v príkaze alebo pracovnom priečinku): koreň toho klienta, inak `null`. Server potom ukáže kartu s varovaním aj v YOLO.
+ */
+export async function nestedClientInCommand(config: ServerConfig, workspace: WorkspaceInfo, command: { command: string; workdir?: string }, cwd: string, guestRoot?: string): Promise<string | null> {
+  if (workspace.preset === "wiki") return null;
+  const roots = await separateNestedClientRoots(config, workspace);
+  if (!roots.length) return null;
+  const host = await existingCanonical(workspace.path) ?? workspace.path;
+  const hostCwd = await existingCanonical(cwd) ?? cwd;
+  const text = `${command.command}\n${command.workdir ?? ""}`;
+  return roots.find((root) => commandMentionsFolder(text, hostCwd, [root], guestRoot ? { host, guest: guestRoot } : undefined)
+    || (workspace.path !== host && commandMentionsFolder(text, cwd, [join(workspace.path, relative(host, root))]))) ?? null;
 }

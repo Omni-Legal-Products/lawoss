@@ -16,6 +16,7 @@
 import { t } from "@/i18n";
 import type { PendingPermission } from "@/app/types";
 import { memoryWriteCard } from "./memory-write-card";
+import { nestedClientCardFolder } from "./nested-client-card";
 
 type Operation = "move" | "copy" | "create_folder" | "delete";
 type PlannedChange = { operation: Operation; kind: "file" | "folder"; from?: string; to?: string; entries?: number; entriesCapped?: boolean; similar?: string[] };
@@ -125,7 +126,9 @@ export function fileOperationCard(metadata: Record<string, unknown>): { title: s
 }
 
 /** Whether the card may offer "Allow for the conversation". */
-export function offersRememberedApproval(permission: Pick<PendingPermission, "protocol" | "permission" | "always" | "host">): boolean {
+export function offersRememberedApproval(permission: Pick<PendingPermission, "protocol" | "permission" | "always" | "host"> & Partial<Pick<PendingPermission, "message">>): boolean {
+  // #264: karta iného klienta vnoreného v klientovi sa vždy pýta znova.
+  if (nestedClientCardFolder({ message: permission.message, host: permission.host })) return false;
   if (permission.protocol === "host") return !permission.host || (permission.host.canRemember === true && permission.host.hostWide !== true);
   if (permission.permission === "external_directory" || permission.permission === "edit") return false;
   return !(Array.isArray(permission.always) && permission.always.length === 0);

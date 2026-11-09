@@ -14,6 +14,7 @@ import { cleanTitle } from "./client-titles";
 import { useClientNav } from "./client-nav";
 import { comparable, within } from "./matter-conversations";
 import { clientCode } from "./client-row";
+import { nestedClientCardFolder } from "./nested-client-card";
 
 /** Klient z prehľadu OKF: priečinok s kartou klienta (`client.md`/`klient.md`), absolútne, a jeho meno. */
 export type CardClient = { folder: string; name: string };
@@ -105,15 +106,26 @@ export function clientDisplayName(folder: string, title: string | undefined): st
   return code && !name.normalize("NFC").toLocaleLowerCase().includes(code.toLocaleLowerCase()) ? `${code} ${name}` : name;
 }
 
-/** Pre kartu `external_directory`: veta o inom klientovi podľa klientov s kartou z prehľadu bočného panela; inak `null`. */
-export function useOtherClientFolderText(permission: Pick<PendingPermission, "permission" | "patterns">, chatDirectory: string | null | undefined): string | null {
+/** Meno klienta pre priečinok: z prehľadu (kód a meno z karty), z registrovaných priečinkov, inak názov priečinka. */
+export function nestedClientName(folder: string, clients: readonly CardClient[], workspaces: readonly { path?: string | null; displayNameResolved?: string }[]): string {
+  const wanted = comparable(folder);
+  const card = clients.find((client) => comparable(client.folder) === wanted);
+  if (card) return card.name;
+  const workspace = workspaces.find((entry) => entry.path && comparable(entry.path) === wanted);
+  return clientDisplayName(folder, workspace?.displayNameResolved?.trim() || undefined);
+}
+
+/** Pre kartu `external_directory` (a kartu vnoreného iného klienta): veta o inom klientovi podľa klientov s kartou z prehľadu; inak `null`. */
+export function useOtherClientFolderText(permission: Pick<PendingPermission, "permission" | "patterns" | "message" | "host">, chatDirectory: string | null | undefined): string | null {
   const nav = useClientNav();
-  if (permission.permission !== "external_directory") return null;
+  const nested = nestedClientCardFolder(permission);
+  if (permission.permission !== "external_directory" && !nested) return null;
   const scope = nav?.scope;
   const clients = scope ? (nav?.data?.clients ?? []).flatMap((client) => {
     const folder = overviewFolder(scope, client.path);
     // Meno a kód z cesty prehľadu (pôvodná veľkosť písmen), nie z porovnávacieho tvaru priečinka.
     return folder ? [{ folder, name: clientDisplayName(client.path, client.title ? cleanTitle(client.title) : undefined) }] : [];
   }) : [];
+  if (nested) return otherClientFolderText({ kind: "inside", name: nestedClientName(nested, clients, nav?.connection?.workspaces ?? []) });
   return otherClientFolderText(otherClientFolder(permission.patterns, chatDirectory, clients));
 }
