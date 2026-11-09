@@ -260,12 +260,16 @@ try {
     const chooser=await until(()=>cdp.events.slice(eventStart).find(e=>e.method==='Page.fileChooserOpened'),'actual native HTML chooser request');
     // The display-name ACK is independent of client identity: GREEN must keep
     // the same client. All raw connection operands remain inside the renderer.
+    // `PATCH /workspaces/:id/display-name` is a host route. Since upstream v0.2.18 a host route
+    // accepts only the host token (X-LegalWork-Host-Token), as the app's updateWorkspaceDisplayName
+    // sends it; the retired owner bearer no longer authorizes it (401).
     const refreshName = async name => {
+      assert.ok(typeof serverInfo.hostToken==='string'&&serverInfo.hostToken,'Controlled display-name refresh requires the owned host token');
       const receipt=await cdp.evaluate(`(async()=>{
-        const headers=${JSON.stringify(serverAuth)},base=${JSON.stringify(serverInfo.baseUrl)},id=${JSON.stringify(workspace.id)};
+        const headers=${JSON.stringify(serverAuth)},hostHeaders={...headers,'x-legalwork-host-token':${JSON.stringify(serverInfo.hostToken)}},base=${JSON.stringify(serverInfo.baseUrl)},id=${JSON.stringify(workspace.id)};
         const read=async(response)=>{if(response.status!==200)throw new Error('Controlled metadata HTTP status');return response.json()};
         const before=(await read(await fetch(base+'/workspaces',{headers}))).workspaces.find(w=>w.id===id);
-        const after=(await read(await fetch(base+'/workspaces/'+encodeURIComponent(id)+'/display-name',{method:'PATCH',headers,body:JSON.stringify({displayName:${JSON.stringify(name)}})}))).workspaces.find(w=>w.id===id);
+        const after=(await read(await fetch(base+'/workspaces/'+encodeURIComponent(id)+'/display-name',{method:'PATCH',headers:hostHeaders,body:JSON.stringify({displayName:${JSON.stringify(name)}})}))).workspaces.find(w=>w.id===id);
         const fields=['id','workspaceType','path','baseUrl','legalworkHostUrl','legalworkToken','legalworkClientToken','legalworkHostToken','legalworkWorkspaceId'];
         const unchanged=!!before&&!!after&&fields.every(key=>Object.is(before[key],after[key]));
         if(!unchanged)throw new Error('Controlled metadata changed connection or root');
