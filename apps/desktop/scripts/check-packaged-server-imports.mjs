@@ -74,7 +74,10 @@ function listJs(dir, base = dir, out = []) {
 }
 
 /** Beží v detskom procese (Node alebo Electron ako Node), `appRoot` je `Resources/app` alebo `app.asar`. */
-async function worker(appRoot, resultFile) {
+async function worker(appRoot, resultFile, officialSelection = false) {
+  // LAWOSS v2: zabalená appka nesie pripravený výber enginu (`generated/selection.json`).
+  // Job bez enginu ho nemá; kontrola importov servera vtedy dostane oficiálny fixture výber.
+  if (officialSelection) await (await import("../../../lawoss/testing/official-engine-selection.mjs")).useOfficialEngineSelection();
   const dist = join(appRoot, "server", "dist");
   const failures = [];
   // Pluginy enginu v asar nie sú (electron-builder ich dáva do Resources/opencode-plugins).
@@ -161,7 +164,9 @@ export function checkPackagedServerImports(target = desktopRoot, { timeoutMs = 1
     // Zabalená appka má natívne moduly pre ABI Electronu a asar číta len Electron.
     const command = asar ? createRequire(join(desktopRoot, "package.json"))("electron") : process.execPath;
     if (asar) env.ELECTRON_RUN_AS_NODE = "1";
-    const child = spawnSync(command, [fileURLToPath(import.meta.url), "--worker", appRoot, resultFile], {
+    const officialSelection = !asar && !existsSync(join(repoRoot, "packages", "opencode-release", "generated", "selection.json"));
+    if (officialSelection) console.log("Engine selection is not prepared; checking server imports with the official fixture selection.");
+    const child = spawnSync(command, [fileURLToPath(import.meta.url), "--worker", appRoot, resultFile, ...(officialSelection ? ["--official-selection"] : [])], {
       cwd: temp, env, encoding: "utf8", timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024,
     });
     if (!existsSync(resultFile)) {
@@ -211,7 +216,7 @@ export function assertPackagedServerImports(archive) {
 }
 
 if (process.argv[2] === "--worker") {
-  await worker(process.argv[3], process.argv[4]);
+  await worker(process.argv[3], process.argv[4], process.argv[5] === "--official-selection");
 } else if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const target = process.argv[2] ? resolve(process.argv[2]) : desktopRoot;
   const { files, imported, failures } = checkPackagedServerImports(target);
