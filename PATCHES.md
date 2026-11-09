@@ -8,6 +8,7 @@ Rozhodnutia MČ 10. 11. 2026 (koordinačný záznam k ADR 0016).
 |---|---|
 | `apps/server/src/bundled-workflows.ts`, `apps/server/src/embedded.ts`, `apps/server/src/cli.ts`, `apps/server/src/lawoss/hidden-bundled-workflows.ts` (nový, + test) | Anglické pribalené workflowy `workflow-assistant-due-diligence` a `workflow-firm-knowledge` sa neinštalujú (#255 A2). `ensureBundledWorkflows` dostal voliteľný zoznam mien; štart servera volá `ensureLawossBundledWorkflows`, ktorý nainštaluje ostatné a nezmenenú staršiu kópiu skrytých odstráni (upravenú ponechá). |
 | `apps/server/src/lawoss/claude-global-skills.ts`, `apps/desktop/electron/lawoss-skill-roots.mjs` (+ testy) | Okrem `~/.claude/skills` sa nečítajú ani `~/.agents/skills` a `~/.agent/skills` (#255 C). |
+| `apps/app/src/react-app/domains/connections/provider-auth/store.ts`, `apps/app/src/lawoss/domains/settings/connect-key-after-config.ts` (nový, + test) | Kľúč nového vlastného poskytovateľa: engine v2 preberá zapísanú konfiguráciu s oneskorením (sledovanie súborov), takže `connect.key` hneď po PATCH mohol dostať `IntegrationNotFoundError` (404). Obnova katalógu a uloženie kľúča sa pri tejto jedinej chybe opakuje do 10 s; iné chyby sa neopakujú. Upstream v0.3.9 má rovnaký pretek. |
 
 ## CI po zlúčení dev do v2 (2026-11-09)
 
