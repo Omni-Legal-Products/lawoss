@@ -40,7 +40,7 @@ async function fixture() {
     const header = request.headers.get("x-opencode-directory");
     const location = url.searchParams.get("location[directory]") ?? (header ? decodeURIComponent(header) : null);
     requests.push({ method: request.method, pathname: url.pathname, location });
-    if (url.pathname === "/api/info") return Response.json({ version: "2.1.4-legalwork.http-policy.3", pid: process.pid });
+    if (url.pathname === "/api/info") return Response.json({ version: "2.1.4-legalwork.http-policy.4", pid: process.pid });
     if (url.pathname === "/api/session/active") return Response.json({ data: Object.fromEntries([...running.keys()].map(id => [id, { type: "running" }])) });
     const session = url.pathname.match(/^\/api\/session\/([^/]+)$/);
     if (session && running.has(session[1]!)) return Response.json({ id: session[1], projectID: "p", location: { directory: running.get(session[1]!) }, time: { created: 1, updated: 1 } });

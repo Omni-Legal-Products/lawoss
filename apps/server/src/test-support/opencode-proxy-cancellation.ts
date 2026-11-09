@@ -77,7 +77,7 @@ export async function verifyProxyCancellation(start: typeof startServer, scenari
       return;
     }
     if (url.pathname === "/api/info") {
-      response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ version: "2.1.4-legalwork.http-policy.3", pid: process.pid }));
+      response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ version: "2.1.4-legalwork.http-policy.4", pid: process.pid }));
       return;
     }
     response.writeHead(404).end();
@@ -158,7 +158,7 @@ export async function verifyProxyCancellation(start: typeof startServer, scenari
     }
     const health = await fetch(`${selected}/info`, { headers });
     assert.equal(health.status, 200);
-    assert.deepEqual(await health.json(), { version: "2.1.4-legalwork.http-policy.3", pid: process.pid });
+    assert.deepEqual(await health.json(), { version: "2.1.4-legalwork.http-policy.4", pid: process.pid });
     assert.deepEqual(protocolErrors, []);
   } finally {
     for (const controller of controllers) controller.abort();

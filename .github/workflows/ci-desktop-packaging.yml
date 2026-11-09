@@ -34,7 +34,7 @@ jobs:
     with:
       targets: linux-x64,win32-x64,win32-arm64,darwin-arm64
       run_tests: false
-  # 🟡 LAWOSS (ADR 0016, MČ 8. 11. 2026): pri samostatnom behu si engine 2.1.4-legalwork.http-policy.3
+  # 🟡 LAWOSS (ADR 0016, MČ 8. 11. 2026): pri samostatnom behu si engine 2.1.4-legalwork.http-policy.4
   # zostaví zo zdrojov vývojovou cestou (ad-hoc podpis); volajúci workflow môže dodať vlastný digest.
   opencode-engine:
     if: ${{ inputs.derivative-manifest-sha256 == '' }}

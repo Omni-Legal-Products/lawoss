@@ -17,9 +17,9 @@ test('untrusted archive fails before replacing an existing measured engine', asy
 });
 
 test('the reviewed archive comes from the LAWOSS release, never the upstream repository', () => {
-  assert.deepEqual({ ...protectedEngineRelease }, { repository: 'Omni-Legal-Products/lawoss', tag: 'opencode-v2.1.4-legalwork.http-policy.3-lawoss.1' });
+  assert.deepEqual({ ...protectedEngineRelease }, { repository: 'Omni-Legal-Products/lawoss', tag: 'opencode-v2.1.4-legalwork.http-policy.4-lawoss.1' });
   for (const pin of Object.values(protectedEnginePins)) {
-    assert.equal(protectedEngineReleaseUrl(pin), `https://github.com/Omni-Legal-Products/lawoss/releases/download/opencode-v2.1.4-legalwork.http-policy.3-lawoss.1/${pin.name}`);
+    assert.equal(protectedEngineReleaseUrl(pin), `https://github.com/Omni-Legal-Products/lawoss/releases/download/opencode-v2.1.4-legalwork.http-policy.4-lawoss.1/${pin.name}`);
   }
 });
 

@@ -137,7 +137,7 @@ jobs:
           echo "signed=false" >> "$GITHUB_OUTPUT"
           echo "draft=true" >> "$GITHUB_OUTPUT"
 
-  # 🟡 LAWOSS (ADR 0016, MČ 8. 11. 2026): engine 2.1.4-legalwork.http-policy.3 zo zdrojov
+  # 🟡 LAWOSS (ADR 0016, MČ 8. 11. 2026): engine 2.1.4-legalwork.http-policy.4 zo zdrojov
   # vývojovou cestou s ad-hoc podpisom. Ostrá príprava s podpisovateľom Eigenwelt sa nespúšťa.
   opencode-engine:
     needs: signing

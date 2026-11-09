@@ -2,7 +2,7 @@
  * Build tooling only: installed applications never download an engine.
  *
  * LAWOSS (ADR 0016, MČ 8. 11. 2026): the guest engine is the same LegalWork derivative
- * `2.1.4-legalwork.http-policy.3` the desktop uses, built from source by the reviewed recipe
+ * `2.1.4-legalwork.http-policy.4` the desktop uses, built from source by the reviewed recipe
  * (`packages/opencode-release/build/recipe.json`; `pnpm engine:prepare --target linux-arm64
  * --target linux-x64-baseline`). OpenCode publishes no 2.1.4 GitHub release for it. The exact
  * reviewed archives are published as a GitHub release of `Omni-Legal-Products/lawoss`
