@@ -91,6 +91,8 @@ export class ProtectedVmEngine {
   private readonly commands: Command[] = [];
   private wake?: () => void;
   private polling = false;
+  /** Closed readiness diagnostic: guest retries of the engine's typed plugin-activation 503. */
+  private activationRetryCount?: number;
   private readyResolve!: () => void;
   private readyReject!: (error: Error) => void;
   private readonly readiness: Promise<void>;
@@ -138,7 +140,10 @@ export class ProtectedVmEngine {
         const phase = /^Protected engine failed at (bundle|copy-executable|restore-checkpoint|start-engine|engine-health|engine-initialization|publish-ready|serve)$/m.exec(result.output)?.[1];
         const health = /^Protected engine health state (unobserved|http-refused|invalid-health|version-mismatch|accepted|unreachable)$/m.exec(result.output)?.[1];
         const initialization = /^Protected engine initialization state (unobserved|pending|provider-invalid|agent-invalid|tool-schema-invalid|http-refused|invalid-json|timeout|aborted|ready)$/m.exec(result.output)?.[1];
-        if (!owned.stopping) owned.fail(new Error(`Protected engine worker exited (${result.exitCode}, phase ${phase ?? "unknown"}, health ${health ?? "unknown"}, initialization ${initialization ?? "unknown"}).`));
+        // Closed categories only: which initialization request failed, how, and how often plugin activation was retried.
+        const request = /^Protected engine initialization request (none|model|model-default|agent|tool-schema) (none|transport|plugin-activation|status-4xx|status-5xx|status-other|response-bound|invalid-json|deadline)$/m.exec(result.output);
+        const retries = /^Protected engine initialization activation-retries ([0-9]{1,4})$/m.exec(result.output)?.[1];
+        if (!owned.stopping) owned.fail(new Error(`Protected engine worker exited (${result.exitCode}, phase ${phase ?? "unknown"}, health ${health ?? "unknown"}, initialization ${initialization ?? "unknown"}, request ${request ? `${request[1]} ${request[2]}` : "unknown"}, activation-retries ${retries ?? "unknown"}).`));
       },
         (error: unknown) => { owned.fail(failure(error)); if (!owned.stopping) throw error; });
       void engine.run.catch(() => {});
@@ -148,6 +153,8 @@ export class ProtectedVmEngine {
   }
 
   ready(): Promise<void> { return this.readiness; }
+
+  get activationRetries(): number | undefined { return this.activationRetryCount; }
 
   private fail(error: Error): void {
     if (this.ended) return;
@@ -321,8 +328,9 @@ export class ProtectedVmEngine {
       return jsonResponse(await this.input.handleTool(tool.data, signal));
     }
     if (url.pathname === "/rpc/ready" && request.method === "POST") {
-      z.object({ version: z.literal(2) }).strict().parse(parsedBody(request));
+      const ready = z.object({ version: z.literal(2), activationRetries: z.number().int().min(0).max(9999).optional() }).strict().parse(parsedBody(request));
       this.confirmReady();
+      this.activationRetryCount ??= ready.activationRetries;
       this.readyResolve(); return jsonResponse({ ok: true });
     }
     if (url.pathname === "/rpc/result" && request.method === "POST") return this.result(parsedBody(request));

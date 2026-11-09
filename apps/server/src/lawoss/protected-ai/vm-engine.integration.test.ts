@@ -243,7 +243,7 @@ function retirementProbe() {
       },
       handleTool: async (call, signal) => { toolCalls.push(call.name); return tools.invoke(call.name, call.arguments, signal); },
     }, { createSandbox: broker => new VmSandbox(runtimeDirectory, "auto", { request: broker, maxRequests: 4096 }) });
-    console.info("ACTUAL_VM_READY", JSON.stringify({ warmupMs: Date.now() - started }));
+    console.info("ACTUAL_VM_READY", JSON.stringify({ warmupMs: Date.now() - started, activationRetries: engine.activationRetries ?? "unknown" }));
     // The inference budget begins only after VM/runtime provisioning and readiness.
     const inference = AbortSignal.timeout(90_000);
     // Engine v2: create at the guest's private location, admit one turn, await its idle barrier.

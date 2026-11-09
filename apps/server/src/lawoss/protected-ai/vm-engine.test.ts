@@ -414,3 +414,36 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
     } finally { await h.close(); }
   });
 });
+
+test("a pre-ready worker exit reports only closed initialization request categories and a bounded retry count", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lawoss-vm-exit-"));
+  try {
+    const bundleDirectory = join(root, "bundle"), emptyDirectory = join(root, "empty");
+    await Promise.all([mkdir(bundleDirectory), mkdir(emptyDirectory)]);
+    const open = (output: string) => ProtectedVmEngine.open({ bundleDirectory, emptyDirectory, signal: AbortSignal.timeout(5000),
+      handleOutbound: async () => { throw new Error("No model dispatch in exit fixture"); },
+      handleTool: async () => { throw new Error("No tool in exit fixture"); },
+    }, { createSandbox: () => ({ run: async () => ({ exitCode: 1, output, truncated: false }) }) });
+    await expect(open(["Protected engine failed at engine-initialization", "Protected engine health state accepted",
+      "Protected engine initialization state timeout", "Protected engine initialization request model plugin-activation",
+      "Protected engine initialization activation-retries 35"].join("\n")))
+      .rejects.toThrow("Protected engine worker exited (1, phase engine-initialization, health accepted, initialization timeout, request model plugin-activation, activation-retries 35).");
+    // Engine-shaped text outside the closed categories is never echoed.
+    await expect(open(["Protected engine failed at engine-initialization", "Protected engine initialization state http-refused",
+      "Protected engine initialization request model Location plugins did not finish activating", "Protected engine initialization activation-retries 123456"].join("\n")))
+      .rejects.toThrow("Protected engine worker exited (1, phase engine-initialization, health unknown, initialization http-refused, request unknown, activation-retries unknown).");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("readiness carries only a bounded plugin-activation retry count", async () => {
+  const h = await harness({ manualReady: true });
+  try {
+    await h.started;
+    await expect(h.send("/rpc/ready", { version: 2, activationRetries: -1 })).rejects.toThrow();
+    await expect(h.send("/rpc/ready", { version: 2, activationRetries: 10_000 })).rejects.toThrow();
+    await expect(h.send("/rpc/ready", { version: 2, activationRetries: 3, detail: "engine text" })).rejects.toThrow();
+    await h.send("/rpc/ready", { version: 2, activationRetries: 3 });
+    const engine = await h.opening;
+    expect(engine.activationRetries).toBe(3);
+  } finally { await h.close(); }
+});
