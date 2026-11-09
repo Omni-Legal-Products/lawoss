@@ -48,7 +48,7 @@ const createSchema = z.object({
   country: z.string().refine(value => value === "OTHER" || legalResearchCountries.includes(value)).optional(),
 }).strict();
 const updateSchema = z.object({
-  name: z.string().trim().min(1).max(200).optional(), allowInProjects: z.boolean().optional(), projectWorkspaceIds: z.array(z.string().min(1).max(200)).max(1000).nullable().optional(),
+  name: z.string().trim().min(1).max(200).optional(), allowInProjects: z.boolean().optional(), requireAgentApproval: z.boolean().optional(), projectWorkspaceIds: z.array(z.string().min(1).max(200)).max(1000).nullable().optional(),
 }).strict();
 const writeSchema = z.object({ path: z.string().min(1), content: z.string(), baseRevision: z.string().max(100).nullable().optional() });
 const deleteSchema = z.object({ path: z.string().min(1), baseRevision: z.string().min(1).max(100) });

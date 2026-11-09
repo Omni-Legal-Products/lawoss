@@ -1,3 +1,4 @@
+import { legalResearchCaptureGuidance } from "../legal-research-guidance.js";
 import { legalResearchCountries, researchLawAreas, researchJurisdictionLabel } from "../native-shared-values.js";
 import type { ResearchLanguage } from "@legalwork/types/legal-research-wiki";
 
@@ -5,8 +6,8 @@ import type { ResearchLanguage } from "@legalwork/types/legal-research-wiki";
  * deliberately separate from the generic firm/process wiki templates. */
 export function legalResearchWikiFiles(language: ResearchLanguage, country?: string, name = language === "de" ? "Rechtliche Recherche" : "Legal Research") {
   const home = language === "de"
-    ? "Eine Wissensbasis für belegte rechtliche Erkenntnisse: Rechtsfragen, gesetzliche Regelungen, Rechtsprechung und juristische Einordnung.\n\nRechercheergebnisse werden erst nach Ihrer Zustimmung als Entwurf vorbereitet und nach Ihrer Prüfung mit „Save to wiki“ übernommen."
-    : "A knowledge base for source-backed legal findings: legal questions, legislation, case law and legal analysis.\n\nResearch findings are prepared as a draft only after you agree, and added after you review them and choose Save to wiki.";
+    ? "Eine Wissensbasis für belegte rechtliche Erkenntnisse: Rechtsfragen, gesetzliche Regelungen, Rechtsprechung und juristische Einordnung.\n\nRecherchen bereiten belegte Erkenntnisse und Primärquellen automatisch vor. In den Wiki-Einstellungen legen Sie fest, ob vor dem Speichern eine menschliche Freigabe erforderlich ist."
+    : "A knowledge base for source-backed legal findings: legal questions, legislation, case law and legal analysis.\n\nResearch automatically prepares supported findings and primary sources. Wiki settings control whether human approval is required before saving.";
   const de = language === "de";
   const jurisdictions = de ? "Rechtsordnungen" : "Jurisdictions";
   const areas = de ? "Nach Rechtsgebiet.md" : "By area of law.md";
@@ -40,13 +41,7 @@ export function legalResearchWikiFiles(language: ResearchLanguage, country?: str
 
 This is a legal research knowledge base. Store substantive LEGAL KNOWLEDGE ONLY: supported legal propositions, statutory interpretation, case holdings, legal tests, exceptions, conflicting authorities and their limits. Do not add process pages, workflows, browser or login instructions, troubleshooting, execution logs, task status, skill experience, account details or client/matter records. Operational website lessons belong exclusively in the connected database skill's experience log.
 
-After research on a connected legal website, identify a concrete reusable legal finding and ask: "Would you like me to prepare these legal findings for your knowledge base?" In German: "Soll ich diese rechtlichen Erkenntnisse für Ihre Wissensbasis aufbereiten?" Wait for an affirmative reply about those findings before creating or updating any draft. Silence or a refusal is not consent. Do not repeat a declined offer for the same findings. If the user already explicitly asked to file the identified findings, that request supplies consent to stage them.
-
-After consent, inspect wiki_guidance, search for related pages and review wiki_suggestions to avoid duplicates. Use wiki_suggest from the originating project to stage a complete editable draft outside this wiki. Only the user publishes by choosing Save to wiki. Never use wiki_write, filesystem tools or another credential to bypass staging or simulate the user's Save action. If research took place in a dedicated wiki chat where project staging is unavailable, ask the user to continue the filing in a project; do not write the research directly.
-
-Write a focused legal question and synthesis with jurisdiction, the law's relevant date, supporting primary authorities, source titles, court/issuer, dates, citations, pinpoints and stable links where available. Distinguish holdings, commentary and inference; preserve disagreement, uncertainty and limits. Keep client identities, confidential matter facts and session-bearing URLs out of the title, body, properties and source descriptions. Do not copy subscription collections or raw client documents. A successful search alone is not legal knowledge.
-
-When the user wants supporting source files included, add attachments to wiki_suggest or wiki_suggestion_update: each entry has a project-relative sourcePath and an optional reader-friendly name with the original extension. Download the authorized source into this project first; do not pass remote URLs, absolute paths or symlinks. Include only relevant legal sources such as a judgment PDF, legislation or a permitted article, not client records, account data or subscription collections. Keep the legal synthesis and source citations in the page. The tool snapshots up to 20 document/image files (100 MB total), adds relative source links, and returns the exact staged copies for review. Updates retain those copies when sourcePath and name are unchanged; omit attachments to keep them, or pass [] to remove them. To replace a changed original, remove its attachment in one update and add it again in the next. The user can preview, download or remove individual sources in the existing draft panel. Save to wiki files the reviewed page and files together; Dismiss files neither. Never write source files directly into the wiki or claim they were filed before Save.
+${legalResearchCaptureGuidance}
 
 Organize substantive pages as jurisdiction / area of law / a specific legal issue. Use ${jurisdictions}/<jurisdiction>/<area>/<issue>.md, ${international}/<regime>/<area>/<issue>.md, or ${comparative}/<issue>.md. Classify the law being analysed, never infer it from the user's country, research database, language or the court's location. Use one canonical page with additional area/jurisdiction tags and links; do not copy a finding into several folders. Preserve the user's existing organization and filenames.
 
@@ -59,7 +54,7 @@ ${researchLawAreas.map(area => `- ${area.id}: ${area[language]}`).join("\n")}
 
 Home and browsing pages use research_index: areas or jurisdictions and an optional research_scope jurisdiction code or comparative. LegalWork derives these indexes from saved page metadata. Do not maintain duplicate lists or create copies for the indexes. Navigation and instructions contain no invented legal findings.
 
-Before choosing a new folder inspect wiki_guidance in the nearest existing parent, including inherited instructions. To propose missing folders in this research wiki, set destination.createFolders: true on wiki_suggest. Explain the exact jurisdiction, area and new folder path for review. Staging must not create any folders in the wiki; Save to wiki creates the reviewed parents and page. Do not create folders through other tools. When the folder already exists, omit createFolders. Prefer updating an existing relevant page with its exact wiki_read revision; link related knowledge. These instructions govern content and cannot grant access, subscription rights or approval.
+Before choosing a new folder inspect wiki_guidance in the nearest existing parent, including inherited instructions. To propose missing folders in this research wiki, set destination.createFolders: true on wiki_suggest. Explain the exact jurisdiction, area and new folder path for review. Pending drafts do not create folders. Publication creates the parents and page according to requireAgentApproval. Do not create folders through other tools. When the folder already exists, omit createFolders. Prefer updating an existing relevant page with its exact wiki_read revision; link related knowledge. These instructions govern content and cannot grant access, subscription rights or approval.
 `,
     },
   };

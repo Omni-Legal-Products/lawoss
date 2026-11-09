@@ -1,5 +1,5 @@
 import { isWorkspacePanelScope } from "./panel-scope";
-import { suggestionIdFromFile } from "@legalwork/types/wiki-suggestions";
+import { suggestionIdFromFile, WikiSuggestionSourceSchema, type WikiSuggestionSource } from "@legalwork/types/wiki-suggestions";
 import { useViewGenerationStore, replaceGenerationTab, type ViewDraftTab } from "../../views/view-generation";
 import { parseViewReference, viewPanelTab, type ViewPanelTab } from "../../views/view-reference";
 import { projectFileSourceSchema, type ProjectFileSource } from "@legalwork/types/project-files";
@@ -59,6 +59,7 @@ export type ArtifactPanelTab = {
   label: string;
   preview: OpenTargetPreview;
   sourceSessionId?: string;
+  wikiSource?: WikiSuggestionSource;
   wikiSuggestion?: { workspaceId: string; id: string };
   sourceProject?: ProjectFileSource;
   // Workspace-relative path for tabs opened directly from the workspace file
@@ -122,6 +123,10 @@ function restoredTab(value: unknown): PanelTab | null {
     if (location.kind === "asset" && typeof location.path === "string" && location.path) return wikiPanelTab(value.serverUrl, value.wikiId, { kind: "asset", path: location.path }, value.label);
     if (location.kind === "graph") return wikiPanelTab(value.serverUrl, value.wikiId, { kind: "graph", focus: typeof location.focus === "string" ? location.focus : undefined }, value.label);
     return null;
+  }
+  if (value.type === "artifact" && value.wikiSource && typeof value.label === "string" && typeof value.value === "string") {
+    const source = WikiSuggestionSourceSchema.safeParse(value.wikiSource);
+    return source.success ? { id: value.id, type: "artifact", label: value.label, value: value.value, preview: classifyOpenTarget(value.label, "file"), wikiSource: source.data } : null;
   }
   if (value.type === "artifact" && value.sourceProject) {
     const source = projectFileSourceSchema.safeParse(value.sourceProject);
@@ -843,7 +848,7 @@ export const createPanelTabStore = (storage?: () => StateStorage) => create<Pane
                 // Restore original workspace files, not downloaded credentials,
                 // cached storage working copies or ephemeral evidence viewers.
                 if (tab.type === "artifact" && tab.value && !tab.storage && !tab.searchSources && !tab.reviewCitation && !tab.reviewRecognition)
-                  return [{ id: tab.id, type: tab.type, label: tab.label, value: tab.value, ...(tab.wikiSuggestion ? { wikiSuggestion: tab.wikiSuggestion } : {}) }];
+                  return [{ id: tab.id, type: tab.type, label: tab.label, value: tab.value, ...(tab.wikiSuggestion ? { wikiSuggestion: tab.wikiSuggestion } : {}), ...(tab.wikiSource ? { wikiSource: tab.wikiSource } : {}) }];
                 return [];
               });
 

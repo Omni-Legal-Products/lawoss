@@ -1,3 +1,4 @@
+import { assistantHasVisibleContent } from "@/components/chat/assistant-chat-presentation";
 import { readMcpStatuses } from "@/react-app/domains/connections/native-mcp";
 import { browserPasswordRequest } from "@legalwork/types/browser-password-request";
 import { NativeFormPanel } from "../modals/native-form-panel";
@@ -13,7 +14,7 @@ import { useProjectFiles } from "../../workspace/project-file-context";
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { AssistantHistory } from "./assistant-history";
 import { assistantBubbleMessages, assistantIsWriting } from "./assistant-bubbles";
-import { canPreviewAssistantSend, assistantOutgoingIsQueued, addAssistantOutgoingMessage, assistantOutgoingScope, mergeAssistantOutgoingMessages, removeAssistantOutgoingMessage, useAssistantOutgoingMessages } from "./assistant-outgoing-messages";
+import { canPreviewAssistantSend, assistantOutgoingIsQueued, addAssistantOutgoingMessage, assistantOutgoingScope, mergeAssistantOutgoingMessages, rememberAcceptedSteeringMessages, removeAssistantOutgoingMessage, useAssistantOutgoingMessages } from "./assistant-outgoing-messages";
 import { AssistantOnboardingConversation, type AssistantOnboardingControls } from "./assistant-onboarding-conversation";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { SessionSandbox } from "./session-sandbox";
@@ -139,6 +140,7 @@ import {
   getComposerMentions,
   getComposerPasteParts,
   getComposerQueuedDrafts,
+  submitComposerDraft,
   useComposerStateStore,
 } from "./composer-state-store";
 import { LEGALMEMORY_OPEN_EVENT, LEGALMEMORY_REF_EVENT } from "@/components/markdown/legalmemory-ref";
@@ -229,6 +231,7 @@ export type SessionSurfaceProps = {
   activeQuestion?: PendingQuestion | null;
   questionReplyBusy?: boolean;
   respondQuestion?: (requestID: string, answers: string[][]) => void;
+  cancelQuestion?: (requestID: string) => void;
   onOpenInteractionSession?: (sessionId: string) => void;
   safeStringify?: (value: unknown) => string;
   onChangeModel?: (model: { providerID: string; modelID: string }) => void;
@@ -996,11 +999,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
       message.parts.some(part => part.type === "text" && isSubscriptionRecoveryError(part.text)));
   const outgoingMessages = useAssistantOutgoingMessages(state => state.entries);
   const outgoingScope = assistantOutgoingScope(props.client.baseUrl, props.workspaceId, props.sessionId);
-  const displayedMessages = useMemo(() => props.assistantDate
-    ? mergeAssistantOutgoingMessages(assistantBubbleMessages(renderedMessages, snapshot, chatStreaming), outgoingMessages, outgoingScope, sharedQueue.state)
-    : renderedMessages, [props.assistantDate, renderedMessages, snapshot, chatStreaming, outgoingMessages, outgoingScope, sharedQueue.state]);
+  const displayedMessages = useMemo(() => mergeAssistantOutgoingMessages(
+    props.assistantDate ? assistantBubbleMessages(renderedMessages, snapshot, chatStreaming) : renderedMessages,
+    outgoingMessages, outgoingScope, sharedQueue.state,
+  ), [props.assistantDate, renderedMessages, snapshot, chatStreaming, outgoingMessages, outgoingScope, sharedQueue.state]);
   useEffect(() => {
     const confirmed = new Set(renderedMessages.map(message => message.id));
+    rememberAcceptedSteeringMessages(outgoingScope, sharedQueue.state, confirmed);
     for (const entry of outgoingMessages) {
       if (entry.scope === outgoingScope && (confirmed.has(entry.message.id) || assistantOutgoingIsQueued(entry.queueId, sharedQueue.state))) removeAssistantOutgoingMessage(entry.queueId);
     }
@@ -1204,41 +1209,36 @@ export function SessionSurface(props: SessionSurfaceProps) {
     if (props.assistantOnboarding?.state.needed && props.assistantOnboarding.state.step === "avatar") return;
     if ((!text && attachments.length === 0) || queueSubmitting.current) return;
     queueSubmitting.current = true; setQueueSaving(true);
-    const editor = useComposerStateStore.getState().sessions[props.sessionId];
+    const editor = useComposerStateStore.getState().sessions[props.sessionId] ?? { draft: text, attachments, mentions, pasteParts };
     let outgoingId: string | undefined;
     try {
-      if (props.assistantDate) {
+      await submitComposerDraft(props.sessionId, editor, async () => {
         const localDraft = buildDraft(text, attachments);
         outgoingId = sharedQueue.reserve(localDraft, editor);
-        if (canPreviewAssistantSend(sharedQueue.state, chatStreaming, Boolean(editor?.queuedDraftId), outgoingMessages.some(item => item.scope === outgoingScope))) {
+        if (canPreviewAssistantSend(sharedQueue.state, chatStreaming, Boolean(editor.queuedDraftId), outgoingMessages.some(item => item.scope === outgoingScope), localDraft)) {
           addAssistantOutgoingMessage(outgoingScope, outgoingId, localDraft);
           sessionScroll.scrollToBottom("auto");
         }
-      }
-      const prepared = await prepareProjectAttachments(text, attachments);
-      await sharedQueue.enqueue(prepared.draft, async queue => { await props.onSendDraft(prepared.draft, props.sessionId, { queue }); }, { ...editor, mentions: prepared.mentions }, outgoingId);
-      preparedProjectDraft.current = null;
-      // Typing during the request must not be cleared by its acknowledgement.
-      if (useComposerStateStore.getState().sessions[props.sessionId] === editor) clearComposer();
-      else if (editor?.queuedDraftId) {
-        // The submitted edit is complete. Preserve anything typed meanwhile as
-        // this window's new draft, without retaining an expired queue lease.
-        useComposerStateStore.setState(state => {
-          const current = state.sessions[props.sessionId];
-          if (!current || current.queuedDraftId !== editor.queuedDraftId) return state;
-          return { sessions: { ...state.sessions, [props.sessionId]: { ...current, queuedDraftId: undefined } } };
-        });
-      }
-      appendComposerHistory(props.sessionId, text);
+        const prepared = await prepareProjectAttachments(text, attachments);
+        if (useAssistantOutgoingMessages.getState().entries.some(entry => entry.queueId === outgoingId))
+          addAssistantOutgoingMessage(outgoingScope, outgoingId, prepared.draft);
+        await sharedQueue.enqueue(prepared.draft, async queue => { await props.onSendDraft(prepared.draft, props.sessionId, { queue }); }, { ...editor, mentions: prepared.mentions }, outgoingId);
+        preparedProjectDraft.current = null;
+        appendComposerHistory(props.sessionId, text);
+      }, () => {
+        const current = useComposerStateStore.getState().sessions[props.sessionId];
+        props.onDraftChange(buildComposerDraft(current?.draft ?? "", current?.attachments ?? [], current?.mentions ?? {}, current?.pasteParts ?? []));
+      });
     } catch (error) {
       if (outgoingId) removeAssistantOutgoingMessage(outgoingId);
-      queueFailure(error);
+      toast.error(t("composer.send_failed_restored"), { description: error instanceof Error ? error.message : String(error) });
     }
     finally { queueSubmitting.current = false; setQueueSaving(false); }
   };
   const handleQueue = () => queueDraft(draft.trim());
   const handleSend = handleQueue;
   const removeQueuedDraft = (id: string) => { void sharedQueue.remove(id).then(() => removeAssistantOutgoingMessage(id)).catch(queueFailure); };
+  const steerQueuedDraft = async (id: string) => { await sharedQueue.steer(id).catch(queueFailure); };
   const editQueuedDraft = (id: string) => { void sharedQueue.edit(id).then(() => window.dispatchEvent(new Event("legalwork:focusPrompt"))).catch(queueFailure); };
   const cancelQueuedEdit = () => { void sharedQueue.cancelEdit().then(clearComposer).catch(queueFailure); };
   const reorderQueuedDrafts = async (ids: string[]) => { await sharedQueue.reorder(ids).catch(queueFailure); };
@@ -2056,7 +2056,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 {t("session.load_failed")}
               </div>
             ) : null}
-            {props.assistantDate && <AssistantHistory key={props.sessionId} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} date={props.assistantDate} scrollRef={scrollRef} onOpenTarget={props.onOpenTarget} onboarding={props.assistantOnboarding?.state} />}
+            {props.assistantDate && <AssistantHistory key={props.sessionId} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} date={props.assistantDate} hasCurrentContent={showOnboarding || assistantHasVisibleContent(displayedMessages)} scrollRef={scrollRef} onOpenTarget={props.onOpenTarget} onboarding={props.assistantOnboarding?.state} />}
             <div className={cn(props.assistantDate && displayedMessages.length === 0 && !showOnboarding && "min-h-[calc(100dvh-12rem)]")}>
             {showOnboarding && props.assistantOnboarding && <AssistantOnboardingConversation workspaceId={props.workspaceId} state={props.assistantOnboarding.state} onIcon={props.assistantOnboarding.onIcon} onAvatarQuestionComplete={() => { sessionScroll.jumpToMessage("assistant-onboarding-avatar"); }} />}
             {pendingSessionLoad ? (showDelayedLoading ? (
@@ -2211,7 +2211,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onStop={handleAbort}
         busy={chatStreaming}
         queuedCount={queuedDrafts.length}
-        disabled={model.transitionState !== "idle" || sendBlocked}
+        disabled={model.transitionState !== "idle" || sendBlocked || queueSaving}
         inputDisabled={model.transitionState !== "idle"}
         modelUnavailable={Boolean(props.modelUnavailable)}
         modelUnavailableLabelHidden={lockedOutNoticeVisible}
@@ -2237,6 +2237,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
         listCommands={props.listCommands}
         listSkills={listSkills}
         skills={toolSkills}
+        integrationClient={props.client}
+        integrationWorkspaceId={props.workspaceId}
         listMcp={listMcp}
         mcpServers={toolMcpServers}
         mcpStatuses={toolMcpStatuses}
@@ -2277,7 +2279,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
           onToggleRealtimeVoice={() => props.onRealtimeVoiceActiveChange?.(!props.realtimeVoiceActive)}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
           queueAccessory={queuePaused || queuedDrafts.length > 0 || editingQueuedDraftId ? (
-            <QueuedMessagesPanel messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} restartPause={sharedQueue.restartPause} onResume={resumeQueue} disabled={sendBlocked || queueSaving} onOpenAiSettings={openAiSettings} />
+            <QueuedMessagesPanel messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onSteer={steerQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} restartPause={sharedQueue.restartPause} onResume={resumeQueue} disabled={sendBlocked || queueSaving} onOpenAiSettings={openAiSettings} />
           ) : null}
           compactTopSpacing={Boolean(subscriptionEndedAccessoryVisible || trialEndedNoticeVisible || connectNoticeVisible || composerQuestion || hasActivePlan || props.activePermission || queuedDrafts.length > 0)}
           topAccessory={
@@ -2295,7 +2297,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   />
                 ) : null}
                 {composerQuestion ? (
-                  composerQuestion.form ? <NativeFormPanel key={composerQuestion.id} form={composerQuestion.form} client={props.client} sourceSession={composerQuestion.sourceSession} onOpenSession={props.onOpenInteractionSession} busy={props.questionReplyBusy ?? false} onReply={answers=>{if(composerQuestion)props.respondQuestion?.(composerQuestion.id,answers);}}/> : (
+                  composerQuestion.form ? <NativeFormPanel key={composerQuestion.id} form={composerQuestion.form} client={props.client} sourceSession={composerQuestion.sourceSession} onOpenSession={props.onOpenInteractionSession} busy={props.questionReplyBusy ?? false} onReply={answers=>{if(composerQuestion)props.respondQuestion?.(composerQuestion.id,answers);}} onCancel={props.cancelQuestion ? () => props.cancelQuestion?.(composerQuestion.id) : undefined}/> : (
                   <QuestionPanel
                     key={composerQuestion.id}
                     questions={composerQuestion.questions}

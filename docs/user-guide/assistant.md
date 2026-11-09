@@ -19,6 +19,11 @@ Open **Assistant** in the sidebar to coordinate work across your projects. On
 first use, choose a name and appearance. Each calendar day has its own chat;
 earlier conversations remain available in Assistant history.
 
+After reopening the app, your saved Assistant conversation loads while account
+and model updates continue in the background. If a new day has started, the app
+shows your previous conversation until today's chat is ready. Sending a message
+still checks your current access and uses today's chat.
+
 The Assistant receives your name, email address and organization from your
 signed-in LegalWork account when available. It updates this context when you
 switch accounts or sign out. Your account profile is separate from the name
@@ -32,6 +37,14 @@ To change its name or avatar, click the assistant at the top of its conversation
 During first setup, saving the name shows the appearance picker in the conversation.
 Renaming later keeps the current appearance.
 
+To choose the Assistant's model, click its name or avatar at the top of the
+conversation, expand **Advanced**, and change **Model** or **Thinking effort**.
+These preferences save automatically and apply to the next message. They stay
+with the Assistant across daily chats and app restarts. Changing a model in a
+regular chat does not change the Assistant's preferences, and changing the
+Assistant's model does not change the default for regular chats. The home
+screen uses the Assistant's preferences when no project is selected.
+
 The Assistant uses one conversation tab. Subagents work in the background until
 you open the small subagent toggle at the top of the chat and choose one. Their
 tabs keep their own titles and close when the run finishes. You can reopen a
@@ -43,6 +56,9 @@ When the Assistant is idle, your message appears in the chat as soon as you pres
 background. While it is busy, new messages stay in the editable queue above the
 composer until their turn starts; they do not also appear as sent bubbles. If sending
 fails, your draft stays available and the chat shows the delivery error.
+Choose **Steer** beside a queued message to have it considered at the next model
+step without stopping the current work. Other messages and the queue's pause
+state stay unchanged. See [Steer with a queued message](workspaces-chats.md#steer-with-a-queued-message).
 
 Use the microphone button beside **Send** to dictate a message. Stop dictation
 to review the text, or use its **Send** button to send it directly.
@@ -151,7 +167,7 @@ without your answer or a decision is time-sensitive.
 While LegalWork is running, it checks new or changed tasks, project calendar
 entries, and newly received mail and calendar changes from activated Gmail,
 Outlook, Google Calendar and Outlook Calendar accounts about every three minutes.
-To connect an account, open **Add > Plugins**, select the connector and connect
+To connect an account, open the connector’s **+** button, select the connector and connect
 it. Account-wide mail and calendar checks require **Settings > Assistant >
 Project access > All projects**. Project checks follow the Assistant's project
 access settings.
@@ -217,3 +233,5 @@ load the resources when doing the work.
 Under project access, choose all projects, no projects, only selected projects,
 or all except selected projects. These restrictions also apply to delegated
 and scheduled Assistant work. Use **AI Providers** to configure its models.
+
+The conversation shows date dividers only for days with visible messages, shared files or setup content. Empty days and days containing only background activity are skipped. Today’s divider appears once today has content.

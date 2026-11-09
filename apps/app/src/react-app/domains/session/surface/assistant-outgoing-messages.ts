@@ -1,7 +1,10 @@
-import type { SessionQueue } from "@legalwork/types/session-queue";
+import type { QueuedDraftSnapshot, SessionQueue } from "@legalwork/types/session-queue";
 import type { UIMessage } from "ai";
 import { create } from "zustand";
 import type { ComposerDraft } from "@/app/types";
+import { integrationReferencesFromDraft } from "./composer/integration-message";
+import { decodeComposerMentionValue } from "./composer/mention-encoding";
+import { parseWorkspaceAttachmentMention, workspaceAttachmentDisplayText } from "./composer/workspace-attachment";
 
 type OutgoingMessage = { scope: string; queueId: string; message: UIMessage; urls: string[] };
 export const assistantOutgoingScope = (baseUrl: string, workspaceId: string, sessionId: string) => JSON.stringify([baseUrl, workspaceId, sessionId]);
@@ -14,22 +17,54 @@ export const useAssistantOutgoingMessages = create<{ entries: OutgoingMessage[] 
 export function addAssistantOutgoingMessage(scope: string, queueId: string, draft: ComposerDraft) {
   removeAssistantOutgoingMessage(queueId);
   const urls = draft.attachments.map(attachment => URL.createObjectURL(attachment.file));
-  const text = draft.parts.map(part => {
+  const message = outgoingMessage(queueId, draft, urls);
+  useAssistantOutgoingMessages.setState(state => ({ entries: [...state.entries, { scope, queueId, message, urls }] }));
+}
+
+function outgoingMessage(queueId: string, draft: Pick<QueuedDraftSnapshot, "parts" | "text"> & { attachments: { name: string; mimeType: string }[] }, urls: string[]): UIMessage {
+  const integrations = integrationReferencesFromDraft(draft.text);
+  let text = draft.parts.map(part => {
     if (part.type === "text") return part.text;
     if (part.type === "paste") return `[pasted text ${part.label}]`;
     if (part.type === "file") return `@${part.label ?? part.path}`;
     if (part.type === "plugin") return `@${part.label}`;
     return `@${part.name}`;
   }).join("");
-  const message: UIMessage = {
+  const preparingAttachments: string[] = [];
+  for (const match of draft.text.matchAll(/@([^\s@]+)/g)) {
+    const value = decodeComposerMentionValue(match[1]);
+    const attachment = parseWorkspaceAttachmentMention(value);
+    if (!attachment?.source) continue;
+    preparingAttachments.push(attachment.name);
+    text = text.replaceAll(workspaceAttachmentDisplayText(value), "");
+  }
+  return {
     id: outgoingMessageId(queueId), role: "user",
-    metadata: { localOutgoing: true, opencode: { created: Date.now() } },
+    metadata: { localOutgoing: true, ...(preparingAttachments.length ? { preparingAttachments } : {}), opencode: { created: Date.now() } },
     parts: [
       ...draft.attachments.map((attachment, index) => ({ type: "file", filename: attachment.name, mediaType: attachment.mimeType, url: urls[index] } satisfies UIMessage["parts"][number])),
-      ...(text ? [{ type: "text", text } satisfies UIMessage["parts"][number]] : []),
+      ...(text ? [{ type: "text", text, ...(integrations.length ? { providerMetadata: { opencode: { integrations } } } : {}) } satisfies UIMessage["parts"][number]] : []),
     ],
   };
-  useAssistantOutgoingMessages.setState(state => ({ entries: [...state.entries, { scope, queueId, message, urls }] }));
+}
+
+// Admission precedes history while a tool is running. Use the durable queue's
+// visible draft, never its prepared execution text (which has hidden context).
+function acceptedSteeringMessages(scope: string, queue?: SessionQueue): OutgoingMessage[] {
+  return queue?.entries.flatMap(entry => {
+    if (entry.delivery !== "steer" || entry.status !== "accepted" || entry.execution.kind !== "prompt") return [];
+    const message = outgoingMessage(entry.id, entry.draft, entry.draft.attachments.map(file => file.data));
+    if (entry.execution.id) message.id = entry.execution.id;
+    return [{ scope, queueId: entry.id, message, urls: [] }];
+  }) ?? [];
+}
+
+export function rememberAcceptedSteeringMessages(scope: string, queue: SessionQueue | undefined, confirmed: Set<string>) {
+  useAssistantOutgoingMessages.setState(state => {
+    const existing = new Set(state.entries.filter(entry => entry.scope === scope).map(entry => entry.message.id));
+    const added = acceptedSteeringMessages(scope, queue).filter(entry => !existing.has(entry.message.id) && !confirmed.has(entry.message.id));
+    return added.length ? { entries: [...state.entries, ...added] } : state;
+  });
 }
 
 export function removeAssistantOutgoingMessage(queueId: string) {
@@ -46,7 +81,11 @@ export function moveAssistantOutgoingMessage(queueId: string, scope: string) {
 
 export function mergeAssistantOutgoingMessages(messages: UIMessage[], entries: OutgoingMessage[], scope: string, queue?: SessionQueue) {
   const ids = new Set(messages.map(message => message.id));
-  const pending = entries.filter(entry => entry.scope === scope && !ids.has(entry.message.id) && !assistantOutgoingIsQueued(entry.queueId, queue));
+  const pending = [...entries, ...acceptedSteeringMessages(scope, queue)].filter(entry => {
+    if (entry.scope !== scope || ids.has(entry.message.id) || assistantOutgoingIsQueued(entry.queueId, queue)) return false;
+    ids.add(entry.message.id);
+    return true;
+  });
   return pending.length ? [...messages, ...pending.map(entry => entry.message)] : messages;
 }
 
@@ -54,9 +93,15 @@ export function isLocalOutgoingMessage(message: UIMessage) {
   return Boolean(message.metadata && typeof message.metadata === "object" && "localOutgoing" in message.metadata && message.metadata.localOutgoing === true);
 }
 
-/** Only an idle chat with an empty, running queue can preview an immediate send. */
-export function canPreviewAssistantSend(queue: SessionQueue | undefined, busy: boolean, editing: boolean, outgoing: boolean) {
-  return Boolean(queue && !queue.paused && queue.entries.length === 0 && !busy && !editing && !outgoing);
+export function preparingAttachmentNames(message: UIMessage): string[] {
+  if (!isLocalOutgoingMessage(message) || !message.metadata || typeof message.metadata !== "object" || !("preparingAttachments" in message.metadata)) return [];
+  const names = message.metadata.preparingAttachments;
+  return Array.isArray(names) ? names.filter((name): name is string => typeof name === "string") : [];
+}
+
+/** Any idle chat can preview an ordinary prompt with a durable message ID. */
+export function canPreviewAssistantSend(queue: SessionQueue | undefined, busy: boolean, editing: boolean, outgoing: boolean, draft: Pick<ComposerDraft, "mode" | "command">) {
+  return Boolean(queue && !queue.paused && queue.entries.length === 0 && !busy && !editing && !outgoing && draft.mode === "prompt" && !draft.command);
 }
 
 /** The server can discover work that the submitting window has not seen yet. */

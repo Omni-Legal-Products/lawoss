@@ -12,6 +12,7 @@ lawoss/testing/fixtures/cz-workflow-derived-v1/** -text whitespace=cr-at-eol
 packages/opencode-release/** text eol=lf
 docs/patches/opencode-2.1.4-mcp-http-policy-v3.patch text eol=lf
 docs/patches/opencode-2.1.4-mcp-http-policy-v3.receipt.json text eol=lf
+docs/patches/opencode-2.1.4-migration-times.receipt.json text eol=lf
 
 # The browser generator reads the same reviewed source bytes on every host.
 apps/desktop/electron/browser-native/** text eol=lf

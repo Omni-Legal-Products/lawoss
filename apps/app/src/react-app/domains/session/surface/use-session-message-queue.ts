@@ -8,7 +8,7 @@ import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import type { ComposerDraft } from "@/app/types";
-import { useComposerStateStore, type QueuedComposerDraft, type ComposerSessionState } from "./composer-state-store";
+import { QueuedEditRecoveredError, useComposerStateStore, type QueuedComposerDraft, type ComposerSessionState } from "./composer-state-store";
 
 const fileData = (file: File) => new Promise<string>((resolve, reject) => {
   const reader = new FileReader();
@@ -30,6 +30,8 @@ function hydrateDraft(entry: SessionQueue["entries"][number], editToken?: string
   });
   return { ...entry.draft, id: entry.id, attachments,
     status: entry.status, error: entry.error, locked: Boolean(entry.edit && entry.edit.token !== editToken),
+    canSteer: entry.execution.kind === "prompt" && entry.draft.mode === "prompt" && !entry.draft.command,
+    steering: entry.delivery === "steer",
     editor: { ...entry.draft.editor, draft: entry.draft.text, attachments } };
 }
 
@@ -64,7 +66,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
   }, [client.baseUrl, workspaceId, sessionId]);
   useEffect(() => {
     if (!query.data) return;
-    const items = query.data.entries.filter(entry => entry.status !== "sending" && entry.status !== "accepted").map(entry => hydrateDraft(entry, claim.current?.token));
+    const items = query.data.entries.filter(entry => (entry.status !== "sending" || entry.delivery === "steer") && entry.status !== "accepted").map(entry => hydrateDraft(entry, claim.current?.token));
     useComposerStateStore.setState(state => ({ queuedDrafts: { ...state.queuedDrafts, [sessionId]: items }, pausedQueues: { ...state.pausedQueues, [sessionId]: query.data.paused } }));
   }, [query.data, sessionId]);
   useEffect(() => {
@@ -96,7 +98,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
       const current = editor?.queuedDraftId ? claim.current : null;
       if (editor?.queuedDraftId && current?.id !== editor.queuedDraftId) {
         useComposerStateStore.getState().recoverQueuedEdit(sessionId);
-        throw new Error(t("composer.queue_edit_recovered"));
+        throw new QueuedEditRecoveredError(t("composer.queue_edit_recovered"));
       }
       if (!reservedId && (!submission.current || submission.current.signature !== signature)) submission.current = { signature, id: crypto.randomUUID() };
       const id = current?.id ?? reservedId ?? submission.current?.id;
@@ -106,7 +108,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
         if (current && error instanceof LegalworkServerError && error.status === 409) {
           claim.current = null;
           useComposerStateStore.getState().recoverQueuedEdit(sessionId);
-          throw new Error(t("composer.queue_edit_recovered"));
+          throw new QueuedEditRecoveredError(t("composer.queue_edit_recovered"));
         }
         throw error;
       }
@@ -130,6 +132,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
       claim.current = null;
     },
     remove: (id: string) => update({ type: "remove", id, revision: latest.current?.revision ?? 0 }),
+    steer: (id: string) => update({ type: "steer", id, revision: latest.current?.revision ?? 0 }),
     reorder: async (ids: string[]) => {
       const action = (state: SessionQueue | undefined): QueueAction => ({ type: "reorder",
         ids: reconcileQueuedOrder(ids, state?.entries.filter(entry => entry.status !== "sending" && entry.status !== "accepted").map(entry => entry.id) ?? ids),

@@ -1,7 +1,7 @@
 import { wikiPanelTab } from "../src/react-app/domains/wiki/wiki-tabs";
 import { expect, test } from "bun:test";
-import { WikiSuggestionSchema, suggestionIdFromFile, wikiSuggestionFile, wikiSuggestionContent } from "@legalwork/types/wiki-suggestions";
-import { suggestionLocation, suggestionPagePath, suggestionOutcome, suggestionTab } from "../src/react-app/domains/wiki/wiki-suggestion-model";
+import { WikiSuggestionSchema, suggestionIdFromFile, wikiSuggestionFile, wikiSuggestionContent, withoutWikiSourceMarkers } from "@legalwork/types/wiki-suggestions";
+import { suggestionLocation, suggestionPagePath, suggestionOutcome, suggestionTab, suggestionSourceTab } from "../src/react-app/domains/wiki/wiki-suggestion-model";
 import { createPanelTabStore, usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 
 const id = "c9f74905-3cab-400c-94c9-3d5a9e22736f";
@@ -16,7 +16,7 @@ test("source links survive destination changes, escape filenames and disappear w
   const moved = wikiSuggestionContent(content, "Finding.md", files);
   expect(moved).not.toContain("../Sources");
   expect((moved.match(/## Source files/g) ?? [])).toHaveLength(1);
-  expect(wikiSuggestionContent(moved, "Finding.md", [])).toBe("# Finding");
+  expect(wikiSuggestionContent(moved, "Finding.md", [], files)).toBe("# Finding");
 });
 
 test("suggestion results open a recoverable Markdown tab tied to the originating project", () => {
@@ -61,4 +61,48 @@ test("destination names stay relative and Markdown without exposing a raw path e
   expect(suggestionPagePath("Topics/Privacy", "Prompt caching")).toBe("Topics/Privacy/Prompt caching.md");
   expect(suggestionPagePath("", "Finding.md")).toBe("Finding.md");
   for (const name of ["../Escape", "Bad/Name", "..", "", "x\\y", "a\u0000b"]) expect(suggestionPagePath("Topics", name)).toBeNull();
+});
+
+
+test("legacy source markers disappear without hiding links or unrelated HTML", () => {
+  const content = "# Finding\n\n<!-- legalwork:source-files -->\n## Source files\n\n- [Judgment](Sources/source.pdf)\n<!-- /legalwork:source-files -->\n\n<!-- custom -->";
+  const clean = withoutWikiSourceMarkers(content);
+  expect(clean).not.toContain("legalwork:source-files");
+  expect(clean).toContain("[Judgment](Sources/source.pdf)");
+  expect(clean).toContain("<!-- custom -->");
+});
+
+test("source tabs keep the immutable origin and survive layout restoration beside their draft", () => {
+  const file = { name: "Judgment.pdf", path: "Sources/Judgment.pdf", sourcePath: "download.pdf", filePath: ".legalwork/tmp/source.pdf", size: 10, sha256: "a".repeat(64) };
+  const source = suggestionSourceTab(draft, file);
+  expect(source).toMatchObject({ label: "Judgment.pdf", preview: "pdf", wikiSource: { workspaceId: draft.workspaceId, suggestionId: draft.id, sha256: file.sha256, revision: draft.revision } });
+  const store = createPanelTabStore();
+  store.getState().openTab("workspace:review", suggestionTab(draft));
+  store.getState().openTab("workspace:review", source);
+  const restored = store.getState().readLayout(JSON.parse(JSON.stringify(store.getState().sessions["workspace:review"])));
+  expect(restored?.tabs).toContainEqual(source);
+  expect(restored?.tabs).toContainEqual(suggestionTab(draft));
+});
+
+
+test("rich editor escaping and bullet normalization do not expose legacy source markers or duplicate sources", () => {
+  const saved = "# Finding\n\n\\<!-- legalwork:source-files -->\n## Source files\n\n* [Judgment](Sources/old-id/source.pdf)\n  \\<!-- /legalwork:source-files -->\n";
+  expect(withoutWikiSourceMarkers(saved)).not.toContain("source-files");
+  const files = [{ name: "Judgment.pdf", path: "Sources/Judgment.pdf" }];
+  const rebuilt = wikiSuggestionContent(saved, "Finding.md", files, [{ path: "Sources/old-id/source.pdf" }]);
+  expect(rebuilt).not.toContain("old-id");
+  expect(rebuilt).not.toContain("<!--");
+  expect((rebuilt.match(/## Source files/g) ?? [])).toHaveLength(1);
+  expect(wikiSuggestionContent(rebuilt.replace("- [", "* ["), "Finding.md", [], files)).toBe("# Finding");
+});
+
+test("later contributions preserve previously published source links", () => {
+  const existing = "# Finding\n\n## Source files\n\n- [Earlier judgment](Sources/earlier.pdf)\n";
+  expect(wikiSuggestionContent(existing, "Finding.md", [])).toBe(existing);
+  const files = [{ name: "New judgment.pdf", path: "Sources/New judgment.pdf" }];
+  const added = wikiSuggestionContent(existing, "Finding.md", files);
+  expect(added).toContain("[Earlier judgment](Sources/earlier.pdf)");
+  expect(added).toContain("[New judgment.pdf](Sources/New%20judgment.pdf)");
+  expect((added.match(/## Source files/g) ?? [])).toHaveLength(1);
+  expect(wikiSuggestionContent(added, "Finding.md", [], files)).toBe(existing);
 });

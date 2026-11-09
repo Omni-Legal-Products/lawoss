@@ -16,6 +16,10 @@ on:
         default: true
   workflow_dispatch:
     inputs:
+      targets:
+        description: Comma-separated platform-architecture targets, or all
+        type: string
+        default: all
       run_tests:
         description: Run sandbox validation after preparing the runtime
         type: boolean
@@ -106,21 +110,10 @@ jobs:
           cache: ${{ matrix.arch != 'arm64' }}
           # setup-msys2 prunes its package cache with paccache after installation.
           install: pacman-contrib
-      - name: Download QEMU packages with retries (Windows)
+      - name: Install checksum-pinned QEMU packages (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
-        # QEMU is pinned to the reviewed package from the MSYS2 repository and checked by SHA-256;
-        # a newer repository build must not reach the bundle without review.
-        run: |
-          qemu_package="$(cygpath -u "$RUNNER_TEMP")/${{ matrix.qemuPackage }}"
-          for attempt in 1 2 3; do
-            curl -fsSL "https://repo.msys2.org/mingw/${{ matrix.prefix }}/${{ matrix.qemuPackage }}" -o "$qemu_package" \
-              && echo "${{ matrix.qemuSha256 }}  $qemu_package" | sha256sum -c - \
-              && pacman -S --noconfirm --needed ${{ matrix.package }}-cc \
-              && pacman -U --noconfirm --needed "$qemu_package" && exit 0
-            sleep 5
-          done
-          exit 1
+        run: bash scripts/sandbox/install-windows-qemu.sh ${{ matrix.prefix }}
       - name: Bundle QEMU (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}

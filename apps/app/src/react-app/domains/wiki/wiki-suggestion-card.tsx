@@ -36,7 +36,7 @@ export function useWikiSuggestions(messages: UIMessage[], running: boolean) {
       if (seen.current.has(part.toolCallId)) continue;
       seen.current.add(part.toolCallId);
       const item = suggestionOutcome(part.output);
-      if (item && (running || live.current.has(part.toolCallId))) open(suggestionTab(item), { besideChat: true });
+      if (item?.status === "pending" && (running || live.current.has(part.toolCallId))) open(suggestionTab(item), { besideChat: true });
     }
   }, [messages, open, sessionId, running]);
 }

@@ -52,6 +52,8 @@ export type HostWorkspaceAppFilesPolicy = {
 
 export type EmbeddedServerOptions = CliArgs & {
   getUiLocale?: ServerConfig["getUiLocale"];
+  /** Publish the bound API while the managed engine is still starting/migrating. */
+  onListening?: (connection: { port: number; url: string }) => void;
   /** Desktop networking stack, including its system proxy, for model assets. */
   modelDownloadFetch?: import("./ocr/models.js").ModelDownloadFetch;
   /** Host-resolved existing Node/OpenSSL runtime for policy-controlled HTTP hops. Never read from configuration or HTTP. */
@@ -226,6 +228,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     ...(options.rawHttpNodeExecutable ? { rawHttpNodeExecutable: options.rawHttpNodeExecutable } : {}),
     ...(options.toolImageRasterRuntime ? { toolImageRasterRuntime: options.toolImageRasterRuntime } : {}), onListening: async (port) => {
     const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${port}`;
+    options.onListening?.({ port, url: serverUrl });
     if (!config.opencodeBaseUrl && options.manageOpencode) {
       // LAWOSS: the workspace requested by the embedding host is the one opened
       // first (its location answers the agent ticket probe). The engine's config

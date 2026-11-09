@@ -15,6 +15,33 @@ import { researchIndexGroups } from "@legalwork/types/legal-research-wiki";
 import { openSqlite } from "../runtime-db.js";
 import { adoptWikiAgentSecret, wikiAgentSecret } from "../opencode-plugins/wiki-agent-secret.js";
 
+test("research starts with saved knowledge and limits external work to missing or outdated findings", () => {
+  const skill = CORE_OPENCODE_FILES.find(file => file.path === ".opencode/skills/legal-research/SKILL.md")!.content;
+  expect(skill.indexOf("## Start with saved research")).toBeLessThan(skill.indexOf("## Select sources for remaining research"));
+  expect(skill).toContain(legalResearchCaptureGuidance);
+  for (const instruction of ["wiki_search", "wiki_read", "before starting external research", "Research externally only for gaps", "cite the wiki page and underlying sources", "instead of creating a duplicate"])
+    expect(legalResearchCaptureGuidance).toContain(instruction);
+});
+
+test.each(["en", "de"] satisfies Array<"en" | "de">)("%s unchanged v3 research instructions gain wiki-first reuse, preserving custom guidance", async language => {
+  const { root, config } = await fixture(), store = new WikiStore(config);
+  try {
+    const { wiki } = await store.ensureLegalResearch(language);
+    const page = await store.read(wiki!.id, "AGENTS.md");
+    const previous = page.content.replace(legalResearchCaptureGuidance, legalResearchCaptureGuidance.slice(legalResearchCaptureGuidance.indexOf("## Filing legal research")));
+    await store.write(wiki!.id, "AGENTS.md", previous, page.revision);
+    const reset = async () => { const db = await openSqlite(join(store.baseDir, "wiki-state.sqlite")); try { db.run("UPDATE wiki_research_structure SET version=3 WHERE wiki=?", [wiki!.id]); } finally { db.close(); } };
+    await reset();
+    await store.ensureLegalResearch(language);
+    const updated = await store.read(wiki!.id, "AGENTS.md");
+    expect(updated.content).toContain("Reuse saved legal research first");
+    const custom = previous + "\nCustom research instructions.\n";
+    await store.write(wiki!.id, "AGENTS.md", custom, updated.revision);
+    await reset(); await store.ensureLegalResearch(language);
+    expect((await store.read(wiki!.id, "AGENTS.md")).content).toBe(custom);
+  } finally { await store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "research-wiki-")), project = join(root, "project");
   await mkdir(project);
@@ -45,7 +72,7 @@ test.each(["en", "de"] satisfies Array<"en" | "de">)("%s research starter create
     expect(snapshot.pages.filter(page => page.type === "legal-research")).toHaveLength(0);
     expect((await store.read(wiki.id, "Wiki.md")).content).toContain("# Our research");
     expect((await store.read(wiki.id, "AGENTS.md")).content).toContain("LEGAL KNOWLEDGE ONLY");
-    expect((await store.read(wiki.id, "AGENTS.md")).content).toContain("Only the user publishes");
+    expect((await store.read(wiki.id, "AGENTS.md")).content).toContain("requireAgentApproval");
     const jurisdiction = language === "de" ? "Rechtsordnungen/Deutschland" : "Jurisdictions/Germany";
     const staged = await fetch(`${url}/workspace/project/wiki-suggestions`, { method: "POST", headers, body: JSON.stringify({ title: "Synthetic finding", content: "---\ntype: legal-research\n---\n# Synthetic finding", destination: { wikiId: wiki.id, path: `${jurisdiction}/Contracts/Finding.md`, baseRevision: null, createFolders: true } }) });
     expect(staged.status).toBe(201);
@@ -81,6 +108,7 @@ test.each(["en", "de"] satisfies Array<"en" | "de">)("%s default research wiki i
     expect(results.filter(result => result.created)).toHaveLength(1);
     expect(new Set(results.map(result => result.wiki?.id)).size).toBe(1);
     const wiki = results[0].wiki!;
+    expect(wiki.requireAgentApproval).toBe(false);
     expect(wiki).toMatchObject({ name, purpose: "legal-research", sync: null, allowInProjects: true });
     expect(wiki.id).not.toBe(unrelated.id);
     expect((await store.snapshot(wiki.id)).pages.map(page => page.path).sort()).toEqual(Object.keys(legalResearchWikiFiles(language).files).sort());
@@ -138,6 +166,8 @@ test("default wiki is owner-provisioned and requested legal findings stage until
     expect(result.status).toBe(200);
     const { wiki } = await result.json();
     expect(wiki.name).toBe("Rechtliche Recherche");
+    expect(wiki.requireAgentApproval).toBe(false);
+    await store.update(wiki.id, { requireAgentApproval: true });
     config.readOnly = true;
     expect((await ensure({ language: "en" })).status).toBe(403);
     config.readOnly = false;
@@ -152,16 +182,15 @@ test("default wiki is owner-provisioned and requested legal findings stage until
       await plugin.runtime.hook("session", "context", prompt);
       expect(prompt.system.some(part => part.text.includes(legalResearchCaptureGuidance))).toBe(true);
       expect(CORE_OPENCODE_FILES.find(file => file.path === ".opencode/skills/legal-research/SKILL.md")?.content).toContain(legalResearchCaptureGuidance);
-      expect(legalResearchCaptureGuidance).toContain("Wait for an affirmative reply");
-      expect(legalResearchCaptureGuidance).toContain("Silence and refusal are not consent");
+      expect(legalResearchCaptureGuidance).toContain("Do not wait for a separate request");
+      expect(legalResearchCaptureGuidance).toContain("Download the relevant judgments");
       const listed = JSON.parse(await plugin.tool.wiki_list.execute({}));
-      expect(listed.wikis).toContainEqual({ id: wiki.id, name: wiki.name, purpose: "legal-research", writable: true, shared: false });
+      expect(listed.wikis).toContainEqual({ id: wiki.id, name: wiki.name, purpose: "legal-research", requireAgentApproval: true, writable: true, shared: false });
       const guidance = JSON.parse(await plugin.tool.wiki_guidance.execute({ wiki_id: wiki.id }));
       expect(guidance).toMatchObject({ purpose: "legal-research", access_mode: "suggestion" });
       expect(JSON.stringify(guidance.guidance)).toContain("Do not add process pages");
       expect((await store.snapshot(wiki.id)).pages.map(page => page.path).sort()).toEqual(Object.keys(legalResearchWikiFiles("de").files).sort());
-      // Simulate the explicit consent to stage. This tests the real tool/API
-      // boundary, not a model's ability to interpret an affirmative reply.
+      // Automatic preparation still honors the default human publication boundary.
       const staged = JSON.parse(await plugin.tool.wiki_suggest.execute({ title: "Synthetic legal finding", content: "---\ntype: legal-research\njurisdiction: fixture\n---\n# Synthetic legal finding\n\nA test-only legal synthesis with its supporting authority and limits.", destination: { wikiId: wiki.id, path: "Rechtsordnungen/Deutschland/Vertragsrecht/Finding.md", baseRevision: null, createFolders: true } }));
       expect(staged).toMatchObject({ staged: true, published: false });
       await expect(store.read(wiki.id, "Rechtsordnungen/Deutschland/Vertragsrecht/Finding.md")).rejects.toMatchObject({ status: 404 });
@@ -265,4 +294,48 @@ test("folder proposals stay outside the wiki until Save, retain revision checks 
     const unsafe = await (await post(base, { ...input, destination: { ...input.destination, path: "Unsafe/nested/outside.md" } })).json();
     expect((await post(`${base}/${unsafe.id}/save`, { revision: unsafe.revision })).status).toBe(403);
   } finally { await server.stop(); await store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+
+test.each(["en", "de"] satisfies Array<"en" | "de">)("%s v2 guidance upgrades to automatic research capture while preserving edits", async language => {
+  const { root, config } = await fixture();
+  const store = new WikiStore(config);
+  try {
+    const wiki = (await store.ensureLegalResearch(language, "DE")).wiki!;
+    const legacy = JSON.parse(await readFile(new URL("./fixtures/legal-research-v2.json", import.meta.url), "utf8"));
+    for (const path of ["Wiki.md", "AGENTS.md"]) await writeFile(join(wiki.root, path), legacy[language][path]);
+    const db = await openSqlite(join(store.baseDir, "wiki-state.sqlite"));
+    try { db.run("UPDATE wiki_research_structure SET version=2 WHERE wiki=?", [wiki.id]); } finally { db.close(); }
+    expect((await store.ensureLegalResearch(language)).updated).toBe(true);
+    expect((await store.read(wiki.id, "AGENTS.md")).content).toContain(legalResearchCaptureGuidance);
+    // Earlier v2 builds had the same instructions before source attachments shipped.
+    await writeFile(join(wiki.root, "AGENTS.md"), legacy[language]["AGENTS-before-attachments.md"]);
+    const earlier = await openSqlite(join(store.baseDir, "wiki-state.sqlite"));
+    try { earlier.run("UPDATE wiki_research_structure SET version=2 WHERE wiki=?", [wiki.id]); } finally { earlier.close(); }
+    await store.ensureLegalResearch(language);
+    expect((await store.read(wiki.id, "AGENTS.md")).content).toContain(legalResearchCaptureGuidance);
+    const guidance = await store.read(wiki.id, "AGENTS.md");
+    await store.write(wiki.id, "AGENTS.md", legacy[language]["AGENTS.md"] + "\nCustom firm instructions.\n", guidance.revision);
+    const next = await openSqlite(join(store.baseDir, "wiki-state.sqlite"));
+    try { next.run("UPDATE wiki_research_structure SET version=2 WHERE wiki=?", [wiki.id]); } finally { next.close(); }
+    await store.ensureLegalResearch(language);
+    expect((await store.read(wiki.id, "AGENTS.md")).content).toBe(legacy[language]["AGENTS.md"] + "\nCustom firm instructions.\n");
+  } finally { await store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("the generated research wiki migrates an absent approval default but preserves an explicit choice", async () => {
+  const { root, config } = await fixture();
+  const store = new WikiStore(config);
+  try {
+    const wiki = (await store.ensureLegalResearch("en")).wiki!;
+    // Simulate a pre-setting registration without changing content or identity.
+    await writeFile(store.path, (await readFile(store.path, "utf8")).replace(/^[ \t]*requireAgentApproval: false\r?\n/m, ""));
+    expect((await store.get(wiki.id)).requireAgentApproval).toBeUndefined();
+    expect((await store.ensureLegalResearch("en")).wiki?.requireAgentApproval).toBe(false);
+    await store.update(wiki.id, { requireAgentApproval: true });
+    expect((await store.ensureLegalResearch("en")).wiki?.requireAgentApproval).toBe(true);
+    expect((await store.create({ name: "Manual research", template: "legal-research" })).requireAgentApproval).toBe(true);
+    expect((await store.create({ name: "Knowledge", template: "blank" })).requireAgentApproval).toBe(true);
+  } finally { await store.close(); await rm(root, { recursive: true, force: true }); }
 });

@@ -1516,7 +1516,22 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       if (!executable) throw new Error("Node.js is required for managed HTTP transport and image crops in desktop development.");
       return executable;
     };
+    const publishServerConnection = ({ port, url }) => {
+      legalworkServerState.inProcess = true;
+      legalworkServerState.remoteAccessEnabled = false;
+      legalworkServerState.host = host;
+      legalworkServerState.port = port;
+      legalworkServerState.baseUrl = url;
+      legalworkServerState.clientToken = tokens.clientToken;
+      legalworkServerState.hostToken = tokens.hostToken;
+
+      legalworkServerState.connectUrl = null;
+      legalworkServerState.mdnsUrl = null;
+      legalworkServerState.lanUrl = null;
+      legalworkServerState.ownerToken = null;
+    };
     const handle = await startEmbeddedServer({
+      onListening: publishServerConnection,
       modelDownloadFetch,
       // Electron's Node TLS uses BoringSSL, whose legacy verifier cannot handle
       // valid IP-name-constrained CAs. Keep verification in our existing Node/OpenSSL runtime.
@@ -1585,28 +1600,17 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       // Word/Excel/PowerPoint add-in listener — enabled via the Office Add-ins
       // settings tab; null when not installed so the listener stays off.
       ...((await officeAddinManager.serverConfig()) ?? {}),
+    }).catch((error) => {
+      legalworkServerState.inProcess = false;
+      throw error;
     });
+    publishServerConnection(handle);
     inProcessServer = handle;
     embeddedWorkspacePath = activeWorkspace || null;
     legalworkServerState.managedOpencodeExecution = handle.managedOpencodeExecution ?? null;
 
     const boundPort = handle.port;
-    const baseUrl = handle.url;
-
-    legalworkServerState.inProcess = true;
-    legalworkServerState.remoteAccessEnabled = false;
-    legalworkServerState.host = host;
-    legalworkServerState.port = boundPort;
-    legalworkServerState.baseUrl = baseUrl;
-    legalworkServerState.clientToken = tokens.clientToken;
-    legalworkServerState.hostToken = tokens.hostToken;
-
-    legalworkServerState.connectUrl = null;
-    legalworkServerState.mdnsUrl = null;
-    legalworkServerState.lanUrl = null;
-    legalworkServerState.ownerToken = null;
-
-    // startEmbeddedServer resolves after binding. Its config is private to
+    // startEmbeddedServer resolves after engine readiness. Its config is private to
     // this process; public workspace metadata deliberately contains no auth.
     engineState.runtime = DIRECT_RUNTIME;
     engineState.projectDir = activeWorkspace || null;

@@ -1,3 +1,4 @@
+import { withoutWikiSourceMarkers } from "@legalwork/types/wiki-suggestions";
 import { WikiResearchIndex } from "./wiki-research-index";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { InlineView } from "../views/view-inline";
@@ -38,7 +39,7 @@ parser.use({ extensions: [{
 }] });
 
 export function renderWikiMarkdown(content: string) {
-  return DOMPurify.sanitize(parser.parse(wikiMarkdownBody(content), { async: false }), {
+  return DOMPurify.sanitize(parser.parse(withoutWikiSourceMarkers(wikiMarkdownBody(content)), { async: false }), {
     ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|wiki|legalwork-view):|[^a-z]|[a-z+.-]+(?:[^a-z+.:\-]|$))/i,
     FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "input", "button", "svg", "math", "video", "audio", "source", "track", "picture"],
     FORBID_ATTR: ["style", "srcset", "src"],

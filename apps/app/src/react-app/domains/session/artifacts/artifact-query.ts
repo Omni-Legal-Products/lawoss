@@ -29,6 +29,8 @@ type ArtifactQueryInput = {
   generation: number | undefined;
   localReadOnly: boolean;
   isReader: () => boolean;
+  /** Upstream v0.3.9: a source outside the workspace (wiki suggestion attachment), read once. */
+  loadFile?: () => Promise<{ data: ArrayBuffer; contentType: string | null }>;
 };
 
 /** One key for the panel's query, its comparison with the previous bytes and its saves (#367). */
@@ -36,11 +38,17 @@ export function artifactQueryKey(workspaceId: string, target: Pick<OpenTarget, "
   return ["artifact-panel", workspaceId, target.id, baseUrl, generation] as const;
 }
 
-export function artifactQueryOptions({ queryClient, client, workspaceId, target, generation, localReadOnly, isReader }: ArtifactQueryInput) {
+export function artifactQueryOptions({ queryClient, client, workspaceId, target, generation, localReadOnly, isReader, loadFile }: ArtifactQueryInput) {
   const queryKey = artifactQueryKey(workspaceId, target, client.baseUrl, generation);
   return {
     queryKey,
     queryFn: async (): Promise<ArtifactQueryState> => {
+      if (loadFile) {
+        const result = await loadFile();
+        return isTextContent(target)
+          ? { kind: "text", data: new TextDecoder().decode(result.data), updatedAt: null }
+          : { kind: "binary", ...result, updatedAt: null, revision: nextBinaryRevision(null) };
+      }
       if (target.kind === "url") {
         throw new Error(t("artifact.urls_open_in_browser"));
       }
@@ -72,7 +80,7 @@ export function artifactQueryOptions({ queryClient, client, workspaceId, target,
         revision: nextBinaryRevision(result.updatedAt),
       };
     },
-    refetchInterval: localReadOnly ? 2000 : false as const,
+    refetchInterval: localReadOnly && !loadFile ? 2000 : false as const,
     refetchOnMount: "always" as const,
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,

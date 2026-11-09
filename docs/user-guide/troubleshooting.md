@@ -6,8 +6,11 @@ Start with the exact error, current workspace, platform and action that failed. 
 
 After an engine upgrade, LegalWork copies your saved chat history into the new engine database before making chats available. It keeps the original database and a separate history backup. Development builds migrate their own saved development profile; they do not import the installed app's history. If an upgrade reports a history migration error or existing chats cannot be found, keep the profile intact and export diagnostics. Resetting your profile is not required to recover the saved chats.
 
+LegalWork also upgrades older saved connector settings during startup and retries settings that an earlier upgrade could not import. It preserves the original settings, credentials and permission rules. If startup still reports invalid settings, keep your profile intact and export diagnostics instead of deleting the saved connectors.
+
 | Symptom | What to check |
 | --- | --- |
+| Startup reports "Derivative artifacts must contain ordinary files" | Install the current official desktop build while retaining your existing app profile. If the error remains, send support the saved startup log and app version; the log identifies the rejected file path, file type, link count and permissions. Do not reset your profile. |
 | No model available | Connect a provider in AI Providers; check disabled-provider filters, the account's available models, key source and any provider error. |
 | New project or wiki cannot start a task | Read the project setup error. Retry setup after resolving it; the project must publish its engine configuration before accepting a task. |
 | Project says its settings cannot be accessed or updated | Reconnect its drive or cloud folder and make sure LegalWork can write to that project's hidden `.opencode` folder. Then click **Refresh** in the project notice. Other projects remain available; there is no need to reset the app or approve project automation. |
@@ -17,7 +20,7 @@ After an engine upgrade, LegalWork copies your saved chat history into the new e
 | File cannot be found or accessed | Confirm the workspace/worker and path. Check Permissions, remote-worker role, and source/provider permissions. An attachment in another workspace may not be present here. |
 | Connector card is visible but tools are absent | Complete sign-in, enable/connect the integration, check its status and accept any required engine reload. Verify credentials on the worker that runs it. |
 | Gmail or Outlook cannot connect or is unavailable in chat | Check [Email setup](email.md) for build availability, local-project access, browser sign-in, administrator consent and draft/send permissions. A Drive connection does not grant mailbox access. |
-| Newly saved skill is not offered | Check Integrations > Skills or the Workflows library, the intended scope and the reload prompt. Loose files outside the library are not a library installation. |
+| Newly saved skill is not offered | Check Workflows > Skills or the Workflows library, the intended scope and the reload prompt. Loose files outside the library are not a library installation. |
 | Connected file edited but source unchanged | Local saves affect the working copy. Use Save to the named connection and inspect any permission or conflict error. Preserve the local draft. |
 | Storage search finds nothing | Check root/folder, search scope and pagination. Filename search is not guaranteed full-text search. Try the known folder and confirm the connector is live. |
 | Task or workflow missing | Clear filters, select the intended Local/Team view, check sign-in/sync status and role. Ordinary tasks and benchmark tasks are separate lists. |
@@ -41,6 +44,8 @@ Configuration changes can require an engine reload. Use the reload prompt when o
 ## Updates
 
 Open **Settings > Updates** to see the current version, release channel and last check. Use the available check, download and install/restart controls. Background checking and automatic-download preferences are separate. A check reporting an error or unsupported runtime does not mean the app is up to date. Active work can block or warn before restart. Browser/development/package-manager environments may not support the same updater as an installed desktop build.
+
+On Windows, verifying a downloaded update can take a minute or two. Keep LegalWork open while it prepares the installer. If an older version repeatedly reports a signature-check command error, quit LegalWork and run the matching official installer from the LegalWork download page. This retains your existing app profile; you do not need to uninstall the app or delete its settings.
 
 ## Diagnostics and recovery
 

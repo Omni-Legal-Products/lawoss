@@ -95,6 +95,8 @@ export class WikiSuggestions {
       const sha256 = hash(bytes!);
       const file = `attachments/${attachmentFile({ sha256, name })}`;
       await this.put(id, file, bytes!);
+      // Keep draft links distinct from already-published sources of the same
+      // name. Publication resolves these into the wiki's flat Sources folder.
       result.push({ sourcePath: item.sourcePath, name, size, sha256, path: `Sources/${id}/${name}`, filePath: `${dirname(wikiSuggestionFile(id))}/${file}` });
     }
     return result;
@@ -104,7 +106,7 @@ export class WikiSuggestions {
     const file = draft.attachments[index];
     if (!file) throw new ApiError(404, "suggestion_attachment_missing", "This source file is no longer in the draft.");
     wikiPath(file.name);
-    if (file.name.includes("/") || !sourceExtensions.test(file.name) || file.path !== `Sources/${draft.id}/${file.name}`)
+    if (file.name.includes("/") || !sourceExtensions.test(file.name) || (draft.status !== "saved" && file.path !== `Sources/${file.name}` && file.path !== `Sources/${draft.id}/${file.name}`))
       throw new ApiError(400, "invalid_suggestion_attachment", "This source file has an invalid destination.");
     const bytes = await boundedFile(await this.path([this.id(draft.id), "attachments", attachmentFile(file)]));
     if (bytes.length !== file.size || hash(bytes) !== file.sha256)
@@ -160,13 +162,14 @@ export class WikiSuggestions {
     return this.locked(id, async () => {
       const current = await this.current(id, revision);
       const attachments = await this.stageAttachments(id, input.attachments, current.attachments);
-      await this.put(id, "draft.md", wikiSuggestionContent(input.content, input.destination.path, attachments));
+      await this.put(id, "draft.md", wikiSuggestionContent(input.content, input.destination.path, attachments, current.attachments));
       await this.put(id, "suggestion.json", JSON.stringify(Metadata.parse({ ...current, ...input, attachments, updatedAt: Date.now() })));
       return this.read(id);
     });
   }
   /** Caller holds the lock while publishing or dismissing. */
   async finish(current: WikiSuggestion, status: "saved" | "dismissed") {
+    if (status === "saved") await this.put(current.id, "draft.md", current.content);
     await this.put(current.id, "suggestion.json", JSON.stringify(Metadata.parse({ ...current, status, updatedAt: Date.now() })));
     return this.read(current.id);
   }

@@ -1,9 +1,5 @@
 import { listWorkspaces, serverConnected, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
-
-function normalizeDirectory(directory: string): string {
-  const normalized = directory.replace(/\\/g, "/").replace(/\/+$/, "");
-  return /^[a-z]:/i.test(normalized) ? normalized.toLowerCase() : normalized;
-}
+import { findProjectForDirectory } from "../workspace-path-match.js";
 
 /**
  * Read on every turn so edits apply to existing chats without disposing the
@@ -15,16 +11,8 @@ export async function projectPersonalizationPrompt(context: OpenCodeContext): Pr
   if (!serverConnected(context) || !directory) return "";
 
   try {
-    const currentDirectory = normalizeDirectory(directory);
-    const workspaces = await listWorkspaces(context);
-    // Prefer the closest project root, including nested projects. Never use
-    // another project's prompt when the session directory is unrecognised.
-    const workspace = workspaces
-      .filter((item) => {
-        const root = normalizeDirectory(item.path);
-        return currentDirectory === root || currentDirectory.startsWith(`${root}/`);
-      })
-      .sort((left, right) => right.path.length - left.path.length)[0];
+    // Closest project root, including nested projects; never another project's prompt for an unrecognised directory.
+    const workspace = await findProjectForDirectory(await listWorkspaces(context), directory);
     if (!workspace) return "";
 
     const response = await fetch(`${url}/workspace/${encodeURIComponent(workspace.id)}/personalization`, {

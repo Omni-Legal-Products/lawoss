@@ -11,7 +11,7 @@ afterEach(() => {
   adoptWikiAgentSecret(previous.token ?? "");
 });
 const saved = { id: "218d2173-2e4b-4ef2-98e6-52e0367d1d7b", label: "Portal", username: "lawyer" };
-async function fixture(expectedOrigin = "https://www.courtlistener.com") {
+async function fixture(expectedOrigin = "https://www.courtlistener.com", onFormCreated?: () => void) {
   const runtime = nativePluginTestRuntime("/fixture/matter"), calls: Array<{ path: string; body: unknown }> = [];
   let passwords: typeof saved[] = [], website = "https://www.example.org", form: FormDetail | undefined, cancelled = 0, connectionChanged = false;
   let connections: Array<{ id: string; label: string; origin: string; websites: Array<{ name: string; url: string }> }> = [];
@@ -38,13 +38,14 @@ async function fixture(expectedOrigin = "https://www.courtlistener.com") {
     }
     if (path === "/workspace/matter/opencode/api/session/chat/form" && request.method === "POST") {
       expect(request.headers.get("x-legalwork-wiki-agent-token")).toBe("fixture-only"); expect(request.headers.has("authorization")).toBe(false);
-      const data = z.object({ title: z.string(), metadata: z.record(z.string(), z.json()), fields: z.array(z.json()) }).parse(body);
-      form = { id: "form_fixture", sessionID: "chat", title: data.title, metadata: data.metadata,
+      const data = z.object({ id: z.string().optional(), title: z.string(), metadata: z.record(z.string(), z.json()), fields: z.array(z.json()) }).parse(body);
+      form = { id: data.id ?? "form_fixture", sessionID: "chat", title: data.title, metadata: data.metadata,
         fields: [{ key: "password_id", type: "string", hidden: true }, { key: "cancelled", type: "boolean", hidden: true, default: false }], state: { status: "pending" } };
       expect(data.fields).toEqual(form.fields);
+      onFormCreated?.();
       return Response.json({ data: form });
     }
-    if (path === "/workspace/matter/opencode/api/session/chat/form/form_fixture" && form) {
+    if (form && path === `/workspace/matter/opencode/api/session/chat/form/${form.id}`) {
       if (request.method === "DELETE") { cancelled++; form = { ...form, state: { status: "cancelled" } }; return new Response(null, { status: 204 }); }
       return Response.json({ data: form });
     }
@@ -198,6 +199,17 @@ test("Stop cancels the pending native card instead of leaving an orphaned reques
   } finally { await f.close(); }
 });
 
+test("Stop during form creation cancels the card even before its response reaches the caller", async () => {
+  const controller = new AbortController();
+  const f = await fixture(undefined, () => controller.abort(new Error("Stopped during creation")));
+  try {
+    await expect(f.tool.execute(f.input, nativeTestInvocation("chat", controller.signal))).rejects.toThrow();
+    expect(f.form).toBeDefined();
+    expect(f.cancelled).toBe(1);
+    expect(f.form?.state.status).toBe("cancelled");
+  } finally { await f.close(); }
+});
+
 test("an unrelated website or forged saved ID cannot complete a credential request", async () => {
   const f = await fixture();
   try {
@@ -215,4 +227,27 @@ test("manual-server extension capabilities cannot request passwords", async () =
     await expect(f.tool.execute({ browser_url: url }, nativeTestInvocation("chat"))).rejects.toThrow("local LegalWork desktop");
     expect(f.form).toBeUndefined();
   } finally { await f.close(); }
+});
+
+test("verified Lexis product URLs show the separate sign-in host and preserve the regional entry point", async () => {
+  for (const startUrl of ["https://360.lexisnexis.at/", "https://plus.lexis.com/at", "https://plus.lexis.com/at/",
+    "https://plus.lexis.com/", "https://plus.lexis.com/uk", "https://plus.lexis.com/uk/",
+    "https://www.lexis360intelligence.fr/"]) {
+    const f = await fixture("https://signin.lexisnexis.com");
+    try {
+      const pending = f.tool.execute({ website_url: startUrl }, nativeTestInvocation("chat")); await f.ready();
+      expect(f.form?.metadata).toMatchObject({ legalworkBrowserPassword: { website: "https://signin.lexisnexis.com", startUrl } });
+      f.connections([{ id: saved.id, label: "Lexis", origin: "https://signin.lexisnexis.com", websites: [{ name: "Lexis", url: startUrl }] }]);
+      await f.answer({ password_id: saved.id });
+      expect((await pending).output).toMatchObject({ status: "saved", login_url: "https://signin.lexisnexis.com/lnaccess/app/signin", start_url: startUrl });
+    } finally { await f.close(); }
+  }
+  for (const website_url of ["https://plus.lexis.com/other-country", "https://plus.lexis.com/uk-extra", "https://plus.lexis.com.evil.net/uk", "https://plus.lexis.com:8443/uk", "https://www.lexis360intelligence.fr.evil.net/"]) {
+    const f = await fixture();
+    try {
+      const pending = f.tool.execute({ website_url }, nativeTestInvocation("chat")); await f.ready();
+      expect(f.form?.metadata).toMatchObject({ legalworkBrowserPassword: { website: new URL(website_url).origin, startUrl: website_url } });
+      await f.answer({ cancelled: true }); await pending;
+    } finally { await f.close(); }
+  }
 });

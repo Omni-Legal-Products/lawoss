@@ -16,27 +16,37 @@ function condition(expression, scope, { engine = 'skipped', event = 'pull_reques
     { event_name: event }, inputs, { os }, () => true, () => false));
 }
 
-test('real workflow conditions allow UI checks without an engine and wait for engine-dependent checks', () => {
+test('unit jobs start independently while integration jobs require the verified engine', () => {
   const ui = changeScope(['apps/app/src/components/ui/button.tsx']);
   assert.equal(condition(main.jobs['opencode-derivative'].if, ui), false);
-  assert.equal(condition(main.jobs['legalwork-tests'].if, ui), true);
-  const steps = main.jobs['legalwork-tests'].steps;
+  assert.equal(condition(main.jobs['unit-tests'].if, ui), true);
+  const steps = main.jobs['unit-tests'].steps;
   assert.equal(condition(steps.find(step => step.name === 'Run app unit tests').if, ui), true);
-  assert.equal(condition(steps.find(step => step.name === 'Run e2e tests').if, ui), false);
-  assert.equal(condition(steps.find(step => step.uses === './.github/actions/setup-opencode').if, ui), false);
+  const integration = main.jobs['legalwork-tests'];
+  const e2e = integration.steps.find(step => step.name === 'Run e2e tests');
+  assert.equal(condition(e2e.if, ui), false);
+  assert.equal(steps.some(step => step.uses === './.github/actions/setup-opencode'), false);
+  assert.equal(main.jobs['unit-tests'].needs, 'changes');
+  assert.equal(main.jobs['unit-tests'].env.LEGALWORK_TEST_OPENCODE_BIN, '');
   const session = changeScope(['apps/app/src/react-app/domains/session/send.ts']);
   assert.equal(condition(main.jobs['opencode-derivative'].if, session), true);
-  assert.equal(condition(main.jobs['legalwork-tests'].if, session, { engine: 'failure' }), false);
-  assert.equal(condition(main.jobs['legalwork-tests'].if, session, { engine: 'success' }), true);
-  assert.equal(condition(steps.find(step => step.name === 'Run e2e tests').if, session), true);
+  assert.equal(condition(main.jobs['unit-tests'].if, session, { engine: 'failure' }), true);
+  assert.equal(condition(main.jobs['unit-tests'].if, session, { engine: 'success' }), true);
+  assert.equal(condition(integration.if, ui), true);
+  for (const engine of ['failure', 'cancelled', 'skipped']) assert.equal(condition(integration.if, session, { engine }), true);
+  assert.equal(condition(integration.if, session, { engine: 'success' }), true);
+  assert.equal(condition(e2e.if, session), true);
+  assert.ok(main.jobs['ci-result'].needs.includes('unit-tests'));
+  assert.ok(integration.needs.includes('unit-tests'));
+  assert.ok(integration.needs.includes('opencode-derivative'));
 });
 
 test('documentation and focused manual acceptance do not accidentally launch full unit suites', () => {
-  assert.equal(condition(main.jobs['legalwork-tests'].if, changeScope(['docs/user-guide/chat.md'])), false);
+  assert.equal(condition(main.jobs['unit-tests'].if, changeScope(['docs/user-guide/chat.md'])), false);
   for (const key of ['mac_signing_acceptance', 'windows_archive_acceptance', 'native_source_acceptance']) {
-    assert.equal(condition(main.jobs['legalwork-tests'].if, changeScope(null), { engine: 'success', event: 'workflow_dispatch', inputs: { [key]: true } }), false);
+    assert.equal(condition(main.jobs['unit-tests'].if, changeScope(null), { engine: 'success', event: 'workflow_dispatch', inputs: { [key]: true } }), false);
   }
-  assert.equal(condition(main.jobs['legalwork-tests'].if, changeScope(null), { engine: 'success', event: 'workflow_dispatch', inputs: { package_desktop: true } }), true);
+  assert.equal(condition(main.jobs['unit-tests'].if, changeScope(null), { engine: 'success', event: 'workflow_dispatch', inputs: { package_desktop: true } }), true);
 });
 
 test('failed prerequisites cannot become successful selected-check summaries', () => {

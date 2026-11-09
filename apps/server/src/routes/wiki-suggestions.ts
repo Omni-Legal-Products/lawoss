@@ -3,7 +3,7 @@ import { realpath } from "node:fs/promises";
 import { z } from "zod";
 import { WikiSuggestionInputSchema } from "../wiki/suggestion-schema.js";
 import type { WikiRegistration } from "@legalwork/types/wiki";
-import type { WikiContribution } from "@legalwork/types/wiki-suggestions";
+import type { WikiContribution, WikiSuggestion } from "@legalwork/types/wiki-suggestions";
 import { ApiError } from "../errors.js";
 import type { ServerConfig, TokenScope } from "../types.js";
 import { WikiSuggestions } from "../wiki/suggestions.js";
@@ -52,6 +52,18 @@ export function registerWikiSuggestionRoutes(options: {
     if (!result.success) throw new ApiError(400, "invalid_wiki_suggestion", "Check the suggestion content and destination.", { issues: result.error.issues });
     return result.data;
   };
+  const publish = async (ctx: RequestContext, repo: WikiSuggestions, draft: WikiSuggestion, agentPublication = false) => {
+    const wiki = await destination(ctx, draft.destination, true);
+    const attachments = [];
+    for (let index = 0; index < draft.attachments.length; index++) attachments.push(await repo.attachment(draft, index));
+    const saved = await store.writeContribution(wiki.id, draft.destination.path, draft.content, draft.destination.baseRevision ?? "", attachments, agentPublication);
+    options.onChanged?.(wiki.id);
+    return repo.finish({ ...draft, content: saved.content, attachments: draft.attachments.map((file, index) => ({ ...file, path: saved.attachments[index].path })) }, "saved");
+  };
+  const publishIfAllowed = async (ctx: RequestContext, repo: WikiSuggestions, draft: WikiSuggestion) => {
+    if (!await authenticateWikiAgentRequest(config, ctx.request) || (await store.get(draft.destination.wikiId)).requireAgentApproval !== false) return draft;
+    return repo.locked(draft.id, async () => publish(ctx, repo, await repo.current(draft.id, draft.revision), true));
+  };
   const base = "/workspace/:workspaceId/wiki-suggestions";
   addRoute(routes, "GET", "/wikis/:wikiId/suggestions", "client", async ctx => {
     // This human inbox must not give a wiki agent access to other projects.
@@ -99,13 +111,13 @@ export function registerWikiSuggestionRoutes(options: {
     const input = await parse(ctx, WikiSuggestionInputSchema);
     await destination(ctx, input.destination);
     const agent = await authenticateWikiAgentRequest(config, ctx.request);
-    return jsonResponse(await repo.create(input, agent?.sessionId ?? null), 201);
+    return jsonResponse(await publishIfAllowed(ctx, repo, await repo.create(input, agent?.sessionId ?? null)), 201);
   });
   addRoute(routes, "PUT", `${base}/:suggestionId`, "client", async ctx => {
     const repo = await repository(ctx, true);
     const input = await parse(ctx, WikiSuggestionInputSchema.extend({ revision: z.string().min(1) }));
     await destination(ctx, input.destination);
-    return jsonResponse(await repo.update(ctx.params.suggestionId, input.revision, input));
+    return jsonResponse(await publishIfAllowed(ctx, repo, await repo.update(ctx.params.suggestionId, input.revision, input)));
   });
   for (const action of ["save", "dismiss"]) addRoute(routes, "POST", `${base}/:suggestionId/${action}`, "client", async ctx => {
     // This endpoint is deliberately absent from the agent credential allowlist.
@@ -115,13 +127,7 @@ export function registerWikiSuggestionRoutes(options: {
     return repo.locked(ctx.params.suggestionId, async () => {
       const draft = await repo.current(ctx.params.suggestionId, input.revision);
       if (action === "dismiss") return jsonResponse(await repo.finish(draft, "dismissed"));
-      const wiki = await destination(ctx, draft.destination, true);
-      // Exact file and exact wiki revision reviewed by the user, never an upsert.
-      const attachments = [];
-      for (let index = 0; index < draft.attachments.length; index++) attachments.push(await repo.attachment(draft, index));
-      await store.writeContribution(wiki.id, draft.destination.path, draft.content, draft.destination.baseRevision ?? "", attachments);
-      options.onChanged?.(wiki.id);
-      return jsonResponse(await repo.finish(draft, "saved"));
+      return jsonResponse(await publish(ctx, repo, draft));
     });
   });
 }

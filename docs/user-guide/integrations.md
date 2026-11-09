@@ -1,34 +1,66 @@
 # Integrations
 
-Open in LegalWork: [Connectors](legalwork://app/settings/extensions/mcp), [Plugins](legalwork://app/settings/extensions/plugins).
+Open in LegalWork: [Integrations](legalwork://app/settings/extensions).
 
-## Connectors, storage, skills and plugins
+## Find and connect a service
 
-Open **Settings > Integrations**. Its tabs separate **Plugins**, **Skills** and **File storage**. Connectors appear in the Plugins library. A catalogue entry is an available integration, not proof it is connected.
+Open **Settings > Integrations**. Browse **Popular**, **Communication**, **Files & storage**, **Legal databases**, **Practice management** and **Research & productivity**, or use **Search integrations**. Select a category to see its complete list. The categories describe what a connection helps you do. Small tags on connector rows and detail pages show how they work: **Skill**, **MCP**, **Integration API**, **File Storage Integration** or **Saved browser login**. A connection can have more than one tag. A badge such as **1 connection** or **2 connections** shows how many saved connections you already have for that provider. The detail page says **No connections yet** when none have been added. Website entries show **1 saved login** or **2 saved logins**. This counts saved accounts, not verified sign-in.
 
-To add a connector, press **Add**, choose **Plugins** to open the **Plugin catalogue**, then search for and select the connector, such as **Gmail** or **Outlook Email**. Follow its setup flow. Do not skip **Add** when the connector has not been added yet. To manage an existing connector, open its entry in the library. Some use browser sign-in; others need an API key, local command or remote MCP URL. A custom MCP connection can use the supported local-command or remote-server configuration. Complete authentication and check its connection status. Reload the agent when the app requests it so the new tools become available.
+Select a connector to open its detail page and choose **Connect**. To set up a connection directly from the catalogue, use the **+** beside it. This starts sign-in or opens the setup dialog while keeping the catalogue in place. Complete the requested sign-in or setup. Some services open a browser; others ask for a key, server address or username and password. Saved browser login entries let you save your own logins for the in-app browser.
 
-An MCP server publishes tools with its own access requirements. Local-command integrations run on the computer running LegalWork, so required software and credentials must exist there. A remote MCP URL connects to the external service instead of starting its program locally. A disabled connector or expired authorization can leave a card visible while its tools fail or are absent.
+Saved connections appear under **Installed** on the left. Named storage connections and saved website accounts stay in this list; the browse categories show their general providers with a connection count. Select an installed connection to inspect it, choose **Manage** to change its settings, or use its remove button. The detail page puts **Firm managed** or **My own** beside the name, followed by status, ownership and access information. File sources are labeled **File Storage Integration**. Choose **Manage** for account, reconnect and disconnect controls. Firm-managed connections retain the access rules set by your firm.
 
-Creating a custom plugin saves it to your shared library and prepares it for the current project. Other projects receive it automatically, including when you next open them; creation does not wait for every project to connect. When the new connector uses browser sign-in (OAuth), sign-in opens automatically after creation. Complete it in your browser to make the connector's tools available. If you cancel, you can open the plugin later and choose **Sign in** to retry. API-key, no-authentication and local-command connectors do not open browser sign-in.
+File sources and saved website logins support multiple named connections. Choose **Add another connection** for file sources or **Save another login** for websites, or add the same provider again from the catalogue. Give each entry a distinct name. Each has its own settings and removal action. The general provider page lists saved instances under **Your connections**, or **Your saved logins** for websites; an individual entry page shows only that entry. Connected cloud drives also offer **Add folder view** to create named locations within the existing account. Native account services retain the account choices supported by that service; a folder view does not create a second sign-in.
 
-Removing a shared plugin removes its bundled connectors and skills from every project. Open projects update automatically; unopened projects use the updated shared library when opened. The settings list updates without a manual refresh, and removal does not wait for any project's engine to start or reconnect.
+For a service outside the catalogue, choose **Add > Custom connection** and enter the connection details supplied by the provider. Choose **Add > Import connection** for a supported package or repository, review the requested access, and complete any remaining setup. Removing an imported connection package also removes its included capabilities from the shared library. Existing projects use the updated library.
 
-Plugins add OpenCode tools or hooks. Use the Plugins tab's supported installation/import flow, including the Claude-plugin bundle preview when offered. Previewing a package does not establish that every third-party component works in this runtime. Follow any reported compatibility errors. Most repeatable drafting procedures need a skill or workflow rather than a custom plugin.
+Adding or editing a shared custom connection refreshes it across your projects before setup completes. If a firm connector has invalid settings, LegalWork skips that connector and keeps the app available. Ask your firm's administrator to correct it in the platform's **Knowledge Hub > Integrations**.
+
+The chat tool picker has three groups: **Workflows**, **Skills** and **Integrations**. Integrations combines installed packages, MCP connections, signed-in app accounts, named file storage, website logins and installed firm connections in one list. Select any integration to insert its chip into your message. The chip tells the agent which connection to use and stays visible inline in the sent message. Use **Configure** to manage items in the matching library.
+
+Reusable instructions live under **Workflows > Skills**. The Workflows page also has **Workflows** and **Review prompts** tabs.
+
+Removing a connection can take a moment. **Removing…** and a spinner remain visible until it finishes; the removal and cancel buttons are disabled to prevent repeated requests. If removal fails, the connection remains available and an error is shown.
+
+## SharePoint and Dropbox connection methods
+
+SharePoint and Dropbox each have one provider entry in **Files & storage**. Use **+** or open the provider and choose **Connect**. In **Connection method**, keep **Connect with LegalWork** to use the app's standard sign-in. Choose **Custom SharePoint** or **Custom Dropbox** to configure the separate connection with your own app details. Existing custom connections remain in **Installed** with those names.
+
+For Dropbox, give the file connection a name, choose its folder and access, then choose **Connect Dropbox**. Complete the sign-in in the browser. The setup dialog stays open until Dropbox confirms sign-in. Cancelling or failing a new sign-in removes the unfinished connection; it is not reported as a completed connection. An existing account that needs sign-in is marked **Sign in to use it** on its detail page.
 
 ## Research databases
 
-The **Your legal research** welcome screen helps you connect accounts you already use, including beck-online, juris, Lexis and Westlaw. Country suggestions cover the EU, UK and US. They are a starting list, not a guarantee that your subscription covers a particular matter or jurisdiction.
+The **Save logins for the in-app browser** welcome screen lets you save your own accounts for common legal research websites, including beck-online, juris, Lexis and Westlaw. Use these logins to stay signed in in the in-app browser. The Saved browser login entries are shortcuts for your saved browser logins. Country suggestions cover the EU, UK and US. They are a starting list, not a guarantee that your subscription covers a particular matter or jurisdiction.
 
-1. During onboarding, choose the country you work in. For later setup, save a website login under **Settings > Secrets > Browser passwords**.
-2. Select one or more suggested databases. Search by name, such as “Beck”, to search all countries. Choose **Add another database** for an unlisted service, enter its name and **Research website**, and provide its **Sign-in website (if different)** when the provider uses a separate login website.
-3. Choose **Set up selected databases** or **Set up integration**. Each selected service gets its own **Sign-in details needed** card. The website is already filled in for verified login addresses. If a provider’s current login address could not be confirmed, enter the address of its password page first. Enter your username and password, then choose **Save and continue**. If a matching login is already saved, choose **Continue with saved login** instead.
-4. Continue after the integrations have been added. Use **Set up later** to skip optional setup. Find the result under **Settings > Secrets > Browser passwords**; it is available in all your projects on this LegalWork installation.
-5. Ask, for example, “Research this question in beck-online and cite the relevant judgments.” The assistant opens the provider in **Browser Automation**, signs in with the saved login and checks access. Complete any MFA, CAPTCHA or institutional sign-in in the visible browser when requested.
+1. Open **Settings > Integrations > Legal databases**. Search for your provider, including **beck-online**, **juris**, **Libra**, **Lexis** or **Westlaw**.
+2. Select the website and choose **Save login**. Give the login a name, enter your username and password, then choose **Save login**. If the provider has no preset sign-in address, enter its current sign-in website.
+3. For any other website, choose **Add > Saved browser login** and enter its website and sign-in URL as well as your account details. Give each login a name so you can distinguish multiple accounts.
+4. Find the saved login under **Installed**. Open it and choose **Manage** to rename it, change credentials or add websites. Leave the password blank to keep the saved password. **Save another login** saves a separate named account. The website detail page lists these under **Your saved logins**. Removing a saved login also removes all website destinations linked to that login.
+5. Ask, for example, “Open beck-online so I can research my legal question.” Complete any MFA, CAPTCHA or institutional sign-in in the visible browser when requested. Saving a login does not verify your subscription or sign-in.
 
-You can also ask in any chat: “Set up CourtListener for your legal research.” For a known provider, the assistant opens the same **Sign-in details needed** card directly, with the saved provider address. Enter your credentials or choose **Continue with saved login**. It then checks access in the browser. This also works for any other website: provide its sign-in URL, or the assistant asks you for it, then shows the same card directly.
+The welcome screen offers country suggestions and lets you save logins for several websites. All these paths use the same saved logins across projects.
 
-Website logins use LegalWork's existing encrypted vault. Onboarding, the chat sign-in card and **Settings > Secrets > Browser passwords** all save to this same store, available across your chats on this installation. Secrets is the single management screen for adding, editing and deleting these logins. Each entry has its sign-in website and can link several destinations, for example two services using the same sign-in account. Destination URLs do not expand where a password can be filled.
+You can also ask in any chat: “Set up CourtListener for your legal research.” For a known provider, the assistant opens the same **Sign-in details needed** card directly, with the saved provider address. Enter your credentials or choose **Resume task with saved login**. It then checks access in the browser. This also works for any other website: provide its sign-in URL, or the assistant asks you for it, then shows the same card directly.
+
+Press **Stop** in the chat to cancel a pending sign-in card, including one that is still opening.
+
+Website logins use LegalWork's existing encrypted vault. Onboarding, the chat sign-in card and **Settings > Secrets > Browser passwords** all save to this same store, available across your chats on this installation. Manage these logins from their integration detail pages or from Secrets.
+
+### Add URLs to an existing login
+
+1. Open **Settings > Integrations > Installed**, select the saved login and choose **Manage**. Alternatively, open **Settings > Secrets > Browser passwords** and choose **Edit password** for the login.
+2. Under **Websites to open**, choose **Add URL** and enter the stable website address you want the browser to open. Use the product's entry page, rather than a temporary sign-in redirect containing session parameters.
+3. Choose **Save URL**. The URL change saves immediately, and you do not need to enter the password again. Use **Add URL** again for another address.
+
+Each addition has one URL field. To allow the password on another sign-in website, use the separate **Sign-in websites > Add sign-in URL** action and save that address. This changes where the password may be filled, without adding a page to open.
+
+**Websites to open** lists starting pages. **Sign-in websites** lists where the saved password can be used. The two can differ: Austrian Lexis starts at `https://360.lexisnexis.at/` or `https://plus.lexis.com/at`, then signs in at `https://signin.lexisnexis.com`. Open the product page first so Lexis supplies the correct sign-in context.
+
+Use a row's remove button to remove a starting page or revoke an additional sign-in website. Removing a starting page does not revoke sign-in access; remove the corresponding additional sign-in website too when that is your intention. The original sign-in website remains attached to the account. URL changes do not delete the login or change its password.
+
+You can also ask the assistant to add a URL to an existing saved login. It updates that account directly with its add-website tool, without a credential card or password re-entry. If the password should also work on another sign-in website, include that address in your request. No password is sent to the assistant. A website being added does not by itself prove that the account can sign in or access that product.
+
+Earlier Lexis entries for Austria, France, the UK and the US are repaired automatically when the updated app reads the saved logins. The repair uses the saved provider or product address to select the correct country's entry pages and sign-in website. It removes generic sign-in shortcuts that lead to the wrong product or an error. Your saved account, password and custom pages stay intact. The repair runs once for affected entries, so later URL removals are respected. An entry with only a generic Lexis name or sign-in address cannot be assigned a country automatically.
 
 Saving a login does not install a plugin or create a site-specific skill. The built-in **legal-research** skill is available in every project. For legal research, the assistant discovers saved websites, selects suitable research sources, and uses a site-specific skill if one is installed. Otherwise it uses the observed website controls. The country list only helps fill in provider URLs. A normal website and a research database use exactly the same login mechanism.
 
@@ -52,6 +84,8 @@ Upgrading the engine carries over completed MCP connector sign-ins, including th
 
 For Gmail and Outlook setup, connection methods, write permissions and troubleshooting, read [Email setup](email.md). The native catalog also includes Google Calendar, Outlook Calendar, Google Drive, OneDrive and SharePoint. Each connector has its own supported operations and write-access setting. Outlook Email and Calendar share an account but activate separately.
 
+For a new Microsoft connection, open **Settings > Integrations**, use **Communication** for email and calendars or **Files & storage** for drives, select **Outlook Email**, **Outlook Calendar**, **OneDrive**, **OneDrive Personal** or **SharePoint**, then select its **Connect** button and complete Microsoft sign-in. LegalWork supplies the app configuration; an Eigenwelt account, Nango and a client secret are not required. Keep **Allow write access** off for a read-only connection. For SharePoint, choose the document library when prompted. A work or school administrator may need to approve access. Saved custom app settings and older managed connections retain their existing method; [Email setup](email.md) explains how to switch.
+
 Connecting a calendar service lets the assistant use that service's available tools. It does not automatically import those events into LegalWork's project Calendar. Connecting a drive does not establish mail access. Check the individual connector's status and granted permissions.
 
 ## Browser and Computer Use
@@ -63,3 +97,9 @@ Computer Use controls desktop applications and is configured from its integratio
 Additional integrations, including media capabilities, depend on installed packages and their credentials. The live catalog and returned tool descriptions are authoritative for those tools.
 
 Related: [Storage](connected-storage.md), [Skills](skills-workflows.md), [Audio](audio.md), [Feature availability](feature-availability.md).
+
+### Copy an example
+
+Connector detail pages show practical example requests for file storage, email, calendars and website logins. Click an example on the watercolor panel to copy it, then paste it into a chat. A **Copied** confirmation appears after copying. Examples follow the app language, including both the displayed text and the copied request. The requests name the selected connection without assuming particular files or matters exist. Your account, subscription and permitted access determine which documents are available.
+
+**Eigenwelt Extensions** groups LegalMemory, Open Computer Use and LegalWork UI Control. Box is under **Files & storage**. Use the separate Gmail, Google Calendar and Google Drive entries for Google services.

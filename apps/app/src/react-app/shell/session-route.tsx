@@ -29,7 +29,7 @@ import type { AssistantAvatarIcon, AssistantProfile } from "@legalwork/types/mai
 import { carryAssistantDraft } from "@/react-app/domains/session/surface/composer-state-store";
 import { hasAssistantSubscription } from "@legalwork/types/main-assistant";
 import { AssistantUpgradeModal } from "./assistant-upgrade";
-import { resolveAssistantChat } from "./assistant-navigation";
+import { resolveAssistantChat, seedSavedAssistant } from "./assistant-navigation";
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
@@ -161,6 +161,7 @@ import {
   workspaceLabel,
 } from "@/react-app/shell/route-workspaces";
 import { useLocal } from "@/react-app/kernel/local-provider";
+import { useChatModelPreferences } from "@/react-app/kernel/use-chat-model-preferences";
 import { useNotificationStore } from "@/react-app/kernel/notification-store";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { onSyncPoke, useSyncEvents } from "@/react-app/kernel/sync-events";
@@ -224,6 +225,7 @@ import {
 import { AssistantIntroDialog } from "./assistant-intro";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { useBootState } from "./boot-state";
+import { removeProjectFromSidebar } from "./project-removal";
 import {
   forgetWorkspaceMemory,
   readActiveWorkspaceId,
@@ -268,6 +270,7 @@ import { loadPluginSelectionContext } from "@/react-app/domains/session/surface/
 import { WorkspaceProvider } from "./workspace-provider";
 import {
   ensureProviderListQuery,
+  getAvailableDefaultModel,
   getConnectedProviderItems,
   getDefaultModelForSingleConnectedProvider,
   refreshProviderListQueries,
@@ -626,6 +629,15 @@ export function SessionRoute() {
     queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantCurrent(defaultProjectFields(useProjectDefaultsStore.getState())); },
     refetchInterval: 30_000, refetchOnWindowFocus: "always",
   });
+  const savedAssistant = useQuery({
+    // LAWOSS: the upstream Assistant is hidden (CommercialSurface "assistant"); never read or seed its saved profile.
+    queryKey: ["main-assistant-profile", client?.baseUrl], enabled: Boolean(client) && !isOfficeAddinRuntime() && !isCommercialSurfaceHidden("assistant"),
+    queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantProfile(); },
+    staleTime: 30_000,
+  });
+  useEffect(() => {
+    if (client && savedAssistant.data) seedSavedAssistant(getReactQueryClient(), client.baseUrl, savedAssistant.data);
+  }, [client, savedAssistant.data]);
   const interactionKey = useMemo(() => interactionSessionsKey(selectedWorkspaceId), [selectedWorkspaceId]);
   const interactionSessions = useQueryCacheState<InteractionSessions>(interactionKey, emptyInteractionSessions);
   const selectedSessionInfo = selectedSessionId ? interactionSessions[selectedSessionId]
@@ -679,9 +691,9 @@ export function SessionRoute() {
   }, [assistant.data, assistantActive, selectedSessionId, navigate, setWorkspaces]);
   const openAssistant = useCallback(async () => {
     if (!client) return;
-    if (!assistantIncluded) { pendingAssistantOpen.current = true; setAssistantUpgrade("intro"); return; }
+    if (!assistantIncluded && !assistant.data) { pendingAssistantOpen.current = true; setAssistantUpgrade("intro"); return; }
     try {
-      const current = await resolveAssistantChat(client, getReactQueryClient());
+      const current = assistant.data ?? await resolveAssistantChat(client, getReactQueryClient());
       getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
       const panels = usePanelTabStore.getState();
       panels.setAssistantWorkspace(current.workspace.id);
@@ -689,7 +701,7 @@ export function SessionRoute() {
       setWorkspaces(previous => previous.some(item => item.id === current.workspace.id) ? previous : [...previous, { ...current.workspace, displayNameResolved: current.profile.name ?? t("assistant.title") }]);
       navigate(workspaceSessionRoute(current.workspace.id, current.day.sessionId));
     } catch (error) { toast.error(error instanceof Error ? error.message : t("assistant.unavailable")); }
-  }, [client, assistantIncluded, navigate, setWorkspaces]);
+  }, [client, assistantIncluded, assistant.data, navigate, setWorkspaces]);
   useEffect(() => {
     if (!assistantIncluded || assistantUpgrade === "closed") return;
     setAssistantUpgrade("closed");
@@ -1045,29 +1057,21 @@ export function SessionRoute() {
       cancelled = true;
     };
   }, [client, repairWorkspaceId]);
-  // Connected to exactly one provider but no USABLE model — either nothing is
-  // selected (fresh installs default to null) OR the selection points at a
-  // model the provider no longer serves. Auto-pick that provider's advertised
-  // default, or its first available model, so a successful BYO connection does
-  // not leave the composer in the no-model state.
+  // A fresh connection must leave the composer ready to use. Native provider
+  // defaults also follow Azure's background catalog-to-deployment discovery.
+  // LAWOSS: a retired free tier is never picked (#231; the retirement migration above clears it again).
+  const availableDefaultModel = (list: NonNullable<typeof providerListQuery.data>, current: ModelRef | null) => {
+    const model = getAvailableDefaultModel(list, current);
+    return model && !RETIRED_FREE_PROVIDER_IDS.has(model.providerID) ? model : null;
+  };
   useEffect(() => {
     const list = providerListQuery.data;
-    if (!list) return;
-    // A valid, still-available selection is left untouched.
-    if (local.prefs.defaultModel && !selectedModelUnavailable) return;
-    const model = getDefaultModelForSingleConnectedProvider(list);
-    if (!model) return;
+    if (!list || !availableDefaultModel(list, local.prefs.defaultModel)) return;
     setPrefs((previous) => {
-      // No-op when it already matches, so a stale selection can't render-loop.
-      if (
-        previous.defaultModel?.providerID === model.providerID &&
-        previous.defaultModel?.modelID === model.modelID
-      ) {
-        return previous;
-      }
-      return { ...previous, defaultModel: model, modelVariant: null };
+      const model = availableDefaultModel(list, previous.defaultModel);
+      return model ? { ...previous, defaultModel: model, modelVariant: null } : previous;
     });
-  }, [local.prefs.defaultModel, selectedModelUnavailable, providerListQuery.data, setPrefs]);
+  }, [local.prefs.defaultModel, providerListQuery.data, setPrefs]);
   // Creating a chat only needs a reachable workspace — `session.create` never
   // touches a model. A missing or dead model selection must NOT block it: the
   // new chat opens with the connect-AI bar above the composer, which is where
@@ -1637,7 +1641,7 @@ export function SessionRoute() {
       const registeredRoot = workspaces.find(workspace => workspace.id === scope.projectId)?.path ?? "";
       const uploads = protectedWorkspaceUploadParts(draft, registeredRoot);
       const parts = await draftToParts(draft, scope.directory, scope.opencode, uploads, clientPathScope(workspaces, scope.projectId, scope.directory));
-      if (options?.queue) { await enqueue(queuedNativePrompt({ sessionID: targetSessionId, parts, model: sendModel, agent: "legalwork", ...variant })); return; }
+      if (options?.queue) { await enqueue(queuedNativePrompt({ sessionID: targetSessionId, parts, draft: options.queue.draft, model: sendModel, agent: "legalwork", ...variant })); return; }
       await sendSessionPrompt(scope.opencode, buildSessionPromptRequest({ sessionID: targetSessionId, parts, model: sendModel, agent: "legalwork", ...variant, ...messageID }), { waitForCompletion: options?.waitForCompletion });
       return;
     }
@@ -1684,7 +1688,7 @@ export function SessionRoute() {
         const trace = await buildFusionTraceSystemPrompt({ client: scope.opencode, directory: scope.directory || undefined, sessionId: targetSessionId });
         parts.push(systemReminderPart([trace, buildFusionDelegationSystemPrompt({ candidateModels: fusionModels })].filter(Boolean).join("\n\n")));
       }
-      await enqueue(queuedNativePrompt({ sessionID: targetSessionId, parts, model: sendModel, agent: selectedAgent ?? undefined, ...variant }));
+      await enqueue(queuedNativePrompt({ sessionID: targetSessionId, parts, draft: options.queue.draft, model: sendModel, agent: selectedAgent ?? undefined, ...variant }));
       clearCaseChatContext(targetSessionId); // 🟡 LAWOSS (P6)
       return;
     }
@@ -2030,9 +2034,6 @@ export function SessionRoute() {
   // wins the merge.
   const forgetWorkspaceHere = useCallback(
     async (workspaceId: string) => {
-      if (isDesktopRuntime()) {
-        await workspaceForget(workspaceId);
-      }
       if (selectedWorkspaceId === workspaceId) {
         setLegacySelectedWorkspaceId("");
         writeActiveWorkspaceId(null);
@@ -2040,6 +2041,9 @@ export function SessionRoute() {
       }
       forgetWorkspaceMemory(workspaceId);
       sessionManagementStore.getState().forgetWorkspace(workspaceId);
+      if (isDesktopRuntime()) {
+        await workspaceForget(workspaceId);
+      }
     },
     [navigate, selectedWorkspaceId],
   );
@@ -2049,22 +2053,20 @@ export function SessionRoute() {
       if (typeof window !== "undefined") {
         const message =
           t("workspace_list.remove_confirm") ||
-          "Remove this workspace from the sidebar?";
+          "Remove this project from the sidebar?";
         if (!window.confirm(message)) return;
       }
       try {
         if (!client) throw new Error(t("session_route.create_server_unavailable"));
-        await client.deleteWorkspace(workspaceId).catch(error => {
-          if (!(error instanceof LegalworkServerError && error.status === 404 && error.code === "workspace_not_found")) throw error;
-        });
-
-        await forgetWorkspaceHere(workspaceId);
-        await refreshRouteState();
+        await removeProjectFromSidebar(client, workspaceId, () => {
+          workspacesRef.current = workspacesRef.current.filter(workspace => workspace.id !== workspaceId);
+          setWorkspaces(workspacesRef.current);
+        }, () => forgetWorkspaceHere(workspaceId), refreshRouteState);
       } catch (error) {
         toast.error(t("workspace.remove_failed"), { description: describeRouteError(error) });
       }
     },
-    [client, workspaces, forgetWorkspaceHere, refreshRouteState],
+    [client, workspacesRef, setWorkspaces, forgetWorkspaceHere, refreshRouteState],
   );
 
 
@@ -2651,6 +2653,10 @@ export function SessionRoute() {
   // LAWOSS: domovský priestor z trasy ani z ?project nie je projekt úvodnej stránky (P8).
   const homeEntryProjectId = conversationWorkspaceId(workspaces, routeWorkspaceId || homeProjectIdFromSearch(location.search));
   const [homeProjectId, setHomeProjectId] = useState<string | null>(homeEntryProjectId);
+  // 🟡 LAWOSS: skrytý Asistent (`assistant`) nie je cieľom Domova; model Domova je model bežného chatu.
+  const homeAssistant = !isCommercialSurfaceHidden("assistant") && (!homeProjectId || workspaces.find(item => item.id === homeProjectId)?.preset === "main-assistant");
+  const homeModel = useChatModelPreferences(homeAssistant, homePage ? providerListQuery.data : undefined);
+  const homeModelBehavior = useModelBehavior({ providerList: providerListQuery.data, defaultModel: homeModel.model, modelVariant: homeModel.variant });
   const homeSending = useRef(false);
   const pendingHomeMessage = useRef<PendingHomeMessage & { workspaceId: string } | null>(null);
   useEffect(() => {
@@ -2661,15 +2667,15 @@ export function SessionRoute() {
 
   const handleHomeSend = async (text: string, attachments: HomeDraftAttachment[]) => {
     if (homeSending.current) return;
-    // 🟡 LAWOSS: Asistent je skrytá platená plocha; Domov bez klienta založí nového klienta (nižšie).
-    if (!isCommercialSurfaceHidden("assistant") && (!homeProjectId || workspaces.find(item => item.id === homeProjectId)?.preset === "main-assistant") && !assistantIncluded) {
+    // 🟡 LAWOSS: Asistent je skrytá platená plocha (homeAssistant); Domov bez klienta založí nového klienta (nižšie).
+    if (homeAssistant && !assistantIncluded) {
       setAssistantUpgrade("intro");
       throw new Error(t("assistant.upgrade_included"));
     }
     if (!client) throw new Error(t("session_route.create_server_unavailable"));
-    const model = local.prefs.defaultModel;
-    if (!model) throw new Error(t("session_route.no_model"));
-    if (selectedModelUnavailable) throw new Error(t("session_route.model_unavailable"));
+    const model = homeModel.model;
+    if (!model) throw new Error(t(usableProviderCount > 0 ? "notifications.select_model" : "session_route.no_model"));
+    if (homeModel.unavailable) throw new Error(t("session_route.model_unavailable"));
     homeSending.current = true;
     try {
       const files = attachments.flatMap(({ source }) => source instanceof File ? [source] : []);
@@ -2738,7 +2744,7 @@ export function SessionRoute() {
             parts: [{ id: message.partId, type: "text", text: prompt }, ...(turnContext ? [systemReminderPart(turnContext)] : [])],
             model,
             agent: selectedAgent ?? undefined,
-            ...(modelVariantValue ? { variant: modelVariantValue } : {}),
+            ...(homeModelBehavior.modelVariantValue ? { variant: homeModelBehavior.modelVariantValue } : {}),
           });
           seedSubmittedMessage(endpoint.workspaceId, sessionId, {
             id: message.id,
@@ -2981,11 +2987,13 @@ export function SessionRoute() {
         connectedProviderIds: providerConnectedIds,
         authMethods: sessionProviderAuthSnapshot.providerAuthMethods,
         onSelect: sessionProviderAuthStore.startProviderAuth,
-        onSubmitApiKey: async (providerId, apiKey) => {
-          const result = await sessionProviderAuthStore.submitProviderApiKey(providerId, apiKey);
-          modelPicker.setRecentProviderIds(new Set([providerId]));
-          modelPicker.setQuery("");
-          modelPicker.setOpen(true);
+        onSubmitApiKey: async (providerId, apiKey, answer) => {
+          const result = await sessionProviderAuthStore.submitProviderApiKey(providerId, apiKey, answer);
+          if (onboardingStage === "done") {
+            modelPicker.setRecentProviderIds(new Set([providerId]));
+            modelPicker.setQuery("");
+            modelPicker.setOpen(true);
+          }
           return result;
         },
         onSubmitCustomProvider: sessionProviderAuthStore.submitCustomProvider,
@@ -3099,13 +3107,13 @@ export function SessionRoute() {
             disabled={effectiveLoading || createWorkspaceBusy || !client}
             providerConnectedCount={usableProviderCount}
             onConnect={() => void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
-            selectedModel={local.prefs.defaultModel}
+            selectedModel={homeModel.model}
             modelLocked={soloEigenweltModel}
-            onModelChange={(model) => local.setPrefs((previous) => ({ ...previous, defaultModel: model, modelVariant: null }))}
-            modelVariant={modelVariantValue}
-            modelVariantLabel={modelVariantLabel}
-            modelBehaviorOptions={modelBehaviorOptions}
-            onModelVariantChange={(modelVariant) => local.setPrefs((previous) => ({ ...previous, modelVariant }))}
+            onModelChange={homeModel.onModelChange}
+            modelVariant={homeModelBehavior.modelVariantValue}
+            modelVariantLabel={homeModelBehavior.modelVariantLabel}
+            modelBehaviorOptions={homeModelBehavior.modelBehaviorOptions}
+            onModelVariantChange={homeModel.onVariantChange}
           />
         ) : showWorkflows ? (
           workflowLibraryView
@@ -3173,7 +3181,7 @@ export function SessionRoute() {
         assistantWorkspaceId: assistant.data?.workspace.id,
         assistantDay: assistant.data?.day,
         onSaveAssistantProfile: saveAssistantProfile,
-        assistantDisabled: !client || (eigenweltEntitlementsQuery.isPending && !eigenweltEntitlementsQuery.isError),
+        assistantDisabled: !client || (!assistant.data && eigenweltEntitlementsQuery.isPending && !eigenweltEntitlementsQuery.isError),
         onShowChats: () => navigate("/home"),
         onShowProjects: () => navigate("/projects"),
         onShowWikis: () => preferredWiki ? openWikiWorkspace(preferredWiki) : navigate("/wikis"),

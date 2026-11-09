@@ -208,8 +208,8 @@ win:
         - legalwork-orchestrator-aarch64-pc-windows-msvc.exe
         - legalwork-orchestrator-x86_64-pc-windows-msvc.exe
         - versions.json
-        - versions.json-aarch64-pc-windows-msvc.exe
-        - versions.json-x86_64-pc-windows-msvc.exe
+        - versions.json-aarch64-pc-windows-msvc
+        - versions.json-x86_64-pc-windows-msvc
   target:
     - nsis
 # Uninstall cleanup for the Office add-in (registry sideload entries and the

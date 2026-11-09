@@ -5,7 +5,7 @@ description: Research through the Libra by Wolters Kluwer agent chat at app.libr
 
 # Research with Libra
 
-Use this skill when the user selects Libra or the general legal-research skill chooses a saved Libra connection. Load legal-research if it is not already loaded, and use its source selection, vault, website experience and consent-before-wiki-staging instructions. Saving a Libra login does not require loading either skill.
+Use this skill when the user selects Libra or the general legal-research skill chooses a saved Libra connection. Load legal-research if it is not already loaded, and use its source selection, vault, website experience and automatic source preservation and wiki contribution instructions. Saving a Libra login does not require loading either skill.
 
 ## Access
 
@@ -14,6 +14,8 @@ Start at https://app.libratech.ai/. Its observed sign-in flow redirects to https
 Libra is a Wolters Kluwer legal AI workspace. Available source collections depend on the account. Wolters Kluwer Online and other publisher collections can require add-ons; do not infer access from the provider name, purchase a subscription or enable a paid collection automatically. Use observed available sources and report coverage gaps.
 
 ## Delegate the research
+
+First follow legal-research's wiki lookup and reuse instructions. If the saved findings answer the question, use them without starting another Libra run unless the user requests fresh Libra research. Otherwise send Libra the remaining gaps or required updates, with relevant source references, rather than repeating work already saved.
 
 1. Open or reuse a Libra conversation for this task. Inspect the visible chat, input and research/source controls; never assume selectors or button labels. Use a new conversation for an unrelated question so prior matters do not contaminate the answer. For follow-ups, keep the existing task conversation.
 2. Put the research question into Libra's agent chatbox. Include the jurisdiction, relevant date, necessary facts, requested depth, and required output: conclusions, exceptions, competing authorities and precise source citations with links. Use Wolters Kluwer sources when relevant and available. Submit only information the user authorized for this research; do not upload unrelated matter files or credentials.
@@ -36,6 +38,6 @@ For a completed answer, inspect its cited sources and relevant passages where ac
 
 Use legalwork_research_experience with name "legal-research" and the saved Libra connectionId and websiteUrl to read and update this site's persistent operational notes. Record observed problems and attempted fixes; mark a fix verified only after observed success. Keep those notes generic, with no prompts, legal findings, conversation URLs, credentials or client details. A timeout is unresolved unless a later observation establishes the outcome. These notes survive skill updates; do not edit the bundled skill file at runtime.
 
-For useful legal findings, follow legal-research: ask whether the user wants them prepared for the knowledge base, then stage LEGAL KNOWLEDGE ONLY after consent. Browser procedures and waiting/debugging notes never go into the wiki. The user still reviews and selects Save to wiki.
+For useful legal findings, follow legal-research: download relevant primary source documents and contribute LEGAL KNOWLEDGE ONLY without a separate request to prepare a wiki entry. The destination wiki's approval setting determines whether the contribution waits for human Save or publishes in the background. Browser procedures and waiting/debugging notes never go into the wiki.
 
 Provider evidence checked 2026-10-28: [official app entry](https://libratech.ai/), [source collections and add-ons](https://libratech.ai/product/legal-content), [Wolters Kluwer acquisition](https://www.wolterskluwer.com/en/news/wolters-kluwer-completes-acquisition-of-libra-technology-gmbh). Only the public sign-in flow was observed during implementation; authenticated chat controls must be inspected live.

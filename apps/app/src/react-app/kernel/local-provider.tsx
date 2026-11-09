@@ -20,6 +20,7 @@ import { useOrgPolicy } from "../domains/connections/org-policy";
 import type { ModelRef, ReleaseChannel, SettingsTab, View } from "../../app/types";
 import { DEFAULT_DOCUMENT_AUTHOR, normalizeDocumentAuthor } from "../../app/lib/document-author";
 import { readStoredDefaultModel } from "./model-config";
+import { initializeAssistantModel, type ModelSelection } from "./model-preferences";
 
 export type LocalUIState = {
   view: View;
@@ -52,6 +53,8 @@ export type LocalPreferences = {
   hideAppMode: HideAppMode;
   modelVariant: string | null;
   defaultModel: ModelRef | null;
+  /** Independent model and thinking effort for the personal Assistant. */
+  assistantModel?: ModelSelection | null;
   /**
    * Name of the opencode agent used for new prompts (null = the server's
    * default, usually "build"). Persisted so a reload does not silently
@@ -128,6 +131,7 @@ const INITIAL_PREFS: LocalPreferences = {
   hideAppMode: "recording",
   modelVariant: null,
   defaultModel: null,
+  assistantModel: null,
   selectedAgent: null,
   releaseChannel: "stable",
   featureFlags: { microsandboxCreateSandbox: true },
@@ -190,11 +194,11 @@ export function LocalProvider({ children }: LocalProviderProps) {
   );
   const [prefs, setPrefsRaw] = useState<LocalPreferences>(() => {
     const persisted = applyShowThinkingDefault(readPersisted(PREFS_STORAGE_KEY, INITIAL_PREFS));
-    return {
+    return initializeAssistantModel({
       ...persisted,
       documentAuthor: normalizeDocumentAuthor(persisted.documentAuthor),
       defaultModel: persisted.defaultModel ?? readStoredDefaultModel(),
-    };
+    });
   });
   const ready = true;
   const migratedThinkingRef = useRef(false);
@@ -289,7 +293,7 @@ export function LocalProvider({ children }: LocalProviderProps) {
 
   const setPrefs = useCallback(
     (updater: (previous: LocalPreferences) => LocalPreferences) => {
-      setPrefsRaw(updater);
+      setPrefsRaw(previous => initializeAssistantModel(updater(initializeAssistantModel(previous))));
     },
     [],
   );

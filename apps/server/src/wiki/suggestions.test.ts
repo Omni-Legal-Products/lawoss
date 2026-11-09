@@ -11,6 +11,16 @@ async function fixture() {
   return { root, store: new WikiSuggestions(root, "project") };
 }
 const input = { title: "Research", content: "# Research\n\nUseful finding.", destination: { wikiId: "wiki", path: "Research.md", baseRevision: null } };
+test("staged links distinguish a new source from a published file with the same name", async () => {
+  const { root, store } = await fixture();
+  await writeFile(join(root, "judgment.pdf"), "New judgment");
+  const content = "# Research\n\n## Source files\n\n- [Earlier judgment](Sources/judgment.pdf)\n";
+  const draft = await store.create({ ...input, content, attachments: [{ sourcePath: "judgment.pdf" }] }, null);
+  expect(draft.content).toContain("[Earlier judgment](Sources/judgment.pdf)");
+  expect(draft.content).toContain(`Sources/${draft.id}/judgment.pdf`);
+  const removed = await store.update(draft.id, draft.revision, { ...draft, attachments: [] });
+  expect(removed.content).toBe(content);
+});
 test("ordinary Markdown drafts survive reopening and detect external agent edits", async () => {
   const { root, store } = await fixture();
   expect(await store.list()).toEqual([]);

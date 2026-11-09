@@ -15,7 +15,7 @@ export const WikiSuggestionDestinationSchema = z.object({
   wikiId: z.string().min(1).max(200),
   path: z.string().min(1).max(4096),
   baseRevision: z.string().max(500).nullable(),
-  /** Research wiki parents are proposed in the draft and created only by human Save. */
+  /** Research wiki parents are created when the contribution is published. */
   createFolders: z.boolean().optional(),
 });
 export const WikiSuggestionInputSchema = z.object({
@@ -36,12 +36,32 @@ export type WikiSuggestionInput = z.infer<typeof WikiSuggestionInputSchema>;
 export type WikiSuggestionDestination = z.infer<typeof WikiSuggestionDestinationSchema>;
 export type WikiContribution = Omit<WikiSuggestion, "content"> & { projectName: string; changes?: import("./line-diff.js").LineChanges | null };
 
+export const WikiSuggestionSourceSchema = z.object({
+  workspaceId: z.string().min(1), suggestionId: z.string().uuid(),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/), revision: z.string().min(1),
+});
+export type WikiSuggestionSource = z.infer<typeof WikiSuggestionSourceSchema>;
+
 export function wikiSuggestionFile(id: string) { return `.legalwork/tmp/wiki-suggestions/${id}/draft.md`; }
 
+/** Old source sections used internal HTML comments that rich editors displayed literally. */
+export function withoutWikiSourceMarkers(content: string) {
+  return content.replace(/^[ \t]*\\?<!-- \/?legalwork:source-files -->[ \t]*\r?$/gm, "");
+}
+
 /** Keep portable source links correct when the user moves a draft or removes a file. */
-export function wikiSuggestionContent(content: string, page: string, attachments: Pick<WikiSuggestionAttachment, "name" | "path">[]) {
-  const body = content.replace(/\n*<!-- legalwork:source-files -->\n[\s\S]*?<!-- \/legalwork:source-files -->\n?/g, "");
-  if (!attachments.length) return body;
+export function wikiSuggestionContent(content: string, page: string, attachments: Pick<WikiSuggestionAttachment, "name" | "path">[], previous: Pick<WikiSuggestionAttachment, "path">[] = []) {
+  let body = withoutWikiSourceMarkers(content);
+  if (!attachments.length && !previous.length) return body;
+  const managed = new Set([...previous, ...attachments].map(file => file.path));
+  const section = /\n+## Source files\n+((?:[-*] \[.*\]\((?:\.\.\/)*Sources\/[^\n]*\)\n?)+)\s*$/.exec(body);
+  // Only replace links owned by this draft. Earlier published sources remain
+  // part of the page even when the new contribution supplies no attachments.
+  const retained = section ? section[1].trimEnd().split("\n").filter(line => {
+    const target = /\]\((?:\.\.\/)*(Sources\/.*)\)$/.exec(line)?.[1];
+    try { return !target || !managed.has(decodeURIComponent(target)); } catch { return true; }
+  }) : [];
+  if (section) body = body.slice(0, section.index);
   const folder = page.split("/").slice(0, -1);
   const links = attachments.map(file => {
     const target = file.path.split("/");
@@ -50,7 +70,8 @@ export function wikiSuggestionContent(content: string, page: string, attachments
     const relative = [...folder.slice(common).map(() => ".."), ...target.slice(common)].map(part => encodeURIComponent(part).replace(/[!'()*]/g, char => `%${char.charCodeAt(0).toString(16)}`)).join("/");
     return `- [${file.name.replace(/[\\[\]]/g, "\\$&")}](${relative})`;
   });
-  return `${body.trimEnd()}\n\n<!-- legalwork:source-files -->\n## Source files\n\n${links.join("\n")}\n<!-- /legalwork:source-files -->\n`;
+  const sources = [...retained, ...links];
+  return sources.length ? `${body.trimEnd()}\n\n## Source files\n\n${sources.join("\n")}\n` : body.trimEnd();
 }
 export function suggestionIdFromFile(path: string) {
   const match = /(?:^|\/)\.legalwork\/tmp\/wiki-suggestions\/([^/]+)\/draft\.md$/.exec(path);

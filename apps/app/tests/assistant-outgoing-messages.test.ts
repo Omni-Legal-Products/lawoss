@@ -6,8 +6,12 @@ import { assistantBubbleMessages } from "../src/react-app/domains/session/surfac
 import {
   canPreviewAssistantSend, assistantOutgoingIsQueued, addAssistantOutgoingMessage, assistantOutgoingScope, isLocalOutgoingMessage,
   mergeAssistantOutgoingMessages, moveAssistantOutgoingMessage, outgoingMessageId,
-  removeAssistantOutgoingMessage, useAssistantOutgoingMessages,
+  rememberAcceptedSteeringMessages, removeAssistantOutgoingMessage, useAssistantOutgoingMessages,
+  preparingAttachmentNames,
 } from "../src/react-app/domains/session/surface/assistant-outgoing-messages";
+import { buildComposerDraft } from "../src/react-app/domains/session/surface/composer/composer-draft";
+import { encodeComposerMentionValue } from "../src/react-app/domains/session/surface/composer/mention-encoding";
+import { createProjectAttachmentMention, createWorkspaceAttachmentMention } from "../src/react-app/domains/session/surface/composer/workspace-attachment";
 
 const scope = assistantOutgoingScope("http://server", "assistant", "today");
 const draft: ComposerDraft = { mode: "prompt", text: "Hello", parts: [{ type: "text", text: "Hello" }], attachments: [], modelContext: "Private instructions" };
@@ -25,6 +29,68 @@ test("a local bubble is available synchronously, then the canonical ID replaces 
   const confirmed = mergeAssistantOutgoingMessages([canonical], entries(), scope);
   expect(confirmed).toEqual([canonical]);
   expect(isLocalOutgoingMessage(confirmed[0])).toBe(false);
+});
+
+test("cloud attachment previews show filenames while preparing, never temporary paths or source IDs", () => {
+  const name = "Agreement [final] (Müller).pdf";
+  const pending = createProjectAttachmentMention({ projectId: "project", workspaceId: "project", connectionId: "cloud", path: "~lw~cHJpdmF0ZS1pZA~Agreement.pdf", name }, "Source project");
+  const build = (value: string, text = " What does it say?") => buildComposerDraft(`@${encodeComposerMentionValue(value)}${text}`, [], { [value]: "upload" }, []);
+  addAssistantOutgoingMessage(scope, "cloud-send", build(pending));
+  const preview = entries()[0].message;
+  expect(preparingAttachmentNames(preview)).toEqual([`${name} · Source project`]);
+  expect(preview.parts).toEqual([{ type: "text", text: " What does it say?" }]);
+  expect(JSON.stringify(preview)).not.toContain("pending/");
+  expect(JSON.stringify(preview)).not.toContain("~lw~");
+  addAssistantOutgoingMessage(scope, "cloud-send", build(createWorkspaceAttachmentMention(name, ".legalwork/attachments/copy/Agreement.pdf")));
+  expect(entries()).toHaveLength(1);
+  expect(entries()[0].message.id).toBe(preview.id);
+  expect(preparingAttachmentNames(entries()[0].message)).toEqual([]);
+  expect(JSON.stringify(entries()[0].message.parts)).toContain(".legalwork/attachments/copy/Agreement.pdf");
+  addAssistantOutgoingMessage(scope, "cloud-send", build(pending, ""));
+  expect(preparingAttachmentNames(entries()[0].message)).toHaveLength(1);
+  expect(entries()[0].message.parts).toEqual([]);
+  removeAssistantOutgoingMessage("cloud-send");
+  expect(entries()).toEqual([]);
+});
+
+test("accepted steering renders from the shared queue before history, including after a window reload", () => {
+  const queue: SessionQueue = { ...emptyQueue, paused: true, entries: [{
+    id: "steered", delivery: "steer", status: "accepted",
+    draft: { ...draft, attachments: [{ id: "file", name: "source.txt", mimeType: "text/plain", size: 3, kind: "file", data: "data:text/plain;base64,YWJj" }], editor: { mentions: {}, pasteParts: [] } },
+    execution: { kind: "prompt", id: "msg_native_identity", text: "Hello\nPrivate execution context" },
+  }] };
+  // No local submit state is required in this window. Render immediately.
+  const visible = mergeAssistantOutgoingMessages([], [], scope, queue);
+  expect(visible).toHaveLength(1);
+  expect(visible[0].parts).toEqual([
+    { type: "file", filename: "source.txt", mediaType: "text/plain", url: "data:text/plain;base64,YWJj" },
+    { type: "text", text: "Hello" },
+  ]);
+  expect(JSON.stringify(visible)).not.toContain("Private");
+  rememberAcceptedSteeringMessages(scope, queue, new Set());
+  rememberAcceptedSteeringMessages(scope, queue, new Set());
+  expect(entries()).toHaveLength(1);
+  // The queue can observe delivery before this window receives history.
+  const settled = { ...queue, entries: [], completedIds: ["steered"] };
+  expect(mergeAssistantOutgoingMessages([], entries(), scope, settled)).toHaveLength(1);
+  const confirmed: UIMessage = { id: "msg_native_identity", role: "user", parts: [{ type: "text", text: "Hello" }] };
+  expect(mergeAssistantOutgoingMessages([confirmed], entries(), scope, queue)).toEqual([confirmed]);
+  removeAssistantOutgoingMessage("steered");
+  rememberAcceptedSteeringMessages(scope, queue, new Set([confirmed.id]));
+  expect(entries()).toHaveLength(0);
+});
+
+test("steering is not shown as sent before acceptance or on failure", () => {
+  for (const status of ["queued", "sending", "uncertain", "failed"] satisfies SessionQueue["entries"][number]["status"][]) {
+    const queue: SessionQueue = { ...emptyQueue, entries: [{
+      id: "steered", delivery: "steer", status,
+      draft: { ...draft, attachments: [], editor: { mentions: {}, pasteParts: [] } },
+      execution: { kind: "prompt", text: "Hello" },
+    }] };
+    expect(mergeAssistantOutgoingMessages([], [], scope, queue)).toEqual([]);
+    rememberAcceptedSteeringMessages(scope, queue, new Set());
+    expect(entries()).toEqual([]);
+  }
 });
 
 test("retry replaces the same bubble, while intentionally repeated messages remain distinct", () => {
@@ -73,12 +139,30 @@ test("attachments display without reading their bytes or leaking model instructi
 const emptyQueue: SessionQueue = { workspaceId: "assistant", sessionId: "today", revision: 1, paused: false, completedIds: [], entries: [] };
 
 test("only immediate sends appear as bubbles, not queued messages, edits or paused work", () => {
-  expect(canPreviewAssistantSend(emptyQueue, false, false, false)).toBe(true);
-  expect(canPreviewAssistantSend(undefined, false, false, false)).toBe(false);
-  expect(canPreviewAssistantSend(emptyQueue, true, false, false)).toBe(false);
-  expect(canPreviewAssistantSend(emptyQueue, false, true, false)).toBe(false);
-  expect(canPreviewAssistantSend(emptyQueue, false, false, true)).toBe(false);
-  expect(canPreviewAssistantSend({ ...emptyQueue, paused: true }, false, false, false)).toBe(false);
+  expect(canPreviewAssistantSend(emptyQueue, false, false, false, draft)).toBe(true);
+  expect(canPreviewAssistantSend(undefined, false, false, false, draft)).toBe(false);
+  expect(canPreviewAssistantSend(emptyQueue, true, false, false, draft)).toBe(false);
+  expect(canPreviewAssistantSend(emptyQueue, false, true, false, draft)).toBe(false);
+  expect(canPreviewAssistantSend(emptyQueue, false, false, true, draft)).toBe(false);
+  expect(canPreviewAssistantSend({ ...emptyQueue, paused: true }, false, false, false, draft)).toBe(false);
+  expect(canPreviewAssistantSend(emptyQueue, false, false, false, { mode: "shell" })).toBe(false);
+  expect(canPreviewAssistantSend(emptyQueue, false, false, false, { mode: "prompt", command: { name: "compact", arguments: "" } })).toBe(false);
+});
+
+test("project and wiki sends stay visible across admission until canonical history confirms their ID", () => {
+  for (const workspaceId of ["project", "wiki"]) {
+    const scope = assistantOutgoingScope("http://server", workspaceId, "chat");
+    const queue = { ...emptyQueue, workspaceId, sessionId: "chat" };
+    expect(canPreviewAssistantSend(queue, false, false, false, draft)).toBe(true);
+    addAssistantOutgoingMessage(scope, workspaceId, draft);
+    const local = mergeAssistantOutgoingMessages([], entries(), scope, queue);
+    expect(local.map(message => message.id)).toEqual([outgoingMessageId(workspaceId)]);
+    const accepted = { ...queue, completedIds: [workspaceId] };
+    expect(mergeAssistantOutgoingMessages([], entries(), scope, accepted)).toEqual(local);
+    const canonical: UIMessage = { id: local[0].id, role: "user", parts: [{ type: "text", text: "Hello" }] };
+    expect(mergeAssistantOutgoingMessages([canonical], entries(), scope, accepted)).toEqual([canonical]);
+    removeAssistantOutgoingMessage(workspaceId);
+  }
 });
 
 test("a server-side queue decision removes an optimistic bubble, including edits and delivery failures", () => {
@@ -90,13 +174,13 @@ test("a server-side queue decision removes an optimistic bubble, including edits
   };
   for (const status of ["queued", "failed", "uncertain"] satisfies SessionQueue["entries"][number]["status"][]) {
     const queue = { ...emptyQueue, entries: [{ ...entry, status }] };
-    expect(canPreviewAssistantSend(queue, false, false, false)).toBe(false);
+    expect(canPreviewAssistantSend(queue, false, false, false, draft)).toBe(false);
     expect(assistantOutgoingIsQueued("pending", queue)).toBe(true);
     expect(mergeAssistantOutgoingMessages([], entries(), scope, queue)).toEqual([]);
   }
   for (const status of ["sending", "accepted"] satisfies SessionQueue["entries"][number]["status"][]) {
     const queue = { ...emptyQueue, entries: [{ ...entry, status }] };
-    expect(canPreviewAssistantSend(queue, false, false, false)).toBe(false);
+    expect(canPreviewAssistantSend(queue, false, false, false, draft)).toBe(false);
     expect(mergeAssistantOutgoingMessages([], entries(), scope, queue)).toHaveLength(1);
   }
 });

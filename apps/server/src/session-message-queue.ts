@@ -27,6 +27,7 @@ export class SessionMessageQueue {
   private writes = new Map<string, Promise<unknown>>();
   private running = new Set<string>();
   private starting = new Map<string, Promise<void>>();
+  private deliveries = new Map<string, { delivery?: "steer"; operation: Promise<void> }>();
   private pending = new Set<string>();
   private removed = new Set<string>();
   private ready: Promise<void>;
@@ -57,9 +58,8 @@ export class SessionMessageQueue {
         if (entry.edit) delete entry.edit;
         if (entry.status === "sending") {
           entry.status = "uncertain";
-          entry.error = "Delivery was interrupted. Check the conversation before removing or submitting this message again.";
-          queue.paused = true;
-          queue.pauseReason = "error";
+          entry.error = "Delivery was interrupted. The saved message is being checked against the conversation. Do not send another copy.";
+          if (entry.delivery !== "steer") { queue.paused = true; queue.pauseReason = "error"; }
         }
       }
       // LAWOSS (N-A7-17): a restored message waits for the lawyer. Delivery needs the chat's
@@ -150,7 +150,7 @@ export class SessionMessageQueue {
   }
   async act(workspaceId: string, sessionId: string, action: QueueAction) {
     const result = await this.change(workspaceId, sessionId, queue => {
-      if ("revision" in action && action.revision !== queue.revision) throw conflict();
+      if (action.type !== "steer" && "revision" in action && action.revision !== queue.revision) throw conflict();
       const now = Date.now();
       for (const entry of queue.entries) if (entry.edit && entry.edit.expires <= now) delete entry.edit;
       const entry = "id" in action ? queue.entries.find(item => item.id === action.id) : undefined;
@@ -163,17 +163,28 @@ export class SessionMessageQueue {
           if (!action.editToken) return; // A retried enqueue is idempotent.
           if (entry.lastEditToken === action.editToken) return;
           if (inFlight(entry) || entry.edit?.token !== action.editToken) throw conflict();
-          Object.assign(entry, { draft: action.draft, execution: action.execution, status: "queued", lastEditToken: action.editToken });
-          delete entry.edit; delete entry.error;
+          Object.assign(entry, { draft: action.draft, execution: action.execution, status: "queued", lastEditToken: action.editToken, contentRevision: queue.revision + 1 });
+          delete entry.edit; delete entry.error; delete entry.delivery;
         } else {
           if (action.editToken) throw conflict();
           if (queue.entries.length >= 100) throw new ApiError(400, "queue_full", "The queue is full.");
-          queue.entries.push({ id: action.id, draft: action.draft, execution: action.execution, status: "queued" });
+          queue.entries.push({ id: action.id, draft: action.draft, execution: action.execution, status: "queued", contentRevision: queue.revision + 1 });
           if (action.resumeStopped !== false && queue.paused && queue.pauseReason === "stop" && !queue.entries.some(item => item.status === "uncertain")) {
             queue.paused = false; delete queue.pauseReason; delete queue.restartPause;
             queue.resumeRevision = queue.revision + 1;
           }
         }
+      } else if (action.type === "steer") {
+        if (queue.completedIds.includes(action.id)) return;
+        if (!entry || entry.execution.kind !== "prompt" || entry.draft.mode !== "prompt" || entry.draft.command || entry.edit || (entry.contentRevision ?? 0) > action.revision) throw conflict();
+        // Lost responses and double clicks join the same durable operation.
+        if (entry.delivery === "steer" && entry.status !== "failed") return;
+        if (entry.status === "uncertain") throw conflict();
+        // Dispatch may have claimed/admitted this exact content since the UI
+        // snapshot. Record the promotion before waiting for that admission.
+        entry.delivery = "steer"; entry.status = "sending";
+        entry.dispatchRevision = queue.revision;
+        delete entry.error;
       } else if (action.type === "pause") {
         if (!action.paused && queue.entries.some(item => item.edit || item.status === "uncertain")) throw conflict();
         queue.paused = action.paused;
@@ -194,7 +205,7 @@ export class SessionMessageQueue {
           if (entry.status === "uncertain" || (entry.edit && entry.edit.token !== action.token)) throw conflict();
           entry.edit = { token: action.token, expires: now + 120_000 };
         } else if (action.type === "remove") {
-          if (entry.edit) throw conflict();
+          if (entry.edit || entry.status === "uncertain") throw conflict();
           queue.entries = queue.entries.filter(item => item.id !== action.id);
           queue.completedIds = [...queue.completedIds, action.id].slice(-500);
         } else {
@@ -204,6 +215,10 @@ export class SessionMessageQueue {
         }
       }
     });
+    if (action.type === "steer") {
+      await this.runDelivery(workspaceId, sessionId, action.id);
+      return this.read(workspaceId, sessionId);
+    }
     const starting = this.start(result);
     if (action.type === "enqueue") {
       // Only wait for the idle check and durable claim, never for the model reply.
@@ -221,6 +236,12 @@ export class SessionMessageQueue {
       const queue = this.states.get(key);
       if (!queue) continue;
       for (const entry of queue.entries.filter(entry => entry.status === "uncertain")) {
+        if (entry.delivery === "steer") {
+          // The native stable ID makes retry safe even if the crash preceded
+          // admission. The transport promotes existing inbox items first.
+          await this.runDelivery(queue.workspaceId, queue.sessionId, entry.id);
+          continue;
+        }
         if (await this.transport.confirmed?.(queue.workspaceId, queue.sessionId, entry).catch(() => false)) {
           await this.change(queue.workspaceId, queue.sessionId, current => {
             if (this.transport.settled) {
@@ -241,9 +262,11 @@ export class SessionMessageQueue {
         const outcome = await this.transport.settled?.(queue.workspaceId, queue.sessionId, entry).catch(() => undefined);
         if (outcome === undefined) continue;
         await this.change(queue.workspaceId, queue.sessionId, current => {
+          const latest = current.entries.find(item => item.id === entry.id);
+          if (!latest || latest.status !== "accepted" || latest.delivery !== entry.delivery) return;
           current.entries = current.entries.filter(item => item.id !== entry.id);
           current.completedIds = [...current.completedIds, entry.id].slice(-500);
-          if (outcome.pause && (current.resumeRevision ?? 0) <= (entry.dispatchRevision ?? current.revision)) {
+          if (entry.delivery !== "steer" && outcome.pause && (current.resumeRevision ?? 0) <= (entry.dispatchRevision ?? current.revision)) {
             current.paused = true;
             current.pauseReason = outcome.reason ?? "error";
           }
@@ -260,11 +283,11 @@ export class SessionMessageQueue {
   private start(queue: SessionQueue): Promise<void> {
     const key = keyOf(queue.workspaceId, queue.sessionId);
     if (this.running.has(key)) return this.starting.get(key) ?? Promise.resolve();
-    if (this.stopped || queue.paused || queue.entries[0]?.status !== "queued" || queue.entries.some(entry => entry.edit)) return Promise.resolve();
+    if (this.stopped || queue.paused || queue.entries[0]?.status !== "queued" || queue.entries.some(entry => entry.edit || inFlight(entry) || entry.status === "uncertain")) return Promise.resolve();
     this.running.add(key);
     const starting = this.prepareDispatch(queue.workspaceId, queue.sessionId).then(prepared => {
       if (!prepared) { this.running.delete(key); return; }
-      void this.deliver(queue.workspaceId, queue.sessionId, prepared.item, prepared.revision)
+      void this.runDelivery(queue.workspaceId, queue.sessionId, prepared.item.id)
         .finally(() => this.running.delete(key)).catch(() => {});
     }, error => { this.running.delete(key); throw error; }).finally(() => this.starting.delete(key));
     this.starting.set(key, starting);
@@ -276,16 +299,34 @@ export class SessionMessageQueue {
     let dispatchRevision = 0;
     await this.change(workspaceId, sessionId, queue => {
       const first = queue.entries[0];
-      if (queue.paused || !first || first.status !== "queued" || queue.entries.some(entry => entry.edit)) return;
+      if (queue.paused || !first || first.status !== "queued" || queue.entries.some(entry => entry.edit || inFlight(entry) || entry.status === "uncertain")) return;
       first.status = "sending"; first.dispatchRevision = queue.revision; item = structuredClone(first); dispatchRevision = queue.revision;
     });
     if (!item || this.stopped) return;
     return { item, revision: dispatchRevision };
   }
+  private async runDelivery(workspaceId: string, sessionId: string, id: string) {
+    const key = JSON.stringify([workspaceId, sessionId, id]);
+    const previous = this.deliveries.get(key);
+    const delivery = this.snapshot(workspaceId, sessionId).entries.find(item => item.id === id)?.delivery;
+    if (previous && previous.delivery === delivery) return previous.operation;
+    const operation = (async () => {
+      await previous?.operation.catch(() => {});
+      if (this.stopped) return;
+      const entry = this.snapshot(workspaceId, sessionId).entries.find(item => item.id === id);
+      if (!entry || !(entry.status === "sending" || entry.status === "uncertain" && entry.delivery === "steer")) return;
+      await this.deliver(workspaceId, sessionId, entry, entry.dispatchRevision ?? 0);
+    })();
+    this.deliveries.set(key, { delivery, operation });
+    try { await operation; }
+    finally { if (this.deliveries.get(key)?.operation === operation) this.deliveries.delete(key); }
+  }
   private async deliver(workspaceId: string, sessionId: string, sent: QueueEntry, dispatchRevision: number) {
     try {
       const result = await this.transport.send(workspaceId, sessionId, sent);
+      if (this.stopped) return;
       await this.change(workspaceId, sessionId, queue => {
+        if (queue.entries.find(entry => entry.id === sent.id)?.delivery !== sent.delivery) return;
         if (result && "accepted" in result) {
           const accepted = queue.entries.find(entry => entry.id === sent.id);
           if (accepted) { accepted.status = "accepted"; delete accepted.error; }
@@ -293,15 +334,17 @@ export class SessionMessageQueue {
         }
         queue.entries = queue.entries.filter(entry => entry.id !== sent.id);
         queue.completedIds = [...queue.completedIds, sent.id].slice(-500);
-        if (result?.pause && (queue.resumeRevision ?? 0) <= dispatchRevision) {
+        if (sent.delivery !== "steer" && result?.pause && (queue.resumeRevision ?? 0) <= dispatchRevision) {
           queue.paused = true; queue.pauseReason = result.reason ?? "error";
         }
       });
     } catch (error) {
-      if (this.removed.has(keyOf(workspaceId, sessionId))) return;
+      if (this.stopped || this.removed.has(keyOf(workspaceId, sessionId))) return;
       const confirmed = !(error instanceof QueuePreparationError) &&
         await this.transport.confirmed?.(workspaceId, sessionId, sent).catch(() => false);
+      if (this.stopped) return;
       await this.change(workspaceId, sessionId, queue => {
+        if (queue.entries.find(entry => entry.id === sent.id)?.delivery !== sent.delivery) return;
         if (confirmed) {
           if (this.transport.settled) {
             const accepted = queue.entries.find(entry => entry.id === sent.id);
@@ -317,8 +360,7 @@ export class SessionMessageQueue {
           entry.status = error instanceof QueuePreparationError || isNativeDeliveryRejected(error) ? "failed" : "uncertain";
           entry.error = error instanceof Error ? error.message : "Message delivery failed.";
         }
-        queue.paused = true;
-        queue.pauseReason = "error";
+        if (sent.delivery !== "steer") { queue.paused = true; queue.pauseReason = "error"; }
       });
     }
   }

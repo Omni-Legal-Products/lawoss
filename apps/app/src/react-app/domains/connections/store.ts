@@ -801,7 +801,7 @@ export function createConnectionsStore(options: {
     }
   }
 
-  async function removeMcp(name: string) {
+  async function removeMcp(name: string): Promise<void | false> {
     try {
       setStateField("mcpStatus", null);
 
@@ -814,7 +814,7 @@ export function createConnectionsStore(options: {
         await legalworkClient.removeMcp(legalworkWorkspaceId, name);
       } else {
         setStateField("mcpStatus", t("mcp.settings_readonly"));
-        return;
+        return false;
       }
 
       await refreshMcpServers();
@@ -836,6 +836,7 @@ export function createConnectionsStore(options: {
         "mcpStatus",
         error instanceof Error ? error.message : t("mcp.remove_failed"),
       );
+      return false;
     }
   }
 

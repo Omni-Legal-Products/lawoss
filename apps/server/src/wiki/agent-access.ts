@@ -262,7 +262,8 @@ const READ = ["GET"], WRITE = ["POST"], RECORDS = ["GET", "POST", "PATCH", "PUT"
  */
 const WORKSPACE_TOOL_ROUTES: readonly ToolRule[] = [
   { methods: READ, route: /^(?:browser-connections|storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|skills|skills\/[^/]+\/(?:composed|package-file))$/ },
-  { methods: WRITE, route: /^(?:pdf\/read|storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|skills|skills\/(?!hub\/)[^/]+\/(?:resources|research-experience))$/ },
+  // Upstream v0.3.9: saved website logins (#375) and transfers between storage sources (#373).
+  { methods: WRITE, route: /^(?:browser-connections\/[^/]+\/websites|pdf\/read|storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders|transfer)|skills|skills\/(?!hub\/)[^/]+\/(?:resources|research-experience))$/ },
   { methods: READ, route: /^sandbox\/session\/([^/]+)$/, ownSession: true },
   { methods: WRITE, route: /^sandbox\/(?:execute|command|web|http)$/ },
   // Upstream v0.3.0: saved tool output, history images and original images of this chat only.

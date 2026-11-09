@@ -183,6 +183,7 @@ export interface ServerConfig {
   /** Explicit host-generated integrations; never read from authored/API config. */
   managedEnginePluginDirectories?: string[];
   managedEngineStarting?: boolean;
+  managedEngineStatus?: "starting" | "migrating" | "ready" | "error";
   waitForManagedEngineEndpoint?: () => Promise<void>;
   /** Host-only coordinator state; never accepted from project/client config. */
   managedEngineRecoveryState?: () => { mode: "service" | "recovery" | "promoting"; heldSessions: Array<{ id: string; directory: string }>; error?: { code: string; message: string } };

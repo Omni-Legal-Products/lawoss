@@ -122,7 +122,13 @@ export function pdfReading() {
             }
             call.signal.throwIfAborted();
             const file = typeof result.content === "string" ? undefined : result.content?.find(item => item.type === "file" && item.mime === "application/pdf");
-            if (!file || file.type !== "file") return result;
+            if (!file || file.type !== "file") {
+              const output = result.output;
+              // Native page results are schema class instances; the JSON output schema needs their plain fields.
+              if (output && typeof output === "object" && Object.getPrototypeOf(output) !== Object.prototype && "type" in output &&
+                (output.type === "list-page" || output.type === "text-page")) return { ...result, output: { ...output } };
+              return result;
+            }
             const context = await nativeToolContext(ctx, call);
             const pdf = await read({ type: "file", mime: file.mime, url: file.uri, filename: file.name }, args, context);
             call.signal.throwIfAborted();

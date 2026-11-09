@@ -154,7 +154,7 @@ for (const development of [false, true]) test.skipIf(!nativeBinary || !legacyBin
           "msg_migration_assistant",
           sessionID,
           200,
-          300,
+          302, // The database write happens after the reply completed.
           JSON.stringify({
             role: "assistant",
             time: { created: 200, completed: 300 },
@@ -388,6 +388,7 @@ for (const development of [false, true]) test.skipIf(!nativeBinary || !legacyBin
         cache: { read: 70, write: 8 },
       });
       expect(assistant.cost).toBe(1.25);
+      expect(assistant.time.completed).toBe(300);
       const tool = assistant.content.find(
         (content) =>
           content.type === "tool" && content.name === "legalwork_word_read",

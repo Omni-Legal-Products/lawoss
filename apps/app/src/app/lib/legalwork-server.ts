@@ -1063,6 +1063,7 @@ export type LegalworkBrowserPassword = {
   id: string;
   label: string;
   origin: string;
+  additionalOrigins?: string[];
   username: string;
   updatedAt: string;
 };
@@ -1839,7 +1840,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     syncWiki: (id: string) => requestJson<WikiSyncStatus>(baseUrl, `/wikis/${encodeURIComponent(id)}/sync`, { token, hostToken, method: "POST", timeoutMs: 300_000 }),
     searchWiki: (id: string, query: string, type?: string) => requestJson<{ items: WikiPage[] }>(baseUrl, `/wikis/${encodeURIComponent(id)}/search?q=${encodeURIComponent(query)}${type ? `&type=${encodeURIComponent(type)}` : ""}`, { token, hostToken }),
     health: () =>
-      requestJson<{ ok: boolean; version: string; uptimeMs: number }>(baseUrl, "/health", { token, hostToken, timeoutMs: timeouts.health }),
+      requestJson<{ ok: boolean; version: string; uptimeMs: number; engine?: { status: "starting" | "migrating" | "ready" | "error" } }>(baseUrl, "/health", { token, hostToken, timeoutMs: timeouts.health }),
     runtimeVersions: () =>
       requestJson<LegalworkRuntimeSnapshot>(baseUrl, "/runtime/versions", { token, hostToken, timeoutMs: timeouts.status }),
     status: () => requestJson<LegalworkServerDiagnostics>(baseUrl, "/status", { token, hostToken, timeoutMs: timeouts.status }),
@@ -1927,7 +1928,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     connectorStatus: (id?: string, forceRefresh = false) => requestJson<ConnectorStatus>(baseUrl, id ? `/connectors/${encodeURIComponent(id)}${forceRefresh ? "?refresh=true" : ""}` : "/connectors", { token, hostToken, timeoutMs: 120_000 }),
     connectorStorageLocations: (id: string, connectionId: string, kind: "sites" | "drives", options?: { siteId?: string; pageToken?: string; query?: string }) => requestJson<{ sites?: { id: string; displayName?: string; webUrl?: string }[]; drives?: { id: string; name?: string; webUrl?: string }[]; nextPageToken?: string | null }>(baseUrl, `/connectors/${encodeURIComponent(id)}/storage-locations?${new URLSearchParams({ connectionId, kind, ...options })}`, { token, hostToken, timeoutMs: timeouts.status }),
     connectorActivation: (id: string, connectionId: string, active: boolean) => requestJson<{ active: boolean }>(baseUrl, `/connectors/${encodeURIComponent(id)}/activation`, { token, hostToken, method: "PUT", body: { connectionId, active } }),
-    connectorConnect: (id: string, connectionId?: string, method: "nango" | "custom" = "nango") => requestJson<ConnectorConnect>(baseUrl, `/connectors/${encodeURIComponent(id)}/connect`, { token, hostToken, method: "POST", body: { method, ...(connectionId ? { connectionId } : {}) }, timeoutMs: 60_000 }),
+    connectorConnect: (id: string, connectionId?: string, method?: "nango" | "custom") => requestJson<ConnectorConnect>(baseUrl, `/connectors/${encodeURIComponent(id)}/connect`, { token, hostToken, method: "POST", body: { ...(method ? { method } : {}), ...(connectionId ? { connectionId } : {}) }, timeoutMs: 60_000 }),
     connectorOAuthClient: (id: string) => requestJson<ConnectorOAuthClient>(baseUrl, `/connectors/${encodeURIComponent(id)}/oauth-client`, { token, hostToken, timeoutMs: timeouts.status }),
     connectorSaveOAuthClient: (id: string, details: ConnectorOAuthClientInput) => requestJson<ConnectorOAuthClient>(baseUrl, `/connectors/${encodeURIComponent(id)}/oauth-client`, { token, hostToken, method: "PUT", body: details, timeoutMs: timeouts.status }),
     connectorRemoveOAuthClient: (id: string) => requestJson<ConnectorOAuthClient>(baseUrl, `/connectors/${encodeURIComponent(id)}/oauth-client`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.status }),
@@ -2934,7 +2935,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     assistantSettings: () => requestJson<{ settings: AssistantSettings }>(baseUrl, "/assistant/settings", { token, hostToken }),
     updateAssistantSettings: (settings: AssistantSettings) => requestJson<{ settings: AssistantSettings }>(baseUrl, "/assistant/settings", { token, hostToken, method: "PATCH", body: settings }),
     assistantSettingsCatalog: () => requestJson<AssistantSettingsCatalog>(baseUrl, "/assistant/settings/catalog", { token, hostToken }),
-    mainAssistantProfile: () => requestJson<{ profile: AssistantProfile; workspace: LegalworkWorkspaceInfo | null }>(baseUrl, "/assistant", { token, hostToken }),
+    mainAssistantProfile: () => requestJson<{ profile: AssistantProfile; workspace: LegalworkWorkspaceInfo | null; day?: { date: string; sessionId: string } | null; onboarding?: AssistantOnboardingState }>(baseUrl, "/assistant", { token, hostToken }),
     assistantAttention: (cursor?: string) => requestJson<AssistantAttentionPage>(baseUrl, `/assistant/attention?presented=true${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, { token, hostToken }),
     setAssistantAttentionVisibility: (item: Pick<AssistantAttentionItem, "id" | "revision" | "workspaceId" | "sessionId">, visible: boolean) => requestJson<{ ok: boolean }>(baseUrl, "/assistant/attention/visibility", { token, hostToken, method: "POST", body: { id: item.id, revision: item.revision, workspaceId: item.workspaceId, sessionId: item.sessionId, visible } }),
     replyAssistantAttention: (reply: AssistantAttentionReply) => requestJson<{ ok: boolean }>(baseUrl, "/assistant/attention/reply", { token, hostToken, method: "POST", body: reply }),
@@ -3537,6 +3538,14 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     listBrowserPasswords: (origin?: string) => requestJson<{ items: LegalworkBrowserPassword[] }>(baseUrl, `/browser-passwords${origin ? `?${new URLSearchParams({ origin })}` : ""}`, { token, hostToken, timeoutMs: timeouts.config }),
     saveBrowserPassword: (value: { id?: string; label: string; origin: string; username: string; password?: string; websiteUrl?: string }) =>
       requestJson<{ item: LegalworkBrowserPassword }>(baseUrl, "/browser-passwords", { token, hostToken, method: "PUT", body: value, timeoutMs: timeouts.config }),
+    addBrowserPasswordWebsite: (id: string, value: { url: string; name?: string; loginUrl?: string } | { loginUrl: string }) =>
+      requestJson<{ item: LegalworkBrowserPassword }>(baseUrl, `/browser-passwords/${encodeURIComponent(id)}/websites`, { token, hostToken, method: "POST", body: value, timeoutMs: timeouts.config }),
+    removeBrowserPasswordWebsite: (id: string, value: { url?: string; loginUrl?: string }) => {
+      const query = new URLSearchParams();
+      if (value.url !== undefined) query.set("url", value.url);
+      if (value.loginUrl !== undefined) query.set("loginUrl", value.loginUrl);
+      return requestJson<{ item: LegalworkBrowserPassword }>(baseUrl, `/browser-passwords/${encodeURIComponent(id)}/websites?${query}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config });
+    },
     deleteBrowserPassword: (id: string) => requestJson<{ ok: true }>(baseUrl, `/browser-passwords/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
 
     // User-level env vars (host-auth only — desktop shell is the sole caller).

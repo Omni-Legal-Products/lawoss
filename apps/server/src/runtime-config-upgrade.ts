@@ -1,4 +1,5 @@
 import { Config } from "@opencode/schema/config";
+import { Provider } from "@opencode/schema/provider";
 import { LAWOSS_APPLICATION_KEYS } from "./lawoss/runtime-config-keys.js";
 import { Schema } from "effect";
 
@@ -121,6 +122,51 @@ function legacyProvider(value: unknown) {
     models: Object.keys(models).length ? models : undefined });
 }
 
+function currentProviderID(id: string) {
+  return Provider.ID.make(id === "azure-cognitive-services" ? "azure" : id === "google-vertex-anthropic" ? "google-vertex" : id);
+}
+function currentProviderKeys<T>(entries: Record<string, T>) {
+  // An explicitly configured current ID wins over its retired alias, in either
+  // insertion order. Do not merge old endpoints or models into newer settings.
+  return Object.fromEntries(Object.entries(entries)
+    .filter(([id]) => currentProviderID(id) === id || !Object.hasOwn(entries, currentProviderID(id)))
+    .map(([id, value]) => [currentProviderID(id), value]));
+}
+function currentProvider(id: string, provider: NonNullable<NativeRuntimeConfiguration["providers"]>[string]) {
+  if (provider.canonical) provider = { ...provider, canonical: currentProviderID(provider.canonical) };
+  if (id === "azure-cognitive-services") {
+    const compatible = ["@opencode/ai/providers/openai-compatible", "aisdk:@ai-sdk/openai-compatible"].includes(provider.package ?? "");
+    return { ...provider, ...(provider.env && { env: provider.env.filter(name => name !== "AZURE_COGNITIVE_SERVICES_RESOURCE_NAME") }),
+      ...(compatible && provider.settings?.baseURL === undefined
+        ? { settings: { ...provider.settings, baseURL: "https://${AZURE_COGNITIVE_SERVICES_RESOURCE_NAME}.cognitiveservices.azure.com/openai" } } : {}) };
+  }
+  if (id === "google-vertex-anthropic") {
+    // Gemini and Claude now share a provider. The old Claude package belongs on
+    // those saved models, rather than replacing the SDK for every Vertex model.
+    const { package: providerPackage, ...rest } = provider;
+    return { ...rest, ...(provider.models && { models: Object.fromEntries(Object.entries(provider.models)
+      .map(([name, model]) => [name, { ...model, package: model.package ?? providerPackage ?? "aisdk:@ai-sdk/google-vertex/anthropic" }])) }) };
+  }
+  return provider;
+}
+function upgradeRetiredProviders(result: RuntimeConfigUpgradeResult): RuntimeConfigUpgradeResult {
+  const configuration = { ...result.configuration,
+    ...(result.configuration.providers && { providers: currentProviderKeys(Object.fromEntries(Object.entries(result.configuration.providers)
+      .map(([id, provider]) => [id, currentProvider(id, provider)]))) }),
+    ...(result.configuration.agents && { agents: Object.fromEntries(Object.entries(result.configuration.agents)
+      .map(([id, agent]) => [id, { ...agent, ...(agent.model && { model: { ...agent.model, providerID: currentProviderID(agent.model.providerID) } }) }])) }),
+    ...(result.configuration.model && { model: { ...result.configuration.model, providerID: currentProviderID(result.configuration.model.providerID) } }),
+    ...(result.configuration.policies && { policies: result.configuration.policies.map(rule => rule.action === "provider.use"
+      ? { ...rule, resource: currentProviderID(rule.resource) } : rule) }),
+  };
+  const application = { ...result.application };
+  for (const name of ["providerActivation", "providerModelSelection"]) {
+    if (application[name] !== undefined) application[name] = currentProviderKeys(record(application[name]));
+  }
+  return { ...result, configuration, application, migrated: result.migrated
+    || JSON.stringify(configuration) !== JSON.stringify(result.configuration) || JSON.stringify(application) !== JSON.stringify(result.application) };
+}
+
 function retiredManagedBrowser(value: unknown) {
   const spec = typeof value === "string" ? value : value && typeof value === "object" && !Array.isArray(value) ? Reflect.get(value, "package") : undefined;
   if (typeof spec !== "string") return false;
@@ -144,12 +190,25 @@ function legacyAgent(value: unknown, agentId: string, notices: RuntimeConfigUpgr
 }
 function legacyMcp(value: unknown) {
   const { enabled, disabled, oauth, timeout, ...rest } = record(value), auth = optionalRecord(oauth === false ? undefined : oauth);
+  const { clientId, clientSecret, callbackPort, redirectUri, ...nativeAuth } = auth;
   if (enabled !== undefined && typeof enabled !== "boolean") throw new Error("Invalid saved connector enablement.");
   if (disabled !== undefined && typeof disabled !== "boolean" || enabled !== undefined && disabled !== undefined && enabled === disabled) throw new Error("Conflicting saved connector enablement.");
   return defined({ ...rest, disabled: enabled === undefined ? disabled : !enabled,
-    oauth: oauth === false ? false : oauth === undefined ? undefined : defined({ client_id: auth.client_id ?? auth.clientId,
-      client_secret: auth.client_secret ?? auth.clientSecret, scope: auth.scope, callback_port: auth.callback_port ?? auth.callbackPort, redirect_uri: auth.redirect_uri ?? auth.redirectUri }),
+    oauth: oauth === false ? false : oauth === undefined ? undefined : defined({ ...nativeAuth, client_id: Object.hasOwn(auth, "client_id") ? auth.client_id : clientId,
+      client_secret: Object.hasOwn(auth, "client_secret") ? auth.client_secret : clientSecret,
+      callback_port: Object.hasOwn(auth, "callback_port") ? auth.callback_port : callbackPort, redirect_uri: Object.hasOwn(auth, "redirect_uri") ? auth.redirect_uri : redirectUri }),
     timeout: typeof timeout === "number" ? { startup: timeout, catalog: timeout, execution: timeout } : timeout });
+}
+function upgradeMcp(value: unknown) {
+  const mcp = record(value);
+  try { Schema.decodeUnknownSync(Config.Info)({ mcp }, { onExcessProperty: "error" }); return mcp; }
+  catch { /* Historical connector fields still require normalization. */ }
+  const servers = optionalRecord(mcp.servers);
+  // A legacy connector can itself be named "servers". Its type identifies
+  // the definition; an actual namespace retains its timeout and other fields.
+  const nested = mcp.servers !== undefined && !["local", "remote"].includes(String(servers.type));
+  const definitions = Object.fromEntries(Object.entries(nested ? servers : mcp).map(([id, item]) => [id, legacyMcp(item)]));
+  return nested ? { ...mcp, servers: definitions } : { servers: definitions };
 }
 function split(input: RecordValue) {
   const application: RecordValue = {}, configuration: RecordValue = {};
@@ -172,7 +231,15 @@ export function decodeNativeRuntimeConfigRecord(value: unknown): RuntimeConfigUp
  * native entries are never inferred from a handful of nested field names. */
 export function upgradeRuntimeConfigRecord(value: unknown, options: { scope?: "configuration" | "workspace" | "host" } = {}): RuntimeConfigUpgradeResult {
   const input = record(value);
-  if (input.configurationVersion === RUNTIME_CONFIGURATION_VERSION) return decodeNativeRuntimeConfigRecord(input);
+  if (input.configurationVersion === RUNTIME_CONFIGURATION_VERSION) {
+    let result: RuntimeConfigUpgradeResult;
+    try { result = decodeNativeRuntimeConfigRecord(input); }
+    catch (error) {
+      if (input.mcp === undefined) throw error;
+      result = { ...decodeNativeRuntimeConfigRecord({ ...input, mcp: upgradeMcp(input.mcp) }), migrated: true };
+    }
+    return upgradeRetiredProviders(result);
+  }
   if (input.configurationVersion !== undefined && input.configurationVersion !== 1) throw new Error("Unsupported saved configuration version.");
   const { application, configuration: source } = split(input);
   const { permission, provider, agent, plugin, disabled_providers, enabled_providers, tools, subagent_depth, ...native } = source;
@@ -182,7 +249,8 @@ export function upgradeRuntimeConfigRecord(value: unknown, options: { scope?: "c
   const modelSelection = { ...optionalRecord(application.providerModelSelection) };
   for (const [id, value] of Object.entries(optionalRecord(provider))) {
     const allow = strings(record(value).whitelist);
-    if (allow !== undefined && !Object.hasOwn(optionalRecord(native.providers), id)) modelSelection[id] = allow;
+    if (allow !== undefined && !Object.hasOwn(optionalRecord(native.providers), id)
+      && !Object.hasOwn(optionalRecord(native.providers), currentProviderID(id))) modelSelection[id] = allow;
   }
   if (Object.keys(modelSelection).length) application.providerModelSelection = modelSelection;
   const providers = { ...Object.fromEntries(Object.entries(optionalRecord(provider)).map(([id, item]) => [id, legacyProvider(item)])), ...optionalRecord(native.providers) };
@@ -194,15 +262,7 @@ export function upgradeRuntimeConfigRecord(value: unknown, options: { scope?: "c
   const nativeRules = native.permissions === undefined ? [] : Schema.decodeUnknownSync(Config.Info)({ permissions: native.permissions }, { onExcessProperty: "error" }).permissions ?? [];
   const policies = [...(strings(enabled_providers) ? [{ action: "provider.use", resource: "*", effect: "deny" }, ...strings(enabled_providers)!.map(resource => ({ action: "provider.use", resource, effect: "allow" }))] : []),
     ...(strings(disabled_providers) ?? []).map(resource => ({ action: "provider.use", resource, effect: "deny" })), ...(Array.isArray(native.policies) ? native.policies : [])];
-  const mcp = optionalRecord(native.mcp);
-  // Only this unversioned import boundary accepts either historical envelope.
-  // Validate the complete native namespace so an old connector literally named
-  // "servers" is not mistaken for the V2 server-definition map.
-  let nativeMcp = false;
-  if (native.mcp !== undefined) {
-    try { Schema.decodeUnknownSync(Config.Info)({ mcp }, { onExcessProperty: "error" }); nativeMcp = true; }
-    catch { /* The legacy envelope is validated during its explicit import. */ }
-  }
+  const mcp = native.mcp === undefined ? undefined : upgradeMcp(native.mcp);
   const skills = Array.isArray(native.skills) ? native.skills : [...strings(optionalRecord(native.skills).paths) ?? [], ...strings(optionalRecord(native.skills).urls) ?? []];
   const experimental = optionalRecord(native.experimental);
   delete experimental.continue_loop_on_deny;
@@ -215,11 +275,11 @@ export function upgradeRuntimeConfigRecord(value: unknown, options: { scope?: "c
     permissions: permission !== undefined || tools !== undefined || native.permissions !== undefined ? [...rules, ...nativeRules] : undefined,
     policies: enabled_providers !== undefined || disabled_providers !== undefined || native.policies !== undefined ? policies : undefined,
     plugins: plugin !== undefined || native.plugins !== undefined ? plugins.filter(value => !retiredManagedBrowser(value)) : undefined,
-    mcp: native.mcp === undefined ? undefined : nativeMcp ? mcp : { servers: Object.fromEntries(Object.entries(mcp).map(([id, item]) => [id, legacyMcp(item)])) },
+    mcp,
     skills: native.skills === undefined ? undefined : skills,
     experimental: native.experimental === undefined && subagent_depth === undefined ? undefined : experimental,
   }), { onExcessProperty: "error" });
-  return { configuration, application, notices, sourceVersion: typeof input.configurationVersion === "number" ? input.configurationVersion : 0, migrated: true };
+  return upgradeRetiredProviders({ configuration, application, notices, sourceVersion: typeof input.configurationVersion === "number" ? input.configurationVersion : 0, migrated: true });
 }
 
 export function nativeRuntimeConfigRecord(result: Pick<RuntimeConfigUpgradeResult, "configuration" | "application">): RecordValue {

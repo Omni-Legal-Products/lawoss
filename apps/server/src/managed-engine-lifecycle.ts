@@ -227,18 +227,23 @@ export async function createConfiguredManagedEngine(config: ServerConfig, option
   const endpoint = new Promise<void>((resolve, reject) => { resolveEndpoint = resolve; rejectEndpoint = reject; });
   void endpoint.catch(() => {});
   config.managedEngineStarting = true;
+  config.managedEngineStatus = "starting";
   config.waitForManagedEngineEndpoint = () => endpoint;
   try {
     const engine = await createManagedOpencodeServer({ ...options, onAuthenticated(connection) {
       config.opencodeBaseUrl = connection.url; config.opencodeUsername = connection.username; config.opencodePassword = connection.password;
       for (const workspace of config.workspaces) { workspace.baseUrl = connection.url; workspace.opencodeUsername = connection.username; workspace.opencodePassword = connection.password; workspace.directory = workspace.path; }
       resolveEndpoint(); options.onAuthenticated?.(connection);
+    }, onMigrationProgress(status) {
+      config.managedEngineStatus = status.status === "running" ? "migrating" : "starting";
+      options.onMigrationProgress?.(status);
     } });
     try {
       const client = OpenCode.make({ baseUrl: engine.url, headers: { Authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
       await importLegacyProviderCredentials(client, options);
+      config.managedEngineStatus = "ready";
       return engine;
     } catch (error) { await engine.close(); throw error; }
-  } catch (error) { rejectEndpoint(error); throw error; }
+  } catch (error) { config.managedEngineStatus = "error"; rejectEndpoint(error); throw error; }
   finally { config.managedEngineStarting = false; }
 }

@@ -49,6 +49,8 @@ export type WikiRegistration = {
   root: string;
   workspaceId: string;
   allowInProjects: boolean;
+  /** Requires review for project contributions. The generated research wiki defaults to false. */
+  requireAgentApproval?: boolean;
   /** Omitted/null permits all projects; an array restricts project tool access. */
   projectWorkspaceIds?: string[] | null;
   sync: WikiSyncSettings | null;
@@ -118,4 +120,4 @@ export type WikiCreateInput = {
   sync?: WikiSyncSettings | null;
   sharing?: WikiSharingInput;
 };
-export type WikiUpdateInput = { name?: string; allowInProjects?: boolean; projectWorkspaceIds?: string[] | null; sync?: WikiSyncSettings | null };
+export type WikiUpdateInput = { name?: string; allowInProjects?: boolean; requireAgentApproval?: boolean; projectWorkspaceIds?: string[] | null; sync?: WikiSyncSettings | null };

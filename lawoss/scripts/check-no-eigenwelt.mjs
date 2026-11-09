@@ -64,6 +64,10 @@ const SKIPPED_PATH = /(?:\.test\.|\.spec\.|\/tests?\/|\/__tests__\/|\/fixtures?\
  * nový reťazec v známom súbore treba posúdiť a dopísať sem s dôvodom.
  */
 export const ALLOWED = {
+  "apps/app/src/react-app/domains/settings/pages/connector-overview.tsx": {
+    matches: ["eigenweltlabs.com"],
+    reason: "Upstream v0.3.9: len komentár s pôvodom obrázka; obrázok je pribalený (assets/integrations-watercolor.webp), appka nič nesťahuje.",
+  },
   ".github/workflows/download-stats.yml": {
     matches: ["posthog"],
     reason: "Job beží len v eigenweltlabs/legalwork (podmienka if: github.repository).",

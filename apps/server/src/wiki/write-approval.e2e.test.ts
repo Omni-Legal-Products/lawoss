@@ -185,14 +185,19 @@ test("human Save files exact reviewed sources and links; stale previews, agent p
   expect((await f.host(`${path}/attachments/${source.sha256}?revision=stale`)).status).toBe(409);
   expect((await fetch(`${f.url}${path}/save`, { method: "POST", headers: f.headers(), body: JSON.stringify({ revision: draft.revision }) })).status).toBe(403);
   await writeFile(join(f.project, "judgment.pdf"), "New version of original");
-  expect((await f.host(`${path}/save`, "POST", { revision: draft.revision })).status).toBe(200);
-  expect(await readFile(join(f.wiki.root, source.path))).toEqual(bytes);
-  expect(await readFile(join(f.wiki.root, proposal.destination.path), "utf8")).toBe(draft.content);
-  expect(draft.content).toContain(`../Sources/${draft.id}/judgment.pdf`);
+  const response = await f.host(`${path}/save`, "POST", { revision: draft.revision });
+  expect(response.status).toBe(200);
+  const saved = WikiSuggestionSchema.parse(await response.json());
+  expect(saved.attachments[0].path).toBe("Sources/judgment.pdf");
+  expect(await readFile(join(f.wiki.root, saved.attachments[0].path))).toEqual(bytes);
+  expect(await readFile(join(f.wiki.root, proposal.destination.path), "utf8")).toBe(saved.content);
+  expect(saved.content).toContain(proposal.content);
+  expect(saved.content).toContain(`../Sources/judgment.pdf`);
+  expect(saved.content).not.toContain(draft.id);
 
   const second = WikiSuggestionSchema.parse(await (await f.host(suggestionsPath, "POST", { ...proposal, destination: { ...proposal.destination, path: "Knowledge/Dismissed.md" } })).json());
   expect((await f.host(`${suggestionsPath}/${second.id}/dismiss`, "POST", { revision: second.revision })).status).toBe(200);
-  await expect(readFile(join(f.wiki.root, second.attachments[0]!.path))).rejects.toMatchObject({ code: "ENOENT" });
+  expect(await readFile(join(f.wiki.root, saved.attachments[0].path))).toEqual(bytes);
   await expect(readFile(join(f.wiki.root, second.destination.path))).rejects.toMatchObject({ code: "ENOENT" });
 });
 
@@ -328,4 +333,56 @@ test("destinations use real folders in the selected wiki and revalidate on Save"
   expect(await save.json()).toMatchObject({ code: "wiki_folder_missing" });
   expect(WikiSuggestionSchema.parse(await (await f.host(path)).json()).status).toBe("pending");
   await f.unchanged();
+});
+
+
+test("disabling approval publishes project contributions and source snapshots, while access checks and human endpoints stay enforced", async () => {
+  const f = await fixture();
+  const propose = (value: unknown, method = "POST", suffix = "") => fetch(`${f.url}${suggestionsPath}${suffix}`, { method, headers: f.headers(), body: JSON.stringify(value) });
+  const proposal = { title: "Background finding", content: "# Finding", destination: { wikiId: f.wiki.id, path: "Knowledge/Background.md", baseRevision: null }, attachments: [{ sourcePath: "judgment.pdf" }] };
+  await writeFile(join(f.project, "judgment.pdf"), "new source");
+  expect((await f.agent("", "PATCH", { requireAgentApproval: false })).status).toBe(403);
+  expect((await f.host(f.base, "PATCH", { requireAgentApproval: false })).status).toBe(200);
+  await mkdir(join(f.wiki.root, "Sources"));
+  await writeFile(join(f.wiki.root, "Sources", "judgment.pdf"), "existing source");
+  const response = await propose(proposal);
+  expect(response.status).toBe(201);
+  const saved = WikiSuggestionSchema.parse(await response.json());
+  expect(saved.status).toBe("saved");
+  expect(saved.attachments[0].path).toBe("Sources/judgment (2).pdf");
+  expect(await readFile(join(f.wiki.root, saved.destination.path), "utf8")).toBe(saved.content);
+  expect(saved.content).toContain("../Sources/judgment%20%282%29.pdf");
+  expect(await readFile(join(f.wiki.root, "Sources/judgment.pdf"), "utf8")).toBe("existing source");
+  const preview = await f.host(`${suggestionsPath}/${saved.id}/attachments/${saved.attachments[0].sha256}?revision=${saved.revision}`);
+  expect(preview.status).toBe(200);
+  expect(await preview.text()).toBe("new source");
+  expect((await propose({ ...proposal, content: "# Stale" })).status).toBe(409);
+  expect((await f.agent("/page?path=Direct.md", "PUT", { path: "Direct.md", content: "# Bypass", baseRevision: null })).status).toBe(403);
+  expect((await propose({ revision: saved.revision }, "POST", `/${saved.id}/save`)).status).toBe(403);
+  // A later change applies immediately to existing sessions and drafts.
+  await f.host(f.base, "PATCH", { requireAgentApproval: true });
+  const next = { ...proposal, destination: { ...proposal.destination, path: "Knowledge/Next.md" } };
+  const pending = WikiSuggestionSchema.parse(await (await propose(next)).json());
+  expect(pending.status).toBe("pending");
+  await expect(readFile(join(f.wiki.root, next.destination.path))).rejects.toMatchObject({ code: "ENOENT" });
+  await f.host(f.base, "PATCH", { requireAgentApproval: false });
+  const updated = WikiSuggestionSchema.parse(await (await propose({ ...next, revision: pending.revision }, "PUT", `/${pending.id}`)).json());
+  expect(updated.status).toBe("saved");
+  await f.host(f.base, "PATCH", { allowInProjects: false });
+  expect((await propose({ ...proposal, destination: { ...proposal.destination, path: "Knowledge/Denied.md" } })).status).toBe(403);
+  await expect(readFile(join(f.wiki.root, "Knowledge/Denied.md"))).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+
+test("background publication cannot bypass read-only mode or a session's viewer scope", async () => {
+  const f = await fixture();
+  await f.host(f.base, "PATCH", { requireAgentApproval: false });
+  const proposal = { title: "Denied", content: "# Denied", destination: { wikiId: f.wiki.id, path: "Knowledge/Denied.md", baseRevision: null } };
+  await grantWikiAgentSession(f.config, { sessionId: "viewer-chat", directory: f.project, scope: "viewer" });
+  const denied = await fetch(`${f.url}${suggestionsPath}`, { method: "POST", headers: f.headers("viewer-chat"), body: JSON.stringify(proposal) });
+  expect(denied.status).toBe(403);
+  f.config.readOnly = true;
+  const readOnly = await fetch(`${f.url}${suggestionsPath}`, { method: "POST", headers: f.headers(), body: JSON.stringify(proposal) });
+  expect(readOnly.status).toBe(403);
+  await expect(readFile(join(f.wiki.root, proposal.destination.path))).rejects.toMatchObject({ code: "ENOENT" });
 });

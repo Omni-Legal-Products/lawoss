@@ -1,5 +1,4 @@
 import { scheduleTaskSync, startTaskSyncTimer } from "./task-sync.js";
-import { startProjectSyncTimer } from "./project-sync.js";
 import { acquireRuntimeDbLifetime } from "./runtime-db-lifecycle.js";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
@@ -31,6 +30,7 @@ import {
   runProjectSync,
   scheduleProjectSync,
   saveProjectSyncSettings,
+  startProjectSyncTimer,
   stopProjectSync,
   type ProjectSyncPlatform,
 } from "./project-sync.js";
@@ -354,13 +354,13 @@ function fakeFirm() {
 /** One member's computer: its own server config, runtime DB and projects folder. */
 async function machine(userId: string, userName: string, options: { syncMode?: "manual" | "background" } = {}) {
   const dir = await mkdtemp(join(tmpdir(), `legalwork-${userId}-`));
-  cleanups.push(() => rm(dir, { recursive: true, force: true }));
   const config = {
     configPath: join(dir, "server.json"),
     workspaces: [],
     authorizedRoots: [],
     projectsDirectory: join(dir, "Projects"),
   } as unknown as ServerConfig;
+  cleanups.push(() => rm(dir, { recursive: true, force: true }));
   const lifetime = acquireRuntimeDbLifetime(config);
   cleanups.push(() => lifetime.release());
   const stopTaskTimer = startTaskSyncTimer(config, 60_000, 60_000);
@@ -373,7 +373,8 @@ async function machine(userId: string, userName: string, options: { syncMode?: "
   });
   // Manual rounds retain the DB lifetime, but automatic producers must be stopped.
   if (options.syncMode !== "background") await Promise.all([stopProjectTimer(), stopTaskTimer()]);
-  return { config, dir, userId, stopProjectTimer, stopTaskTimer };
+  // Upstream v0.3.9 name for the same project-sync stop.
+  return { config, dir, userId, stopProjectTimer, stopTaskTimer, stopSync: stopProjectTimer };
 }
 
 test("manual machines reject automatic rounds while allowing explicit project sync", async () => {
@@ -610,6 +611,27 @@ describe("project sync between computers", () => {
       await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
       expect((await runProjectSync(owner.config, { platform })).error).toBeNull();
       await new Promise((resolve) => setTimeout(resolve, 650));
+      expect(requests).toEqual([]);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test("stopping a fixture cancels queued project writes before its files are removed", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const project = await localProject(owner.config, "Closing fixture");
+    await saveProjectSyncSettings(owner.config, project, settings());
+    await runProjectSync(owner.config, { platform });
+    const requests: string[] = [];
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return new Response("unavailable", { status: 503 });
+    }, { preconnect: globalThis.fetch.preconnect }));
+    try {
+      await saveProjectSyncSettings(owner.config, project, settings({ scope: { ...ALL, tasks: false } }));
+      owner.stopSync();
+      await new Promise(resolve => setTimeout(resolve, 650));
       expect(requests).toEqual([]);
     } finally {
       fetchSpy.mockRestore();

@@ -92,7 +92,8 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     version: serverVersion,
     opencodeVersion,
     uptimeMs: Date.now() - config.startedAt,
-    ...(config.engineProjectTrustRequired ? { engine: { status: config.managedEngineStarting === false && config.opencodeBaseUrl ? "ready" : "starting" } } : {}),
+    ...(config.engineProjectTrustRequired && (config.workspaces[0]?.path || config.managedEngineStatus)
+      ? { engine: { status: config.managedEngineStatus ?? (config.managedEngineStarting === false && config.opencodeBaseUrl ? "ready" : "starting") } } : {}),
   });
 
   addRoute(routes, "GET", "/health", "none", async () => healthResponse());

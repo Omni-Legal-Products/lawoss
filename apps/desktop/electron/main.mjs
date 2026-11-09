@@ -1,6 +1,7 @@
 import { nativeBundledDisplayId } from "./bundled-workflow-presentation.mjs";
 import { acceptUiLocaleReport, createNativeLocaleState, nativeCopy, preferredSystemLocale, systemLanguageList, systemLanguagesArgument } from "./native-locale.mjs";
 import { getAppBuildInfo } from './build-info.mjs';
+import { createShutdownGuard } from "./shutdown-guard.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { boundedShutdown } from "./bounded-shutdown.mjs";
 import { createServer } from "node:http";
@@ -61,7 +62,7 @@ import { createApplicationMenu } from "./app-menu.mjs";
 import { windowAppearanceOptions, windowsTitleBarOverlay } from "./window-chrome.mjs";
 import { createHttpRequests } from "./http-requests.mjs";
 import { createEventStreams } from "./event-streams.mjs";
-import { createBrowserPanel } from "./browser-panel.mjs";
+import { BROWSER_PRELOAD_CHANNELS, createBrowserPanel } from "./browser-panel.mjs";
 import { resolveBrowserProject } from "./browser-project.mjs";
 import { requireBrowserNetwork } from "./browser-network-policy.mjs";
 import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
@@ -154,11 +155,11 @@ const uiLocales = createNativeLocaleState(() => preferredSystemLocale(systemLang
 const chevron7Signing = createChevron7Signing({ platform: process.platform, roots: ["/Applications", path.join(os.homedir(), "Applications")] });
 app.on("will-quit", () => chevron7Signing.dispose());
 
-// Only LegalWork's own pages may use the desktop bridge. Browser tabs send
-// menu-overlay:dismiss so a click in a web page closes an open menu.
+// Browser preload events are validated by the owning panel; other desktop
+// bridge channels remain restricted to LegalWork's own pages.
 const ipcMain = guardIpcMain(electronIpcMain, {
   isTrustedUrl: isAppUrl,
-  openChannels: ["legalwork:menu-overlay:dismiss"],
+  openChannels: BROWSER_PRELOAD_CHANNELS,
   onRejected: (channel, event) => console.warn(`[security] refused ${channel} from ${event?.senderFrame?.url ?? "an unknown page"}`),
 });
 
@@ -949,10 +950,12 @@ const systemDictation = new SystemDictationService({
 // destroying it, and a tray icon keeps the app reachable.
 
 let appIsQuitting = false;
+let shutdownApproved = false;
 // Native update installation closes windows before app's before-quit event.
 // Mark the quit intent now so close-to-hide cannot block the installation.
-autoUpdater.on("before-quit-for-update", () => { appIsQuitting = true; });
+autoUpdater.on("before-quit-for-update", () => { appIsQuitting = true; shutdownApproved = true; });
 let windowsCloseHintShown = false;
+const shutdownGuard = createShutdownGuard({ getWindows: () => [mainWindow, ...secondaryWindows], isQuitting: () => appIsQuitting });
 // --hidden comes from the login-item registration (Windows args); macOS
 // login-item launches are detected via wasOpenedAtLogin in whenReady.
 let startHiddenPending = process.argv.includes("--hidden");
@@ -1866,6 +1869,7 @@ async function openAppWindow(event, route, title = "") {
       additionalArguments: [systemLanguagesArgument(systemLanguageList(app))],
     },
   });
+  shutdownGuard.protect(sessionWindow);
   secondaryWindows.add(sessionWindow);
   applicationMenu.applyVisibility(sessionWindow);
   recorderServiceInstance?.subscribe(sessionWindow.webContents);
@@ -3089,7 +3093,9 @@ async function createMainWindow() {
   // While dictation is armed (or a recording is finishing), closing the
   // window would kill the renderer that hosts the capture pipeline — hide it
   // instead. Quit and update installation close for real via the quit flag.
+  shutdownGuard.protect(mainWindow);
   mainWindow.on("close", (event) => {
+    if (event.defaultPrevented) return;
     if (appIsQuitting || !keepAliveOnClose()) return;
     const status = systemDictation.status();
     appTray.ensure({
@@ -3158,8 +3164,10 @@ ipcMain.handle("legalwork:shell:openExternal", async (_event, url) => {
   }
 });
 ipcMain.handle("legalwork:shell:relaunch", async () => {
+  if (!await shutdownGuard.confirm("restart")) return;
+  shutdownApproved = true;
   app.relaunch();
-  app.exit(0);
+  app.quit();
 });
 ipcMain.handle("legalwork:system:architecture", async () => resolveArchitectureInfo());
 ipcMain.handle("legalwork:system:architecture-download", async () => findArchitectureDownload({
@@ -3278,12 +3286,21 @@ ipcMain.on("legalwork:audio:overlay-hide", () => {
 });
 
 registerMigrationIpc({ app, ipcMain });
-const { ensureAutoUpdater } = registerUpdaterIpc({ app, ipcMain, getMainWindow: () => mainWindow });
+const { ensureAutoUpdater } = registerUpdaterIpc({ app, ipcMain, getMainWindow: () => mainWindow, beforeRestart: () => shutdownGuard.confirm("restart") });
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("before-quit", (event) => {
+    if (!shutdownApproved) {
+      event.preventDefault();
+      void shutdownGuard.confirm("close").then(approved => {
+        if (!approved) return;
+        shutdownApproved = true;
+        app.quit();
+      });
+      return;
+    }
     // Lets the window 'close' handler distinguish quit from close-to-hide.
     appIsQuitting = true;
     chevron7Signing.dispose();

@@ -179,6 +179,13 @@ async function runtimeDb(config: ServerConfig, importLegacy = false): Promise<Ru
   return runtimeDbResource(config, resourceKey, path => openNativeConfigState(path, importLegacy ? (workspaceId, source) => {
     const imported = upgradeRuntimeConfigRecord(JSON.parse(source), { scope: [GLOBAL_TOOL_PERMISSIONS_ID, GLOBAL_MCP_ID, GLOBAL_PERSONALIZATION_ID, GLOBAL_PROVIDERS_ID].includes(workspaceId) ? "host" : "workspace" });
     return { configJson: JSON.stringify(normalizeRuntimeOpencodeConfig(nativeRuntimeConfigRecord(imported))), sourceVersion: imported.sourceVersion, noticesJson: JSON.stringify(imported.notices) };
+  } : undefined, importLegacy ? (_workspaceId, source) => {
+    // Upstream v0.3.9: repair saved v2 rows with historical connector fields or retired provider IDs.
+    const value: unknown = JSON.parse(source);
+    if (!isRecord(value) || value.configurationVersion !== 2) return;
+    const repaired = upgradeRuntimeConfigRecord(value);
+    if (!repaired.migrated) return;
+    return { configJson: JSON.stringify(normalizeRuntimeOpencodeConfig(nativeRuntimeConfigRecord(repaired))), sourceVersion: repaired.sourceVersion, noticesJson: JSON.stringify(repaired.notices) };
   } : undefined));
 }
 

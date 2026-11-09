@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
+import { join, resolve, sep } from "node:path";
 import LegalWorkCapabilitiesKnowledge from "./legalwork-capabilities-knowledge.js";
 import { nativePluginTestRuntime } from "./native-plugin-test-support.js";
 
@@ -18,7 +19,10 @@ describe("LegalWork capabilities knowledge plugin", () => {
     expect(output.system.map(part => part.text).join("\n")).toContain("workspace-relative path");
   });
 
-  test("reports the project prompt as a reminder, resolving Windows project paths without matching neighbouring folders", async () => {
+  test("reports the project prompt as a reminder, resolving native project paths without matching neighbouring folders", async () => {
+    const project = resolve("Matters", "Acme");
+    const nestedProject = join(project, "Contracts");
+    const chatDirectory = (path: string) => process.platform === "win32" ? path.toLowerCase().replace(/\\/g, "/") : path;
     const previousUrl = process.env.LEGALWORK_SERVER_URL;
     const previousToken = wikiAgentSecret();
     let requestCount = 0;
@@ -34,8 +38,8 @@ describe("LegalWork capabilities knowledge plugin", () => {
         requestCount++;
         const path = new URL(request.url).pathname;
         if (path === "/workspaces") return Response.json({ items: [
-          { id: "parent", path: "C:\\Matters\\Acme\\" },
-          { id: "nested", path: "C:\\Matters\\Acme\\Contracts" },
+          { id: "parent", path: `${project}${sep}` },
+          { id: "nested", path: nestedProject },
         ] });
         if (path === "/workspace/parent/personalization") return parentStyle === null ? new Response(null, { status: 503 }) : Response.json({ customInstructions: parentStyle });
         if (path === "/workspace/nested/personalization") return Response.json({ customInstructions: "Nested writing style" });
@@ -55,7 +59,7 @@ describe("LegalWork capabilities knowledge plugin", () => {
     const prompt = async (directory: string) => (await modelContext(await pluginRuntime(directory))).reminder;
     let parentStyle: string | null = "Parent writing style";
     try {
-      const parent = await pluginRuntime("c:/matters/acme/");
+      const parent = await pluginRuntime(`${chatDirectory(project)}/`);
       const first = await modelContext(parent);
       expect(first.reminder).toStartWith('<system-reminder topic="project-prompt">');
       expect(first.reminder).toContain("Parent writing style");
@@ -71,10 +75,10 @@ describe("LegalWork capabilities knowledge plugin", () => {
       parentStyle = "";
       expect((await modelContext(parent)).reminder).toContain("project personalisation was removed");
 
-      const nested = await prompt("c:/MATTERS/Acme/Contracts/documents");
+      const nested = await prompt(chatDirectory(join(nestedProject, "documents")));
       expect(nested).toContain("Nested writing style");
       expect(nested).not.toContain("Parent writing style");
-      expect(await prompt("C:\\Matters\\Acme-other")).toBe("");
+      expect(await prompt(chatDirectory(`${project}-other`))).toBe("");
       expect(requestCount).toBeGreaterThan(0);
     } finally {
       server.stop(true);

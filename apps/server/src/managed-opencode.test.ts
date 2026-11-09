@@ -4,6 +4,9 @@ import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 
+import { createConfiguredManagedEngine } from "./managed-engine-lifecycle.js";
+import type { ServerConfig } from "./types.js";
+
 import { createManagedOpencodeServer } from "./managed-opencode.js";
 import { verifiedTestEngine } from "./opencode-candidate.test-support.js";
 
@@ -237,16 +240,27 @@ test("matching version from another PID cannot mark the managed process ready", 
   expect(() => process.kill(Number(readFileSync(counter + ".pid", "utf8")), 0)).toThrow();
 }, 10000);
 
+function startupConfig(): ServerConfig {
+  return { host: "127.0.0.1", port: 0, token: "test", hostToken: "host", workspaces: [], authorizedRoots: [],
+    readOnly: true, approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], startedAt: Date.now(),
+    tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+}
+
 test("waits for history migration beyond the HTTP startup watchdog", async () => {
   const { bin, counter, candidateBuild } = await fakeBin();
+  const config = startupConfig();
   const statuses: string[] = [];
   const startedAt = Date.now();
-  const server = await createManagedOpencodeServer({
+  const server = await createConfiguredManagedEngine(config, {
     bin, candidateBuild, cwd: dir!, timeoutMs: 2000,
-    env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_MIGRATION_MS: "3000" },
-    onMigrationProgress: status => { statuses.push(status.status); },
+    env: { OPENCODE_DB: "", FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_MIGRATION_MS: "3000" },
+    onMigrationProgress: status => { statuses.push(status.status);
+      expect(config.managedEngineStarting).toBe(true);
+      expect(config.managedEngineStatus).toBe(status.status === "running" ? "migrating" : "starting"); },
   });
   try {
+    expect(config.managedEngineStatus).toBe("ready");
+    expect(config.managedEngineStarting).toBe(false);
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(3000);
     expect(statuses).toContain("running");
     expect(statuses.at(-1)).toBe("completed");
@@ -255,9 +269,12 @@ test("waits for history migration beyond the HTTP startup watchdog", async () =>
 
 test("migration errors fail startup and reap the engine", async () => {
   const { bin, counter, candidateBuild } = await fakeBin();
-  await expect(createManagedOpencodeServer({ bin, candidateBuild, cwd: dir!,
-    env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_MIGRATION_ERROR: "1" },
+  const config = startupConfig();
+  await expect(createConfiguredManagedEngine(config, { bin, candidateBuild, cwd: dir!,
+    env: { OPENCODE_DB: "", FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_MIGRATION_ERROR: "1" },
   })).rejects.toThrow("chat history migration failed: legacy conversion failed");
+  expect(config.managedEngineStatus).toBe("error");
+  expect(config.managedEngineStarting).toBe(false);
   expect(() => process.kill(Number(readFileSync(counter + ".pid", "utf8")), 0)).toThrow();
 });
 

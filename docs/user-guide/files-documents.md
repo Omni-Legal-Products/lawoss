@@ -8,6 +8,8 @@ Give an exact filename or attach the document when several copies exist. "This d
 
 File cards in chat show the filename without its folder path. Select a card to open the referenced file.
 
+When you send a message with a document from Memory Drive, the composer clears immediately. The outgoing message shows **Preparing attachments…** while LegalWork saves the document for the chat. If preparation or submission fails, your message and its attachments return to the composer so you can retry. Anything you typed meanwhile is kept separately and returns after you send or clear the restored draft.
+
 ## Supported work
 
 | File type | What to use |
@@ -27,6 +29,8 @@ Document requests for the same file run in order. **Stop** cancels requests that
 ## Word review
 
 For a document open in LegalWork, the assistant uses the live document tools and makes tracked suggestions in that document. Review comments and changes in the editor. Ask it to accept or reject particular changes when you intend to finalize them. Existing changes from other reviewers should be distinguished from the assistant's changes.
+
+Bilingual Word tables retain their text columns, including rows with unused space at the end. You can review both language columns together in the in-app editor.
 
 For a document open in Microsoft Word with the add-in connected, use the live Word tools instead. For a file with neither live surface available, the bundled `docx-edit` skill can inspect and write a separate redlined copy. File-mode output names such as `.redlined.docx` identify a new deliverable, not a change to the open Word document. See [Office Add-ins](office-addins.md).
 

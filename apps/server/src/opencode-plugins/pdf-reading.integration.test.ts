@@ -28,6 +28,9 @@ test.skipIf(!binary)("released v2 native read preserves PDF delivery, selective 
     { file: "native.pdf", pdf: true, expected: "OCR page 1 marker", ocr: true, pages: [1] },
     { file: "denied.pdf", pdf: true, expected: "permission", deny: true },
     { file: "notes.txt", pdf: false, expected: "Ordinary file marker" },
+    { file: ".", pdf: false, expected: "notes.txt" },
+    { file: ".", pdf: false, expected: "Output truncated", limit: 1 },
+    { file: "notes.txt", pdf: false, expected: "Ordinary file marker", offset: 2, limit: 1 },
     { file: "native.pdf", pdf: true, expected: "PDF supplied directly", storage: true },
     { file: "native.pdf", pdf: false, expected: "Native contract marker", storage: true },
     { file: "scan.pdf", pdf: false, expected: "OCR page 2 marker", pages: [2], storage: true },
@@ -56,6 +59,7 @@ test.skipIf(!binary)("released v2 native read preserves PDF delivery, selective 
     return nativeChatResponse(read && primaryCalls++ === 0 ? { name: scenario.storage ? "storage_read_file" : "read", input: { path: scenario.storage ? scenario.file : join(directory, scenario.file),
       ...(scenario.storage ? { connection_id: "one" } : {}),
       ...(scenario.ocr ? { ocr: true } : {}), ...(scenario.pages ? { pages: scenario.pages } : {}),
+      ...(scenario.offset ? { offset: scenario.offset } : {}), ...(scenario.limit ? { limit: scenario.limit } : {}),
       ...(scenario.file.endsWith(".pdf") ? { offset: 0, ...(scenario.storage ? { max_chars: 80000 } : { limit: 80000 }) } : {}) } } : undefined, sequence++);
   } });
   const previousUrl = process.env.LEGALWORK_SERVER_URL, previousToken = process.env.LEGALWORK_SERVER_TOKEN;
@@ -70,7 +74,7 @@ test.skipIf(!binary)("released v2 native read preserves PDF delivery, selective 
       await writeFile(join(directory, "large.pdf"), large); await writeFile(join(directory, "large-denied.pdf"), large);
       originals.set("large.pdf", large); originals.set("native.pdf", bytes); originals.set("scan.pdf", await scan.save());
       for (const name of ["native.pdf", "denied.pdf"]) await writeFile(join(directory, name), bytes);
-      await writeFile(join(directory, "scan.pdf"), await scan.save()); await writeFile(join(directory, "notes.txt"), "Ordinary file marker");
+      await writeFile(join(directory, "scan.pdf"), await scan.save()); await writeFile(join(directory, "notes.txt"), "First line\nOrdinary file marker\nLast line\n");
       const plugin = join(root, "storage-plugin"), probe = join(root, "probe-plugin"); await mkdir(plugin); await mkdir(probe);
       await buildNativePluginFixture(join(import.meta.dir, "legalwork-storage-tools.ts"), join(plugin, "index.js"));
       const source = join(root, "probe.ts");
@@ -106,6 +110,14 @@ export default Plugin.define({id:'pdf-fixture',async setup(ctx){
       expect(tool.state.status, JSON.stringify(tool.state)).toBe("completed");
       if (tool.state.status !== "completed") throw new Error("PDF read failed");
       expect(JSON.stringify(tool.state), scenario.file).toContain(scenario.expected);
+      if (scenario.limit) {
+        const text = tool.state.content.flatMap(part => part.type === "text" ? [part.text] : []).join("\n");
+        expect(text).toContain(`Continue reading with offset: ${scenario.file === "." ? 2 : 3}`);
+        if (scenario.file === "notes.txt") {
+          expect(text).toContain("2: Ordinary file marker");
+          expect(text).not.toContain("First line"); expect(text).not.toContain("Last line");
+        }
+      }
       const attachments = tool.state.content.filter(part => part.type === "file");
       expect(attachments.length, scenario.file).toBe(scenario.pdf ? 1 : 0);
       if (scenario.pdf) {

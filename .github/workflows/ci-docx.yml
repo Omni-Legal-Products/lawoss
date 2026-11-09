@@ -37,7 +37,7 @@ jobs:
       # does not.
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: pnpm --filter @legalwork/app exec bun test tests/docx-document-state.test.ts tests/docx-roundtrip.test.ts
+      - run: pnpm --filter @legalwork/app exec bun test tests/docx-document-state.test.ts tests/docx-roundtrip.test.ts tests/docx-table-grid.test.ts
       - run: sudo apt-get update && sudo apt-get install -y libreoffice-writer poppler-utils fonts-liberation
       - run: pnpm --filter @legalwork/app exec node scripts/docx-interop.mjs
       - uses: actions/upload-artifact@v4
