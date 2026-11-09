@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { parse as parseToml } from "smol-toml";
 import type { PluginImportCandidate, PluginImportConnector, PluginImportProvider } from "@legalwork/types/plugin-import";
 import { ApiError } from "./errors.js";
-import { isCredentialHeader } from "./connector-config.js";
+import { connectorConfigVariables, isCredentialHeader } from "./connector-config.js";
+import { assessImportedConnector } from "./connector-import-compatibility.js";
+import { connectorProgramAvailable } from "./connector-program.js";
 
 const MAX_CONFIG_BYTES = 16 * 1024 * 1024;
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
@@ -25,6 +28,21 @@ function servers(config: Record<string, unknown>, provider: PluginImportProvider
   return own(config, provider === "chatgpt" ? "mcp_servers" : "mcpServers");
 }
 
+function importedConnectorConfig(provider: PluginImportProvider, source: Record<string, unknown>, original: Record<string, unknown>, path: string, project?: string): Record<string, unknown> {
+  // Preserve source authentication and permission semantics until compatibility review.
+  const config: Record<string, unknown> = { ...original, enabled: false };
+  if (provider === "chatgpt" && original.oauth !== false && typeof original.url === "string" && (source.mcp_oauth_callback_port !== undefined || source.mcp_oauth_callback_url !== undefined)) {
+    config.oauth = {
+      ...(source.mcp_oauth_callback_port !== undefined ? { callback_port: source.mcp_oauth_callback_port } : {}),
+      ...(source.mcp_oauth_callback_url !== undefined ? { callback_url: source.mcp_oauth_callback_url } : {}),
+      ...(record(original.oauth) ? original.oauth : {}),
+    };
+  }
+  if (!config.url && typeof config.cwd === "string" && !isAbsolute(config.cwd) && !connectorConfigTemplate(config.cwd)) config.cwd = resolve(project ?? dirname(path), config.cwd);
+  if (!config.url && typeof config.command === "string" && config.command.startsWith("./")) config.command = resolve(project ?? dirname(path), config.command);
+  return config;
+}
+
 /** Only metadata leaves discovery. Credentials and unrelated application settings stay local. */
 export async function discoverConnectorImports(provider: PluginImportProvider, workspaceRoot: string, home: string, codex: string, claude: string): Promise<PluginImportCandidate[]> {
   const sources: Array<{ path: string; label: string }> = provider === "chatgpt" ? [
@@ -39,6 +57,7 @@ export async function discoverConnectorImports(provider: PluginImportProvider, w
     { path: join(home, ".config/Claude/claude_desktop_config.json"), label: "Claude Desktop" },
   ];
   const candidates: PluginImportCandidate[] = [];
+  const configurations: Array<{ name: string; config: Record<string, unknown>; directory: string | null }> = [];
   const seen = new Set<string>();
   for (const { path, label } of sources) {
     if (seen.size >= 100 || candidates.length >= 100) break;
@@ -47,19 +66,28 @@ export async function discoverConnectorImports(provider: PluginImportProvider, w
     seen.add(absolute);
     try {
       const config = await readConfig(absolute);
-      const add = (project?: string) => {
+      const add = async (project?: string) => {
         const entries = servers(config, provider, project);
         if (!record(entries)) return;
         for (const [name, entry] of Object.entries(entries)) {
           if (candidates.length >= 100) return;
           if (!record(entry)) continue;
-          candidates.push({ path: absolute, name, version: null, kind: "connector", connector: { name, ...(project !== undefined ? { project } : {}) }, description: project !== undefined ? `Claude Code · ${basename(project)}` : label });
+          const imported = importedConnectorConfig(provider, config, entry, absolute, project);
+          const normalized = normalizeImportedConnector(imported, [], provider);
+          if (assessImportedConnector(name, name, imported, normalized).status === "blocked") continue;
+          const program = typeof normalized.command === "string" ? normalized.command : Array.isArray(normalized.command) && typeof normalized.command[0] === "string" ? normalized.command[0] : null;
+          if (!normalized.url && program && !connectorConfigVariables(normalized).length && !await connectorProgramAvailable(program)) continue;
+          const directory = typeof imported.url === "string" ? null : typeof imported.cwd === "string" && isAbsolute(imported.cwd) ? imported.cwd : project ?? dirname(absolute);
+          const comparison = { name, config: imported, directory };
+          if (configurations.some(previous => isDeepStrictEqual(previous, comparison))) continue;
+          configurations.push(comparison);
+          candidates.push({ path: absolute, name, version: null, kind: "connector", connector: { name, ...(project !== undefined ? { project } : {}) }, description: label.split(" · ")[0] });
         }
       };
-      add();
+      await add();
       if (record(config.projects)) for (const project of Object.keys(config.projects).slice(0, 100)) {
         if (!isAbsolute(project)) continue;
-        if (provider === "claude") add(project);
+        if (provider === "claude") await add(project);
         sources.push({ path: join(project, provider === "chatgpt" ? ".codex/config.toml" : ".mcp.json"), label: `${provider === "chatgpt" ? "Codex" : "Claude Code"} · ${basename(project)}` });
       }
     } catch { /* Missing or malformed source configs must not hide other imports. */ }
@@ -143,17 +171,7 @@ export async function connectorImportBundle(provider: PluginImportProvider, path
   const original = own(servers(source, provider, connector.project), connector.name);
   if (!record(original)) throw new ApiError(400, "invalid_connector_import", "This connector is no longer in its source configuration. Rescan and choose it again.");
   const warnings: string[] = [];
-  // Keep source authentication semantics intact until compatibility assessment.
-  const config: Record<string, unknown> = { ...original, enabled: false };
-  if (provider === "chatgpt" && original.oauth !== false && typeof original.url === "string" && (source.mcp_oauth_callback_port !== undefined || source.mcp_oauth_callback_url !== undefined)) {
-    config.oauth = {
-      ...(source.mcp_oauth_callback_port !== undefined ? { callback_port: source.mcp_oauth_callback_port } : {}),
-      ...(source.mcp_oauth_callback_url !== undefined ? { callback_url: source.mcp_oauth_callback_url } : {}),
-      ...(record(original.oauth) ? original.oauth : {}),
-    };
-  }
-  if (!config.url && typeof config.cwd === "string" && !isAbsolute(config.cwd) && !connectorConfigTemplate(config.cwd)) config.cwd = resolve(connector.project ?? dirname(path), config.cwd);
-  if (!config.url && typeof config.command === "string" && config.command.startsWith("./")) config.command = resolve(connector.project ?? dirname(path), config.command);
+  const config = importedConnectorConfig(provider, source, original, path, connector.project);
   const name = `connector-${connector.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 32)}-${createHash("sha256").update(JSON.stringify({ provider, path: resolve(path), connector })).digest("hex").slice(0, 12)}`;
   const displayName = connector.name.replace(/[-_]+/g, " ").replace(/\b\w/g, letter => letter.toUpperCase());
   const files: Record<string, string> = {

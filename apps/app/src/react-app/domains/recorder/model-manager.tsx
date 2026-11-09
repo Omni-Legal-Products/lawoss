@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 /**
- * Local speech-model management list — lives in Settings → Recorder and is
+ * Transcription-model list — lives in Settings → Recorder and is
  * driven by the shared recorder store (download progress arrives over the
  * recorder event bus).
  */
@@ -19,18 +19,20 @@ import { formatBytes } from "../../../app/utils";
 import { t } from "@/i18n";
 import type { AudioModelDiskCandidate, AudioModelState } from "@legalwork/types/audio";
 
-import { isPremiumEntitled, tierForModelId, tierName, tierTagline } from "./model-tiers";
+import { usePremiumEntitled, tierForModelId, tierName, tierTagline } from "./model-tiers";
 import { PremiumUpgradeDialog } from "./model-tier-select";
 import { usePremiumUpsell } from "./premium-upsell-context";
 import { useRecorderStore } from "./recorder-store";
+import { CloudModelList } from "./cloud-model-list";
 
 function ModelRow(props: { model: AudioModelState; recommended: boolean; selected: boolean }) {
   const { model } = props;
   const store = useRecorderStore();
+  const premiumEntitled = usePremiumEntitled();
   const upsell = usePremiumUpsell();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const fastDevice = store.bootstrap?.device?.fastDevice ?? false;
-  const unlocked = isPremiumEntitled() || store.unlockedModels.includes(model.id);
+  const unlocked = premiumEntitled || store.unlockedModels.includes(model.id);
   const tier = tierForModelId(model.id);
   const name = tier ? tierName(tier.key) : model.label;
   const tagline = tier ? tierTagline(tier.key) : model.description;
@@ -73,7 +75,7 @@ function ModelRow(props: { model: AudioModelState; recommended: boolean; selecte
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-ink">{name}</span>
-            {isPremium ? (
+            {isPremium && !premiumEntitled ? (
               <Badge className="gap-1 text-2xs">
                 <Sparkles className="size-2.5" />
                 {t("recorder.tier_premium_locked")}
@@ -176,7 +178,7 @@ export function ModelManagerList() {
   };
 
   useEffect(() => {
-    void store.init();
+    void store.init().then(() => store.refreshBootstrap());
     void rescan();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -201,9 +203,10 @@ export function ModelManagerList() {
           key={model.id}
           model={model}
           recommended={model.id === recommendedId}
-          selected={model.id === store.modelId}
+          selected={store.transcriptionSource === "local" && model.id === store.modelId}
         />
       ))}
+      <CloudModelList />
 
       {diskCandidates.length > 0 ? (
         <div className="rounded-2xl border border-subtle bg-sunken/60 px-3 py-2.5">

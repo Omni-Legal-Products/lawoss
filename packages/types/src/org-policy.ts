@@ -217,7 +217,7 @@ export const orgPolicyDefinitions = {
   /** Only false: admins may switch sharing off, never force it on. */
   "privacy.shareAnonymousUsage": { section: "privacy", scope: "app", modes: enforced, schema: z.boolean() },
 
-  "updates.channel": { section: "updates", scope: "app", modes: enforced, schema: z.enum(["stable", "alpha"]) },
+  "updates.channel": { section: "updates", scope: "app", modes: enforced, schema: z.enum(["stable", "prerelease", "alpha"]) },
   "updates.autoCheck": { section: "updates", scope: "app", modes: enforced, schema: z.boolean() },
   /** Downloading needs checking: enforcing it on also enforces `updates.autoCheck` on. */
   "updates.autoDownload": { section: "updates", scope: "app", modes: enforced, schema: z.boolean() },

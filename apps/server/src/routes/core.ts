@@ -13,7 +13,6 @@ import {
   googleWorkspaceTestConnection,
 } from "../extensions/google-workspace.js";
 import { callExperimentalExtensionAction, listExperimentalExtensionActions } from "../extensions/index.js";
-import type { TokenService } from "../tokens.js";
 import {
   TOY_UI_CSS,
   TOY_UI_FAVICON_SVG,
@@ -28,8 +27,8 @@ import type { Actor, Capabilities, ServerConfig, WorkspaceInfo } from "../types.
 import { addRoute, type Route } from "./registry.js";
 import { connectorSettings } from "../connectors/settings.js";
 import { registerConnectorRoutes } from "./connectors.js";
-import { isConnectorExtension, connectorActionWrites } from "../connectors/index.js";
-import { hasConnectorRuntimeCapability, hasConnectorHostAuthorization } from "../connectors/capability.js";
+import { hasConnectorRuntimeCapability } from "../connectors/capability.js";
+import { collectSupportDiagnostics } from "../support-diagnostics.js";
 
 type JsonResponse = (data: unknown, status?: number) => Response;
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
@@ -39,7 +38,6 @@ type FetchRuntimeControl = (path: string, init?: { method?: string; body?: unkno
 interface RegisterCoreRoutesOptions {
   routes: Route[];
   config: ServerConfig;
-  tokens: TokenService;
   env: EnvService;
   serverVersion: string;
   opencodeVersion: string;
@@ -66,7 +64,6 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
   const {
     routes,
     config,
-    tokens,
     env,
     serverVersion,
     opencodeVersion,
@@ -96,6 +93,12 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
   });
 
   addRoute(routes, "GET", "/health", "none", async () => healthResponse());
+
+  // Local support export spans chats, so ordinary workspace/client tokens cannot access it.
+  addRoute(routes, "POST", "/diagnostics/export", "host-token", async (ctx) => {
+    const body = await readJsonBody(ctx.request);
+    return jsonResponse(await collectSupportDiagnostics(config, Date.now(), body.desktop, body.days));
+  });
 
   addRoute(routes, "GET", "/w/:id/health", "none", async () => healthResponse());
 
@@ -287,11 +290,9 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
       throw new ApiError(403, "forbidden", "Viewer tokens cannot call extension actions");
     }
     const body = await readJsonBody(ctx.request);
-    if (typeof body.extensionId === "string" && isConnectorExtension(body.extensionId)) {
-      if (ctx.actor?.scope === "collaborator" && !hasConnectorRuntimeCapability(config, ctx.request) && !hasConnectorHostAuthorization(config, ctx.request)) throw new ApiError(403, "forbidden", "Only the LegalWork server owner or their managed agent can use personal email connections.");
-      if (config.readOnly && typeof body.action === "string" && connectorActionWrites(body.extensionId, body.action)) throw new ApiError(403, "read_only", "This server is read-only.");
-    }
-    return jsonResponse(await callExperimentalExtensionAction(config, env, body));
+    return jsonResponse(await callExperimentalExtensionAction(config, env, body, {
+      personalConnections: ctx.actor?.scope === "owner" || hasConnectorRuntimeCapability(config, ctx.request),
+    }));
   });
 
   addRoute(routes, "GET", "/experimental/google-workspace/status", "client", async () => {
@@ -337,33 +338,6 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     const active = config.workspaces[0] ?? null;
     const items = config.workspaces.map((workspace) => serializeWorkspace(workspace, ctx.actor?.scope));
     return jsonResponse({ items, workspaces: items, activeId: active?.id ?? null });
-  });
-
-  addRoute(routes, "GET", "/tokens", "host", async () => {
-    const items = await tokens.list();
-    return jsonResponse({ items });
-  });
-
-  addRoute(routes, "POST", "/tokens", "host", async (ctx) => {
-    ensureWritable(config);
-    const body = await readJsonBody(ctx.request);
-    const scopeRaw = typeof body.scope === "string" ? body.scope.trim() : "";
-    const scope = scopeRaw === "owner" || scopeRaw === "collaborator" || scopeRaw === "viewer" ? scopeRaw : null;
-    if (!scope) {
-      throw new ApiError(400, "invalid_scope", "Token scope must be owner, collaborator, or viewer");
-    }
-    const label = typeof body.label === "string" ? body.label.trim() : undefined;
-    const issued = await tokens.create(scope, { label });
-    return jsonResponse(issued, 201);
-  });
-
-  addRoute(routes, "DELETE", "/tokens/:id", "host", async (ctx) => {
-    ensureWritable(config);
-    const ok = await tokens.revoke(ctx.params.id);
-    if (!ok) {
-      throw new ApiError(404, "token_not_found", "Token not found");
-    }
-    return jsonResponse({ ok: true });
   });
 
   function rethrowEnvStoreReadError(error: unknown): never {

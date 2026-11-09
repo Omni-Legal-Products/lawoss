@@ -8,6 +8,7 @@ import { ensureDir } from "./utils.js";
 import { connectorConfigVariables } from "./connector-config.js";
 import { withLawossToolDefaults } from "./lawoss/tool-permission-defaults.js";
 import { appliedOrgPolicy } from "./org-policy.js";
+import { ApiError } from "./errors.js";
 
 export type RuntimeOpencodeConfig = {
   /** Informational read acknowledgment; never a permission or provider profile. */
@@ -296,14 +297,17 @@ export function runtimeExternalDirectory(config: RuntimeOpencodeConfig): Record<
   return externalDirectory ?? {};
 }
 
-export async function readRuntimeOpencodeConfig(config: ServerConfig, workspaceId: string): Promise<RuntimeOpencodeConfig> {
+export async function readRuntimeOpencodeConfig(config: ServerConfig, workspaceId: string, options: { failOnInvalid?: boolean; settingsScope?: "application" | "session" } = {}): Promise<RuntimeOpencodeConfig> {
   return withRuntimeDb(config, async () => {
   const db = await runtimeDb(config);
   const row = db.get(workspaceId);
   if (!row) return {};
   try {
-    return normalizeRuntimeOpencodeConfig(JSON.parse(row.configJson));
+    const parsed: unknown = JSON.parse(row.configJson);
+    if (options.failOnInvalid && !isRecord(parsed)) throw new Error("Invalid saved configuration");
+    return normalizeRuntimeOpencodeConfig(parsed);
   } catch {
+    if (options.failOnInvalid) throw new ApiError(409, "execution_settings_invalid", "Saved execution settings could not be read. Commands and web access are blocked. Restore the settings or save protected execution settings again.", { settingsScope: options.settingsScope ?? "application" });
     return {};
   }
 

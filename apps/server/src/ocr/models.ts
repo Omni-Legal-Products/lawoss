@@ -19,14 +19,16 @@ export const layoutModelAsset = {
   bytes: 130502049,
   sha256: "45bf71750b00739a41fc209f132eb104a4d6b5bb29483c9078164d8b87cf28ba",
 };
+export type ModelDownloadFetch = (url: string, init: { signal: AbortSignal }) => Promise<Response>;
+
 type Asset = { url: string; bytes: number; sha256: string };
 
 /** Bounded streaming downloads, verified before atomic publication. Complete assets survive retries. */
-export async function downloadModelAsset(asset: Asset, path: string, signal: AbortSignal) {
+export async function downloadModelAsset(asset: Asset, path: string, signal: AbortSignal, download: ModelDownloadFetch = fetch) {
   signal.throwIfAborted();
   if (await assetReady(path, asset, signal)) return;
   // Five minutes plus 1 MB/s, so large models also finish on slower connections. Node requires whole milliseconds.
-  const response = await fetch(asset.url, { signal: AbortSignal.any([signal, AbortSignal.timeout(300_000 + Math.ceil(asset.bytes / 1000))]) });
+  const response = await download(asset.url, { signal: AbortSignal.any([signal, AbortSignal.timeout(300_000 + Math.ceil(asset.bytes / 1000))]) });
   if (!response.ok || !response.body || Number(response.headers.get("content-length")) > asset.bytes) throw new Error("Could not download OCR model");
   const reader = response.body.getReader(), digest = createHash("sha256"), temporary = `${path}.${randomUUID()}.tmp`;
   const file = await open(temporary, "wx", 0o600);
@@ -71,10 +73,10 @@ export async function assetReady(path: string, asset: Asset, signal?: AbortSigna
   }
 }
 
-export async function prepareSmallModel(directory: string, signal: AbortSignal) {
+export async function prepareSmallModel(directory: string, signal: AbortSignal, download?: ModelDownloadFetch) {
   const assets = join(directory, "pp-ocrv6-small");
   await mkdir(assets, { recursive: true, mode: 0o700 });
-  for (const asset of smallModelAssets) await downloadModelAsset(asset, join(assets, asset.name), signal);
+  for (const asset of smallModelAssets) await downloadModelAsset(asset, join(assets, asset.name), signal, download);
   const config = z.object({ PostProcess: z.object({ character_dict: z.array(z.string()).min(1).max(100000) }) }).parse(
     parse(await readFile(join(assets, "inference.yml"), "utf8")),
   );
@@ -90,10 +92,10 @@ export async function prepareSmallModel(directory: string, signal: AbortSignal) 
   } finally { await rm(temporary, { force: true }); }
 }
 
-export async function prepareLayoutModel(directory: string, signal: AbortSignal) {
+export async function prepareLayoutModel(directory: string, signal: AbortSignal, download?: ModelDownloadFetch) {
   const assets = join(directory, "pp-doclayout-v3-onnx");
   await mkdir(assets, { recursive: true, mode: 0o700 });
-  await downloadModelAsset(layoutModelAsset, join(assets, layoutModelAsset.name), signal);
+  await downloadModelAsset(layoutModelAsset, join(assets, layoutModelAsset.name), signal, download);
 }
 
 export async function layoutModelReady(directory: string, signal?: AbortSignal): Promise<boolean> {

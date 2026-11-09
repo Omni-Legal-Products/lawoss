@@ -7,6 +7,8 @@
  * a upravený súbor neprepíše bez opýtania, rovnako ako skilly OKF.
  *
  * Polia sú voliteľné: staršie záznamy a inštalácie z firemného marketplace ich nemajú.
+ * Kľúč je `lawossProvenance`: upstream v0.2.11 zaviedol vlastné pole `provenance`
+ * s iným tvarom (zdroj importu). Staršie záznamy LAWOSS s `provenance` sa čítajú ďalej.
  * Nič tu nevolá sieť.
  */
 import { createHash } from "node:crypto";
@@ -24,9 +26,9 @@ export function contentSha256(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
 }
 
-/** Pole `provenance` pre záznam pluginu, len ak ho inštalácia poznala. */
-export function withProvenance(provenance: PluginProvenance | null | undefined): { provenance?: PluginProvenance } {
-  return provenance ? { provenance } : {};
+/** Pole `lawossProvenance` pre záznam pluginu, len ak ho inštalácia poznala. */
+export function withProvenance(provenance: PluginProvenance | null | undefined): { lawossProvenance?: PluginProvenance } {
+  return provenance ? { lawossProvenance: provenance } : {};
 }
 
 /** Pole `contentSha256` pre záznam súboru, len pri obsahu zapísanom do workspace. */
@@ -34,15 +36,15 @@ export function withContentHash(content: string | null | undefined): { contentSh
   return typeof content === "string" ? { contentSha256: contentSha256(content) } : {};
 }
 
-/** Načíta uložený pôvod; poškodený alebo neúplný záznam sa vynechá. */
-export function readProvenance(value: Record<string, unknown>): { provenance?: PluginProvenance } {
-  const raw = value.provenance;
+/** Načíta uložený pôvod (aj starší kľúč `provenance` v tvare LAWOSS); poškodený alebo neúplný záznam sa vynechá. */
+export function readProvenance(value: Record<string, unknown>): { lawossProvenance?: PluginProvenance } {
+  const raw = isRecord(value.lawossProvenance) ? value.lawossProvenance : value.provenance;
   if (!isRecord(raw) || !isRecord(raw.source)) return {};
   const owner = text(raw.source.owner);
   const repo = text(raw.source.repo);
   const ref = text(raw.source.ref);
   if (!owner || !repo || !ref) return {};
-  return { provenance: { source: { owner, repo, ref, dir: text(raw.source.dir) }, version: text(raw.version) } };
+  return { lawossProvenance: { source: { owner, repo, ref, dir: text(raw.source.dir) }, version: text(raw.version) } };
 }
 
 export function readContentHash(file: Record<string, unknown>): { contentSha256?: string } {

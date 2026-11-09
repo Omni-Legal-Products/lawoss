@@ -27,10 +27,7 @@ import {
 } from "../../../../app/utils/plugins";
 import {
   exportSkillZip as exportSkillZipCommand,
-  importSkill,
-  importSkillZip as importSkillZipCommand,
   installSkillTemplate,
-  installSkillFiles,
   joinDesktopPath,
   listLocalSkills,
   openDesktopPath,
@@ -136,12 +133,6 @@ function notifySkippedSkills(source: string, skipped: Array<{ path: string; reas
     description,
     duration: 10_000,
   });
-}
-
-// Decode base64 (from the GitHub-skills server payload) into a UTF-8 string.
-function base64ToUtf8(b64: string): string {
-  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
 }
 
 function toConfigPluginListEntries(names: string[]): PluginListEntry[] {
@@ -394,6 +385,7 @@ export function createExtensionsStore(options: {
         name,
         content,
         description,
+        scope: "global",
       });
       return;
     }
@@ -592,11 +584,11 @@ export function createExtensionsStore(options: {
   }
   async function previewPluginImports(request: PluginImportRequest) {
     const target = await pluginImportTarget();
-    return (await target.client.previewPluginImports(target.id, request)).items;
+    return (await target.client.previewPluginImports(target.id, { ...request, scope: "global" })).items;
   }
   async function installPluginImport(request: PluginImportRequest) {
     const target = await pluginImportTarget();
-    const result = await target.client.installPluginImport(target.id, request);
+    const result = await target.client.installPluginImport(target.id, { ...request, scope: "global" });
     return result.preview;
   }
   async function refreshPluginImport(preview: PluginImportPreview) {
@@ -608,16 +600,18 @@ export function createExtensionsStore(options: {
     }
   }
 
+  const pluginReviews = new Map<string, PluginImportPreview>();
   async function previewClaudePlugin(url: string): Promise<LegalworkClaudePluginPreview> {
     const target = await resolveWorkspaceServerTarget();
     if (!target.legalworkClient || !target.legalworkWorkspaceId) {
       throw new Error(t("extensions.server_unavailable_github_plugins"));
     }
     const result = await target.legalworkClient.previewClaudePlugin(target.legalworkWorkspaceId, { url });
+    if (result.preview.review) pluginReviews.set(url, result.preview.review);
     return result.preview;
   }
 
-  async function installClaudePlugin(url: string): Promise<{ ok: boolean; message: string }> {
+  async function installClaudePlugin(url: string, acknowledgePartial = false): Promise<{ ok: boolean; message: string }> {
     options.setBusy(true);
     options.setError(null);
     try {
@@ -625,7 +619,9 @@ export function createExtensionsStore(options: {
       if (!target.legalworkClient || !target.legalworkWorkspaceId) {
         throw new Error(t("extensions.server_unavailable_github_plugins"));
       }
-      const result = await target.legalworkClient.installClaudePlugin(target.legalworkWorkspaceId, { url });
+      const review = pluginReviews.get(url);
+      if (!review) throw new Error(t("extensions.import_review"));
+      const result = await target.legalworkClient.installClaudePlugin(target.legalworkWorkspaceId, { url, digest: review.digest, validationId: review.validationId, acknowledgePartial });
       await options.refreshConnectors?.(result.item.files.filter(file => file.objectType === "mcp").map(file => file.path.slice(OPENCODE_MCP_IMPORT_PATH_PREFIX.length)));
       await refreshSkills({ force: true });
       return {
@@ -654,6 +650,16 @@ export function createExtensionsStore(options: {
     if (!target.legalworkClient || !target.legalworkWorkspaceId) return [];
     const result = await target.legalworkClient.listCloudPlugins(target.legalworkWorkspaceId);
     return Object.values(result.plugins);
+  }
+  async function checkPluginImportUpdate(pluginId: string) {
+    const target = await pluginImportTarget();
+    return target.client.checkPluginImportUpdate(target.id, pluginId);
+  }
+  async function rollbackPluginImport(pluginId: string) {
+    const target = await pluginImportTarget();
+    await target.client.rollbackPluginImport(target.id, pluginId);
+    await options.refreshConnectors?.([]);
+    await refreshSkills({ force: true });
   }
 
   /** Removes a package with everything it brought. */
@@ -731,58 +737,21 @@ export function createExtensionsStore(options: {
     options.setError(null);
     setStateField("skillsStatus", null);
     try {
-      // Server downloads + rewrites the SKILL.md content but does NOT write it —
-      // we write each here, so it lands where the list actually reads: the global
-      // skills dir on desktop (same as createSkill), or the project for remote.
-      const resolved = await legalworkClient.installGithubSkills(legalworkWorkspaceId, {
-        url: input.url.trim(),
-        ...(input.ref?.trim() ? { ref: input.ref.trim() } : {}),
-        paths: input.paths,
-        ...(input.asWorkflow ? { asWorkflow: true } : {}),
-      });
-      const desktop = isDesktopRuntime();
       let installed = 0;
-      let skipped = 0;
       const writeFailed: ImportFailure[] = [];
-      for (const skill of resolved.skills) {
+      for (const path of input.paths) {
         try {
-          if (desktop) {
-            // Writes the whole folder — SKILL.md + supporting files (references, etc.).
-            const r = (await installSkillFiles("", skill.name, skill.files, { overwrite: false })) as { ok: boolean };
-            if (r?.ok) installed += 1;
-            else skipped += 1; // already exists (overwrite=false)
-          } else {
-            // Remote workspaces take a single SKILL.md via the server (supporting
-            // files aren't supported on that path).
-            const md = skill.files.find((file) => file.path === "SKILL.md");
-            if (md) {
-              // Keep bundled license and attribution text even on the single-file remote path.
-              const notices = skill.files.filter((file) => /(^|\/)(licen[cs]e|notice|copying)(\.[^/]*)?$/i.test(file.path));
-              const content = [
-                base64ToUtf8(md.contentBase64),
-                ...notices.map((file) => `\n\n## ${file.path}\n\n${base64ToUtf8(file.contentBase64)}`),
-              ].join("");
-              await legalworkClient.upsertSkill(legalworkWorkspaceId, { name: skill.name, content });
-              installed += 1;
-            } else {
-              writeFailed.push({ name: skill.name, reason: "No SKILL.md in that folder" });
-            }
-          }
-        } catch (error) {
-          writeFailed.push({ name: skill.name, reason: error instanceof Error ? error.message : t("skills.unknown_error") });
-        }
+          const request: PluginImportRequest = { source: { provider: "claude", url: input.url.trim(), ref: input.ref?.trim(), directory: path }, scope: "global", asWorkflow: input.asWorkflow };
+          await importStandaloneSkills(request);
+          installed += 1;
+        } catch (error) { writeFailed.push({ name: path, reason: error instanceof Error ? error.message : t("skills.unknown_error") }); }
       }
       if (installed > 0) {
-        options.markReloadRequired?.("skills", { type: "skill", name: resolved.skills[0]!.name, action: "added" });
         await refreshSkills({ force: true });
       }
-      const failed = describeImportFailures([
-        ...resolved.failed.map((item) => ({ name: item.path, reason: item.error })),
-        ...writeFailed,
-      ]);
+      const failed = describeImportFailures(writeFailed);
       const parts: string[] = [];
       if (installed) parts.push(`Imported ${installed}`);
-      if (skipped) parts.push(`${skipped} already installed`);
       if (failed) parts.push(failed);
       return {
         ok: installed > 0,
@@ -911,7 +880,7 @@ export function createExtensionsStore(options: {
       refreshSkillsAborted = false;
       try {
         setStateField("skillsStatus", null);
-        const response = await legalworkClient.listSkills(legalworkWorkspaceId, { includeGlobal: isLocalWorkspace });
+        const response = await legalworkClient.listSkills(legalworkWorkspaceId, { includeGlobal: true });
         if (refreshSkillsAborted) return;
         notifySkippedSkills(`server:${skillCacheKey}`, response.skipped ?? []);
         let next: SkillCard[] = Array.isArray(response.items) ? response.items.map(skillCardOf) : [];
@@ -1584,6 +1553,18 @@ export function createExtensionsStore(options: {
     }
   }
 
+  async function importStandaloneSkills(request: PluginImportRequest) {
+    const target = await pluginImportTarget();
+    const globalRequest: PluginImportRequest = { ...request, scope: "global", detectFormat: true };
+    const previews = (await target.client.previewPluginImports(target.id, globalRequest)).items;
+    if (previews.length !== 1 || previews[0]?.components.some(item => item.type !== "skill")) throw new Error(t("extensions.import_no_components"));
+    const preview = previews[0]!;
+    if (preview.readiness === "unsupported" || preview.readiness === "partial") throw new Error([...(preview.requirements || []).filter(item => item.status !== "satisfied").map(item => item.message), ...preview.warnings].join(" "));
+    await target.client.installPluginImport(target.id, { ...globalRequest, root: preview.root, digest: preview.digest, validationId: preview.validationId });
+    setStateField("skillsStatus", t("skills.imported"));
+    options.markReloadRequired?.("skills", { type: "skill", name: preview.components[0]?.installedName, action: "added" });
+  }
+
   async function importLocalSkill(opts?: { asWorkflow?: boolean }) {
     if (!(await orgPolicyAllows("skills.allowCustom"))) return;
     if (!isDesktopRuntime()) {
@@ -1598,33 +1579,7 @@ export function createExtensionsStore(options: {
       const selection = await pickDirectory({ title: t("skills.select_skill_folder") });
       const sourceDir = typeof selection === "string" ? selection : Array.isArray(selection) ? selection[0] : null;
       if (!sourceDir) return;
-      const inferredName = sourceDir.split(/[\\/]/).filter(Boolean).pop();
-      // Desktop skills are GLOBAL — copy into the shared skills dir ("" projectDir),
-      // the same place the list reads, so the import shows up immediately. The whole
-      // folder is copied recursively, so supporting files come along. For a workflow
-      // import, copy straight under the `workflow-` prefix the Workflows view detects.
-      // The desktop import normalizes SKILL.md to the destination name.
-      const prefixed =
-        opts?.asWorkflow && inferredName && !inferredName.startsWith("workflow-")
-          ? `workflow-assistant-${inferredName}`
-          : inferredName;
-      const targetName = prefixed && fitSkillNameLength(prefixed);
-      const renamed = Boolean(targetName && targetName !== inferredName);
-      const result = (await importSkill("", sourceDir, {
-        overwrite: false,
-        ...(renamed ? { targetName } : {}),
-      })) as {
-        ok: boolean;
-        stderr?: string;
-        stdout?: string;
-        status?: number;
-      };
-      if (!result.ok) {
-        setStateField("skillsStatus", result.stderr || result.stdout || t("skills.import_failed").replace("{status}", String(result.status)));
-      } else {
-        setStateField("skillsStatus", result.stdout || t("skills.imported"));
-        options.markReloadRequired?.("skills", { type: "skill", name: targetName, action: "added" });
-      }
+      await importStandaloneSkills({ source: { provider: "claude", path: sourceDir }, scope: "global", asWorkflow: opts?.asWorkflow });
       await refreshSkills({ force: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : t("skills.unknown_error");
@@ -1654,16 +1609,7 @@ export function createExtensionsStore(options: {
       });
       const archivePath = typeof selection === "string" ? selection : Array.isArray(selection) ? selection[0] : null;
       if (!archivePath) return;
-      const result = (await importSkillZipCommand("", archivePath, {
-        overwrite: false,
-        asWorkflow: opts?.asWorkflow === true,
-      })) as { ok: boolean; stderr?: string; stdout?: string; status?: number };
-      if (!result.ok) {
-        setStateField("skillsStatus", result.stderr || result.stdout || t("skills.import_failed").replace("{status}", String(result.status)));
-      } else {
-        setStateField("skillsStatus", result.stdout || t("skills.imported"));
-        options.markReloadRequired?.("skills", { type: "skill", name: undefined, action: "added" });
-      }
+      await importStandaloneSkills({ source: { provider: "claude", path: archivePath }, scope: "global", asWorkflow: opts?.asWorkflow });
       await refreshSkills({ force: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : t("skills.unknown_error");
@@ -1687,7 +1633,7 @@ export function createExtensionsStore(options: {
       options.setError(null);
       setStateField("skillsStatus", t("skills.installing_skill_creator"));
       try {
-        await legalworkClient.upsertSkill(legalworkWorkspaceId, { name: "skill-creator", content: skillCreatorTemplate });
+        await legalworkClient.upsertSkill(legalworkWorkspaceId, { name: "skill-creator", content: skillCreatorTemplate, scope: "global" });
         const message = t("skills.skill_creator_installed");
         setStateField("skillsStatus", message);
         options.markReloadRequired?.("skills", { type: "skill", name: "skill-creator", action: "added" });
@@ -1837,7 +1783,7 @@ export function createExtensionsStore(options: {
     if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
       try {
         setStateField("skillsStatus", null);
-        const result = await legalworkClient.getSkill(legalworkWorkspaceId, trimmed, { includeGlobal: isLocalWorkspace });
+        const result = await legalworkClient.getSkill(legalworkWorkspaceId, trimmed, { includeGlobal: true });
         return { name: result.item.name, path: result.item.path, content: result.content };
       } catch (error) {
         setStateField("skillsStatus", error instanceof Error ? error.message : t("skills.failed_to_load"));
@@ -1899,7 +1845,7 @@ export function createExtensionsStore(options: {
           name: trimmed,
           content: input.content,
           description: input.description,
-          scope: isDesktopRuntime() && isLocalWorkspace ? "global" : "project",
+          scope: "global",
         });
         options.markReloadRequired?.("skills", { type: "skill", name: trimmed, action: "updated" });
         await refreshSkills({ force: true });
@@ -2009,6 +1955,7 @@ export function createExtensionsStore(options: {
           name: trimmed,
           content: input.content,
           description: input.description,
+          scope: "global",
         });
         options.markReloadRequired?.("skills", { type: "skill", name: trimmed, action: "added" });
         await refreshSkills({ force: true });
@@ -2284,6 +2231,8 @@ export function createExtensionsStore(options: {
     previewClaudePlugin,
     installClaudePlugin,
     importedPackages,
+    checkPluginImportUpdate,
+    rollbackPluginImport,
     removeImportedPackage,
     readFirmSkill,
     revealSkillsFolder,

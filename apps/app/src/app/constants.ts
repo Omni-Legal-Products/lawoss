@@ -492,6 +492,19 @@ export const MCP_QUICK_CONNECT_ALL: McpDirectoryInfo[] = [
     kind: "mcp",
   },
   {
+    name: "Firecrawl",
+    serverName: "firecrawl",
+    get description() { return t("mcp.quick_connect_firecrawl_desc"); },
+    // Account sign-in exposes firecrawl_gov_search; the keyless endpoint
+    // offers only the general Search, Scrape and Parse tools.
+    url: "https://mcp.firecrawl.dev/v2/mcp-oauth",
+    type: "remote",
+    oauth: true,
+    kind: "mcp",
+    get setupNote() { return t("mcp.quick_connect_firecrawl_note"); },
+    setupUrl: "https://docs.firecrawl.dev/mcp-server",
+  },
+  {
     get name() { return t("mcp.quick_connect_dingduff_title"); },
     serverName: "dingduff",
     get description() { return t("mcp.quick_connect_dingduff_desc"); },

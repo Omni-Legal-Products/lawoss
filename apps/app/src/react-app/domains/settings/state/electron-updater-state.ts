@@ -7,11 +7,11 @@ import { isElectronRuntime, safeStringify } from "../../../../app/utils";
 import { useUpdateCheckRequestStore } from "./update-check-request";
 import { appliedOrgPolicy, useOrgPolicyStore } from "../../connections/org-policy";
 import {
-  UPDATE_AUTO_CHECK_STORAGE_KEY,
   useUpdateStatusStore,
   type SettingsUpdateStatus,
 } from "./update-status-store";
 import { t } from "@/i18n";
+import { loadUpdatePreferences } from "./update-preferences";
 
 export type { SettingsUpdateStatus } from "./update-status-store";
 
@@ -90,16 +90,11 @@ function updateProgress(event: unknown): { downloaded?: number; total?: number }
   };
 }
 
-function readAutoCheckEnabled(): boolean {
+async function readAutoCheckEnabled(): Promise<boolean> {
   if (typeof window === "undefined") return false;
   const firm = appliedOrgPolicy(useOrgPolicyStore.getState().view, "updates.autoCheck");
   if (firm) return firm.value;
-  try {
-    const raw = window.localStorage.getItem(UPDATE_AUTO_CHECK_STORAGE_KEY);
-    return raw == null ? true : raw === "1";
-  } catch {
-    return true;
-  }
+  return (await loadUpdatePreferences()).autoCheck;
 }
 
 /** The firm's release channel: the updater follows it, the startup check included. */
@@ -121,7 +116,7 @@ let backgroundUpdateCheckStarted = false;
 export async function checkForUpdatesInBackground(): Promise<void> {
   if (backgroundUpdateCheckStarted) return;
   backgroundUpdateCheckStarted = true;
-  if (!isElectronRuntime() || !readAutoCheckEnabled()) return;
+  if (!isElectronRuntime() || !(await readAutoCheckEnabled())) return;
   const bridge = electronUpdaterBridge();
   if (!bridge?.check) return;
   const store = useUpdateStatusStore.getState();
@@ -342,11 +337,13 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
 
   const setReleaseChannel = useCallback(
     async (next: ReleaseChannel) => {
+      setUpdateStatus(null);
       onReleaseChannelChange(next);
       const bridge = electronUpdaterBridge();
       if (!bridge?.setChannel) return;
       try {
         const state = await bridge.setChannel(next);
+        setUpdateStatus(null);
         dispatchEnvState({ type: "app-version", appVersion: state.currentVersion ?? null });
         if (state.channel && state.channel !== next) {
           onReleaseChannelChange(state.channel);
@@ -356,7 +353,7 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
         setUpdateStatus({ state: "error", message: describeError(error) });
       }
     },
-    [checkForUpdates, onReleaseChannelChange],
+    [checkForUpdates, onReleaseChannelChange, setUpdateStatus],
   );
 
   return {

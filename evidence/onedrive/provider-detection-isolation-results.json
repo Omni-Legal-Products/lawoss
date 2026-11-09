@@ -1,0 +1,195 @@
+{
+  "platform": "win32",
+  "node": "v24.22.0",
+  "kind": "native Windows calls with synthetic client configuration; no signed-in provider clients",
+  "cases": [
+    {
+      "name": "ordinary local project",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "ordinary folder named Google Drive",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "ordinary folder named Dropbox",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "ordinary Box without installation metadata",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "generic registered provider without running client",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "generic registered provider sibling prefix",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "cold corrupt config does not block local folders",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "cold corrupt config does not bypass a registered cloud root",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "optional config read error does not block local folders",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "Google Drive live drive-letter mount",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Google Drive live drive root",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Google Drive second account with custom folder",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Google Drive sibling prefix is local",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "Google Drive machine default",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Google Drive per-user default",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Google Drive superseded machine mount",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "Google Drive policy override expands environment",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Google Drive superseded user mount",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "Box custom parent plus Box root",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Box default fallback with installed client",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Box sibling prefix remains local",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "Dropbox renamed personal root",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Dropbox second account",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Dropbox local appdata config location",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Nextcloud placeholder roots",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "ownCloud configured roots",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "literal PowerShell characters cannot execute",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "corrupt optional config leaves ordinary folder detection working",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "corrupt optional config retains learned Dropbox root",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "corrupt Dropbox config does not hide Nextcloud root",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "corrupt Dropbox config does not bypass registered cloud root",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "native target lookup failures still report an error",
+      "result": true,
+      "expected": true
+    }
+  ],
+  "date": "2026-10-19",
+  "baselineCommit": "65e4baeaf498d1dd694c60cdf76cf64bc32379af",
+  "environment": "Isolated GCloud Windows Server 2022 VM; synthetic configuration/registry fixtures; no signed-in provider clients",
+  "sourceSha256": {
+    "apps/server/src/cloud-folder.ts": "98b476599dec4da2409bbbeb2c8fc724d306ad313e247733ec52f4fa4587df32",
+    "apps/server/src/cloud-folder-windows.ts": "1b5d48f2ff3cd545e5b2e20d4389e71ae11f8859a6644cde479deb3f63e624a2",
+    "scripts/diagnostics/cloud-folder-providers-windows.mjs": "c21325927608bec919303e4ef63a6bbb7554f897ddf26abdd05be1664899d393"
+  },
+  "compiledModuleSha256": {
+    "apps/server/dist/cloud-folder.js": "944e6d8c80b779f51632f1e10a9bed8157a32cd638473a02078f1e70c169e480",
+    "apps/server/dist/cloud-folder-windows.js": "81218c152f8b4c978e9ec6604b945c224e067da59d309512e94bf27b835e6f6d"
+  },
+  "regressionSuite": {
+    "runtime": "Bun 1.3.14 on macOS",
+    "passed": 76,
+    "failed": 0,
+    "assertions": 353,
+    "ordinarySync": "owner upload, colleague download/edit, owner receives edit with broken provider configuration",
+    "cloudSync": "old Documents=true remains stored; detected cloud document not uploaded after its configuration breaks",
+    "detectorStubbed": false,
+    "testService": "synthetic in-memory firm service"
+  },
+  "limitations": [
+    "Configuration roots are retained only within the current server process.",
+    "An unregistered legacy provider whose sole metadata is unreadable on first inspection cannot be identified from that configuration.",
+    "This run did not sign in to real cloud providers or build a new production installer.",
+    "Global remote sharing scope is unchanged."
+  ]
+}

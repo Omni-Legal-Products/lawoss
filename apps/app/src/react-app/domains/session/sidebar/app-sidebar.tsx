@@ -17,6 +17,7 @@ import { expandedAfter, liteProjectNav } from "@/lawoss/lite/client-row";
 import { ChatContextLabel, ClientMoreNavItem, ClientRowLabel, ClientRowStatusLine, useClientProjectRow, useClientRowActive } from "@/lawoss/lite/client-row-view";
 import { useSidebarReorderSpring } from "@/lawoss/lite/sidebar-reorder";
 import { OkfWorkspaceSkillSync } from "@/lawoss/okf/workspace-skill-sync";
+import { StatusDot } from "@legalwork/ui/react";
 import {
   Search,
   Clock,
@@ -155,7 +156,7 @@ import { unreadSession, useSessionInboxStore } from "./session-inbox-store";
 import { useProjectFavoritesStore } from "../../workspace/project-favorites-store";
 
 function UnreadDot({ unread, className }: { unread: boolean; className?: string }) {
-  return unread ? <span className={cn("inline-block size-1.5 shrink-0 rounded-full bg-green-9", className)} role="img" aria-label={t("sidebar.unread_reply")} title={t("sidebar.unread_reply")} /> : null;
+  return unread ? <span className={cn("inline-block size-1.5 shrink-0 rounded-full bg-blue-11", className)} role="img" aria-label={t("sidebar.unread_reply")} title={t("sidebar.unread_reply")} /> : null;
 }
 
 function useUnreadChats(sessions: SessionListItem[]) {
@@ -190,12 +191,27 @@ function SessionStatusIndicator({ className, status, isStreaming, isActive }: Se
     : undefined;
   const title = activityTitle ?? (isStreaming ? t("workspace_list.session_streaming") : t("workspace_list.session_active"));
 
+  // A pending permission or question is not progress. The run has stopped and
+  // the user is the only thing that can move it, so it reads as attention
+  // rather than activity: a pulsing amber dot, the same idiom the chat status
+  // bar already uses, instead of a fourth spinner that only differs in hue.
+  if (status === "waiting") {
+    return (
+      <span
+        className={cn("flex size-3.5 shrink-0 items-center justify-center", className)}
+        title={title}
+        aria-label={title}
+      >
+        <StatusDot tone="warning" size="sm" pulse />
+      </span>
+    );
+  }
+
   if (isStreaming) {
     return (
       <span
         className={cn(
           "flex size-3.5 shrink-0 items-center justify-center",
-          status === "waiting" && "text-sky-9",
           status === "error" && "text-red-9",
           className,
         )}
@@ -212,7 +228,6 @@ function SessionStatusIndicator({ className, status, isStreaming, isActive }: Se
       <span
         className={cn(
           "size-1.5 shrink-0 rounded-full bg-foreground/45",
-          status === "waiting" && "bg-sky-9",
           status === "error" && "bg-red-9",
           className,
         )}

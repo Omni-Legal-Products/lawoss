@@ -16,6 +16,8 @@ import { activeHomeAttachments, hasHomeFileDrop, homeAttachmentToken, homeClipbo
 import { useProjectFiles } from "../../workspace/project-file-context";
 import { t } from "@/i18n";
 import "./app-home.css";
+import { appendDictatedText, useComposerDictation } from "../surface/composer/use-composer-dictation";
+import { ComposerDictationBar, ComposerDictationButton, ComposerDictationError } from "../surface/composer/composer-dictation";
 
 export type AppHomeProps = {
   workspaces: WorkspaceInfo[];
@@ -50,8 +52,17 @@ export function AppHome(props: AppHomeProps) {
   const root = useRef<HTMLDivElement>(null);
   const sendingRef = useRef(false);
   const copiedFiles = useRef(new Map<string, File>());
+  const dictation = useComposerDictation(props.projectId ?? "home", async (spoken, submit) => {
+    const nextText = appendDictatedText(text, spoken);
+    setText(nextText);
+    if (submit) {
+      await sendText(nextText);
+      return;
+    }
+    requestAnimationFrame(focusPrompt);
+  });
   const project = props.workspaces.find((workspace) => workspace.id === props.projectId);
-  const busy = props.disabled || sending;
+  const busy = props.disabled || sending || dictation.active;
   const canSend = !busy && Boolean(text.trim());
   const mentions = Object.fromEntries(attachments.map(({ value, kind }) => [value, kind]));
   const focusPrompt = () => root.current?.querySelector<HTMLElement>('[contenteditable="true"]')?.focus();
@@ -66,15 +77,15 @@ export function AppHome(props: AppHomeProps) {
     setText((current) => `${current}${current && !/\s$/.test(current) ? " " : ""}${staged.map(homeAttachmentToken).join(" ")} `);
     requestAnimationFrame(focusPrompt);
   };
-  const send = async () => {
-    if (!canSend || sendingRef.current) return;
+  const sendText = async (message: string) => {
+    if (props.disabled || !message.trim() || sendingRef.current) return;
     sendingRef.current = true;
     setSending(true);
     setDragging(false);
     setError(null);
     try {
       // Keep the submitted view until navigation has a populated conversation.
-      const active = await Promise.all(activeHomeAttachments(text, attachments).map(async attachment => {
+      const active = await Promise.all(activeHomeAttachments(message, attachments).map(async attachment => {
         if (!attachment.clipboardSource) return attachment;
         if (!projectFiles) throw new Error(t("project_files.source_unavailable"));
         let file = copiedFiles.current.get(attachment.value);
@@ -85,7 +96,7 @@ export function AppHome(props: AppHomeProps) {
         }
         return { ...attachment, source: file };
       }));
-      await props.onSend(text, active);
+      await props.onSend(message, active);
     } catch (error) {
       // LAWOSS: an AI hranice refusal is shown as the localized sentence, never the raw denial JSON.
       setError(sendErrorFromThrown(error));
@@ -93,6 +104,7 @@ export function AppHome(props: AppHomeProps) {
       setSending(false);
     }
   };
+  const send = () => { if (canSend) return sendText(text); };
 
   const editor = <LexicalPromptEditor
     value={sending ? "" : text} mentions={mentions} disabled={busy}
@@ -107,16 +119,17 @@ export function AppHome(props: AppHomeProps) {
       addAttachments(Array.from(event.clipboardData.files));
     }}
   />;
-  const controls = <div className="lw-home-composer-controls">
+  const controls = <>{dictation.active ? <ComposerDictationBar dictation={dictation} sendDisabled={props.disabled || sending} /> : <div className="lw-home-composer-controls">
     <Button type="button" variant="ghost" size="icon" disabled={busy} aria-label={t("home.add_files")} onClick={() => fileInput.current?.click()}><Plus size={23} /></Button>
     <div className="lw-home-model-controls">
       {props.selectedModel ? <>
         <ModelSelect open={modelOpen} value={props.selectedModel} onOpenChange={setModelOpen} onChange={props.onModelChange} locked={props.modelLocked} disabled={busy} />
         <ModelBehaviorSelect value={props.modelVariant} label={props.modelVariantLabel} options={props.modelBehaviorOptions} onChange={props.onModelVariantChange} disabled={busy} />
       </> : <Button type="button" variant="ghost" disabled={busy} onClick={props.onConnect}>{t("task_suggestions.connect_provider")}</Button>}
+      <ComposerDictationButton dictation={dictation} disabled={busy} />
       <Button type="button" size="icon" className="lw-home-send" disabled={!canSend} onClick={() => void send()} aria-label={t("home.send")}><ArrowUp size={20} /></Button>
     </div>
-  </div>;
+  </div>}<ComposerDictationError dictation={dictation} /></>;
 
   if (sending) {
     const displayText = replaceHomeAttachmentTokens(text, attachments, ({ source }) => source instanceof File ? source.name : source.file.name);

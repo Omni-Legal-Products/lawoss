@@ -10,7 +10,7 @@ export type { WorkspaceMemoryStatus as LegalworkWorkspaceMemoryStatus } from "..
 import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { EmailDraft } from "@legalwork/types/email-draft";
 import type { ConnectorWriteSetting } from "@legalwork/types/connectors";
-import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
+import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest, PluginImportUpdate } from "@legalwork/types/plugin-import";
 import type { WikiSuggestion, WikiSuggestionInput, WikiContribution } from "@legalwork/types/wiki-suggestions";
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
 import type { SessionQueue, QueueAction } from "@legalwork/types/session-queue";
@@ -208,7 +208,7 @@ export type EigenweltManifestModel = {
 /** The signed-in seat's included usage for the current window (cents, plus a percentage). */
 export type EigenweltUsage = {
   /** A week on current platforms, a day on platforms from before the weekly allowance. */
-  window: "day" | "week";
+  window: "day" | "week" | "month";
   allowanceCents: number;
   remainingCents: number;
   /** Share of this window's allowance consumed, 0–100 (server-computed). */
@@ -742,6 +742,7 @@ export type LegalworkClaudePluginComponent = {
 };
 
 export type LegalworkClaudePluginPreview = {
+  review?: PluginImportPreview;
   pluginId: string;
   name: string;
   description: string | null;
@@ -1225,42 +1226,6 @@ const LEGALWORK_INVITE_PARAM_TOKEN = "ow_token";
 const LEGALWORK_INVITE_PARAM_STARTUP = "ow_startup";
 const LEGALWORK_INVITE_PARAM_AUTO_CONNECT = "ow_auto_connect";
 
-export type LegalworkOpenCodeRouterHealthSnapshot = {
-  ok: boolean;
-  opencode: Record<string, unknown>;
-  channels: Record<string, unknown>;
-  config: Record<string, unknown>;
-  activity?: {
-    inboundToday?: number;
-    outboundToday?: number;
-    lastMessageAt?: number | null;
-    [key: string]: unknown;
-  };
-  agent?: {
-    loaded?: boolean;
-    selected?: string;
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
-};
-
-export type LegalworkOpenCodeRouterIdentityItem = {
-  id: string;
-  channel?: string;
-  enabled?: boolean;
-  peerId?: string;
-  [key: string]: unknown;
-};
-
-export type LegalworkOpenCodeRouterSendResult = {
-  ok: boolean;
-  sent: number;
-  attempted: number;
-  failures?: Array<{ identityId: string; peerId: string; error: string }>;
-  reason?: string;
-  [key: string]: unknown;
-};
-
 export type LegalworkConnectInvite = {
   url: string;
   token?: string;
@@ -1314,13 +1279,12 @@ export function readLegalworkServerSettings(): LegalworkServerSettings {
     const portOverride = portRaw ? Number(portRaw) : undefined;
     const token = window.localStorage.getItem(STORAGE_TOKEN) ?? undefined;
     const hostToken = window.localStorage.getItem(STORAGE_HOST_AUTH_KEY) ?? undefined;
-    const remoteAccessRaw = window.localStorage.getItem(STORAGE_REMOTE_ACCESS) ?? "";
     return {
       urlOverride: urlOverride ?? undefined,
       portOverride: Number.isNaN(portOverride) ? undefined : portOverride,
       token: token?.trim() || undefined,
       hostToken: hostToken?.trim() || undefined,
-      remoteAccessEnabled: remoteAccessRaw === "1",
+      remoteAccessEnabled: false,
     };
   } catch {
     return {};
@@ -1334,7 +1298,6 @@ export function writeLegalworkServerSettings(next: LegalworkServerSettings): Leg
     const portOverride = typeof next.portOverride === "number" ? next.portOverride : undefined;
     const token = next.token?.trim() || undefined;
     const hostToken = next.hostToken?.trim() || undefined;
-    const remoteAccessEnabled = next.remoteAccessEnabled === true;
 
     if (urlOverride) {
       window.localStorage.setItem(STORAGE_URL_OVERRIDE, urlOverride);
@@ -1360,11 +1323,7 @@ export function writeLegalworkServerSettings(next: LegalworkServerSettings): Leg
       window.localStorage.removeItem(STORAGE_HOST_AUTH_KEY);
     }
 
-    if (remoteAccessEnabled) {
-      window.localStorage.setItem(STORAGE_REMOTE_ACCESS, "1");
-    } else {
-      window.localStorage.removeItem(STORAGE_REMOTE_ACCESS);
-    }
+    window.localStorage.removeItem(STORAGE_REMOTE_ACCESS);
 
     return readLegalworkServerSettings();
   } catch {
@@ -1736,6 +1695,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     sessionList: 90_000,
     status: 6_000,
     config: 10_000,
+    // Connector creation waits for OAuth discovery and engine registration
+    // across local workspaces before it is safe to open sign-in.
+    mcpSetup: 90_000,
     workspaceExport: 30_000,
     // A dragged folder is many downloads behind one call.
     legalMemoryFolderExport: 300_000,
@@ -1856,6 +1818,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         timeoutMs: timeouts.config,
       }),
     getOcrSettings: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/settings", { token, hostToken, timeoutMs: timeouts.config }),
+    setOcrAutoDownload: (enabled: boolean) => requestJson<OcrSettingsView>(baseUrl, "/ocr/auto-download", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),
     setDefaultOcrEngine: (engineId: string) => requestJson<OcrSettingsView>(baseUrl, "/ocr/default", { token, hostToken, method: "PUT", body: { engineId }, timeoutMs: timeouts.config }),
     saveOcrServer: (input: OcrServerInput, id?: string) => requestJson<OcrSettingsView>(baseUrl, id ? `/ocr/servers/${encodeURIComponent(id)}` : "/ocr/servers", { token, hostToken, method: id ? "PUT" : "POST", body: input, timeoutMs: timeouts.config }),
     setOcrMemberKey: (id: string, apiKey: string | null) => requestJson<OcrSettingsView>(baseUrl, `/ocr/firm-engines/${encodeURIComponent(id)}/key`, { token, hostToken, method: "PUT", body: { apiKey }, timeoutMs: timeouts.config }),
@@ -2528,6 +2491,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         method: "DELETE",
         timeoutMs: timeouts.config,
       }),
+    checkPluginImportUpdate: (workspaceId: string, pluginId: string) => requestJson<PluginImportUpdate>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/${encodeURIComponent(pluginId)}/update`, { token, hostToken, timeoutMs: 90_000 }),
+    rollbackPluginImport: (workspaceId: string, pluginId: string) => requestJson<LegalworkCloudPluginInstallResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/${encodeURIComponent(pluginId)}/rollback`, { token, hostToken, method: "POST", body: {} }),
     readPackageComponent: (workspaceId: string, pluginId: string, path: string) =>
       requestJson<{ content: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/cloud-plugins/${encodeURIComponent(pluginId)}/file?path=${encodeURIComponent(path)}`, { token, hostToken, timeoutMs: timeouts.config }),
     pluginCreateOptions: (workspaceId: string) =>
@@ -2535,7 +2500,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     createWorkflowPlugin: (workspaceId: string, payload: PluginCreateRequest) =>
       requestJson<LegalworkCloudPluginInstallResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/workflow-plugins`, { token, hostToken, method: "POST", body: payload, timeoutMs: 120000 }),
     discoverPluginImports: (workspaceId: string, provider: PluginImportProvider) =>
-      requestJson<{ items: PluginImportCandidate[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/discover?provider=${provider}`, { token, hostToken, timeoutMs: timeouts.config }),
+      requestJson<{ items: PluginImportCandidate[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/discover?provider=${provider}`, { token, hostToken, timeoutMs: 30_000 }),
     previewPluginImports: (workspaceId: string, payload: PluginImportRequest) =>
       requestJson<{ items: PluginImportPreview[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/preview`, { token, hostToken, method: "POST", body: payload, timeoutMs: 120000 }),
     installPluginImport: (workspaceId: string, payload: PluginImportRequest) =>
@@ -2548,7 +2513,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         body: { ...payload, dryRun: true },
         timeoutMs: timeouts.config,
       }),
-    installClaudePlugin: (workspaceId: string, payload: { url: string; ref?: string }) =>
+    installClaudePlugin: (workspaceId: string, payload: { url: string; ref?: string; digest?: string; validationId?: string; acknowledgePartial?: boolean }) =>
       requestJson<LegalworkCloudPluginInstallResult & { preview: LegalworkClaudePluginPreview }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/claude-plugins`, {
         token,
         hostToken,
@@ -2713,13 +2678,6 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/hub/share/workflow`,
         { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.workspaceExport },
       ),
-    /** Matter id to title, so a source row can name its matter. */
-    legalMemoryMatters: (workspaceId: string) =>
-      requestJson<{ ok: boolean; matters: Record<string, string> }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/matters`,
-        { token, hostToken, method: "POST", body: {}, timeoutMs: timeouts.config },
-      ),
     storageOAuthProviders: (workspaceId: string) =>
       requestJson<{ providers: StorageOAuthProvider[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/oauth/providers`, { token, hostToken }),
     storageOAuthStatus: (workspaceId: string, id: string) =>
@@ -2736,6 +2694,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/test${id ? `?connectionId=${encodeURIComponent(id)}` : ""}`, { token, hostToken, method: "POST", body: input, timeoutMs: 90_000 }),
     removeStorageConnection: (workspaceId: string, id: string, version?: number) =>
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}${version ? `?version=${version}` : ""}`, { token, hostToken, method: "DELETE", timeoutMs: 30_000 }),
+    shareStorageConnection: (workspaceId: string, input: StorageInput) =>
+      requestJson<{ connection: StorageConnection }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/team`, { token, hostToken, method: "POST", body: input, timeoutMs: 60_000 }),
     setTeamStorageInstalled: (workspaceId: string, id: string, installed: boolean) =>
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/installation`, { token, hostToken, method: "POST", body: { installed }, timeoutMs: 30_000 }),
     projectFolderSources: () => requestJson<{ sources: (Omit<RemoteFolderSelection, "path"> & { name: string })[]; error?: string }>(baseUrl, "/storage/project-sources", { token, hostToken, timeoutMs: 60_000 }),
@@ -3301,6 +3261,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         method: "POST",
         body: payload,
+        timeoutMs: timeouts.mcpSetup,
       }),
     registerMcpClient: (workspaceId: string, payload: { url: string; headers?: Record<string, string> }) =>
       requestJson<LegalworkMcpRegisterClientResult>(baseUrl, `/workspace/${workspaceId}/mcp/register-client`, {
@@ -3308,6 +3269,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         method: "POST",
         body: payload,
+        timeoutMs: timeouts.mcpSetup,
       }),
     // Connectors are shared by every workspace the server hosts unless a
     // caller asks for one workspace's own entry.
@@ -3320,6 +3282,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         method: "POST",
         body: payload,
+        timeoutMs: timeouts.mcpSetup,
       }),
     removeMcp: (workspaceId: string, name: string) =>
       requestJson<{ items: LegalworkMcpItem[] }>(baseUrl, `/workspace/${workspaceId}/mcp/${encodeURIComponent(name)}`, {

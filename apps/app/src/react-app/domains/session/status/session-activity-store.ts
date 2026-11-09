@@ -237,8 +237,15 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
         errorMessage: runActive ? null : record.errorMessage,
         errorUserMessageId: runActive ? null : record.errorUserMessageId,
         compacting: runActive ? record.compacting : false,
-        waitingPermissionIds: runActive ? record.waitingPermissionIds : [],
-        waitingQuestionIds: runActive ? record.waitingQuestionIds : [],
+        // A pending permission or question outlives the run that raised it. The
+        // engine reports the session idle while it blocks on the user, so the
+        // run status is authoritative for `runActive` but never for these: only
+        // a reply (`permission.replied` / `question.replied`) or the reconnect
+        // reconciliation may clear them. Dropping them here left the sidebar
+        // blank while the approval modal was still open, because an idle
+        // session renders no indicator at all.
+        waitingPermissionIds: record.waitingPermissionIds,
+        waitingQuestionIds: record.waitingQuestionIds,
       };
     }));
   },

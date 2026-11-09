@@ -177,7 +177,7 @@ export type StartupPreference = "local" | "server";
  *
  * See `apps/app/src/app/lib/release-channels.ts` for URL resolution.
  */
-export type ReleaseChannel = "stable" | "alpha";
+export type ReleaseChannel = "stable" | "prerelease" | "alpha";
 
 export type EngineRuntime = "direct";
 
@@ -403,6 +403,7 @@ export type PendingPermission = Omit<ApiPermissionRequest, "always"> & {
   host?: import("@legalwork/types/desktop-ipc").HostApprovalRequest;
   v2?: Pick<PermissionV2Request, "action" | "resources" | "save">;
   sourceSession?: { id: string; title: string };
+  toolInput?: { status: "loading" | "unavailable" } | { status: "ready"; value: Record<string, unknown> };
 };
 
 export type PendingQuestion = QuestionRequest & {

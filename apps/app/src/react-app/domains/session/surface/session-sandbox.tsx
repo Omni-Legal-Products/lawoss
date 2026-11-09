@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SandboxNetworkItems, networkLabel } from "../../settings/panels/sandbox-network-control";
 import { changeOrgPolicySetting } from "../../connections/org-policy";
-import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 
 export function SessionSandbox({ client, workspaceId, sessionId }: { client: LegalworkServerClient; workspaceId: string; sessionId: string }) {
@@ -13,18 +13,27 @@ export function SessionSandbox({ client, workspaceId, sessionId }: { client: Leg
   const state = query.data;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (!state?.supported || state.policy?.locked) return null;
   const save = async (settings: { enabled: boolean; networkMode: "allow" | "block" | "approve" } | null) => {
     setBusy(true); setError(null);
     try {
       const change = () => client.setSessionSandbox(workspaceId, sessionId, settings).then(() => undefined);
-      if (state.policy?.mode === "enforced") await changeOrgPolicySetting("sandbox", change, client);
+      if (state?.policy?.mode === "enforced") await changeOrgPolicySetting("sandbox", change, client);
       else await change();
       await query.refetch();
     }
     catch (error) { setError(error instanceof Error ? error.message : t("sandbox.network_save_failed")); await query.refetch(); }
     finally { setBusy(false); }
   };
+  const failure = query.error;
+  const invalidSettings = failure instanceof LegalworkServerError && failure.code === "execution_settings_invalid";
+  const details = invalidSettings ? failure.details : undefined;
+  const invalidSessionSettings = details !== null && typeof details === "object" && "settingsScope" in details && details.settingsScope === "session";
+  if (query.isError) return <div className="space-y-2 px-3 py-2">
+    <p role="alert" className="text-sm text-destructive">{error ?? (query.error instanceof Error ? query.error.message : t("sandbox.status_unavailable"))}</p>
+    {invalidSettings && !invalidSessionSettings ? <p className="text-sm text-muted-foreground">{t("sandbox.restore_application_settings")}</p> : null}
+    {invalidSessionSettings && client.canApprove ? <Button variant="outline" size="sm" disabled={busy} onClick={() => { void save({ enabled: true, networkMode: "block" }); }}>{t("sandbox.on")} · {t("sandbox.network_block")}</Button> : null}
+  </div>;
+  if (!state?.supported || state.policy?.locked) return null;
   const items = [
     { value: "inherit", label: t("sandbox.inherit"), description: state.source === "parent" ? t("sandbox.parent_scope") : t("sandbox.menu_inherit"), icon: RotateCcw },
     { value: "on", label: t("sandbox.on"), description: t("sandbox.menu_on"), icon: Shield },

@@ -12,7 +12,7 @@ export const connectorDefinitions: ConnectorDefinition[] = [
   { id: "google-calendar", name: "Google Calendar", icon: "googlecalendar", kind: "calendar", apiOrigin: "https://www.googleapis.com", descriptionKey: "connectors.calendar_description", promptKey: "connectors.calendar_prompt" },
   { id: "outlook-calendar", name: "Outlook Calendar", icon: "microsoftoutlook", kind: "calendar", connectionConnectorId: "outlook", apiOrigin: "https://graph.microsoft.com", descriptionKey: "connectors.calendar_description", promptKey: "connectors.calendar_prompt" },
   { id: "google-drive", name: "Google Drive", icon: "googledrive", kind: "files", apiOrigin: "https://www.googleapis.com", descriptionKey: "connectors.files_description", promptKey: "connectors.files_prompt" },
-  { id: "onedrive", name: "OneDrive", icon: "microsoftonedrive", kind: "files", apiOrigin: "https://graph.microsoft.com", descriptionKey: "connectors.files_description", promptKey: "connectors.files_prompt" },
+  { id: "onedrive", name: "OneDrive for work or school", icon: "microsoftonedrive", kind: "files", apiOrigin: "https://graph.microsoft.com", descriptionKey: "connectors.files_description", promptKey: "connectors.files_prompt" },
   { id: "onedrive-personal", name: "OneDrive Personal", icon: "microsoftonedrive", kind: "files", apiOrigin: "https://api.onedrive.com", descriptionKey: "connectors.files_description", promptKey: "connectors.files_prompt" },
   { id: "sharepoint-files", name: "SharePoint", icon: "microsoftsharepoint", kind: "files", apiOrigin: "https://graph.microsoft.com", descriptionKey: "connectors.files_description", promptKey: "connectors.files_prompt" },
 ];

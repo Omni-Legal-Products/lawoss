@@ -33,8 +33,6 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
   }
   if (connection.needsReconnect) throw new ApiError(409, "connector_reconnect_required", `Reconnect ${definition.name} in Extensions to restore access.`);
   const apiOrigin = connection.source === "custom" && id === "onedrive-personal" ? "https://graph.microsoft.com" : definition.apiOrigin;
-  let accessToken = await connectorAccessToken(config, id, connection.id);
-  let refresh: Promise<string> | undefined;
   const assertCurrent = async (writing: boolean) => {
     const current = await savedConnectorConnections(config, id);
     requireSingleConnectorAccount(current);
@@ -42,9 +40,31 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
     await requireConnectorActivated(config, id, connection.id);
     if (writing) {
       if (connection.source === "custom") await requireLocalOAuthWriteAccess(config, id, connection.id);
-      await ensureConnectorWritesAllowed(config, id);
     }
   };
+  return createAuthorizedConnectorRequest(config, id, {
+    apiOrigin, token: (force) => connectorAccessToken(config, id, connection.id, force), assertCurrent,
+    assertSend: () => requireLocalOAuthSendAccess(config, id, connection.id),
+  });
+}
+
+/** Reuses the exact native transport for explicitly delegated team storage.
+ * Callbacks are server-owned; no caller can supply a token or provider URL. */
+export async function createAuthorizedConnectorRequest(config: ServerConfig, id: string, authorization: {
+  token: (forceRefresh: boolean) => Promise<string>;
+  assertCurrent: (writing: boolean) => Promise<void>;
+  assertSend?: () => Promise<void>;
+  apiOrigin?: string;
+}): Promise<StreamingConnectorRequest> {
+  const definition = connectorDefinition(id);
+  const apiOrigin = authorization.apiOrigin ?? definition.apiOrigin;
+  const assertCurrent = async (writing: boolean) => {
+    await authorization.assertCurrent(writing);
+    if (writing) await ensureConnectorWritesAllowed(config, id);
+  };
+  await assertCurrent(false);
+  let accessToken = await authorization.token(false);
+  let refresh: Promise<string> | undefined;
   const responseRequest = async (path: string, options: ConnectorRequestOptions = {}) => {
     // Reject relative-path escapes and cross-origin URLs even if a future adapter passes one.
     if (!path.startsWith("/") || path.startsWith("//")) throw new ApiError(400, "connector_invalid_endpoint", "Invalid connector endpoint.");
@@ -55,10 +75,11 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
     const request = async () => {
       await assertCurrent(Boolean(options.method && options.method !== "GET"));
       if (options.method && options.method !== "GET") {
-        if (options.send) await requireLocalOAuthSendAccess(config, id, connection.id);
-        await ensureConnectorWritesAllowed(config, id);
+        if (options.send) {
+          if (!authorization.assertSend) throw new ApiError(403, "forbidden", "This connection only authorizes storage.");
+          await authorization.assertSend();
+        }
       }
-      await requireConnectorActivated(config, id, connection.id);
       try {
         return await fetch(url, { method: options.method ?? "GET", redirect: "error", signal: AbortSignal.timeout(options.bytes || options.rawBody ? 30 * 60_000 : 30_000),
           headers: { ...options.headers, Authorization: `Bearer ${accessToken}`, Accept: options.bytes ? "*/*" : "application/json", ...(options.rawBody || options.body === undefined ? {} : { "Content-Type": "application/json" }) },
@@ -69,7 +90,7 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
     let response = await request();
     // A rejected token has not executed the request. Retry exactly once with a refreshed token.
     if (response.status === 401) {
-      refresh ??= connectorAccessToken(config, id, connection.id, true);
+      refresh ??= authorization.token(true);
       accessToken = await refresh;
       response = await request();
     }

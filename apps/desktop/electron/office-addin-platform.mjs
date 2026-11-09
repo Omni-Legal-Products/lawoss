@@ -214,8 +214,8 @@ function createDarwinBackend({ certPaths }) {
       try {
         mkdirSync(target.wefDir, { recursive: true });
         const current = existsSync(target.manifestPath) ? readFileSync(target.manifestPath, "utf8") : null;
+        if (current !== null) chmodSync(target.manifestPath, 0o600);
         if (current !== manifest) writeFileSync(target.manifestPath, manifest, { encoding: "utf8", mode: 0o600 });
-        chmodSync(target.manifestPath, 0o600);
         return { ok: true };
       } catch (error) {
         return {
@@ -402,8 +402,8 @@ function createWin32Backend({ userDataDir, certPaths }) {
       try {
         mkdirSync(dirname(manifestPath), { recursive: true });
         const current = existsSync(manifestPath) ? readFileSync(manifestPath, "utf8") : null;
+        if (current !== null) chmodSync(manifestPath, 0o600);
         if (current !== manifest) writeFileSync(manifestPath, manifest, { encoding: "utf8", mode: 0o600 });
-        chmodSync(manifestPath, 0o600);
       } catch (error) {
         return {
           ok: false,

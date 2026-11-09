@@ -7,6 +7,7 @@ import { isReviewWorkerSession } from "@legalwork/types/reviews";
 // session-route.tsx as the final step of its decomposition; the route keeps
 // composition, handlers, and JSX.
 import { createCoalescedRefresh } from "./coalesced-refresh";
+import { usePanelTabStore } from "../domains/session/panel/panel-tab-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 
@@ -385,8 +386,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
             await fetchOnce(workspace, attempt + 1);
             return;
           }
-          // Final failure: keep local workspace startup quiet, but give
-          // remote workers a precise endpoint/token/workspace diagnostic.
+          // Keep final failures visible for local cloud folders as well as
+          // remote workers, so the affected project can explain how to recover.
           if (workspace.workspaceType === "remote") {
             const connectionState = await diagnoseRemoteWorkspaceTaskLoadFailure(workspace, message);
             if (!isCurrentRequest()) return;
@@ -400,6 +401,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
                 [workspace.id]: connectionState,
               };
             });
+          } else {
+            setErrorsByWorkspaceId((current) => ({ ...current, [workspace.id]: message }));
           }
           setRetryingWorkspaceIds((current) =>
             current.includes(workspace.id) ? current.filter((id) => id !== workspace.id) : current,
@@ -482,6 +485,9 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       clientConnectionRef.current = { key: connectionKey, client: legalworkClient };
       const list = await legalworkClient.listWorkspaces();
       if (!isCurrent()) return;
+      // Restore saved dashboard tabs to the current desktop port before
+      // exposing the new client. Only server-confirmed local owners can move.
+      if (isDesktopRuntime()) usePanelTabStore.getState().reconnectLocalTabs(normalizedBaseUrl, [], list.items.filter(workspace => workspace.workspaceType !== "remote").map(workspace => workspace.id));
       const { routeWorkspaceId, selectedSessionId } = routeSelectionRef.current;
       hasLoadedServerWorkspacesRef.current = true;
       setHasLoadedServerWorkspaces(true);

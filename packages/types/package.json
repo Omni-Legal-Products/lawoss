@@ -55,6 +55,7 @@
     "./org-policy-view": "./src/org-policy-view.ts",
     "./firm-hub": "./src/firm-hub.ts",
     "./plugin-import": "./src/plugin-import.ts",
+    "./plugin-import-state": "./src/plugin-import-state.ts",
     "./connector-config": "./src/connector-config.ts",
     "./wiki": "./src/wiki.ts",
     "./wiki-suggestions": "./src/wiki-suggestions.ts",

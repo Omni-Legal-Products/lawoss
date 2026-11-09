@@ -36,7 +36,7 @@ Create these OAuth integrations in the same Nango environment as that API key:
 | Outlook Email and Calendar | `outlook` | `NANGO_OUTLOOK_INTEGRATION_ID` |
 | Google Calendar | `google-calendar` | `NANGO_GOOGLE_CALENDAR_INTEGRATION_ID` |
 | Google Drive | `google-drive` | `NANGO_GOOGLE_DRIVE_INTEGRATION_ID` |
-| OneDrive | `one-drive` | `NANGO_ONEDRIVE_INTEGRATION_ID` |
+| OneDrive for work or school | `one-drive` | `NANGO_ONEDRIVE_INTEGRATION_ID` |
 | OneDrive Personal | `one-drive-personal` | `NANGO_ONEDRIVE_PERSONAL_INTEGRATION_ID` |
 | SharePoint | `sharepoint-online` | `NANGO_SHAREPOINT_INTEGRATION_ID` |
 
@@ -89,7 +89,7 @@ The account created by the research test has no LegalWork ownership tags and is 
 
 All connectors use the existing `legalwork_extension_list_actions` / `legalwork_extension_call` tools. Email actions are `status`, `test_connection`, `list_messages`, `get_message`, `get_attachment`, `create_draft` and `send_draft`. Calendar actions are `status`, `test_connection`, `list_calendars`, `list_events`, `get_event` and `create_event`; Google Calendar also offers `update_event`. Google create/update cards support optional `googleMeet`. Creating an event never adds attendees or sends invitations. Time ranges use ISO timestamps with offsets. All-day end dates are exclusive.
 
-Google Drive, OneDrive, OneDrive Personal and SharePoint are configured in the existing **File Storage** tab. Saved accounts automatically appear as Memory Drive roots for the server owner; SharePoint requires selecting a document library before its view appears. Folder/library views reuse the existing Nango or own-OAuth account and never create a second sign-in. Saved connector accounts are compatible without a credential migration. Box, Dropbox, SMB, WebDAV, S3, Azure, GCS, SFTP and FTP continue using their existing adapters.
+Google Drive, OneDrive for work or school, OneDrive Personal and SharePoint are configured in the existing **File Storage** tab. Saved accounts automatically appear as Memory Drive roots for the server owner; SharePoint requires selecting a document library before its view appears. Folder/library views reuse the existing Nango or own-OAuth account and never create a second sign-in. Saved connector accounts are compatible without a credential migration. Box, Dropbox, SMB, WebDAV, S3, Azure, GCS, SFTP and FTP continue using their existing adapters.
 
 The common `storage_*` agent tools and Memory Drive browse, native search, checkout, editor/local copy, streaming uploads/downloads, copy/move, rename/delete and project-folder links use direct Google/Microsoft StorageAdapters. Google paths include stable native IDs so duplicate names remain separate; resolving a plain duplicate name rejects ambiguity. Project references retain native folder and account/drive identities, recheck containment and reject folders moved outside their configured root. Personal native sources stay owner-only through ordinary storage and linked-project routes. The owner's managed engine uses its existing process-local connector capability; ordinary collaborator/viewer tokens cannot access these sources or promote them to shared team storage.
 
@@ -141,3 +141,12 @@ Nango's shared Gmail app grants fixed full-mail permissions; LegalWork exposes r
 The code must be deployed with the platform secret before these connectors work in distributed desktop builds. No Nango secret is bundled and there is no local master-key fallback.
 
 Storage UI fixture: run `LEGALWORK_CONNECTOR_PREVIEW_STORAGE=1 pnpm --filter legalwork-server exec bun scripts/connector-preview.ts` and open `/connectors-preview.html?storage` on the app Vite server. Its accounts, documents, sites and libraries are synthetic; storage views and root browsing exercise the real server routes.
+
+## Team storage authorization
+
+Google/Microsoft storage also supports explicit team entries; see
+[Team storage](team-storage.md#google-and-microsoft-team-storage). Member mode
+reuses each user's one personal account. Shared-account mode uses an encrypted
+platform-side grant and desktop-only token retrieval. Personal account isolation
+and single-account admission remain in place; sharing a location does not
+automatically expose the owner's personal connector tools.

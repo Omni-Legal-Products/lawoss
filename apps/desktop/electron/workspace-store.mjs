@@ -3,7 +3,7 @@
 // normalization/discovery, and the workspace-facing command operations.
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -80,8 +80,12 @@ async function writeJsonFileAtomic(outputPath, value) {
   JSON.parse(content);
   await mkdir(path.dirname(outputPath), { recursive: true });
   const tempPath = `${outputPath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
-  await writeFile(tempPath, content, "utf8");
-  await rename(tempPath, outputPath);
+  try {
+    await writeFile(tempPath, content, "utf8");
+    await rename(tempPath, outputPath);
+  } finally {
+    await rm(tempPath, { force: true });
+  }
 }
 
 async function readJsonFile(targetPath, fallback) {
@@ -537,6 +541,23 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
   }
 
   async function readWorkspaceStateUnchecked() {
+    // A killed writer cannot run its finally block. Reap only this store's old
+    // temporary files, and only when their owning process is known to be gone.
+    const directory = app.getPath("userData");
+    for (const name of await readdir(directory).catch(() => [])) {
+      const match = /^legalwork-workspaces\.json\.(\d+)\.([a-f0-9]{12})\.tmp$/.exec(name);
+      if (!match) continue;
+      const pid = Number(match[1]);
+      if (!Number.isSafeInteger(pid) || pid <= 0) continue;
+      const target = path.join(directory, name);
+      try {
+        const file = await lstat(target);
+        if (!file.isFile() || Date.now() - file.mtimeMs < 60_000) continue;
+        try { process.kill(pid, 0); continue; }
+        catch (error) { if (error?.code !== "ESRCH") continue; }
+        await rm(target, { force: true });
+      } catch { /* Cleanup must never prevent reading the committed state. */ }
+    }
     const state = await readJsonFile(workspaceStatePath(), EMPTY_WORKSPACE_LIST);
     let selectedId =
       typeof state?.selectedId === "string"

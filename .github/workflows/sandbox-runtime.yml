@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 24.22.1
       - name: Select runtime targets
         id: matrix
         env:
@@ -51,7 +51,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 24.22.1
       - name: Test protected engine asset admission
         run: node --test scripts/sandbox/protected-engine-assets.test.mjs
       - run: node scripts/sandbox/build-guest.mjs ${{ matrix.arch }}
@@ -72,7 +72,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 24.22.1
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2

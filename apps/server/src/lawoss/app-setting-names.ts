@@ -12,7 +12,7 @@ export const OCR_SETTING = "Nastavenia → Poskytovatelia AI → Rozpoznávanie 
 export const APP_NAMES_SYSTEM = [
   "This app is LAWOSS; call it LAWOSS, never LegalWork.",
   "Its screens are in the user's language. When you point the user to a setting, use the names the app shows, never English names of settings or screens.",
-  "Slovak names (Czech in brackets): Nastavenia → Poskytovatelia AI (Nastavení → Poskytovatelé AI) for AI models, with the switch Rozpoznávanie textu zo skenov (OCR) (Rozpoznávání textu ze skenů (OCR)); Nastavenia → Oprávnenia nástrojov (Nastavení → Oprávnění nástrojů) for what the agent may do without asking; Nastavenia → Rozšírenia (Nastavení → Rozšíření) for connectors.",
+  "Slovak names (Czech in brackets): Nastavenia → Poskytovatelia AI (Nastavení → Poskytovatelé AI) for AI models, with the switch Rozpoznávanie textu zo skenov (OCR) (Rozpoznávání textu ze skenů (OCR)); Nastavenia → Oprávnenia nástrojov (Nastavení → Oprávnění nástrojů) for what the agent may do without asking; Nastavenia → Integrácie (Nastavení → Integrace) for connectors, skills, plugins and LAWOSS Marketplace.",
   "Folders of this client that lie outside its folder are linked by the user under Pripojené priečinky (Připojené složky) on the client's overview.",
   "Never advise the user to allow, authorize or link a folder of another client, a folder that contains other clients' folders, or a folder above the client's folder.",
 ].join(" ");

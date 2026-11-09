@@ -78,13 +78,19 @@ export class TeamStorage {
       throw new ApiError(401, "storage_team_sign_in", "Sign in with your firm to manage team connections.");
     return this.fetch(identity, method, suffix, body);
   }
+  async accessToken(workspaceId: string, storageId: string, version: number, forceRefresh: boolean) {
+    const response = await this.request(workspaceId, "POST", `/${teamStorageId(storageId)}/token`, { version, forceRefresh });
+    const parsed = z.object({ accessToken: z.string().min(1) }).safeParse(response);
+    if (!parsed.success) throw new ApiError(502, "storage_team_unavailable", "The team account response was invalid.");
+    return parsed.data.accessToken;
+  }
   private async fetch(identity: Identity, method: string, suffix: string, body?: unknown): Promise<unknown> {
     let response: Response;
     try {
       response = await fetch(`${eigenweltPlatformUrl()}/api/storage-connections${suffix}`, {
         method,
         redirect: "error",
-        headers: { Authorization: `Bearer ${identity.token}`, "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${identity.token}`, "Content-Type": "application/json", "X-LegalWork-Storage-Capabilities": "native-cloud-sharing-v1" },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: AbortSignal.timeout(15_000),
       });
@@ -146,6 +152,7 @@ export class TeamStorage {
       if (
         !parsed.success ||
         parsed.data.orgId !== identity.orgId ||
+        parsed.data.connections.some(item => item.input.secrets.nangoConnectionId !== undefined || item.input.secrets.nangoOwnerId !== undefined) ||
         new Set(parsed.data.connections.map((item) => item.id)).size !== parsed.data.connections.length
       )
         throw new ApiError(502, "storage_team_unavailable", "The team connection response was invalid.");

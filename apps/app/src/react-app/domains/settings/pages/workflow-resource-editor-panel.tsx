@@ -129,7 +129,7 @@ function ResourceContent({ draft, readOnly, docxApi, officeApi, sheetApi, onSave
   if (type === "xlsx" && buffer) return <XlsxEditor name={draft.name} content={buffer} readOnly={readOnly} onSave={saveBuffer} onDirtyChange={onDirtyChange} apiRef={officeApi} />;
   if (type === "pptx" && buffer) return <PptxEditor name={draft.name} content={buffer} readOnly={readOnly} onSave={saveBuffer} onDirtyChange={onDirtyChange} apiRef={officeApi} />;
   if (type === "csv") return <SpreadsheetEditor name={draft.name} content={{ kind: "text", data: initial }} readOnly={readOnly} onSave={onSave} onDirtyChange={onDirtyChange} apiRef={sheetApi} hideSave />;
-  if (type === "markdown") return <MarkdownEditor value={draft.content} baseline={draft.baseline} readOnly={readOnly} onChange={(content) => editWorkflowResource(draft.id, { content })} imageUpload={imageUpload} imagePreview={imagePreview} />;
+  if (type === "markdown") return <MarkdownEditor suppressHtmlProcessing value={draft.content} baseline={draft.baseline} readOnly={readOnly} onChange={(content) => editWorkflowResource(draft.id, { content })} imageUpload={imageUpload} imagePreview={imagePreview} />;
   if (isTextWorkflowResource(draft.name)) return <TextEditor value={draft.content} language="text" readOnly={readOnly} onChange={(content) => editWorkflowResource(draft.id, { content })} />;
   if (!url) return <PreviewLoading />;
   if (type === "pdf") return <PdfPreview url={url} title={draft.name} />;

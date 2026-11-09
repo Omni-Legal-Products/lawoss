@@ -12,6 +12,8 @@ export type OcrServerInput = {
 
 export type OcrSettingsView = {
   defaultEngineId: string;
+  autoDownload?: boolean;
+  autoDownloadLocked?: boolean;
   readOnly: boolean;
   installerAvailable: boolean;
   installation: { engineId: string; stage: "runtime" | "dependencies" | "models" | "checking" | "complete" | "failed" | "cancelled" } | null;

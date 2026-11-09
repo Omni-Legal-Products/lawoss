@@ -100,8 +100,6 @@ export interface ApprovalConfig {
 export interface WordAddinConfig {
   /** Serve the Word task pane bundle and start the HTTPS add-in listener. */
   enabled: boolean;
-  /** Per-installation secret delivered only through the locally installed manifest. */
-  capability?: string;
   /** Fixed port for the HTTPS listener referenced by the add-in manifest. */
   port: number;
   /** PEM certificate path. Defaults to ~/.office-addin-dev-certs/localhost.crt. */
@@ -121,6 +119,9 @@ export interface RecorderLiveTranscriptStatus {
 }
 
 export interface RecorderBridge {
+  /** The local profile's retained recordings. Library routes require owner access. */
+  listRecordings?: () => Promise<AudioRecordingMeta[]>;
+  readRecording?: (id: string) => Promise<AudioRecordingDetail | null>;
   listProjectRecordings?: (projectId: string) => Promise<Pick<AudioRecordingMeta, "id" | "title" | "durationMs" | "status" | "segmentCount">[]>;
   readProjectRecording?: (projectId: string, id: string) => Promise<Pick<AudioRecordingDetail, "segments"> | null>;
   /** Copy a finished recording linked to the project into its `recordings/` folder, for project sync; false when not written. */

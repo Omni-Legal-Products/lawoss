@@ -1,4 +1,4 @@
-import type { PermissionRequest, PermissionV2Request, QuestionRequest, Session } from "@opencode-ai/sdk/v2/client";
+import type { Part, PermissionRequest, PermissionV2Request, QuestionRequest, Session } from "@opencode-ai/sdk/v2/client";
 import type { Client, PendingPermission, PendingQuestion } from "@/app/types";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
@@ -137,6 +137,23 @@ export function permissionWithReceivedAt(permission: PermissionSeed, receivedAt:
   return isV2PermissionRequest(permission)
     ? v2PermissionWithReceivedAt(permission, receivedAt)
     : legacyPermissionWithReceivedAt(permission, receivedAt);
+}
+
+/** The engine's MCP permission event omits arguments. Read only its exact tool call. */
+export function permissionToolInput(
+  permission: PendingPermission,
+  message: { info: { id: string; sessionID: string }; parts: Part[] },
+): Record<string, unknown> {
+  const source = permission.tool;
+  if (!source || message.info.id !== source.messageID || message.info.sessionID !== permission.sessionID) {
+    throw new Error("Permission tool message does not match the request.");
+  }
+  const part = message.parts.find(part => part.type === "tool" && part.callID === source.callID
+    && part.messageID === source.messageID && part.sessionID === permission.sessionID);
+  if (!part || part.type !== "tool" || part.state.status === "completed" || part.state.status === "error") {
+    throw new Error("Permission tool input is unavailable.");
+  }
+  return part.state.input;
 }
 
 export function questionWithReceivedAt(question: QuestionRequest, receivedAt: number, protocol: "legacy" | "v2" = "legacy"): PendingQuestion {

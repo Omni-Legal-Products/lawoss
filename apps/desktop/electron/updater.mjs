@@ -27,6 +27,8 @@ const defaultLoadElectronUpdater = () => import("electron-updater");
 /** @type {GitHubFeedResolver} */
 const defaultResolveGitHubFeed = resolveGitHubAppFeed;
 
+import { createUpdaterPreferences } from "./updater-preferences.mjs";
+
 const ELECTRON_UPDATER_CHANNEL_FILENAME = "electron-updater-channel.v1.json";
 const MISSING_UPDATER_CONFIG_MESSAGE =
   "This local LAWOSS build cannot update itself because it has no updater configuration. Install a versioned LAWOSS release instead.";
@@ -44,6 +46,7 @@ export function formatUpdaterErrorReason(error) {
 const __updater_dirname = path.dirname(fileURLToPath(import.meta.url));
 let _cachedAppVersion = null;
 function resolveAppVersion(app) {
+  if (app.isPackaged) return app.getVersion();
   if (_cachedAppVersion) return _cachedAppVersion;
   const electronVersion = app.getVersion();
   // If packaged, app.getVersion() is correct (set by electron-builder).
@@ -61,6 +64,16 @@ function resolveAppVersion(app) {
   }
   return _cachedAppVersion;
 }
+const LAWOSS_STABLE_FEED = "https://lawoss.app/update";
+
+// Upstream v0.2.15: an Intel Mac never receives the ARM-only macOS alpha; it
+// stays on the stable feed. 🟡 LAWOSS: fork feeds instead of upstream URLs.
+export function alphaFeedUrl(platform = process.platform, arch = process.arch) {
+  if (platform === "win32") return alphaReleaseDownloadUrl("windows");
+  if (platform === "darwin" && arch === "arm64") return alphaReleaseDownloadUrl("macos");
+  return LAWOSS_STABLE_FEED;
+}
+
 // Exported so main.mjs's arch-mismatch download flow resolves against the same
 // tracked feed. Stable GitHub fallback is selected dynamically in update-feed.mjs.
 export const ELECTRON_UPDATER_FEEDS = Object.freeze({
@@ -76,7 +89,7 @@ export const ELECTRON_UPDATER_FEEDS = Object.freeze({
   // Alpha is a per-platform rolling release: each platform's alpha workflow
   // (alpha-macos-aarch64.yml / alpha-windows-x64.yml) refreshes its own
   // updater manifest on its own tag.
-  alpha: alphaReleaseDownloadUrl(process.platform === "win32" ? "windows" : "macos"),
+  alpha: alphaFeedUrl(),
 });
 
 // 🟡 LAWOSS: lokálny build bez stampnutej verzie (package.json = 0.0.0) by
@@ -375,6 +388,47 @@ async function cleanStaleUpdaterState(app) {
   }
 }
 
+// With auto-install disabled, MacUpdater only starts its local ZIP server.
+// Explicitly start Squirrel preparation, then wait for native validation.
+export async function downloadUpdateReady(updater, nativeUpdater, timeoutMs = 300_000) {
+  if (!nativeUpdater) {
+    await updater.downloadUpdate();
+    return;
+  }
+  let onReady, onError, timer;
+  const ready = new Promise((resolve, reject) => {
+    onReady = resolve;
+    onError = reject;
+    nativeUpdater.once("update-downloaded", onReady);
+    nativeUpdater.once("error", onError);
+    timer = setTimeout(() => reject(new Error("The update could not finish preparing for installation. Please try downloading it again.")), timeoutMs);
+  });
+  try {
+    await Promise.all([ready, Promise.resolve().then(async () => {
+      await updater.downloadUpdate();
+      // MacUpdater starts this itself only when autoInstallOnAppQuit is true.
+      // Keep that flag disabled until preparation succeeds, including retries
+      // after a channel change, instead of allowing an unready update on quit.
+      if (!updater.autoInstallOnAppQuit) nativeUpdater.checkForUpdates();
+    })]);
+  } finally {
+    clearTimeout(timer);
+    nativeUpdater.removeListener("update-downloaded", onReady);
+    nativeUpdater.removeListener("error", onError);
+  }
+}
+
+// Channel changes, checks, downloads and installation share one queue so a
+// late check/download cannot restore a feed or installer from the old channel.
+export function serializeUpdaterTasks() {
+  let pending = Promise.resolve();
+  return (task) => {
+    const result = pending.then(task);
+    pending = result.then(() => undefined, () => undefined);
+    return result;
+  };
+}
+
 // electron-updater wiring. Packaged-only; dev builds skip this so the
 // updater doesn't try to probe a non-existent release channel.
 export function registerUpdaterIpc({
@@ -385,6 +439,9 @@ export function registerUpdaterIpc({
   prepareUpdaterInstall = enableSquirrelDirectContentsWrite,
   resolveGitHubFeed = defaultResolveGitHubFeed,
 }) {
+  const preferences = createUpdaterPreferences(app);
+  ipcMain.handle("legalwork:updater:getPreferences", (_event, legacy) => preferences.read(legacy));
+  ipcMain.handle("legalwork:updater:setPreferences", (_event, patch) => preferences.write(patch));
   let autoUpdaterInstance = null;
   let autoUpdaterLoaded = false;
   let checkedUpdateVersion = null;
@@ -416,6 +473,20 @@ export function registerUpdaterIpc({
     const result = await updater.checkForUpdates();
     return { fallback, result };
   }
+  let nativeMacUpdater = null;
+  let updateReady = false;
+  const runTask = serializeUpdaterTasks();
+  const handleUpdater = (name, handler) => ipcMain.handle(name, (...args) => runTask(() => handler(...args)));
+  async function changeChannel(rawChannel) {
+    const previous = await readElectronUpdaterChannel(app);
+    const channel = await writeElectronUpdaterChannel(app, rawChannel);
+    if (channel !== previous) {
+      clearCheckedUpdate();
+      updateReady = false;
+      if (autoUpdaterInstance) autoUpdaterInstance.autoInstallOnAppQuit = false;
+    }
+    return channel;
+  }
 
   function sendToRenderer(channel, data) {
     try {
@@ -436,8 +507,10 @@ export function registerUpdaterIpc({
       const mod = await loadElectronUpdater();
       autoUpdaterInstance = mod.autoUpdater ?? mod.default?.autoUpdater ?? null;
       if (autoUpdaterInstance) {
+        if (process.platform === "darwin") nativeMacUpdater = (await import("electron")).autoUpdater;
         autoUpdaterInstance.autoDownload = false;
-        autoUpdaterInstance.autoInstallOnAppQuit = true;
+        // Upstream v0.2.15/v0.2.17: install on quit only after native preparation succeeded.
+        autoUpdaterInstance.autoInstallOnAppQuit = false;
         // Differential (blockmap) downloads reconstruct the update zip from the
         // installed app + a diff. On macOS that reconstructed bundle is what
         // feeds Squirrel's fragile move-based install, and is a common trigger
@@ -448,6 +521,7 @@ export function registerUpdaterIpc({
         // bundles (see enableSquirrelDirectContentsWrite for why).
         await prepareUpdaterInstall();
         autoUpdaterInstance.on("error", (err) => {
+          updateReady = false;
           console.warn("[updater] error", err);
         });
         // Forward download progress to the renderer so the UI can show
@@ -475,19 +549,21 @@ export function registerUpdaterIpc({
     return updaterChannelState(app, channel);
   });
 
-  ipcMain.handle("legalwork:updater:setChannel", async (_event, rawChannel) => {
-    const channel = await writeElectronUpdaterChannel(app, rawChannel);
+  handleUpdater("legalwork:updater:setChannel", async (_event, rawChannel) => {
+    const channel = await changeChannel(rawChannel);
     clearCheckedUpdate();
+    updateReady = false;
     const updater = await ensureAutoUpdater();
     if (updater) {
+      updater.autoInstallOnAppQuit = false;
       return applyElectronUpdaterFeed(app, updater);
     }
     return updaterChannelState(app, channel);
   });
 
-  ipcMain.handle("legalwork:updater:check", async (_event, rawChannel) => {
+  handleUpdater("legalwork:updater:check", async (_event, rawChannel) => {
     if (rawChannel !== undefined) {
-      await writeElectronUpdaterChannel(app, rawChannel);
+      await changeChannel(rawChannel);
       clearCheckedUpdate();
     }
     const updater = await ensureAutoUpdater();
@@ -540,9 +616,10 @@ export function registerUpdaterIpc({
     }
   });
 
-  ipcMain.handle("legalwork:updater:download", async () => {
+  handleUpdater("legalwork:updater:download", async () => {
     const updater = await ensureAutoUpdater();
     if (!updater) return { ok: false, reason: "unavailable" };
+    updateReady = false;
     try {
       // No unconditional feed re-apply here: the feed left active by the last
       // successful check (primary or GitHub fallback) is the one the cached
@@ -560,7 +637,9 @@ export function registerUpdaterIpc({
       // Clear any stuck ShipIt state from a prior aborted install so this
       // download applies cleanly on quit.
       await cleanStaleUpdaterState(app);
-      await updater.downloadUpdate();
+      await downloadUpdateReady(updater, nativeMacUpdater);
+      updateReady = true;
+      updater.autoInstallOnAppQuit = true;
       return { ok: true };
     } catch (error) {
       if (checkedUpdateSource === "github-fallback") {
@@ -585,7 +664,9 @@ export function registerUpdaterIpc({
         // Same stuck-ShipIt hygiene as the happy path — the throw above may
         // have happened before that cleanStaleUpdaterState() ran.
         await cleanStaleUpdaterState(app);
-        await updater.downloadUpdate();
+        await downloadUpdateReady(updater, nativeMacUpdater);
+        updateReady = true;
+        updater.autoInstallOnAppQuit = true;
         return { ok: true };
       } catch {
         return { ok: false, reason: formatUpdaterErrorReason(error) };
@@ -593,9 +674,10 @@ export function registerUpdaterIpc({
     }
   });
 
-  ipcMain.handle("legalwork:updater:installAndRestart", async () => {
+  handleUpdater("legalwork:updater:installAndRestart", async () => {
     const updater = await ensureAutoUpdater();
     if (!updater) return { ok: false, reason: "unavailable" };
+    if (!updateReady) return { ok: false, reason: "No update is ready to install. Please download the update again." };
     try {
       // Re-assert the in-place-write default right before the swap; the ShipIt
       // defaults domain may have been wiped when stale state was cleaned.

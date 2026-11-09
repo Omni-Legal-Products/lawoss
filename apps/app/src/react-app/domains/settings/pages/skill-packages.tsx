@@ -15,6 +15,7 @@ import { pluginImportName } from "./plugin-import-presentation";
 import { PluginDetailsDialog, type PluginDetailsAccess } from "./plugin-details-dialog";
 import { packageParts, pluginFileInstalledName } from "./plugin-package-contents";
 import { PluginConnectorStatus } from "./connector-status";
+import type { PluginImportStore } from "./plugin-import-dialog";
 export { ImportedPackageContents, packageParts } from "./plugin-package-contents";
 
 /**
@@ -40,6 +41,7 @@ export function ImportedPackages(props: {
   library?: boolean;
   canRemove?: boolean;
   detailsAccess?: PluginDetailsAccess;
+  imports?: PluginImportStore;
 }) {
   const { extensions } = props;
   const layout = useIntegrationLibraryLayout();
@@ -82,24 +84,24 @@ export function ImportedPackages(props: {
   const query = (props.searchQuery ?? searchQuery).trim().toLowerCase();
   const team = props.library && layout?.source === "team";
   const visiblePackages = packages.filter(plugin => (!props.library || plugin.sourceKind === undefined || plugin.sourceKind === "plugin") && (!query || [pluginImportName(plugin), plugin.description ?? "", packageParts(plugin.files.map(file => file.objectType))].join(" ").toLowerCase().includes(query)));
-  if (!props.library && !loading && !error && visiblePackages.length === 0 && !props.showEmpty) return null;
+  if (!loading && !error && (visiblePackages.length === 0 || team) && !props.showEmpty) return null;
   return (
     <div className="space-y-4">
-      {props.library ? <IntegrationSearch toolbar value={searchQuery} onChange={setSearchQuery} label={t("integrations.search_plugins")} /> : null}
+      {props.library && props.searchQuery === undefined ? <IntegrationSearch toolbar value={searchQuery} onChange={setSearchQuery} label={t("integrations.search_plugins")} /> : null}
       {team ? <IntegrationEmptyState icon={Package} title={t("integrations.team_plugins_unavailable")} /> : loading ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p> : error ? <p role="alert" className="text-sm text-destructive">{error}</p> : <>
       <IntegrationGroupHeading hideInLibrary title={t("skills.packages_title")} count={visiblePackages.length} />
       {visiblePackages.length === 0 ? <IntegrationEmptyState icon={Package} title={t(props.library ? query ? "integrations.no_plugin_matches" : "integrations.no_plugins" : "integrations.no_packages")} description={t(query ? "integrations.search_hint" : props.library ? "integrations.plugins_import_hint" : "integrations.import_description")} /> : null}
       <div className="space-y-1">
         {visiblePackages.map((plugin) => (
           <IntegrationLibraryRow key={plugin.pluginId} name={pluginImportName(plugin)} description={plugin.description || packageParts(plugin.files.map(file => file.objectType)) || t("extensions.import_no_components")}
-            status={connectorState ? <PluginConnectorStatus states={plugin.files.filter(file => file.objectType === "mcp").map(file => connectorState(pluginFileInstalledName(file)))} /> : undefined}
+            status={plugin.importState?.readiness === "partial" || plugin.importState?.readiness === "unsupported" ? <span className="text-xs text-muted-foreground">{t(plugin.importState.readiness === "partial" ? "extensions.import_partial" : "extensions.import_unsupported")}</span> : connectorState ? <PluginConnectorStatus states={plugin.files.filter(file => file.objectType === "mcp").map(file => connectorState(pluginFileInstalledName(file)))} /> : undefined}
             source={props.library ? plugin.pluginId.startsWith("import:chatgpt:") ? "ChatGPT" : plugin.pluginId.startsWith("import:claude:") ? "Claude" : undefined : undefined}
             icon={<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Package className="size-4 text-muted-foreground" /></span>} busy={props.busy} onOpen={() => setSelected(plugin)}
             onRemove={props.canRemove === false ? undefined : () => setRemoving(plugin)} />
         ))}
       </div>
       </>}
-      {selected ? <PluginDetailsDialog key={selected.pluginId} plugin={selected} busy={props.busy} access={props.detailsAccess} onClose={() => setSelected(null)} /> : null}
+      {selected ? <PluginDetailsDialog key={selected.pluginId} plugin={selected} busy={props.busy} access={props.detailsAccess} imports={props.imports} onChanged={() => props.onChanged?.(selected.pluginId)} onClose={() => setSelected(null)} /> : null}
       <ConfirmModal
         open={removing !== null}
         title={t("skills.package_remove_title", { name: removing ? pluginImportName(removing) : "" })}

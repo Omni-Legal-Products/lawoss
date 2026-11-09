@@ -37,9 +37,10 @@ import type {
 
 import { formatBytes } from "../../../app/utils";
 import { PremiumUpgradeDialog } from "./model-tier-select";
-import { MODEL_TIERS, isPremiumEntitled, tierForModelId, tierName, tierTagline, type ModelTier } from "./model-tiers";
+import { MODEL_TIERS, isPremiumEntitled, usePremiumEntitled, tierForModelId, tierName, tierTagline, type ModelTier } from "./model-tiers";
 import { usePremiumUpsell } from "./premium-upsell-context";
-import { useRecorderStore } from "./recorder-store";
+import { useRecorderStore, isTranscriptionReady } from "./recorder-store";
+import { CloudModelList } from "./cloud-model-list";
 
 /** Persisted: the first-run flow was completed or explicitly skipped. */
 const SETUP_DISMISSED_KEY = "legalwork.recorder.setupDismissed";
@@ -91,12 +92,13 @@ export type RecorderSetupStatus = "loading" | "needed" | "done";
 export function recorderSetupStatus(
   permissions: AudioCapturePermissions | null,
   bootstrap: AudioRecorderBootstrap | null,
+  cloudReady = false,
 ): RecorderSetupStatus {
   if (!permissions || !bootstrap) return "loading";
   const micOk = permissions.microphone === "granted" || permissions.microphone === "unknown";
   const sysApplies = permissions.platform === "darwin" && bootstrap.capabilities.systemAudio !== false;
   const sysOk = !sysApplies || permissions.systemAudio === "granted" || permissions.systemAudio === "unknown";
-  const modelOk = bootstrap.models.some((model) => model.state === "installed");
+  const modelOk = cloudReady || bootstrap.models.some((model) => model.state === "installed");
   return micOk && sysOk && modelOk ? "done" : "needed";
 }
 
@@ -180,6 +182,7 @@ export function SetupStep(props: {
 
 export function RecorderSetup(props: { demo: boolean; onFinished: () => void }) {
   const store = useRecorderStore();
+  const premiumEntitled = usePremiumEntitled();
   const upsell = usePremiumUpsell();
   const [sim, setSim] = useState<SimState>({
     mic: "not-determined",
@@ -238,12 +241,12 @@ export function RecorderSetup(props: { demo: boolean; onFinished: () => void }) 
   const fastDevice = bootstrap?.device?.fastDevice ?? false;
   const modelInstalled = demo
     ? sim.model === "installed"
-    : (bootstrap?.models.some((model) => model.state === "installed") ?? false);
+    : store.transcriptionSource === "cloud" ? isTranscriptionReady(store) : (bootstrap?.models.some((model) => model.state === "installed") ?? false);
 
   // Once a model lands, make it the selected one (recording needs an explicit
   // installed selection, and first-run users should not have to know that).
   useEffect(() => {
-    if (demo || !bootstrap) return;
+    if (demo || !bootstrap || store.transcriptionSource === "cloud") return;
     const installed = bootstrap.models.filter((model) => model.state === "installed");
     if (!installed.length || autoSelectedRef.current) return;
     const selected = installed.some((model) => model.id === store.modelId);
@@ -252,7 +255,7 @@ export function RecorderSetup(props: { demo: boolean; onFinished: () => void }) 
       store.setModelId(installed.find((model) => model.id === recommended.modelId)?.id ?? installed[0].id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [demo, bootstrap, store.modelId, recommended.modelId]);
+  }, [demo, bootstrap, store.modelId, store.transcriptionSource, recommended.modelId]);
 
   const steps: StepView[] = [
     { id: "microphone", done: micDone, doneLabel: t("recorder.perm_status_granted") },
@@ -331,7 +334,7 @@ export function RecorderSetup(props: { demo: boolean; onFinished: () => void }) 
     const model = bootstrap?.models.find((entry) => entry.id === tier.modelId);
     // Demo always shows the locked premium state so the upsell is demoable
     // even on an entitled machine.
-    const unlocked = !demo && (isPremiumEntitled() || store.unlockedModels.includes(tier.modelId));
+    const unlocked = !demo && (premiumEntitled || store.unlockedModels.includes(tier.modelId));
     const premiumLocked = tier.premium && !unlocked;
     const deviceLocked = Boolean(model?.requiresFastDevice ?? tier.requiresFastDevice) && !fastDevice && !unlocked;
     return { premiumLocked, deviceLocked };
@@ -451,7 +454,7 @@ export function RecorderSetup(props: { demo: boolean; onFinished: () => void }) 
               title={t("recorder.setup_model_title")}
               doneLabel={step.doneLabel}
             >
-              <p className="text-sm text-subtext">{t("recorder.setup_model_body")}</p>
+              <p className="mt-3 text-sm text-subtext">{t(demo ? "recorder.setup_model_body" : "recorder.models_subtitle")}</p>
               <div className="mt-3 divide-y divide-subtle overflow-hidden rounded-xl border border-subtle bg-surface">
                 {MODEL_TIERS.map((tier) => {
                   const model = bootstrap?.models.find((entry) => entry.id === tier.modelId);
@@ -469,7 +472,8 @@ export function RecorderSetup(props: { demo: boolean; onFinished: () => void }) 
                     : (model?.downloadedBytes ?? 0);
                   const pct = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0;
                   const size = formatBytes(model?.installedSizeBytes ?? model?.approxSizeBytes ?? DEMO_MODEL_BYTES);
-                  const actionable = !downloading && !installed;
+                  const selected = !demo && store.transcriptionSource === "local" && store.modelId === tier.modelId;
+                  const actionable = !downloading && (!installed || (!demo && !selected));
                   return (
                     <div
                       key={tier.key}
@@ -497,7 +501,7 @@ export function RecorderSetup(props: { demo: boolean; onFinished: () => void }) 
                               {t("recorder.model_recommended")}
                             </Badge>
                           ) : null}
-                          {tier.premium ? (
+                          {tier.premium && (demo || !premiumEntitled) ? (
                             <Badge className="gap-1 text-2xs">
                               <Sparkles className="size-2.5" />
                               {t("recorder.tier_premium_locked")}
@@ -552,6 +556,7 @@ export function RecorderSetup(props: { demo: boolean; onFinished: () => void }) 
                   );
                 })}
               </div>
+              {!demo ? <div className="mt-2 space-y-2"><CloudModelList /></div> : null}
             </SetupStep>
           );
         })}
@@ -578,7 +583,7 @@ export function RecorderSetup(props: { demo: boolean; onFinished: () => void }) 
       <div className="mt-5 flex max-w-3xl flex-wrap items-center justify-between gap-4">
         <p className="flex items-center gap-1.5 text-xs text-subtext">
           <ShieldCheck className="size-3.5 shrink-0 text-success" />
-          {t("recorder.setup_privacy_note")}
+          {t(store.transcriptionSource === "cloud" ? "recorder.transcription_cloud_note" : "recorder.setup_privacy_note")}
         </p>
         {allDone ? (
           <Button onClick={finish}>{t("recorder.setup_done_cta")}</Button>

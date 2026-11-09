@@ -47,6 +47,8 @@ export function OfficeStep(props: {
   /** False when the user navigated back here: show the rows (all installed)
    * instead of skipping forward again. Self-skip on missing Office stays. */
   autoAdvance?: boolean;
+  /** 🟡 LAWOSS: position among the visible steps (lawoss/domains/onboarding/session-steps.ts). */
+  stepDots?: { step: number; total: number };
 }) {
   const demo = onboardingDemoActive();
   const [apps, setApps] = useState<OfficeApp[] | null>(null);
@@ -146,7 +148,7 @@ export function OfficeStep(props: {
     >
       <div className="flex w-full max-w-md flex-col gap-8">
         <div>
-          <StepDots step={2} total={5} />
+          <StepDots step={props.stepDots?.step ?? 2} total={props.stepDots?.total ?? 6} />
           <h1 className="text-[32px] font-medium leading-[1.15] tracking-[-0.04em] text-foreground">
             {t("onboarding_office.title")}
           </h1>

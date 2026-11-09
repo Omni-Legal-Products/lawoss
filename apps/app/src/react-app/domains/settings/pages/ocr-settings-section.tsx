@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import type { OcrApiType, OcrSettingsView } from "@legalwork/types/ocr";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { TextInput } from "../../../design-system/text-input";
 import { ScanText, Monitor } from "lucide-react";
@@ -52,7 +53,7 @@ const activeInstall = (settings: OcrSettingsView | null) => Boolean(settings?.in
 const engineLabel = (engine: Engine) => engine.kind === "local"
   ? t(engine.model === "pp-ocrv6-small" ? "ocr.fast" : "ocr.quality") : engine.label;
 
-export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerClient, "getOcrSettings" | "testOcrEngine" | "saveOcrServer" | "setDefaultOcrEngine" | "installOcrEngine" | "cancelOcrInstall" | "removeOcrServer" | "setOcrMemberKey"> | null }) {
+export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerClient, "getOcrSettings" | "setOcrAutoDownload" | "testOcrEngine" | "saveOcrServer" | "setDefaultOcrEngine" | "installOcrEngine" | "cancelOcrInstall" | "removeOcrServer" | "setOcrMemberKey"> | null }) {
   const formId = useId();
   const [settings, setSettings] = useState<OcrSettingsView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -191,6 +192,16 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
       {!client ? <SettingsNotice>{t("ocr.no_server")}</SettingsNotice> : null}
       {client && !settings && !error ? <SettingsNotice>{t("ocr.loading")}</SettingsNotice> : null}
       {settings?.readOnly ? <SettingsNotice>{t("ocr.read_only")}</SettingsNotice> : null}
+      {settings?.autoDownload !== undefined ? <LayoutSectionItem>
+        <div className="flex w-full items-center justify-between gap-4">
+          <div>
+            <Label htmlFor={`${formId}-auto-download`}>{t("ocr.auto_download")}</Label>
+            <p className="mt-1 text-xs text-dls-secondary">{t(settings.autoDownloadLocked ? "ocr.auto_download_managed" : "ocr.auto_download_description")}</p>
+          </div>
+          <Switch id={`${formId}-auto-download`} checked={settings.autoDownload} disabled={disabled || settings.autoDownloadLocked}
+            onCheckedChange={(enabled) => client && void update(() => client.setOcrAutoDownload(enabled))} />
+        </div>
+      </LayoutSectionItem> : null}
       {settings?.engines.some(engine => engine.kind === "local") ? <LayoutSectionItem className="gap-0">
         <div className="flex min-w-0 items-center gap-3">
           <Monitor size={20} className="shrink-0 text-dls-text" />

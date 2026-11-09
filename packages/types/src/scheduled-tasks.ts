@@ -35,6 +35,9 @@ export type ScheduledTaskInput = z.infer<typeof ScheduledTaskInputSchema>;
 export type ScheduledTask = z.infer<typeof ScheduledTaskSchema>;
 export type ScheduledRun = z.infer<typeof ScheduledRunSchema>;
 
+/** Display identity persisted on the scheduler's text part. Grants no authority. */
+export const ScheduledTaskMessageSchema = z.object({ taskId: z.uuid(), workspaceId: z.string().min(1), title: z.string().min(1) });
+
 /** Sidebar metadata only. Transcript contents never leave the engine through this endpoint. */
 export type SessionInboxEntry = {
   workspaceId: string; sessionId: string; updatedAt: number; assistantAt: number;

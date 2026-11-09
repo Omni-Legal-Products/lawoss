@@ -69,6 +69,8 @@ const fieldLabels = {
   accountKey: () => t("storage.field_accountKey"),
   sasToken: () => t("storage.field_sasToken"),
   serviceAccount: () => t("storage.field_serviceAccount"),
+  nangoConnectionId: () => t("storage.sharing_team"),
+  nangoOwnerId: () => t("storage.sharing_team"),
 };
 export const storageLabel = (kind: StorageKind) => providerLabels[kind]();
 export const storageDescription = (kind: StorageKind) => providerDescriptions[kind]();

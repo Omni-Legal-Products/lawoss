@@ -23,13 +23,12 @@ test("calendar HTTP auth, receipt creation, aggregation, override history and re
     const path = "/workspace/project/calendar";
     try {
       assert.equal((await call(path, "GET", undefined, "bad")).status, 401);
-      const issued = await fetch(base + "/tokens", { method: "POST", headers: { "x-legalwork-host-token": "host", "content-type": "application/json" }, body: JSON.stringify({ scope: "viewer", label: "calendar-test" }) });
-      const viewer = (await issued.json()).token;
-      assert.equal((await call(path, "GET", undefined, viewer)).status, 200);
-      assert.equal((await call(path + "/subscription", "GET", undefined, viewer)).status, 403);
-      assert.equal((await call("/calendar/subscription", "POST", undefined, viewer)).status, 403);
+      const viewer = "owt_retired_viewer";
+      assert.equal((await call(path, "GET", undefined, viewer)).status, 401);
+      assert.equal((await call(path + "/subscription", "GET", undefined, viewer)).status, 401);
+      assert.equal((await call("/calendar/subscription", "POST", undefined, viewer)).status, 401);
       assert.equal((await (await call("/calendar/subscription")).json()).available, false);
-      assert.equal((await call(path, "POST", { title: "Forbidden", start: "2026-09-30" }, viewer)).status, 403);
+      assert.equal((await call(path, "POST", { title: "Forbidden", start: "2026-09-30" }, viewer)).status, 401);
       assert.equal((await call("/calendar/occurrences?from=invalid&to=2026-10-01")).status, 400);
       assert.equal((await call(path, "POST", { title: "Invalid", start: "2026-02-30" })).status, 400);
       const result = await call(path + "/calculate", "POST", { skill: "de-civil-deadlines", input: { rule: "de-zpo-period", region: "NW", triggerDate: "2026-01-31", duration: 1, unit: "months", source: "Synthetic court service record" } });

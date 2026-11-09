@@ -57,6 +57,7 @@ type PermissionApprovalModalProps = {
   permission: PendingPermission;
   onOpenSession?: (sessionId: string) => void;
   busy?: boolean;
+  onRetryInput?: () => void;
   respondPermission?: (requestID: string, reply: "once" | "always" | "reject", options?: { rememberForSession?: boolean }) => void;
   safeStringify?: (value: unknown) => string;
   /** LAWOSS (N-A7-14): priečinok chatu; karta povie, keď rozsah patrí inému klientovi. */
@@ -445,6 +446,8 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
   const memoryWriteProposal = describeMemoryWrite(String(metadata.command ?? ""));
   const otherClient = useOtherClientFolderText(props.permission, props.chatDirectory); // LAWOSS (N-A7-14)
   const missingFolder = useMissingFolderText(props.permission); // LAWOSS (N-A7-14): cesta, ktorá neexistuje
+  const input = props.permission.toolInput;
+  const inputUnavailable = input && input.status !== "ready";
 
   return (
     <div className="overflow-hidden border-b border-dls-border bg-transparent">
@@ -484,7 +487,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               type="button"
               size="sm"
               onClick={() => props.respondPermission?.(props.permission.id, "once")}
-              disabled={props.busy || !props.respondPermission}
+              disabled={props.busy || !props.respondPermission || inputUnavailable}
             >
               <Clock3 data-icon="inline-start" />
               {t("session.allow_once")}
@@ -495,7 +498,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               variant="outline"
               size="sm"
               onClick={() => props.respondPermission?.(props.permission.id, "always")}
-              disabled={props.busy || !props.respondPermission}
+              disabled={props.busy || !props.respondPermission || inputUnavailable}
             >
               <Check data-icon="inline-start" />
               {t(rememberedApprovalKeys(props.permission).label)}
@@ -525,6 +528,19 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
           {host?.command && !network ? <div className="mb-3">
             <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-dls-secondary">{t("session.permission_detail_command")}</div>
             <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-dls-border bg-dls-hover/55 px-2.5 py-1.5 font-mono text-[12px] leading-5 text-dls-text">{host.command}</pre>
+          </div> : null}
+          {input ? <div className="mb-3 text-[12px] leading-5">
+            <div className="mb-1.5 font-medium text-dls-secondary">{t("session.permission_review_label")}</div>
+            {input.status === "ready" ? <dl className="max-h-48 overflow-auto rounded-lg border border-dls-border divide-y divide-dls-border">
+              {Object.entries(input.value).map(([key, value]) => <div key={key} className="grid gap-1 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] sm:gap-4">
+                <dt className="break-words text-dls-secondary">{key === "query" ? t("session.permission_detail_query") : key}</dt>
+                <dd className="min-w-0 whitespace-pre-wrap break-words text-dls-text">{typeof value === "string" ? value : JSON.stringify(value, null, 2)}</dd>
+              </div>)}
+              {!Object.keys(input.value).length ? <div className="px-3 py-2 font-mono text-dls-text">{"{}"}</div> : null}
+            </dl> : <div className="flex flex-wrap items-center gap-2">
+              <p role="status" className="text-dls-secondary">{t(input.status === "loading" ? "common.loading" : "session.permission_input_unavailable")}</p>
+              {input.status === "unavailable" && props.onRetryInput ? <Button type="button" variant="outline" size="sm" onClick={props.onRetryInput}>{t("session.permission_retry_details")}</Button> : null}
+            </div>}
           </div> : null}
           {network ? <div className="space-y-3 text-[12px] leading-5">
             {network.search ? <div>

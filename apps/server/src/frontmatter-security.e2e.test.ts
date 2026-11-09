@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 import { startServer } from "./server.js";
-import { TokenService } from "./tokens.js";
 import type { ServerConfig } from "./types.js";
 
 test("command and skill previews cannot execute frontmatter; viewer is refused; ordinary preview still works", async () => {
@@ -24,13 +23,14 @@ test("command and skill previews cannot execute frontmatter; viewer is refused; 
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   const probe = globalThis as typeof globalThis & { lawossPreviewProbe?: boolean };
   try {
-    const token = await new TokenService(config).create("viewer");
+    // Upstream v0.2.18: shared viewer tokens are retired and rejected.
+    const token = { token: "owt_retired_viewer" };
     server = await startServer(config);
     const preview = (payload: unknown, bearer = config.token) => fetch(`http://127.0.0.1:${server!.port}/workspace/workspace/import/preview`, {
       method: "POST", headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json" }, body: JSON.stringify(payload),
     });
     // Preview reveals planned actions and fingerprints of existing config, so it requires collaborator.
-    expect((await preview({ commands: [{ name: "synthetic", content: "Ordinary command" }] }, token.token)).status).toBe(403);
+    expect((await preview({ commands: [{ name: "synthetic", content: "Ordinary command" }] }, token.token)).status).toBe(401);
     for (const kind of ["commands", "skills"]) {
       delete probe.lawossPreviewProbe;
       const response = await preview({ [kind]: [{ name: "synthetic", description: "Synthetic only", content: "---js\n(globalThis.lawossPreviewProbe = true, {name:'synthetic', description:'Synthetic only'})\n---\nBody" }] });

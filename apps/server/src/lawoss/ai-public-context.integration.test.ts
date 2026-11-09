@@ -1,5 +1,4 @@
 import { startServer } from "../server.js";
-import { TokenService } from "../tokens.js";
 import { expect, test } from "bun:test";
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -63,7 +62,8 @@ test.skipIf(!binary)("native public text uses an empty isolated engine and exact
     config.requestHostApproval = approve; config.approval.timeoutMs = 10000;
     server = await startServer(config, {publicEngineBinary: () => binary});
     const base = `http://127.0.0.1:${server.port}`;
-    const owner = await new TokenService(config).create("owner");
+    // Upstream v0.2.18: no owner bearer tokens; the application credential is not the host.
+    const owner = { token: config.token };
     const forbidden = await fetch(base + "/lawoss/ai-governance/public-text", {method: "POST", headers: {authorization: `Bearer ${owner.token}`, "content-type": "application/json"}, body: JSON.stringify(input)});
     expect(forbidden.status).toBe(401);
     const publicResponse = await fetch(base + "/lawoss/ai-governance/public-text", {method: "POST", headers: {"x-legalwork-host-token": config.hostToken, "content-type": "application/json"}, body: JSON.stringify(input)});

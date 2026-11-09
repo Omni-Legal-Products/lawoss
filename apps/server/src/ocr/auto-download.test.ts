@@ -6,6 +6,7 @@ import { OcrManager } from "./manager.js";
 import { resolveServerConfig } from "../config.js";
 import { startServer } from "../server.js";
 import { writeOcrEnabled } from "../lawoss/ocr-opt-in.js";
+import { ocrDownloadSettings, setOcrAutoDownload } from "./download-settings.js";
 
 const roots: string[] = [];
 const originalAuto = process.env.LEGALWORK_OCR_AUTO_DOWNLOAD;
@@ -120,6 +121,38 @@ test("resolved config disables automatic setup by default, with file and environ
   expect((await resolveServerConfig({ configPath, workspaces: [] })).autoDownloadOcr).toBe(true);
   process.env.LEGALWORK_OCR_AUTO_DOWNLOAD = "0";
   expect((await resolveServerConfig({ configPath, workspaces: [] })).autoDownloadOcr).toBe(false);
+});
+
+test("the UI writes the startup flag and cannot override an environment policy or corrupt config", async () => {
+  const { root } = await setup(), configPath = join(root, "server.json");
+  delete process.env.LEGALWORK_OCR_AUTO_DOWNLOAD;
+  const config = await resolveServerConfig({ configPath, workspaces: [] });
+  await setOcrAutoDownload(config, false);
+  expect(ocrDownloadSettings(config)).toEqual({ autoDownload: false, autoDownloadLocked: false });
+  expect((await resolveServerConfig({ configPath, workspaces: [] })).autoDownloadOcr).toBe(false);
+  process.env.LEGALWORK_OCR_AUTO_DOWNLOAD = "0";
+  await expect(setOcrAutoDownload(config, true)).rejects.toThrow("controlled by the server configuration");
+  delete process.env.LEGALWORK_OCR_AUTO_DOWNLOAD;
+  await writeFile(configPath, "broken");
+  await expect(setOcrAutoDownload(config, true)).rejects.toThrow();
+  expect(config.autoDownloadOcr).toBe(false);
+});
+
+test("disabling automatic setup stops preflight without stopping an explicit download", async () => {
+  const { manager, install } = await setup();
+  let release!: (ready: boolean) => void;
+  spyOn(manager.runtime, "ready").mockImplementation(() => new Promise(resolve => { release = resolve; }));
+  const automatic = manager.downloadDefaultIfNeeded();
+  while (!release) await new Promise(resolve => setTimeout(resolve, 0));
+  await manager.setAutomaticDownloads(false);
+  release(false); await automatic;
+  expect(install).not.toHaveBeenCalled();
+  await manager.install("local-fast");
+  expect(install).toHaveBeenCalledTimes(1);
+  const cancel = spyOn(manager.runtime, "cancel");
+  await manager.setAutomaticDownloads(false);
+  expect(cancel).not.toHaveBeenCalled();
+  cancel.mockRestore();
 });
 
 test("server startup schedules setup without awaiting downloads and skips read-only/disabled hosts", async () => {

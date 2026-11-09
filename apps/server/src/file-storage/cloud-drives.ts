@@ -20,6 +20,12 @@ function sessionPath(location: string | null) {
   return `${url.pathname}${url.search}`;
 }
 export async function googleStorageAdapter(config: Extract<StorageConfig, { kind: "oauth" }>, request: StreamingConnectorRequest): Promise<StorageAdapter> {
+  if (config.root.startsWith("https://drive.google.com/")) {
+    const link = new URL(config.root);
+    const id = /\/folders\/([^/]+)/.exec(link.pathname)?.[1];
+    if (!id) throw new ApiError(400, "invalid_storage_root", "Choose a Google Drive folder link or ID.");
+    config = { ...config, root: decodeURIComponent(id) };
+  }
   const tree = await googleDriveTree(config, request);
   const adapter = nativeDriveAdapter({ ...tree,
     async download(item) {

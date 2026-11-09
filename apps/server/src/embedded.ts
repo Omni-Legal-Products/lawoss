@@ -26,6 +26,7 @@ import {
 import { globalOpenCodeConfigPath } from "./mcp.js";
 import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
 import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js";
+import { prepareManagedOpencodeDependencies } from "./managed-opencode-dependencies.js";
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
@@ -45,6 +46,10 @@ export type HostWorkspaceAppFilesPolicy = {
 
 export type EmbeddedServerOptions = CliArgs & {
   getUiLocale?: ServerConfig["getUiLocale"];
+  /** Desktop networking stack, including its system proxy, for model assets. */
+  modelDownloadFetch?: import("./ocr/models.js").ModelDownloadFetch;
+  /** Host-resolved bundled SDK location, including the desktop development build. */
+  opencodeSdkDirectory?: string;
   decryptLegacyConnectorSecrets?: ServerConfig["decryptLegacyConnectorSecrets"];
   /** Fallback only; explicit CLI, environment and file approval settings take precedence. */
   defaultApprovalMode?: ServerConfig["approval"]["mode"];
@@ -151,15 +156,21 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     await retireSharedLegacyReview(globalSkillsDir());
     await ensureBundledWorkflows();
     for (const workspace of config.workspaces) {
-      if (usesExternalWorkspaceAppFiles(workspace)) {
-        const appFilesRoot = workspaceAppFilesRoot(config, workspace);
-        await mkdir(appFilesRoot, { recursive: true });
-        await ensureWorkspaceFiles(appFilesRoot, workspace.preset, {
-          root: workspace.path,
-          name: workspace.displayName ?? workspace.name,
-        });
-      } else {
-        await ensureWorkspaceFilesForBootstrap(workspace);
+      // Upstream v0.2.18: a disconnected cloud project must not prevent the shared
+      // server from starting. Its requests retry initialization and return the real error.
+      try {
+        if (usesExternalWorkspaceAppFiles(workspace)) {
+          const appFilesRoot = workspaceAppFilesRoot(config, workspace);
+          await mkdir(appFilesRoot, { recursive: true });
+          await ensureWorkspaceFiles(appFilesRoot, workspace.preset, {
+            root: workspace.path,
+            name: workspace.displayName ?? workspace.name,
+          });
+        } else {
+          await ensureWorkspaceFilesForBootstrap(workspace);
+        }
+      } catch (error: unknown) {
+        console.warn(`[workspace-init] ${workspace.path}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }
@@ -183,7 +194,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     console.log(`[embedded] moved connectors into the shared store: ${connectorImport.imported.join(", ")}`);
   }
 
-  server = await startServer(config, { publicEngineBinary: () => managed.engine?.execution.command, onListening: async (port) => {
+  server = await startServer(config, { modelDownloadFetch: options.modelDownloadFetch, publicEngineBinary: () => managed.engine?.execution.command, onListening: async (port) => {
     const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${port}`;
   if (!config.opencodeBaseUrl && options.manageOpencode) {
     // One managed engine has one process-wide OPENCODE_CONFIG_DIR. Select the
@@ -225,6 +236,8 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
 
         const engineHome = join(runtimeStorageDir(config), "engine-home");
         if (config.agentSandboxEnabled) await mkdir(engineHome, { recursive: true });
+        const dependencies = await prepareManagedOpencodeDependencies(config, options.opencodeSdkDirectory);
+        if (!dependencies.seeded) console.warn(`[legalwork-server] Bundled engine dependencies unavailable (${dependencies.reason}); runtime package installation may be required.`);
         // LAWOSS: bez relé katalógu modelov a bez OPENCODE_MODELS_URL. Engine číta
         // pribalený katalóg a nič nesťahuje (lawoss/engine-network.ts cez managed-opencode.ts).
         const externalConfigDir = externalOpencodeConfigDir(config, workspace);

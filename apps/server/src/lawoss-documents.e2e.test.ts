@@ -430,15 +430,14 @@ test("actual HTTP and registered agent document tools enforce authorization, pag
     expect((await fetch(`${endpoint}/prepare`, { headers, method: "POST", body: '{"paths":["../server.json"]}' })).status).toBe(403);
     expect((await fetch(`${endpoint}/prepare`, { headers, method: "POST", body: '{"paths":[]}' })).status).toBe(400);
     expect((await fetch(`${endpoint}/${id}/read?limit=16001`, { headers })).status).toBe(400);
-    const issued = await fetch(`${base}/tokens`, { method: "POST", headers: { "x-legalwork-host-token": "synthetic-host", "content-type": "application/json" }, body: '{"scope":"viewer","label":"synthetic-viewer"}' });
-    expect(issued.status).toBe(201); const viewer = await issued.json();
-    const viewerHeaders = { Authorization: `Bearer ${viewer.token}`, "content-type": "application/json" };
-    expect((await fetch(`${endpoint}/prepare`, { headers: viewerHeaders, method: "POST", body: '{"paths":["source.txt"]}' })).status).toBe(403);
-    expect((await fetch(`${endpoint}/${id}`, { headers: viewerHeaders, method: "DELETE" })).status).toBe(403);
-    expect((await fetch(`${endpoint}/${id}/read`, { headers: viewerHeaders })).status).toBe(200);
-    expect((await fetch(`${endpoint}/export`,{headers:viewerHeaders,method:"POST",body:JSON.stringify(exportBody)})).status).toBe(403);
-    expect((await fetch(`${endpoint}/validate`,{headers:viewerHeaders,method:"POST",body:JSON.stringify({paths:["registry.csv"],documentIds:[id],outputLanguage:"cs"})})).status).toBe(403);
-    expect((await fetch(`${endpoint}/outputs`,{headers:viewerHeaders})).status).toBe(200);
+    // Upstream v0.2.18: shared viewer tokens are retired; every route rejects the old credential.
+    const viewerHeaders = { Authorization: "Bearer owt_retired_viewer", "content-type": "application/json" };
+    expect((await fetch(`${endpoint}/prepare`, { headers: viewerHeaders, method: "POST", body: '{"paths":["source.txt"]}' })).status).toBe(401);
+    expect((await fetch(`${endpoint}/${id}`, { headers: viewerHeaders, method: "DELETE" })).status).toBe(401);
+    expect((await fetch(`${endpoint}/${id}/read`, { headers: viewerHeaders })).status).toBe(401);
+    expect((await fetch(`${endpoint}/export`,{headers:viewerHeaders,method:"POST",body:JSON.stringify(exportBody)})).status).toBe(401);
+    expect((await fetch(`${endpoint}/validate`,{headers:viewerHeaders,method:"POST",body:JSON.stringify({paths:["registry.csv"],documentIds:[id],outputLanguage:"cs"})})).status).toBe(401);
+    expect((await fetch(`${endpoint}/outputs`,{headers:viewerHeaders})).status).toBe(401);
     config.readOnly = true;
     expect((await fetch(`${endpoint}/export`,{headers,method:"POST",body:JSON.stringify(exportBody)})).status).toBe(403);
     expect((await fetch(`${endpoint}/validate`,{headers,method:"POST",body:JSON.stringify({paths:["registry.csv"],documentIds:[id],outputLanguage:"cs"})})).status).toBe(403);

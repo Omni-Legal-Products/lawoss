@@ -1,0 +1,235 @@
+{
+  "environment": {
+    "os": "Windows Server 2022",
+    "oneDrive": "26.178.0913.0007",
+    "electron": "43.7.5",
+    "nodeInElectron": "24.21.0",
+    "release": "LegalWork 0.2.10",
+    "realOneDriveClientAndCloud": true,
+    "sharingService": "Local synthetic HTTP service, document sharing enabled in saved settings",
+    "originals": {
+      "registeredProject": 10,
+      "unregisteredControl": 11
+    },
+    "measurement": "Metadata-only Offline/RecallOnDataAccess attributes, local sharing service requests, isolated runtime DB and actual desktop HTTP API",
+    "fixedBuild": "Compiled server modules in release ASAR, official development Electron of same version; remaining release resources and managed engine retained"
+  },
+  "releasedUnshared": [
+    {
+      "at": "2026-10-19T17:12:09.8230775Z",
+      "onlineOriginals": 21,
+      "downloadedOriginals": 0,
+      "newSupportFiles": 27,
+      "newSupportBytes": 3435994
+    },
+    {
+      "at": "2026-10-19T17:12:54.2429964Z",
+      "onlineOriginals": 21,
+      "downloadedOriginals": 0,
+      "newSupportFiles": 27,
+      "newSupportBytes": 3435994
+    }
+  ],
+  "releasedShared": {
+    "startedAt": "2026-10-19T17:17:04.9966854Z",
+    "firstHydrationAt": "2026-10-19T17:17:17Z",
+    "observedAt": "2026-10-19T17:17:35.4894706Z",
+    "onlineOriginals": 11,
+    "downloadedProjectFiles": 10,
+    "downloadedControlFiles": 0,
+    "savedBaselines": 10,
+    "fileRequests": {
+      "GET /api/projects/1ca341ec-451f-4364-a404-01dfec4a2dc5/files": 1,
+      "POST /api/projects/1ca341ec-451f-4364-a404-01dfec4a2dc5/files": 10
+    }
+  },
+  "windowsDetection": [
+    {
+      "path": "C:\\Users\\cloudqa\\OneDrive - Default Directory",
+      "hresult": 0,
+      "cloud": true
+    },
+    {
+      "path": "C:\\Users\\cloudqa\\OneDrive - Default Directory\\Mandate-2026-Corporate",
+      "hresult": 0,
+      "cloud": true
+    },
+    {
+      "path": "C:\\Users\\cloudqa\\OneDrive - Default Directory\\Mandate-2026-Corporate\\analyze-counterparty-spa-markup",
+      "hresult": 0,
+      "cloud": true
+    },
+    {
+      "path": "C:\\onedrive-session\\real-test",
+      "hresult": -2147024506,
+      "cloud": false
+    },
+    {
+      "path": "C:\\Users\\cloudqa\\Desktop",
+      "hresult": -2147024506,
+      "cloud": false
+    }
+  ],
+  "folderPolicy": [
+    {
+      "operation": "Startup with legacy saved document sharing enabled",
+      "observedAt": "2026-10-19T17:48:09.9942252Z",
+      "onlineOriginals": 21,
+      "downloadedOriginals": 0,
+      "fileRequests": {},
+      "savedBaselines": 0,
+      "api": {
+        "At": "2026-10-19T17:48:11.516Z",
+        "getStatus": 200,
+        "status": {
+          "fileSharingDisabledReason": "cloud_folder",
+          "documents": false,
+          "state": "synced",
+          "pendingChanges": 0,
+          "error": null
+        },
+        "enableDocuments": {
+          "status": 409,
+          "response": {
+            "code": "project_sync_cloud_folder",
+            "message": "File sharing cannot be enabled for cloud folders. Link a Cloud Folder instead."
+          }
+        }
+      }
+    },
+    {
+      "operation": "Warm restart",
+      "observedAt": "2026-10-19T17:50:10.4064789Z",
+      "onlineOriginals": 21,
+      "downloadedOriginals": 0,
+      "fileRequests": {},
+      "savedBaselines": 0,
+      "api": {
+        "At": "2026-10-19T17:50:11.757Z",
+        "getStatus": 200,
+        "status": {
+          "fileSharingDisabledReason": "cloud_folder",
+          "documents": false,
+          "state": "synced",
+          "pendingChanges": 0,
+          "error": null
+        },
+        "enableDocuments": {
+          "status": 409,
+          "response": {
+            "code": "project_sync_cloud_folder",
+            "message": "File sharing cannot be enabled for cloud folders. Link a Cloud Folder instead."
+          }
+        }
+      }
+    },
+    {
+      "operation": "After explicitly reading one document; no sharing opt-in",
+      "observedAt": "2026-10-19T17:51:30.3151130Z",
+      "onlineOriginals": 20,
+      "downloadedOriginals": 1,
+      "fileRequests": {},
+      "savedBaselines": 0,
+      "api": {
+        "At": "2026-10-19T17:51:31.653Z",
+        "getStatus": 200,
+        "status": {
+          "fileSharingDisabledReason": "cloud_folder",
+          "documents": false,
+          "state": "synced",
+          "pendingChanges": 0,
+          "error": null
+        },
+        "enableDocuments": {
+          "status": 409,
+          "response": {
+            "code": "project_sync_cloud_folder",
+            "message": "File sharing cannot be enabled for cloud folders. Link a Cloud Folder instead."
+          }
+        }
+      }
+    },
+    {
+      "operation": "Final compiled modules, restart with locally available document",
+      "observedAt": "2026-10-19T17:56:43.6413716Z",
+      "onlineOriginals": 20,
+      "downloadedOriginals": 1,
+      "fileRequests": {},
+      "savedBaselines": 0,
+      "api": {
+        "At": "2026-10-19T17:56:45.045Z",
+        "getStatus": 200,
+        "savedDocumentsSetting": true,
+        "status": {
+          "fileSharingDisabledReason": "cloud_folder",
+          "documents": false,
+          "state": "synced",
+          "pendingChanges": 0,
+          "error": null
+        },
+        "enableDocuments": {
+          "status": 409,
+          "response": {
+            "code": "project_sync_cloud_folder",
+            "message": "File sharing cannot be enabled for cloud folders. Link a Cloud Folder instead."
+          }
+        }
+      }
+    }
+  ],
+  "compiledModules": [
+    {
+      "name": "server/dist/project-file-sync.js",
+      "sha256": "fba889ec7a09d9d1f33469b1431661683df28413d68e4c4bb4e08998de1f2cbc",
+      "size": 19858
+    },
+    {
+      "name": "server/dist/project-sync.js",
+      "sha256": "948ad77e03613e3653d2c5a258b47e5436e171e14a31d4925a27352ffd58f736",
+      "size": 58260
+    },
+    {
+      "name": "server/dist/project-sync-store.js",
+      "sha256": "2f4d8e2a0776ad6766d2ee81c0a908cf53fd907e4f0e7c40af564f42ebcf8593",
+      "size": 25637
+    },
+    {
+      "name": "server/dist/cloud-folder.js",
+      "sha256": "4f986413f1de78b415c41fbf9d800013f0cccfaac5865bd4108a382544bf3d79",
+      "size": 2479
+    }
+  ],
+  "uiVerification": {
+    "component": "Actual ProjectShareHost in a temporary local browser fixture",
+    "cloudStatus": {
+      "Documents": {
+        "disabled": true,
+        "checked": false
+      },
+      "explanation": "File sharing cannot be enabled for cloud folders. Link a Cloud Folder instead.",
+      "reviewLabel": "Tabular Reviews",
+      "NotesSwitchRemainsInteractive": true
+    },
+    "localStatus": {
+      "Documents": {
+        "disabled": false,
+        "checked": true
+      },
+      "cloudWarningShown": false
+    },
+    "screenshot": "cloud-folder-sharing-settings.png"
+  },
+  "checks": {
+    "regression": "59 tests passed, 297 assertions across 5 files",
+    "serverBuild": "passed",
+    "appTypecheck": "passed",
+    "i18n": "6832 keys in two languages, passed"
+  },
+  "limits": [
+    "Windows 11 itself was not tested; Windows Server 2022 was used.",
+    "OneDrive client/cloud real; Eigenwelt sharing HTTP API was a local test double.",
+    "Fixed desktop server was not a newly packaged production installer; UI was tested separately with real product components.",
+    "macOS standard path detection unit-tested; no macOS cloud-provider integration test.",
+    "Legacy/nonstandard macOS cloud locations and Linux cloud mounts are not detected."
+  ]
+}

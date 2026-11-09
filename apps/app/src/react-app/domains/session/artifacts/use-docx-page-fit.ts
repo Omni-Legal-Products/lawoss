@@ -28,7 +28,6 @@ export function useDocxPageFit(
   useLayoutEffect(() => {
     const host = containerRef.current;
     if (!host) return;
-    host.style.setProperty("--docx-sidebar-offset", `${commentsOpen ? SIDEBAR_DOCUMENT_SHIFT : 0}px`);
     let frame = 0;
     let page: HTMLElement | null = null;
     let pages: HTMLElement | null = null;
@@ -108,6 +107,9 @@ export function useDocxPageFit(
       zoomLayer = nextZoomLayer;
       sidebar = nextSidebar;
       outline = nextOutline;
+      // Eigenpal shifts the page only while annotation items are rendered.
+      // The review toggle can stay on after an edit removes the last item.
+      host.style.setProperty("--docx-sidebar-offset", `${sidebar ? SIDEBAR_DOCUMENT_SHIFT : 0}px`);
       if (page) resize.observe(page);
       if (pages) resize.observe(pages);
       if (viewport) resize.observe(viewport);

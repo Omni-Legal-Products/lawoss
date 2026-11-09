@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, posix } from "node:path";
 import { realpath } from "node:fs/promises";
 import { listSkills } from "../skills.js";
+import { globalOpencodeConfigDir } from "../workspace-files.js";
 import { ApprovalService } from "../approvals.js";
 import { onOrgPolicyChange } from "../org-policy.js";
 import { orgPolicyPermissions } from "../org-policy-engine.js";
@@ -30,6 +31,7 @@ import { buildWikiFilePolicy, wikiContentPath, wikiSafeSandboxMounts } from "../
 // LAWOSS: do sandboxu len priečinky, ktoré pravidlá pripojených priečinkov dovolia (iný klient, prax, dáta aplikácie nie).
 import { linkableFolders } from "../lawoss/linked-folders.js";
 import { joinSessionFolder } from "../lawoss/session-ownership.js";
+import { canonicalFolderPath } from "../wiki/workspace-safety.js";
 
 // LAWOSS: `folder` (set by the server, never by the model) is the chat's folder below the workspace root; it defaults the working directory.
 export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; folder?: string[]; skills?: string[]; write: boolean; timeoutMs: number };
@@ -126,7 +128,8 @@ export class AgentSandboxService {
       const runtime = await readRuntimeOpencodeConfig(this.config, workspace.id);
       const wikiStore = new WikiStore(this.config);
       const wikis = await wikiStore.list();
-      const wikiPolicy = await buildWikiFilePolicy(wikis, workspace.path, [wikiStore.baseDir, runtimeStorageDir(this.config)]);
+      const privateRoots = [wikiStore.baseDir, runtimeStorageDir(this.config)];
+      const wikiPolicy = await buildWikiFilePolicy(wikis, workspace.path, privateRoots);
       const wikiAccess = new WikiSync(this.config, wikiStore);
       const ownWiki = wikiForDirectory(wikis, wikiPolicy.directory);
       if (ownWiki && !settings.enabled) throw new ApiError(403, "wiki_sandbox_required", "Enable protected execution to run commands in a wiki chat. Approved projects remain available through the read-only project tools.");
@@ -215,8 +218,14 @@ export class AgentSandboxService {
       // Default wiki content lives below the private runtime's parent. Only
       // registered content roots may be shared there, never their parent.
       const safeMounts: SandboxMount[] = [];
+      // The shared skill library also lives below the engine configuration.
+      // Only explicitly selected skill packages get this exception. Resolve
+      // the parent first so a redirected skills folder cannot expose secrets.
+      const sharedSkillsRoot = join(await canonicalFolderPath(globalOpencodeConfigDir()), "skills");
       for (const mount of wikiMounts) {
-        const checked = await validateMounts([{ ...mount, target: "/workspace" }], wikiContentPath(wikiPolicy, mount.source) ? [] : wikiPolicy.runtimeRoots);
+        const sharedSkill = mount.target.startsWith("/skills/") && mount.source !== sharedSkillsRoot && within(sharedSkillsRoot, mount.source);
+        const protectedPaths = wikiContentPath(wikiPolicy, mount.source) ? [] : sharedSkill ? privateRoots : wikiPolicy.runtimeRoots;
+        const checked = await validateMounts([{ ...mount, target: "/workspace" }], protectedPaths);
         safeMounts.push({ ...checked[0], target: mount.target });
       }
       const cwd = sandboxPaths(command.workdir || posix.join("/workspace", ...command.folder ?? []), safeMounts);

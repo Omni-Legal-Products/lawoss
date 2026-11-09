@@ -38,10 +38,11 @@ test("batch markers replace the single payload and reject partial same-project t
   expect(canTransferProjectFiles(data, "third-project")).toBe(true);
 });
 
-test("task and review drags retain the specific item and cannot be interpreted in another project", () => {
+test("task, review and recording drags retain the item and cannot be interpreted in another project", () => {
   for (const tab of [
     { type: "task", id: "task:t1", taskId: "t1", label: "Check terms" },
     { type: "review", id: "review:r1", reviewId: "r1", label: "Disclosure" },
+    { type: "recording", id: "recording:m1", recordingId: "m1", label: "Client meeting" },
   ] satisfies import("../src/react-app/domains/session/panel/project-item-drag").ProjectItemTab[]) {
     const data = transfer(); startProjectItemDrag(data, "project-a", tab);
     expect(acceptsProjectItemDrag({ types: data.types }, "project-a")).toBe(true);
@@ -49,6 +50,8 @@ test("task and review drags retain the specific item and cannot be interpreted i
     expect(acceptsProjectItemDrag(data, "project-b")).toBe(false);
     expect(readProjectItemDrag(data, "project-b")).toBeNull();
     data.setData("application/x-legalwork-project-item", '{"type":"task","taskId":123,"label":"bad"}');
+    expect(readProjectItemDrag(data, "project-a")).toBeNull();
+    data.setData("application/x-legalwork-project-item", '{"type":"recording","recordingId":123,"label":"bad"}');
     expect(readProjectItemDrag(data, "project-a")).toBeNull();
   }
 });

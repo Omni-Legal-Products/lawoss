@@ -4,6 +4,10 @@ import { WorkspaceWindowButton } from "./react-app/domains/session/panel/workspa
 import { DocumentDiscardDialog } from "./react-app/domains/session/artifacts/document-discard-dialog";
 import { projectFileTab } from "./react-app/domains/workspace/project-file-tab";
 import type { ProjectFileLink } from "@legalwork/types/project-files";
+import type { WikiVault } from "@legalwork/types/wiki";
+import type { ViewInput, ViewOwner, ViewRecord } from "@legalwork/types/views";
+import { useViewGenerationStore, viewDraftTab, viewGenerationId, type ViewGeneration } from "./react-app/domains/views/view-generation";
+import { sameViewOwner, viewInput } from "./react-app/domains/views/view-save";
 import type { ToolPart } from "@opencode-ai/sdk/v2/client";
 import { registerEmptySession } from "./react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath, workspaceSessionRoute } from "./react-app/shell/workspace-routes";
@@ -32,6 +36,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { initLocale, setLocale } from "@/i18n";
 import { SavedReviewSchema } from "@legalwork/types/reviews";
 import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
+import { useSessionInboxStore } from "@/react-app/domains/session/sidebar/session-inbox-store";
 import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-request";
 import { useLocale } from "@/i18n/use-locale";
 import { SessionPage } from "@/react-app/domains/session/chat/session-page";
@@ -61,18 +66,24 @@ initLocale();
 
 const now = Date.now();
 const previewParams = new URLSearchParams(window.location.search);
+const dashboardExplorer = previewParams.has("dashboard-explorer");
+const platform = previewParams.get("platform");
+const captionHeight = previewParams.has("tall-titlebar") ? 64 : 44;
+if (platform === "mac" || platform === "windows") document.documentElement.classList.add("legalwork-electron", `legalwork-platform-${platform}`);
 if (previewParams.has("lang")) setLocale(previewParams.get("lang") === "de" ? "de" : "en");
 if (previewParams.has("theme")) document.documentElement.dataset.theme = previewParams.get("theme") === "dark" ? "dark" : "light";
 // `?subscription=ended&role=member` previews expiry without connected services.
 const subscriptionPreview = previewParams.get("subscription") === "ended";
-const limitParam = previewParams.get("limit") ?? (subscriptionPreview ? "pro" : null);
+const trialPreview = previewParams.has("trial");
+const fundedTrialPreview = previewParams.get("trial") === "member-limit";
+const limitParam = previewParams.get("limit") ?? (subscriptionPreview ? "pro" : trialPreview ? "plus" : null);
 const limitPlan = limitParam === "sync" || limitParam === "plus" || limitParam === "pro" ? limitParam : null;
-const model = { providerID: previewParams.get("provider") ?? "openai", modelID: previewParams.has("composer-layout") ? "GPT-5.6 Terra" : "Preview model" };
+const model = { providerID: previewParams.get("provider") ?? (trialPreview ? "eigenwelt" : "openai"), modelID: previewParams.has("composer-layout") ? "GPT-5.6 Terra" : "Preview model" };
 const requestTooLarge = previewParams.has("requestTooLarge");
 const limitFixture = usageLimitFixture(limitPlan, previewParams.get("role") !== "member", model.providerID, requestTooLarge);
 const upgradePreview = previewParams.get("upgrade");
-const topUpPreview = previewParams.get("topup");
-const intentPreview = requestTooLarge ? "request" : previewParams.get("intent");
+const topUpPreview = previewParams.get("topup") ?? (trialPreview ? "success" : null);
+const intentPreview = requestTooLarge ? "request" : fundedTrialPreview ? "personal" : previewParams.get("intent");
 let topUpPending: { operationId: string; amountCents: number } | null = null;
 let topUpReadyAt = 0;
 let failNextUsageRead = false;
@@ -97,11 +108,36 @@ const workspace: WorkspaceInfo = {
 const otherWorkspace: WorkspaceInfo = {
   ...workspace, id: "visual-personal", name: "Personal", displayName: "Personal", path: "/workspaces/personal",
 };
+const fixtureWiki: WikiVault = { id: "visual-wiki", workspaceId: "visual-wiki-workspace", name: "Firm knowledge", root: "/synthetic/wiki", allowInProjects: true, sync: null, writable: true, pageCount: 0, totalBytes: 0, syncStatus: { state: "local", lastSyncedAt: null, error: null, conflicts: [] } };
+const wikiWorkspace: WorkspaceInfo = { ...workspace, id: fixtureWiki.workspaceId, name: fixtureWiki.name, displayName: fixtureWiki.name, path: fixtureWiki.root, preset: "wiki" };
+const fixtureWorkspaces = [workspace, otherWorkspace, ...(dashboardExplorer ? [wikiWorkspace] : []), ...(previewParams.has("many-destinations") ? Array.from({ length: 18 }, (_, index) => ({ ...otherWorkspace, id: `visual-destination-${index}`, name: `Project ${String(index + 1).padStart(2, "0")}`, displayName: `Project ${String(index + 1).padStart(2, "0")}`, path: `/synthetic/project-${index}` })) : [])];
 const welcomeId = "visual-welcome";
 const reply = "I've reviewed the sample terms and organized the key points.\n\n### Review priorities\n\n1. **Liability:** confirm the agreed cap applies consistently.\n2. **Termination:** align the notice periods for both parties.\n3. **Data handling:** make the return and deletion process explicit.\n\nThe next step is to compare these points against your standard playbook. This is a simulated response for visual review.";
 const snapshots = new Map<string, LegalworkSessionSnapshot>();
 const queryClient = getReactQueryClient();
 queryClient.setDefaultOptions({ queries: { retry: false, refetchOnWindowFocus: false } });
+if (trialPreview && limitFixture.entitlements.entitlements) {
+  const endsAt = new Date(now + 3 * 86_400_000).toISOString();
+  limitFixture.usage.trial = { endsAt };
+  limitFixture.usage.billingInterval = previewParams.has("annual") ? "year" : "month";
+  limitFixture.usage.me.allowanceCents = limitPlan === "pro" ? 7000 : 2900;
+  limitFixture.usage.me.extraLimitCents = 0;
+  limitFixture.usage.me.baseExtraLimitCents = 0;
+  limitFixture.usage.me.resetsAt = endsAt;
+  limitFixture.usage.extraEnabled = false;
+  limitFixture.usage.me.blockedReason = "extra_disabled";
+  if (fundedTrialPreview) {
+    limitFixture.usage.walletCents = 2500;
+    limitFixture.usage.extraEnabled = true;
+    limitFixture.usage.me.baseExtraLimitCents = 1500;
+    limitFixture.usage.me.extraLimitCents = 1500;
+    limitFixture.usage.me.extraUsedCents = 1500;
+    limitFixture.usage.me.blockedReason = "member_limit";
+  }
+  limitFixture.entitlements.entitlements.subscriptionStatus = "trialing";
+  limitFixture.entitlements.entitlements.trialEndsAt = endsAt;
+  queryClient.setQueryData(eigenweltEntitlementsQueryKey(), limitFixture.entitlements);
+}
 if (subscriptionPreview && limitFixture.entitlements.account && limitFixture.entitlements.entitlements) {
   limitFixture.entitlements.account.orgRole = limitFixture.usage.isAdmin ? "org:admin" : "org:member";
   limitFixture.entitlements.entitlements.subscriptionStatus = "canceled";
@@ -162,6 +198,23 @@ if (emptyChatId) { registerEmptySession(emptyChatId); saveSnapshot(snapshot(empt
 saveSnapshot(snapshot("visual-review", "Review supplier agreement", "Review the supplier agreement against our standard playbook and highlight the clauses that need attention."));
 saveSnapshot(snapshot("visual-board", "Prepare board meeting notes", "Help me organize the open legal topics for next week's board meeting."));
 saveSnapshot(snapshot("visual-policy", "Update the privacy policy", "Summarize the changes we need to make to the privacy policy."));
+
+// `?statusStates` lines up one chat per sidebar indicator, each named after the
+// state it stands for, so the whole vocabulary can be compared in one look.
+const statusStateRows = ["idle", "thinking", "responding", "waiting", "compacting", "error", "unread"] as const;
+const statusStatesById: Record<string, string> = {};
+if (previewParams.has("statusStates")) {
+  for (const state of statusStateRows) {
+    saveSnapshot(snapshot(`visual-state-${state}`, state));
+    // `idle` draws nothing and `unread` comes from the inbox store below.
+    if (state !== "idle" && state !== "unread") statusStatesById[`visual-state-${state}`] = state;
+  }
+  useSessionInboxStore.setState({
+    trackingStartedAt: 1,
+    entries: { "visual-state-unread": { workspaceId: workspace.id, sessionId: "visual-state-unread", updatedAt: 2, assistantAt: 2 } },
+    readAt: {},
+  });
+}
 if (limitParam) {
   const item = snapshot("visual-limit", "Review supplier agreement", "Review the supplier agreement and highlight the clauses that need attention.");
   saveSnapshot({
@@ -243,6 +296,25 @@ if (subagentApprovals) {
   };
 }
 
+const explorerDashboard: ViewRecord = {
+  version: 1, id: "11111111-1111-4111-8111-111111111111", title: "Matter overview", mode: "dashboard", catalog: "legalwork-1",
+  owner: { kind: "workspace", id: workspace.id }, revision: "fixture-1", updatedAt: now, queries: {},
+  datasets: { priorities: { rows: [{ matter: "Supplier agreement", status: "In review" }, { matter: "Office lease", status: "Ready" }], total: 2, revision: "fixture-data-1", asOf: now, truncated: false } },
+  program: 'priorities = Query("data",{name:"priorities"})\nroot = Stack([Heading("Matter overview",1),Text("Synthetic project dashboard"),Stack([Metric("Open matters",12),Metric("Due this week",3)],2),Card("Priorities",[Table(priorities.rows,[{field:"matter",label:"Matter"},{field:"status",label:"Status"}])])])',
+};
+const explorerDashboardPath = `Dashboards/${explorerDashboard.id}.view.json`;
+const explorerViews = new Map([[explorerDashboard.id, explorerDashboard]]);
+function saveExplorerView(owner: ViewOwner, input: ViewInput, id = crypto.randomUUID()): ViewRecord {
+  const view = { ...input, owner, id, revision: crypto.randomUUID(), updatedAt: Date.now() };
+  explorerViews.set(id, view);
+  if (owner.kind === "workspace") {
+    const folder = input.mode === "dashboard" ? "Dashboards" : "Reports";
+    if (!files.some(file => file.path === folder)) files.push({ name: folder, path: folder, kind: "dir", empty: false });
+    const path = `${folder}/${id}.view.json`;
+    if (!files.some(file => file.path === path)) files.push({ name: `${id}.view.json`, path, kind: "file", size: 850, updatedAt: view.updatedAt });
+  }
+  return view;
+}
 let files: LegalworkWorkspaceDirectoryEntry[] = [
   { name: "Contracts", path: "Contracts", kind: "dir" },
   { name: "Policies", path: "Policies", kind: "dir" },
@@ -253,6 +325,10 @@ let files: LegalworkWorkspaceDirectoryEntry[] = [
   { name: "Annual report.pdf", path: "Annual report.pdf", kind: "file", size: 2480000, updatedAt: now },
   { name: ".workspace.json", path: ".workspace.json", kind: "file", size: 320, updatedAt: now },
 ];
+if (dashboardExplorer) files.unshift(
+  { name: "Dashboards", path: "Dashboards", kind: "dir", empty: false },
+  { name: `${explorerDashboard.id}.view.json`, path: explorerDashboardPath, kind: "file", size: 850, updatedAt: now },
+);
 const memoryFiles: LegalMemoryTreeFile[] = files.filter((file) => file.kind === "file" && !file.name.startsWith(".")).map((file) => ({
   source_object_id: file.path, source_id: "visual-drive", name: file.name, path: file.path,
   mime_type: null, size_bytes: file.size ?? null, mtime: new Date(now).toISOString(), document_id: file.path,
@@ -379,6 +455,19 @@ function previewFile(path: string): { content: string; updatedAt: number } {
 }
 const fixtureClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "https://legalwork-preview.invalid", token: "visual-fixture" }),
+  ...(dashboardExplorer ? {
+    listWorkspaces: async () => ({ items: fixtureWorkspaces }),
+    listWikis: async () => ({ items: [fixtureWiki] }),
+    wikiContributions: async () => ({ items: [], unavailableProjects: [] }),
+    wikiSnapshot: async () => ({ wiki: fixtureWiki, pages: [], assets: [], folders: ["Dashboards"], warnings: [] }),
+    listViews: async (owner: ViewOwner) => ({ items: [...explorerViews.values()].filter(view => sameViewOwner(view.owner, owner)).map(view => ({ ...view, path: `${view.mode === "dashboard" ? "Dashboards" : "Reports"}/${view.id}.view.json` })), issues: [] }),
+    readView: async (owner: ViewOwner, id: string) => { const view = explorerViews.get(id); if (!view || !sameViewOwner(view.owner, owner)) throw new LegalworkServerError(404, "view_not_found", "Synthetic dashboard not found"); return view; },
+    createView: async (owner: ViewOwner, input: ViewInput) => saveExplorerView(owner, input),
+    updateView: async (owner: ViewOwner, id: string, change: { baseRevision: string; input: ViewInput }) => {
+      if (explorerViews.get(id)?.revision !== change.baseRevision) throw new LegalworkServerError(409, "view_revision_conflict", "Synthetic dashboard changed on disk");
+      return saveExplorerView(owner, change.input, id);
+    },
+  } : {}),
   reviewLibrary: async (_workspaceId, language) => ({ entries: [{
     id: "11111111-1111-4111-8111-111111111112", kind: "set", version: 1,
     name: "Supplier terms", description: "Compare notice requirements across supplier agreements.",
@@ -417,6 +506,14 @@ const fixtureClient: LegalworkServerClient = {
     return limitFixture.usage;
   },
   eigenweltUsageAction: async (_workspaceId, action) => {
+    if (trialPreview && action.action === "trialSubscription") {
+      const quoteId = "215d5d04-97a9-431e-9ae7-67112023a0d4";
+      if (action.preview) return { quoteId, recurringAmountCents: previewParams.has("annual") ? limitPlan === "pro" ? 82800 : 34800 : limitPlan === "pro" ? 8900 : 3900, seatCount: 1, amountCents: previewParams.has("annual") ? limitPlan === "pro" ? 98532 : 41412 : limitPlan === "pro" ? 10591 : 4641, billingInterval: limitFixture.usage.billingInterval };
+      const allowance = limitPlan === "pro" ? 7000 : 3000;
+      const me = { ...limitFixture.usage.me, allowanceCents: allowance, remainingCents: allowance, availableMicros: allowance*10_000, blockedReason: null };
+      limitFixture.usage = { ...limitFixture.usage, trial: null, me, members: [me] };
+      return { status: "paid", quoteId };
+    }
     if (intentPreview && (action.action === "increaseLimit" || action.action === "enableExtraUsage")) {
       const previous = limitFixture.usage;
       const personal = action.action === "increaseLimit" && action.scope === "personal";
@@ -442,7 +539,7 @@ const fixtureClient: LegalworkServerClient = {
           extraRemainingCents: topUpPreview === "blocked" ? 0 : topUpPending.amountCents,
           blockedReason: topUpPreview === "blocked" ? "member_limit" : null,
         };
-        limitFixture.usage = { ...limitFixture.usage, me, members: [me], walletCents: topUpPending.amountCents };
+        limitFixture.usage = { ...limitFixture.usage, me: { ...me, extraLimitCents: topUpPending.amountCents }, members: [me], extraEnabled: true, walletCents: topUpPending.amountCents };
         topUpPending = null;
       }
       return {
@@ -587,8 +684,10 @@ function SessionPreview() {
   const [projectOrder, setProjectOrder] = useState([workspace.id, otherWorkspace.id]);
   const [showWorkflows, setShowWorkflows] = useState(new URLSearchParams(window.location.search).has("workflows"));
   useEffect(() => {
-    const projectRoute = location.pathname.match(/^\/workspace\/([^/]+)/);
-    if (projectRoute) setActiveWorkspace(decodeURIComponent(projectRoute[1]) === workspace.id ? workspace : otherWorkspace);
+    const projectRoute = location.pathname.match(/^\/(?:workspace|wikis)\/([^/]+)/);
+    const routedWorkspace = projectRoute && fixtureWorkspaces.find(item => item.id === decodeURIComponent(projectRoute[1]));
+    if (routedWorkspace) setActiveWorkspace(routedWorkspace);
+    if (location.pathname.startsWith("/wikis/")) { setSelectedSessionId(null); setShowHome(false); setShowWorkflows(false); return; }
     if (location.pathname === "/home") { setShowHome(true); setShowWorkflows(false); return; }
     const route = location.pathname.match(/^\/workspace\/[^/]+\/session(?:\/([^/]+))?$/);
     if (projectPage) { setShowHome(false); setShowWorkflows(false); }
@@ -623,11 +722,36 @@ function SessionPreview() {
     saveSnapshot({ ...next, messages: [...(previous?.messages ?? []), ...next.messages] });
     setRevision((value) => value + 1);
   };
+  const openDashboardPreview = (mode: "new" | "edit" | "conflict" | "wiki") => {
+    const callId = crypto.randomUUID();
+    const id = viewGenerationId(fixtureClient.baseUrl, welcomeId, callId);
+    const current = explorerViews.get(explorerDashboard.id)!;
+    const generation: ViewGeneration = {
+      serverUrl: fixtureClient.baseUrl, workspaceId: workspace.id, sessionId: welcomeId, toolCallId: callId,
+      title: "Matter overview", program: current.program, status: "preview",
+      preview: { status: "preview", owner: mode === "wiki" ? { kind: "wiki", id: "visual-wiki" } : current.owner,
+        input: { ...viewInput(current), title: mode === "new" ? "New matter dashboard" : current.title },
+        ...(mode === "edit" || mode === "conflict" ? { target: { viewId: current.id, baseRevision: mode === "conflict" ? "outdated" : current.revision } } : {}),
+      },
+    };
+    useViewGenerationStore.getState().update(id, generation);
+    requestPanelTab(viewDraftTab(id, generation), { kind: "workspace", workspaceId: workspace.id });
+  };
 
   return (
     <div className="flex h-dvh flex-col" data-preview-revision={revision}>
+      {platform === "windows" && <>
+        {captionHeight === 64 && <style>{"html.legalwork-electron.legalwork-platform-windows .lw-window-frame { --lw-window-bar-height: 64px; }"}</style>}
+        <div data-preview-caption-controls aria-hidden style={{ height: captionHeight }} className="fixed right-0 top-0 z-[2147483647] flex w-[138px] items-center justify-around bg-background text-foreground"><span>−</span><span>□</span><span>×</span></div>
+      </>}
       <div className="shrink-0 border-b border-border bg-muted/40 px-4 py-1.5 text-center text-[11px] text-muted-foreground">
         Interactive visual preview · Sample data and simulated replies · No connected services
+        {dashboardExplorer && <span className="ml-3 inline-flex gap-3">
+          <button onClick={() => openDashboardPreview("new")}>New dashboard preview</button>
+          <button onClick={() => openDashboardPreview("edit")}>Updated preview</button>
+          <button onClick={() => openDashboardPreview("conflict")}>Conflicting preview</button>
+          <button onClick={() => openDashboardPreview("wiki")}>Wiki preview</button>
+        </span>}
         {previewParams.has("unified") && <span className="ml-3 inline-flex gap-3">
           <button onClick={() => requestPanelTab({ id: `review:${previewReview.id}`, type: "review", reviewId: previewReview.id, label: previewReview.name })}>Open sample review</button>
           <button onClick={() => requestPanelTab({ id: "task:visual-task", type: "task", taskId: "visual-task", label: "Review supplier notice" })}>Open sample task</button>
@@ -672,7 +796,9 @@ function SessionPreview() {
             }}
           /> : showWorkflows ? <WorkflowsPreview reviewClient={fixtureClient} /> : undefined}
           selectedSessionId={selectedSessionId} selectedWorkspaceId={activeWorkspace.id} selectedWorkspaceDisplay={{ ...activeWorkspace, displayName: activeWorkspace.displayName ?? activeWorkspace.name }}
-          selectedWorkspaceRoot={activeWorkspace.path} runtimeWorkspaceId={activeWorkspace.id} workspaces={[workspace, otherWorkspace]}
+          selectedWorkspaceRoot={activeWorkspace.path} runtimeWorkspaceId={activeWorkspace.id} workspaces={fixtureWorkspaces}
+          wikiWorkspace={activeWorkspace.id === wikiWorkspace.id ? fixtureWiki : undefined}
+          wiki={dashboardExplorer ? { client: fixtureClient, serverUrl: fixtureClient.baseUrl, workspaceId: activeWorkspace.id, workspaces: fixtureWorkspaces, selectedWikiId: fixtureWiki.id, onOpenWiki: wiki => navigate(`/wikis/${wiki.workspaceId}`), onOpenWikiSession: async () => { previewNotice(); } } : undefined}
           clientConnected legalworkServerStatus="connected" legalworkServerClient={fixtureClient} environmentClient={fixtureClient}
           legalworkServerToken="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode"
           developerMode={false} headerStatus="Ready" busyHint={null} startupPhase="ready" providerConnectedIds={[model.providerID]}
@@ -690,8 +816,8 @@ function SessionPreview() {
             setRevision((value) => value + 1);
           }}
           sidebar={{
-            workspaceSessionGroups: projectOrder.flatMap(id => groups.filter(group => group.workspace.id === id)), onReorderWorkspaces: setProjectOrder, selectedWorkspaceId: activeWorkspace.id, selectedSessionId, developerMode: false,
-            sessionStatusById: {}, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newChatDisabled: false,
+            workspaceSessionGroups: activeWorkspace.id === wikiWorkspace.id ? [{ workspace: wikiWorkspace, status: "ready", sessions: [] }] : projectOrder.flatMap(id => groups.filter(group => group.workspace.id === id)), onReorderWorkspaces: setProjectOrder, selectedWorkspaceId: activeWorkspace.id, selectedSessionId, developerMode: false,
+            sessionStatusById: statusStatesById, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newChatDisabled: false,
             sidebarHydratedFromCache: true, startupPhase: "ready", onSelectWorkspace: id => {
               setActiveWorkspace(id === workspace.id ? workspace : otherWorkspace);
               setSelectedSessionId(id === workspace.id ? welcomeId : null); setShowWorkflows(false);
@@ -701,7 +827,7 @@ function SessionPreview() {
             onOpenCreateWorkspace: previewNotice, onCreateChatInNewWorkspace: previewNotice,
             onShowProjects: () => { setShowHome(false); setShowWorkflows(false); navigate("/projects"); },
             onShowChats: () => { setShowHome(true); setShowWorkflows(false); }, onShowEvals: previewNotice, onShowWorkflows: () => { setShowHome(false); setShowWorkflows(true); navigate("/workflows"); }, onShowExtensions: previewNotice, onShowRecorder: previewNotice,
-            activeNav: showWorkflows ? "workflows" : null,
+            activeNav: showWorkflows ? "workflows" : activeWorkspace.id === wikiWorkspace.id ? "wikis" : null,
           }}
           surface={{
             workspaceRoot: activeWorkspace.path, developerMode: false, modelLabel: model.providerID === "eigenwelt" ? "LegalWork AI" : "ChatGPT", onModelClick: previewNotice,
@@ -739,7 +865,7 @@ previewRoot.render(
         <LocalProvider>
           <ShellConfigProvider>
             <ReloadCoordinatorProvider>
-              <WorkspaceProvider client={null} selectedWorkspaceRoot={workspace.path} workspaces={[]} baseUrl="https://legalwork-preview.invalid" token="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode" onOpenSession={previewNotice}>
+              <WorkspaceProvider client={null} selectedWorkspaceRoot={workspace.path} workspaces={fixtureWorkspaces.map(item => ({ ...item, displayNameResolved: item.displayName ?? item.name }))} baseUrl="https://legalwork-preview.invalid" token="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode" onOpenSession={previewNotice}>
                 <MemoryRouter initialEntries={[window.location.hash.slice(1) || "/"]}>
                   <LegalworkControlProvider>
                     <ProjectFileImportContext value={async (_projectId, imported, folder) => { await previewCopyDelay(); return { files: await Promise.all(imported.map(async file => {

@@ -1,8 +1,9 @@
 import { expect, spyOn, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { OcrRuntime } from "./runtime.js";
+import { LawossOcrManager } from "../lawoss/ocr-opt-in.js";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 
@@ -25,6 +26,20 @@ test("OCR HTTP settings require host authority, redact keys and respect read-onl
     const headers = { "x-legalwork-host-token": config.hostToken, "content-type": "application/json" };
     expect((await fetch(`${base}/ocr/settings`)).status).toBe(401);
     expect((await fetch(`${base}/ocr/servers`, { method: "POST", body: "{}" })).status).toBe(401);
+    expect((await fetch(`${base}/ocr/auto-download`, { method: "PUT", body: '{"enabled":false}' })).status).toBe(401);
+    await writeFile(config.configPath!, JSON.stringify({ autoDownloadOcr: true, preserved: "host setting" }));
+    const disabled = await fetch(`${base}/ocr/auto-download`, { headers, method: "PUT", body: '{"enabled":false}' });
+    expect(disabled.status).toBe(200);
+    expect(await disabled.json()).toMatchObject({ autoDownload: false, autoDownloadLocked: false });
+    expect(JSON.parse(await readFile(config.configPath!, "utf8"))).toEqual({ autoDownloadOcr: false, preserved: "host setting" });
+    // LAWOSS: the server runs LawossOcrManager, whose override downloads only once OCR is on.
+    const automatic = spyOn(LawossOcrManager.prototype, "downloadDefaultIfNeeded").mockResolvedValue();
+    try {
+      const enabled = await fetch(`${base}/ocr/auto-download`, { headers, method: "PUT", body: '{"enabled":true}' });
+      expect(enabled.status).toBe(200);
+      expect(await enabled.json()).toMatchObject({ autoDownload: true });
+      expect(automatic).toHaveBeenCalledTimes(1);
+    } finally { automatic.mockRestore(); }
     const saved = await fetch(`${base}/ocr/servers`, { headers, method: "POST", body: JSON.stringify({ label: "Server", model: "vision", endpoint: "https://example.com/chat/completions", apiKey: "super-secret", languages: null }) });
     expect(saved.status).toBe(200);
     const text = await saved.text();
@@ -46,6 +61,7 @@ test("OCR HTTP settings require host authority, redact keys and respect read-onl
     config.readOnly = true;
     for (const [path, method, body] of [
       ["/ocr/default", "PUT", '{"engineId":"local-quality"}'],
+      ["/ocr/auto-download", "PUT", '{"enabled":false}'],
       ["/ocr/servers", "POST", "{}"],
       ["/ocr/engines/local-fast/install", "POST", "{}"],
       ["/ocr/engines/local-layout/install", "POST", "{}"],

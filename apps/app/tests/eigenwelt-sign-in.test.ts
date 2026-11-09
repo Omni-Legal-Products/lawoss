@@ -1,16 +1,19 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { createProviderAuthStore } from "../src/react-app/domains/connections/provider-auth/store";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
+import { setLocale, t } from "../src/i18n";
+import { EigenweltSignInTimeoutError } from "../src/app/lib/eigenwelt-sign-in";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
   cleanups.splice(0).forEach((cleanup) => cleanup());
   getReactQueryClient().clear();
+  setLocale("en");
 });
 
-function signInFixture(saveStatus: number, reloadStatus = 200, reloadDelayMs = 0) {
+function signInFixture(saveStatus: number, reloadStatus = 200, reloadDelayMs = 0, waitResponse?: () => Response) {
   const requests: string[] = [];
   let scheduledReloads = 0;
   const server = Bun.serve({
@@ -19,6 +22,7 @@ function signInFixture(saveStatus: number, reloadStatus = 200, reloadDelayMs = 0
       const path = new URL(request.url).pathname;
       requests.push(`${request.method} ${path}`);
       if (path.startsWith("/api/eigenwelt/oauth/wait/")) {
+        if (waitResponse) return waitResponse();
         return Response.json({ apiKey: "test-key", baseURL: "https://example.test/v1", models: [], platformToken: "test-token" });
       }
       if (path.endsWith("/eigenwelt/connection")) {
@@ -76,6 +80,53 @@ test("a failed account save fails sign-in before attempting any engine reload", 
     "PUT /workspace/ws/eigenwelt/connection",
   ]);
   expect(fixture.scheduledReloads()).toBe(0);
+});
+
+test("checkout can continue past ten minutes and still connect", async () => {
+  const startedAt = Date.now();
+  const clock = spyOn(Date, "now").mockReturnValue(startedAt);
+  cleanups.push(() => clock.mockRestore());
+  let polls = 0;
+  const fixture = signInFixture(200, 200, 0, () => {
+    if (++polls === 1) {
+      clock.mockReturnValue(startedAt + 11 * 60 * 1000);
+      return Response.json({ pending: true });
+    }
+    return Response.json({ apiKey: "test-key", baseURL: "https://example.test/v1", models: [] });
+  });
+  await expect(fixture.store.completeEigenweltSignIn("long-checkout")).resolves.toMatchObject({ connected: true });
+  expect(polls).toBe(2);
+});
+
+test("the app explains how to restart when its hour-long wait expires", async () => {
+  const startedAt = Date.now();
+  const clock = spyOn(Date, "now").mockReturnValue(startedAt);
+  cleanups.push(() => clock.mockRestore());
+  const fixture = signInFixture(200, 200, 0, () => {
+    clock.mockReturnValue(startedAt + 60 * 60 * 1000 + 1);
+    return Response.json({ pending: true });
+  });
+  const expired = fixture.store.completeEigenweltSignIn("expired-checkout");
+  await expect(expired).rejects.toBeInstanceOf(EigenweltSignInTimeoutError);
+  await expect(expired).rejects.toThrow(t("providers.eigenwelt_signin_timeout"));
+  expect(fixture.store.getSnapshot().providerAuthError).toContain("restart");
+  expect(fixture.requests).toEqual(["GET /api/eigenwelt/oauth/wait/expired-checkout"]);
+});
+
+const languages: Array<"en" | "de"> = ["en", "de"];
+test.each(languages)("server expiry displays the customer restart instructions in %s", async language => {
+  setLocale(language);
+  const fixture = signInFixture(200, 200, 0, () => Response.json({
+    code: "eigenwelt_signin_timeout", message: "Raw server timeout",
+  }, { status: 410 }));
+  const message = t("providers.eigenwelt_signin_timeout");
+  const expired = fixture.store.completeEigenweltSignIn("expired-checkout");
+  await expect(expired).rejects.toBeInstanceOf(EigenweltSignInTimeoutError);
+  await expect(expired).rejects.toThrow(message);
+  expect(fixture.store.getSnapshot().providerAuthError).toBe(message);
+  // 🟡 LAWOSS: brand substitution shows LAWOSS in user-facing copy.
+  expect(message).toContain("LAWOSS");
+  expect(message).not.toContain("Provider");
 });
 
 test("a successful account save reloads once without scheduling a second reload", async () => {

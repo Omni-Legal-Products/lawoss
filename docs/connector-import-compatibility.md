@@ -1,6 +1,6 @@
 # Connector import compatibility
 
-Verified against the current ChatGPT/Codex and Claude formats on 14 October 2026 and LegalWork's bundled OpenCode 1.18.29 engine.
+Updated against the current ChatGPT/Codex and Claude formats on 19 October 2026 and LegalWork's bundled OpenCode 1.18.29 engine.
 
 Importing a definition does not transfer the original application's provider identity, account session, network access or administrator approvals. ChatGPT's registered apps are distinct from portable MCP definitions; their availability and account authorization are controlled by the ChatGPT workspace. [ChatGPT connected apps](https://help.openai.com/en/articles/11487775-connected-apps-in-chatgpt).
 
@@ -20,7 +20,7 @@ The server enforces the reviewed result rather than accepting a client-supplied 
 | Bearer, Basic or custom-header API key | Preserve the header scheme and collect missing values in the existing masked setup form. Import review uses anonymous discovery and does not transmit source credentials. |
 | Automatic OAuth / DCR | Check discovery and actually register LegalWork. Provider refusal blocks import. Retain the resulting identity on the server and install it with the checked callback, so connecting does not register a second client. |
 | Provided OAuth client | Preserve identity, secret and callback. Public clients and `client_secret_post` are representable. Collect a missing required secret; account approval and registered callback acceptance still require sign-in. |
-| CIMD preference with DCR available | Use checked DCR. CIMD-only providers and source-platform metadata identities need a separate registration and are blocked. |
+| CIMD / client metadata identity | Prefer verified operator-owned metadata (`LEGALWORK_MCP_CLIENT_METADATA_URL`) when the provider supports it. Require the exact client ID and callback and public-client authentication. Otherwise use checked DCR where supported; CIMD-only providers without a configured LegalWork identity stay blocked. Foreign app identities are never reused. |
 | Custom discovery/endpoints, OIDC overrides, JWT or explicit `client_secret_basic` | Block instead of silently dropping the requirement. These settings are not expressible in the shipped engine configuration. |
 | Claude pinned `oauth.scopes` | Block. The real engine regression demonstrates that provider-advertised scopes can replace the configured scope. Other scope exports that differ from advertised permissions also block. |
 | Dynamic credential scripts / ChatGPT session authentication | Block. Original-app scripts and sessions are not available in LegalWork. |
@@ -43,6 +43,8 @@ The runtime contract was checked against its [OAuth provider](https://raw.github
 Reachability and access checks run from the actual LegalWork server, which may have a different outbound IP from ChatGPT or Claude. An unchallenged 403 is an access refusal, not automatically a missing password or proof of an IP block. Registration errors naming allowlists receive that explanation; temporary errors offer recheck. Credential-protected services cannot have account-specific restrictions verified anonymously, and review says so. For example, GitHub filters authenticated API access through enterprise IP policy. [GitHub enterprise IP restrictions](https://docs.github.com/en/enterprise-cloud%40latest/admin/configuring-settings/hardening-security-for-your-enterprise/restricting-network-traffic-to-your-enterprise-with-an-ip-allow-list).
 
 Import review validates transport and setup feasibility. Account permissions, subscription/seat requirements, credential validity, authenticated network restrictions and individual tool behavior still require a successful connection. It does not claim every provider has been tested with a real account.
+
+See [the import lifecycle](plugin-import-lifecycle.md) for versioned portable schema checks, dependency requirements and source/update tracking.
 
 ## Evidence
 

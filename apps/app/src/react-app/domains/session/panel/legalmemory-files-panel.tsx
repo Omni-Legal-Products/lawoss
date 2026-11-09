@@ -403,9 +403,9 @@ function LegalMemoryFilesPanelContent({
 
         {client && workspaceId && hasStorage ? (
           <div className={cn("min-h-0 overflow-y-auto", rootsQuery.data?.roots.length ? "max-h-[60%] shrink-0 border-b border-border/50" : "flex-1")}>
-            {searchQuery ? <StorageDriveSearch key={`${workspaceId}:${searchQuery}:${storageRefreshKey}`} client={client} workspaceId={workspaceId} roots={browserRoots} query={searchQuery} refreshKey={storageRefreshKey} onOpenFile={onOpenStorageFile} /> : null}
+            {searchQuery ? <StorageDriveSearch key={`${workspaceId}:${searchQuery}:${storageRefreshKey}`} client={client} workspaceId={workspaceId} roots={browserRoots} query={searchQuery} refreshKey={storageRefreshKey} onOpenFile={onOpenStorageFile} onConnectStorage={onConnectStorage} /> : null}
             <div hidden={Boolean(searchQuery)}>
-            <StorageDriveTree key={workspaceId} client={client} workspaceId={workspaceId} roots={browserRoots} onOpenFile={onOpenStorageFile} />
+            <StorageDriveTree key={workspaceId} client={client} workspaceId={workspaceId} roots={browserRoots} onOpenFile={onOpenStorageFile} onConnectStorage={onConnectStorage} />
             </div>
           </div>
         ) : null}

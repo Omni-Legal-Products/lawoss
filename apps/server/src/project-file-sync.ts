@@ -70,6 +70,8 @@ export type FileSyncOptions = {
   /** A file changed more recently than this is still being written; it waits. */
   settleMs?: number;
   now?: () => Date;
+  /** False when folder policy blocks this file scan. */
+  enabled?: boolean;
 };
 
 export type FileSyncConflict = { path: string; copyPath: string };
@@ -257,6 +259,7 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
     pending: 0,
   };
 
+  if (options.enabled === false) return result;
   const workDir = join(root, ".legalwork", "sync-tmp");
   await rm(workDir, { recursive: true, force: true });
   await pruneTrash(root, now());

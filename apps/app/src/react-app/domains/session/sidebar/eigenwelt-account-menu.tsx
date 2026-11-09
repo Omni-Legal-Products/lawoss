@@ -1,7 +1,10 @@
-import { Gauge, LogIn, Settings, UserRound } from "lucide-react";
+import { useState } from "react";
+import { Gauge, LogIn, PanelBottomClose, PanelBottomOpen, Settings, UserRound } from "lucide-react";
+import { toast } from "sonner";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { isEigenweltEntitledStatus } from "@/app/lib/eigenwelt-trial";
+import { isElectronRuntime } from "@/app/lib/runtime-env";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -10,6 +13,7 @@ import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { cn } from "@/lib/utils";
 import { useEigenweltEntitlements } from "../../connections/eigenwelt-entitlements";
 import { workspaceSettingsRoute } from "../../../shell/workspace-routes";
+import { useRecorderStore } from "../../recorder/recorder-store";
 
 export function EigenweltAccountMenu({ client, workspaceId }: {
   client: LegalworkServerClient | null;
@@ -40,6 +44,20 @@ function EigenweltAccountMenuContent({ client, workspaceId }: {
 }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const dictation = useRecorderStore(state => state.systemDictation);
+  const [changingMiniBar, setChangingMiniBar] = useState(false);
+  const desktop = isElectronRuntime();
+  const toggleMiniBar = async () => {
+    if (!dictation || changingMiniBar) return;
+    setChangingMiniBar(true);
+    try {
+      await useRecorderStore.getState().setMiniBarEnabled(!dictation.miniBarEnabled);
+    } catch {
+      toast.error(t("account.mini_bar_error"));
+    } finally {
+      setChangingMiniBar(false);
+    }
+  };
   const query = useEigenweltEntitlements({ client, workspaceId });
   const { account, entitlements, connected, reconnecting } = query.data ?? {};
   const name = connected ? account?.userName?.trim() || account?.userEmail || t("account.connected_title") : t("account.connected_title");
@@ -55,7 +73,7 @@ function EigenweltAccountMenuContent({ client, workspaceId }: {
     ? Math.round(Math.max(0, Math.min(100, 100 - usage.usedPercent))) : null;
   const resetAt = usage?.resetsAt ? Date.parse(usage.resetsAt) : NaN;
   const resetLabel = Number.isFinite(resetAt)
-    ? new Intl.DateTimeFormat(currentLocale(), { weekday: "short", day: "numeric", month: "short" }).format(resetAt) : null;
+    ? new Intl.DateTimeFormat(currentLocale(), { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZoneName: "short" }).format(resetAt) : null;
   const openSettings = (tab: string) => navigate(workspaceId ? workspaceSettingsRoute(workspaceId, tab) : `/settings/${tab}`, { state: location.state });
   const avatar = (large = false) => (
     <span aria-hidden="true" className={cn("flex shrink-0 items-center justify-center rounded-full font-medium", large ? "size-10 text-sm" : "size-8 text-[11px]", connected ? "bg-amber-5 text-amber-12" : "bg-muted text-muted-foreground")}>
@@ -64,7 +82,11 @@ function EigenweltAccountMenuContent({ client, workspaceId }: {
   );
 
   return (
-    <DropdownMenu onOpenChange={open => { if (open && client && workspaceId) void query.refetch(); }}>
+    <DropdownMenu onOpenChange={open => {
+      if (!open) return;
+      if (client && workspaceId) void query.refetch();
+      if (desktop) void useRecorderStore.getState().refreshSystemDictation();
+    }}>
       <Tooltip>
         <DropdownMenuTrigger render={<TooltipTrigger render={
           <Button variant="ghost" size="icon" className="relative size-10 rounded-xl hover:bg-foreground/10 data-[popup-open]:bg-foreground/10" aria-label={`${name} · ${status}`}>
@@ -88,7 +110,7 @@ function EigenweltAccountMenuContent({ client, workspaceId }: {
             <Gauge className="mt-0.5 size-4 text-muted-foreground" />
             <span className="min-w-0 flex-1">
               <span className="flex items-center justify-between gap-4">
-                <span>{t(usage?.window === "day" ? "firm_hub.usage_label" : "firm_hub.usage_label_week")}</span>
+                <span>{t(usage?.window === "month" ? "firm_hub.usage_label_month" : usage?.window === "week" ? "firm_hub.usage_label_week" : "firm_hub.usage_label")}</span>
                 <span className="text-xs font-normal tabular-nums text-muted-foreground">{remaining === null ? t("account.usage_unavailable") : t("account.usage_left", { percent: String(remaining) })}</span>
               </span>
               {remaining !== null && <span className="mt-2 block h-1 overflow-hidden rounded-full bg-muted"><span className="block h-full rounded-full bg-foreground/70" style={{ width: `${remaining}%` }} /></span>}
@@ -97,6 +119,10 @@ function EigenweltAccountMenuContent({ client, workspaceId }: {
           </DropdownMenuItem>
         ) : <DropdownMenuItem onClick={() => openSettings("account")}><LogIn />{t("account.sign_in")}</DropdownMenuItem>}
         <DropdownMenuItem onClick={() => openSettings("general")}><Settings />{t("settings.tab_settings")}</DropdownMenuItem>
+        {desktop && <DropdownMenuItem disabled={!dictation || changingMiniBar} onClick={() => void toggleMiniBar()}>
+          {dictation?.miniBarEnabled ? <PanelBottomClose /> : <PanelBottomOpen />}
+          {t(dictation?.miniBarEnabled ? "account.mini_bar_hide" : "account.mini_bar_show")}
+        </DropdownMenuItem>}
       </DropdownMenuContent>
     </DropdownMenu>
   );

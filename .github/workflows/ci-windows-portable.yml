@@ -74,9 +74,7 @@ on:
       - apps/server/src/word-addin*
       - apps/server/src/benchmarks/**
       - apps/server/src/routes/benchmarks.ts
-      - apps/opencode-router/**
       - apps/orchestrator/src/cli.ts
-      - apps/orchestrator/scripts/router-control-security.test.mjs
       - apps/server/src/paths.ts
       - apps/server/src/server.ts
       - apps/server/src/runtime-db*
@@ -173,9 +171,7 @@ on:
       - apps/server/src/word-addin*
       - apps/server/src/benchmarks/**
       - apps/server/src/routes/benchmarks.ts
-      - apps/opencode-router/**
       - apps/orchestrator/src/cli.ts
-      - apps/orchestrator/scripts/router-control-security.test.mjs
       - apps/server/src/paths.ts
       - apps/server/src/server.ts
       - apps/server/src/runtime-db*
@@ -231,6 +227,10 @@ jobs:
       # workspace bez install skriptov; balenie ani podpisovanie tu nebeží.
       - name: Install source test and typecheck dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
+      # Upstream v0.2.19: core-skills.ts importuje ignorovaný help-i18n.generated.ts,
+      # ktorý vzniká až generátorom. Testy appky aj servera ho importujú pred buildom.
+      - name: Generate core skills and help translations
+        run: pnpm docs:generate
       - name: OKF typecheck
         run: pnpm --filter @lawoss/okf typecheck
       - name: OKF and naming
@@ -353,14 +353,6 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: apps/server
         run: bun test src/frontmatter.test.ts src/frontmatter-security.e2e.test.ts src/security-auth-boundaries.e2e.test.ts src/security-file-boundary.e2e.test.ts src/word-addin.e2e.test.ts src/word-addin-shell.test.ts src/benchmarks/document-path.test.ts src/benchmarks/task-zip.test.ts src/benchmarks/harvey-catalog.test.ts src/benchmarks/store.test.ts
-
-      - name: Messaging control and local media isolation
-        # Beží aj po páde predchádzajúceho kroku, aby sa bezpečnostné regresie na Windows vždy overili.
-        if: ${{ !cancelled() }}
-        shell: bash
-        run: |
-          pnpm --filter opencode-router test:unit
-          node --test apps/orchestrator/scripts/router-control-security.test.mjs
 
   # Manual supplementary probe: reuse a verified ancestor's runtime artifact
   # while retaining every regular PR/source/package check unchanged.

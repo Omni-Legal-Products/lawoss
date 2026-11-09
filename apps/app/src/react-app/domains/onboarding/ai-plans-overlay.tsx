@@ -52,6 +52,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import type { AiPlansVariant } from "@/app/lib/eigenwelt-access";
+import { EigenweltSignInTimeoutError } from "@/app/lib/eigenwelt-sign-in";
 import {
   EIGENWELT_PLANS,
   formatEuroCents,
@@ -78,7 +79,9 @@ export type AiPlansAccount = { email: string | null; firmName: string | null };
 type AiPlansChoice = "own_model" | EigenweltPlanId | "sign_in";
 
 export type AiPlansOverlayProps = {
-  /** "onboarding": the last onboarding step (step dots, Back). "gate": no model is usable. */
+  /** Desktop has six onboarding steps; the web has three. */
+  totalSteps?: number;
+  /** "onboarding": connect an AI provider (step dots, Back). "gate": no model is usable. */
   mode: "onboarding" | "gate";
   variant: AiPlansVariant;
   /** The account the screen talks about: the remembered one, or the signed-in one. */
@@ -119,6 +122,7 @@ export type AiPlansOverlayProps = {
 type Phase =
   | { kind: "choose" }
   | { kind: "confirm"; plan: EigenweltPlanId }
+  | { kind: "expired" }
   /** A sign-in (with or without a plan) is open in the browser. */
   | { kind: "browser"; plan: EigenweltPlanId | null; authorizeUrl: string }
   /** "no-models": the billing page is open; the plan is re-read until it has the models. */
@@ -539,12 +543,13 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       if (!result.cancelled && result.message) setError(result.message);
     } catch (signInError) {
       if (flowRef.current !== flow) return;
-      setPhase(confirmed && plan ? { kind: "confirm", plan } : { kind: "choose" });
-      setError(
-        signInError instanceof Error
-          ? signInError.message
-          : String(signInError),
-      );
+      if (signInError instanceof EigenweltSignInTimeoutError) {
+        setError(null);
+        setPhase({ kind: "expired" });
+      } else {
+        setPhase(confirmed && plan ? { kind: "confirm", plan } : { kind: "choose" });
+        setError(signInError instanceof Error ? signInError.message : String(signInError));
+      }
       captureAnalyticsEvent("ai_plans_sign_in_failed", {
         choice,
         mode,
@@ -659,7 +664,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   const stepDots =
     mode === "onboarding" ? (
       <div className="flex justify-center [&>div]:mb-4">
-        <StepDots step={4} total={5} />
+        <StepDots step={(props.totalSteps ?? 6) - 1} total={props.totalSteps ?? 6} />
       </div>
     ) : null;
 
@@ -681,7 +686,32 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   // Pinned to the bottom of the window: Back on the left, the account line in
   // the middle, the update check on the right.
   let footerCenter: ReactNode = null;
-  if (
+  if (phase.kind === "expired") {
+    body = (
+      <div className="mx-auto w-full max-w-[480px]">
+        {stepDots}
+        <FocusCard>
+          <div aria-hidden="true" className="mx-auto flex size-12 items-center justify-center rounded-full bg-dls-surface text-dls-secondary">
+            <RefreshCcw className="size-5" />
+          </div>
+          <h1 id={titleId} className="mt-5 text-[26px] font-medium leading-[1.15] tracking-[-0.03em] text-dls-text">
+            {t("ai_plans.sign_in_expired_title")}
+          </h1>
+          <div role="status">
+            <p className="mt-3 text-[14px] leading-[1.6] text-dls-secondary">
+              {t("ai_plans.sign_in_expired_body")}
+            </p>
+            <p className="mt-4 text-[13px] leading-[1.6] text-dls-secondary">
+              {t("ai_plans.sign_in_expired_checkout")}
+            </p>
+          </div>
+          <Button size="lg" className={`mt-7 ${planButtonClass}`} disabled={disabled} onClick={() => void signIn(null)}>
+            {t("ai_plans.sign_in_again")}
+          </Button>
+        </FocusCard>
+      </div>
+    );
+  } else if (
     phase.kind === "browser" ||
     phase.kind === "upgrade" ||
     phase.kind === "connecting"

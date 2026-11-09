@@ -18,6 +18,7 @@ import {
   mergeRuntimeMcpConfig,
   bundledNodeDirectory,
   childProcessPath,
+  bundledOpencodeSdkDirectory,
   nodeShimFileName,
   nodeShimScriptContent,
   opencodeHomeEnvFromRoot,
@@ -81,6 +82,15 @@ describe("outside app-files root", () => {
       externalWorkspaceAppFilesRoot(configPath, workspace),
       path.join(process.cwd(), "config", "workspace-app-files", hash),
     );
+  });
+});
+
+describe("bundled OpenCode SDK location", () => {
+  it("uses the staged desktop SDK in development even when Electron has a resourcesPath", () => {
+    assert.equal(bundledOpencodeSdkDirectory({ isPackaged: false, resourcesPath: "/Electron.app/Contents/Resources", desktopRoot: "/checkout/apps/desktop" }), path.join("/checkout/apps/desktop/resources/opencode-sdk"));
+  });
+  it("uses only the application resources in a packaged build", () => {
+    assert.equal(bundledOpencodeSdkDirectory({ isPackaged: true, resourcesPath: "/LegalWork.app/Contents/Resources", desktopRoot: "/unrelated/checkout" }), path.join("/LegalWork.app/Contents/Resources/opencode-sdk"));
   });
 });
 
@@ -375,7 +385,7 @@ describe("selected existing project startup", () => {
         try {
           const selected=path.join(root,"selected-project");
           if(kind==="file")await writeFile(selected,"Synthetic source bytes");
-          const manager=createRuntimeManager({app:{isPackaged:true,getPath:key=>key==="exe"?path.join(root,"app","Electron"):root},desktopRoot:path.join(root,"desktop"),listLocalWorkspacePaths:async()=>[],listLocalWorkspaceAppFiles:async()=>({}),listLocalWorkspaces:async()=>[],reconnectHostWorkspace:async()=>null,recorder:undefined,onSidecarExit:()=>{},getApprovalWindow:()=>null});
+          const manager=createRuntimeManager({app:{isPackaged:true,getPath:key=>key==="exe"?path.join(root,"app","Electron"):root},desktopRoot:path.join(root,"desktop"),listLocalWorkspacePaths:async()=>[],listLocalWorkspaceAppFiles:async()=>({}),listLocalWorkspaces:async()=>[],reconnectHostWorkspace:async()=>null,recorder:undefined,onSidecarExit:()=>{},getApprovalWindow:()=>null,modelDownloadFetch:undefined});
           const before=await manager.engineInfo();
           await assert.rejects(manager.engineStart(selected,{appFiles}),/Project folder is unavailable/);
           assert.deepEqual(await manager.engineInfo(),before,"Unavailable project must not disturb a runtime or its lifecycle");
@@ -402,7 +412,7 @@ for (const appFiles of ["inside","outside"]) it(`existing canonical aliases stil
  try {
   await writeFile(ownedBinary,"Inert diagnostic fixture; never executable");
   const target=path.join(root,"actual"),alias=path.join(root,"alias");await mkdir(target);await symlink(target,alias,process.platform==="win32"?"junction":"dir");
-  const manager=createRuntimeManager({app:{isPackaged:true,getPath:key=>key==="exe"?path.join(root,"app","Electron"):root},desktopRoot:path.join(root,"desktop"),listLocalWorkspacePaths:async()=>[],listLocalWorkspaceAppFiles:async()=>({}),listLocalWorkspaces:async()=>[],reconnectHostWorkspace:async()=>null,recorder:undefined,onSidecarExit:()=>{},getApprovalWindow:()=>null});
+  const manager=createRuntimeManager({app:{isPackaged:true,getPath:key=>key==="exe"?path.join(root,"app","Electron"):root},desktopRoot:path.join(root,"desktop"),listLocalWorkspacePaths:async()=>[],listLocalWorkspaceAppFiles:async()=>({}),listLocalWorkspaces:async()=>[],reconnectHostWorkspace:async()=>null,recorder:undefined,onSidecarExit:()=>{},getApprovalWindow:()=>null,modelDownloadFetch:undefined});
   // This Node fixture has no packaged Node binary. The real existing-root
   // precondition must pass, without pretending the Electron engine launched.
   await assert.rejects(manager.engineStart(alias,{appFiles,opencodeBinPath:ownedBinary}),error=>!String(error).includes("Project folder is unavailable"));

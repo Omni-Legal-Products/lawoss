@@ -126,7 +126,7 @@ export async function publishRuntime(stage, out) {
 }
 export async function packageRuntime({ node, pnpmCli, out, scratch, store, offline }) {
   if (typeof offline !== 'boolean') throw fail('NETWORK_POLICY_REQUIRED');
-  if (!path.isAbsolute(node) || await closedChild(node, ['--version'], { env: isolatedEnvironment(path.dirname(node)) }) !== 'v24.21.0') throw fail('INVALID_NODE');
+  if (!path.isAbsolute(node) || await closedChild(node, ['--version'], { env: isolatedEnvironment(path.dirname(node)) }) !== 'v24.22.1') throw fail('INVALID_NODE');
   await validatePnpm(pnpmCli);
   for (const p of [out, scratch, store]) if (typeof p !== 'string' || !path.isAbsolute(p)) throw fail('INVALID_PATH');
   const storeRelative = path.relative(scratch, store);
@@ -168,10 +168,10 @@ export async function packageRuntime({ node, pnpmCli, out, scratch, store, offli
     await removeGeneratedBins(tools);
     const closure = await inspectTree(stage);
     await fs.writeFile(path.join(stage, marker), identity);
-    await fs.writeFile(path.join(stage, 'build-manifest.json'), `${JSON.stringify({ schema: 1, sourcePin: '16747470f976aca3d362ad730bcd3fe82ecc2c9a', node: '24.21.0', pnpm: '11.4.0', offline, sourceHashes, closure }, null, 2)}\n`);
+    await fs.writeFile(path.join(stage, 'build-manifest.json'), `${JSON.stringify({ schema: 1, sourcePin: '16747470f976aca3d362ad730bcd3fe82ecc2c9a', node: '24.22.1', pnpm: '11.4.0', offline, sourceHashes, closure }, null, 2)}\n`);
     await publishRuntime(stage, out);
     published = true;
-    return { schema: 1, status: 'packaged', ...closure, node: '24.21.0', pnpm: '11.4.0' };
+    return { schema: 1, status: 'packaged', ...closure, node: '24.22.1', pnpm: '11.4.0' };
   } catch (e) { primary = e; throw e; }
   finally {
     try { if (!published) await fs.rm(stage, { recursive: true, force: true }); await fs.rm(home, { recursive: true, force: true }); }

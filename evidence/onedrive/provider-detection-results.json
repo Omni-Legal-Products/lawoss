@@ -1,0 +1,151 @@
+{
+  "platform": "win32",
+  "node": "v24.22.0",
+  "kind": "native Windows calls with synthetic client configuration; no signed-in provider clients",
+  "cases": [
+    {
+      "name": "ordinary local project",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "ordinary folder named Google Drive",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "ordinary folder named Dropbox",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "ordinary Box without installation metadata",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "generic registered provider without running client",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "generic registered provider sibling prefix",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "Google Drive live drive-letter mount",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Google Drive live drive root",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Google Drive second account with custom folder",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Google Drive sibling prefix is local",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "Google Drive machine default",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Google Drive per-user default",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Google Drive superseded machine mount",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "Google Drive policy override expands environment",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Google Drive superseded user mount",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "Box custom parent plus Box root",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Box default fallback with installed client",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Box sibling prefix remains local",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "Dropbox renamed personal root",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Dropbox second account",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Dropbox local appdata config location",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "Nextcloud placeholder roots",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "ownCloud configured roots",
+      "result": true,
+      "expected": true
+    },
+    {
+      "name": "literal PowerShell characters cannot execute",
+      "result": false,
+      "expected": false
+    },
+    {
+      "name": "malformed config fails closed",
+      "result": true,
+      "expected": true
+    }
+  ],
+  "environment": "Isolated GCloud Windows Server 2022 VM; no signed-in cloud clients",
+  "validationDate": "2026-10-19",
+  "sourceSha256": {
+    "apps/server/src/cloud-folder.ts": "55cc902155781671a1723df95c34dda7c44e7e8e2effeb7c7f030d399f5a93f3",
+    "apps/server/src/cloud-folder-windows.ts": "1b5d48f2ff3cd545e5b2e20d4389e71ae11f8859a6644cde479deb3f63e624a2"
+  },
+  "bundledModuleSha256": "22f0d48050c18a8c8f5439198df7831714c51563c9499119358db5eca6a3486c",
+  "limitations": [
+    "Configuration/registry fixtures exercise actual Windows APIs, not live Google Drive/Dropbox/Box/Nextcloud/ownCloud clients.",
+    "OneDrive real-cloud evidence was recorded on the preceding folder-policy revision; see real-onedrive-results.json.",
+    "Google Drive internal live-mount registration may differ in current client versions; arbitrary unregistered mirror/backup folders are not covered.",
+    "Enforcement is local; stored remote project scope is not migrated globally."
+  ],
+  "compiledModuleSha256": {
+    "apps/server/dist/cloud-folder.js": "5b6a40bf7feeb9e5cd42b987fba4a28a381d82d9aad67913b5ab9ebef5b229ee",
+    "apps/server/dist/cloud-folder-windows.js": "81218c152f8b4c978e9ec6604b945c224e067da59d309512e94bf27b835e6f6d"
+  },
+  "reproductionScript": "scripts/diagnostics/cloud-folder-providers-windows.mjs",
+  "reproductionScriptSha256": "f5e3ca20dbc98fd10ff4b4de8ad2391f2790cf944596531fb27f73e7f136fa35"
+}

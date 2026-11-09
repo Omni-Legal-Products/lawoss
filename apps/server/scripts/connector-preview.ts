@@ -11,8 +11,12 @@ import { connectorDefinitions } from "../src/connectors/schema.js";
 import { recordConnectorActivation, saveConnectorWriteSetting } from "../src/connectors/settings.js";
 import { prepareConnectorEmailDraft, prepareConnectorCalendarDraft, prepareConnectorCalendarUpdate } from "../src/connectors/drafts.js";
 
+import { storageInputSchema, type StorageInput } from "@legalwork/types/file-storage";
+
+const sharedStorage = new Map<string, { id: string; version: number; updatedAt: string; input: StorageInput }>();
 const root = await mkdtemp(join(tmpdir(), "legalwork-connector-preview-"));
 const showStorage = process.env.LEGALWORK_CONNECTOR_PREVIEW_STORAGE === "1";
+const storageSignInRequired = process.env.LEGALWORK_CONNECTOR_PREVIEW_STORAGE_SIGNIN === "1";
 const showDrafts = process.env.LEGALWORK_CONNECTOR_PREVIEW_DRAFTS === "1";
 const editedDrafts = process.env.LEGALWORK_CONNECTOR_PREVIEW_EDITED_DRAFTS === "1";
 const draftMime = new Map<string, string>();
@@ -121,6 +125,18 @@ globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init
   }
   if (url.hostname === "gmail.googleapis.com") return Response.json({ emailAddress: "fixture@example.com" });
   if (url.hostname === "graph.microsoft.com") return Response.json({ value: [] });
+  if (showStorage && url.hostname === "connector-fixture.test" && url.pathname.startsWith("/api/storage-connections")) {
+    if (url.pathname.endsWith("/sync")) return Response.json({ schemaVersion: 1, orgId: "fixture-firm", canManage: true, connections: [...sharedStorage.values()] });
+    if (url.pathname.endsWith("/token")) return Response.json({ accessToken: "fixture-team-storage-token", expiresAt: null });
+    if (init?.method === "POST") {
+      const value = storageInputSchema.parse(JSON.parse(String(init.body)));
+      const id = crypto.randomUUID();
+      const clean = { ...value, secrets: {} };
+      sharedStorage.set(id, { id, version: 1, updatedAt: new Date().toISOString(), input: clean });
+      return Response.json({ connection: { ...clean, id, version: 1, configuredSecrets: [] } });
+    }
+    return Response.json({ schemaVersion: 1, orgId: "fixture-firm", canManage: true, connections: [...sharedStorage.values()] });
+  }
   if (url.hostname !== "connector-fixture.test") return nativeFetch(input, init);
   const segments = url.pathname.split("/").filter(Boolean);
   const id = segments[2] === "outlook-calendar" ? "outlook" : segments[2];
@@ -136,8 +152,15 @@ globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init
 }, { preconnect: nativeFetch.preconnect });
 const server = await startServer(config);
 if (showStorage) {
+  if (storageSignInRequired) {
+    const id = "00000000-0000-4000-8000-000000000001";
+    sharedStorage.set(id, { id, version: 1, updatedAt: new Date().toISOString(), input: storageInputSchema.parse({
+      name: "Company Google Drive", config: { kind: "oauth", provider: "google-drive", root: "", sharingMode: "member" }, readOnly: true, teamInstallation: "automatic",
+    }) });
+  }
   const owner = JSON.stringify(["https://connector-fixture.test", "fixture-firm", "fixture-user"]);
   for (const provider of connectorDefinitions.filter(item => item.kind === "files")) {
+    if (storageSignInRequired && provider.id === "google-drive") continue;
     connected.add(provider.id);
     await writeConnectorConnections(config, owner, provider.id, [{ id: `${provider.id}-fixture-local`, nangoConnectionId: `${provider.id}-fixture-account`, createdAt: null, needsReconnect: false }]);
   }
@@ -162,7 +185,7 @@ const authorization = Bun.serve({ hostname: "127.0.0.1", port: 44642, async fetc
   const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
   if (new URL(request.url).pathname === "/fixture/drafts" && request.method === "GET") return Response.json(fixtureDrafts, { headers });
-  const body = z.object({ provider: z.enum(["gmail", "outlook"]), authUrl: z.string().optional() }).parse(await request.json());
+  const body = z.object({ provider: z.enum(["gmail", "outlook", "google-drive"]), authUrl: z.string().optional() }).parse(await request.json());
   if (body.authUrl) {
     const auth = new URL(body.authUrl);
     if (auth.hostname === "accounts.google.com" || auth.hostname === "login.microsoftonline.com") {

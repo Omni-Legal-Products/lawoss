@@ -24,13 +24,13 @@ import {
   FileArchive,
   FolderOpen,
   Loader2,
-  Package,
   Plus,
   RefreshCw,
   Search,
   Share2,
   Trash2,
   Wand2,
+  Workflow,
   X,
 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
@@ -81,10 +81,11 @@ import { FirmItemNote } from "../../connections/org-policy-ui";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import type { LegalworkClaudePluginPreview } from "@/app/lib/legalwork-server";
 import type { FirmHubSkillFile } from "@legalwork/types/firm-hub";
-import { BuiltInSkills, ImportedPackages, matchingBuiltInSkills, packageParts, type SkillPackagesStore } from "./skill-packages";
+import { BuiltInSkills, matchingBuiltInSkills, packageParts, type SkillPackagesStore } from "./skill-packages";
 import { importedSkillPlugin, pluginImportName, pluginImportSkillName } from "./plugin-import-presentation";
 import { SkillDetailsDialog } from "./skill-details-dialog";
 import { FirmSkillDialog } from "./firm-skill-dialog";
+import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
 
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
@@ -124,7 +125,7 @@ export type GithubSkillItem = { dir: string; name: string; description: string }
 export type SkillsExtensionsStore = SkillResourcesStore & SkillPackagesStore & {
   /** A GitHub repo that is a package (skills, connectors and commands together): what it would bring, and importing it. */
   previewClaudePlugin: (url: string) => Promise<LegalworkClaudePluginPreview>;
-  installClaudePlugin: (url: string) => Promise<{ ok: boolean; message: string }>;
+  installClaudePlugin: (url: string, acknowledgePartial?: boolean) => Promise<{ ok: boolean; message: string }>;
   /** A file of one of the firm's skills or workflows, to read (they cannot be changed here). */
   readFirmSkill: (name: string, path?: string) => Promise<FirmHubSkillFile>;
   skills: () => SkillCard[];
@@ -176,6 +177,7 @@ export type SkillsViewProps = {
   canUseDesktopTools: boolean;
   accessHint?: string | null;
   extensions: SkillsExtensionsStore;
+  pluginImports?: PluginImportStore;
   onOpenLink: (url: string) => void;
   createSessionAndOpen: (initialPrompt?: string) => Promise<string | undefined> | string | void;
   /**
@@ -333,7 +335,6 @@ export function SkillsView(props: SkillsViewProps) {
     if (isWorkflowsView || props.busy) return;
     if (await orgPolicyAllows("skills.allowCustom")) setSkillCreateOpen(true);
   });
-  const [packagesOpen, setPackagesOpen] = useState(false);
   // Local | Team toggle: "Local" shows this workspace's installed items; "Team"
   // shows what the firm shared (firmDownloadView). Only meaningful when a Team
   // view is provided (firm-connected + entitled).
@@ -588,7 +589,7 @@ export function SkillsView(props: SkillsViewProps) {
   };
 
   return (
-    <section className={isWorkflowsView ? "space-y-8 w-full max-w-5xl" : libraryLayout ? "space-y-1 w-full max-w-5xl" : "space-y-6 w-full max-w-5xl"}>
+    <section className={isWorkflowsView ? "space-y-8 w-full max-w-5xl" : libraryLayout ? "space-y-1 w-full" : "space-y-6 w-full max-w-5xl"}>
       <div className={isWorkflowsView ? "space-y-7" : "space-y-5"}>
         <div className={libraryLayout ? "contents" : "flex flex-wrap items-start justify-between gap-4"}>
           <div className={libraryLayout ? "hidden" : "min-w-0 flex-1 basis-64"}>
@@ -611,6 +612,7 @@ export function SkillsView(props: SkillsViewProps) {
             {isWorkflowsView ? (
               <>
                 <ImportSkillsButton
+                  pluginImports={props.pluginImports}
                   asWorkflow
                   busy={props.busy}
                   canUseDesktopTools={props.canUseDesktopTools}
@@ -652,6 +654,7 @@ export function SkillsView(props: SkillsViewProps) {
             ) : (
               <>
                 {!libraryLayout ? <ImportSkillsButton
+                  pluginImports={props.pluginImports}
                   asWorkflow={false}
                   busy={props.busy}
                   canUseDesktopTools={props.canUseDesktopTools}
@@ -680,7 +683,6 @@ export function SkillsView(props: SkillsViewProps) {
                 {libraryLayout ? <>
                   {!managedAdd ? <IntegrationAddMenu disabled={props.busy} actions={[{ label: t("skills.new_skill"), icon: Plus, onClick: async () => { if (await orgPolicyAllows("skills.allowCustom")) setSkillCreateOpen(true); } }]} /> : null}
                   <IntegrationMoreMenu busy={props.busy} onRefresh={refreshCatalogs}>
-                    <DropdownMenuItem onClick={() => setPackagesOpen(true)}><Package />{t("skills.packages_title")}</DropdownMenuItem>
                     <DropdownMenuItem disabled={props.busy || !props.canUseDesktopTools} onClick={() => runDesktopAction(extensions.revealSkillsFolder)}><FolderOpen />{t("skills.reveal_folder")}</DropdownMenuItem>
                   </IntegrationMoreMenu>
                 </> : null}
@@ -705,12 +707,6 @@ export function SkillsView(props: SkillsViewProps) {
       </div>
 
       {showTeam ? props.firmDownloadView : null}
-      {libraryLayout && !isWorkflowsView ? <Dialog open={packagesOpen} onOpenChange={setPackagesOpen}>
-        <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto sm:max-w-3xl">
-          <DialogHeader className="pe-8"><DialogTitle>{t("skills.packages_title")}</DialogTitle><DialogDescription>{t("skills.packages_desc")}</DialogDescription></DialogHeader>
-          <ImportedPackages extensions={extensions} busy={props.busy} revision={packagesRevision + (libraryLayout.revision ?? 0)} showEmpty />
-        </DialogContent>
-      </Dialog> : null}
 
       {props.accessHint ? (
         <div className="rounded-[20px] border border-dls-border bg-dls-hover px-5 py-4 text-[13px] text-dls-secondary">
@@ -1554,6 +1550,7 @@ export function ImportSkillsButton(props: {
   onOpenChange?: (open: boolean) => void;
   onBack?: () => void;
   onImported?: () => void;
+  onImportLegalQuants?: () => void;
   returnFocus?: false | RefObject<HTMLElement | null>;
   /** Standalone workflow import keeps both sources when this is omitted. */
   source?: SkillImportSource;
@@ -1562,13 +1559,16 @@ export function ImportSkillsButton(props: {
   canUseDesktopTools: boolean;
   existingNames: Set<string>;
   extensions: SkillImportStore;
+  pluginImports?: PluginImportStore;
   /** A whole package was imported (skills, connectors and commands together). */
   onPackageImported?: () => void;
 }) {
   const { extensions, asWorkflow } = props;
   // A repo that is a package is offered whole, where the firm lets members import packages.
-  const offerPackages = !asWorkflow && !useOrgPolicyForbids("plugins.allowCustom");
+  const canImportPackages = !useOrgPolicyForbids("plugins.allowCustom");
+  const offerPackages = !asWorkflow && canImportPackages;
   const [found, setFound] = useState<{ url: string; preview: LegalworkClaudePluginPreview } | null>(null);
+  const [partialAccepted, setPartialAccepted] = useState(false);
   const noun = asWorkflow ? "workflow" : "skill";
   const [internalOpen, setInternalOpen] = useState(false);
   const open = props.open ?? internalOpen;
@@ -1597,6 +1597,7 @@ export function ImportSkillsButton(props: {
     setImporting(false);
     setStatus(null);
     setFound(null);
+    setPartialAccepted(false);
   };
 
   const finalNameFor = (item: GithubSkillItem) => {
@@ -1615,6 +1616,7 @@ export function ImportSkillsButton(props: {
     setStatus(null);
     setFilter("");
     setFound(null);
+    setPartialAccepted(false);
     try {
       const [result, preview] = await Promise.all([
         extensions.scanGithubSkills(trimmed, sourceRef.trim() || undefined),
@@ -1699,7 +1701,7 @@ export function ImportSkillsButton(props: {
     setImporting(true);
     setError(null);
     try {
-      const result = await extensions.installClaudePlugin(found.url);
+      const result = await extensions.installClaudePlugin(found.url, partialAccepted);
       if (!result.ok) {
         setError(result.message);
         return;
@@ -1723,6 +1725,12 @@ export function ImportSkillsButton(props: {
     void Promise.resolve(extensions.importLocalSkillZip({ asWorkflow }));
   };
 
+  const importLegalQuants = props.onImportLegalQuants ? () => {
+    setOpen(false);
+    reset();
+    props.onImportLegalQuants?.();
+  } : undefined;
+
   return (
     <>
       <Button
@@ -1737,7 +1745,7 @@ export function ImportSkillsButton(props: {
         <Download size={14} />
         {t(asWorkflow ? "skills.import" : "skills.import_skills_title")}
       </Button>
-      <Dialog
+      {open && props.pluginImports && canImportPackages ? <PluginImportDialog store={props.pluginImports} initialAsWorkflow={asWorkflow} canImportSkills canImportLocalSkills={props.canUseDesktopTools} onImportSkills={() => {}} onImportLegalQuants={importLegalQuants} onClose={() => setOpen(false)} onImported={() => { props.onImported?.(); props.onPackageImported?.(); setOpen(false); }} /> : <Dialog
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
@@ -1754,6 +1762,7 @@ export function ImportSkillsButton(props: {
           </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-px py-1">
+            {!props.source && importLegalQuants ? <Button variant="outline" disabled={props.busy || scanning || importing} onClick={importLegalQuants}><Workflow />{t("integrations.import_legalquants")}</Button> : null}
             {props.source !== "files" ? <div className="space-y-2">
               {!props.source ? <span className="text-xs font-medium text-dls-text">{t("skills.from_github")}</span> : null}
               <div className="flex flex-col gap-2 sm:flex-row">
@@ -1800,7 +1809,10 @@ export function ImportSkillsButton(props: {
                     <div className="text-sm font-medium text-dls-text">{t("skills.package_found", { name: found.preview.name })}</div>
                     <div className="mt-1 text-xs text-dls-secondary">{packageParts(found.preview.components.map((component) => component.type))}</div>
                   </div>
-                  <Button type="button" disabled={importing} onClick={() => void runPackageImport()}>
+                  {found.preview.review?.requirements?.map((item, index) => <p key={`${item.code}:${index}`} className="text-sm text-muted-foreground">{item.message}</p>)}
+                  {found.preview.review?.connectors?.map(item => <p key={item.installedName} className="text-sm text-muted-foreground">{item.name}: {item.message}</p>)}
+                  {found.preview.review?.readiness === "partial" ? <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={partialAccepted} onChange={event => setPartialAccepted(event.target.checked)} />{t("extensions.import_accept_partial")}</label> : null}
+                  <Button type="button" disabled={importing || found.preview.review?.readiness === "unsupported" || found.preview.review?.readiness === "partial" && !partialAccepted} onClick={() => void runPackageImport()}>
                     {importing ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                     {t("skills.package_import")}
                   </Button>
@@ -1909,7 +1921,7 @@ export function ImportSkillsButton(props: {
             <DialogClose render={<Button variant="outline" />}>Done</DialogClose>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog>}
     </>
   );
 }

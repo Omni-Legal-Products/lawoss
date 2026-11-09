@@ -4,8 +4,6 @@ import type { ViewGenerationChunk } from "../views/generation-stream.js";
 
 const HEADER = "x-legalwork-view-stream";
 const requests = new Map<string, { at: number; publish: (chunk: ViewGenerationChunk) => Promise<void> }>();
-// LAWOSS: the installed wrapper, not a one-shot flag. If global fetch was replaced after installation
-// (a fixture restoring its own fetch, another plugin), the next use installs the bridge again.
 let installed: typeof fetch | undefined;
 
 /** Compatibility for engines that discard tool-input-delta (including bundled OpenCode 1.18.29).
@@ -47,8 +45,8 @@ export function installViewStreamBridge() {
       }));
       return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
     };
-    installed = Object.assign(patched, base);
-    globalThis.fetch = installed;
+    globalThis.fetch = Object.assign(patched, base);
+    installed = globalThis.fetch;
   }
 }
 

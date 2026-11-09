@@ -260,6 +260,7 @@ export async function createManagedOpencodeServer(options: {
   // recursive external scan also picks up nested packages for other agent apps.
   const features = { OPENCODE_DISABLE_EXTERNAL_SKILLS: "true", OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: process.env.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS ?? "true" };
   // LAWOSS: engine bez sťahovania katalógu, zdieľania a aktualizácie (lawoss/engine-network.ts).
+  // Upstream OPENCODE_DISABLE_FFF (v0.2.12) je tiež v lawossEnv, aby poistky ostali posledné.
   const lawossEnv = lawossEngineEnv(options.inheritEnvironment === false ? {} : process.env);
   // LAWOSS: the server's own credentials never reach the engine (lawoss/engine-credentials.ts).
   const env = withoutServerCredentials({

@@ -56,11 +56,11 @@ export function groupPluginImportCandidates(candidates: PluginImportCandidate[])
     groups.set(key, copies);
   }
   return [...groups.values()].flatMap(sources => {
-    sources.sort((a, b) => (b.version ?? "").localeCompare(a.version ?? "", undefined, { numeric: true }) || Number(b.path.includes("/cache/")) - Number(a.path.includes("/cache/")) || a.path.localeCompare(b.path));
+    sources.sort((a, b) => Number(b.state === "installed" || b.state === "synced") - Number(a.state === "installed" || a.state === "synced") || (b.version ?? "").localeCompare(a.version ?? "", undefined, { numeric: true }) || a.path.localeCompare(b.path));
     return sources[0] ? [{ candidate: sources[0], sources }] : [];
   }).sort((a, b) => pluginImportName(a.candidate).localeCompare(pluginImportName(b.candidate)));
 }
 
 export function pluginImportCandidateKey(candidate: PluginImportCandidate): string {
-  return JSON.stringify([candidate.path, candidate.connector?.name, candidate.connector?.project, candidate.connector?.pluginRoot]);
+  return JSON.stringify([candidate.path, candidate.marketplace, candidate.connector?.name, candidate.connector?.project, candidate.connector?.pluginRoot]);
 }

@@ -14,7 +14,7 @@ export function targetFromTriple(triple) {
         throw new Error(`Unsupported build target: ${triple}`);
     return { platform, arch };
 }
-const packagePaths = ['apps/app/package.json', 'apps/desktop/package.json', 'apps/orchestrator/package.json', 'apps/server/package.json', 'apps/opencode-router/package.json'];
+const packagePaths = ['apps/app/package.json', 'apps/desktop/package.json', 'apps/orchestrator/package.json', 'apps/server/package.json'];
 /** Allow only the exact apply-version transformation, never an arbitrary dirty package. */
 export function assertReleaseSource(root, version) {
     const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trimEnd();
@@ -32,12 +32,8 @@ export function assertReleaseSource(root, version) {
             throw new Error(`Release source is dirty: ${path}`);
         const expected = JSON.parse(git('show', `HEAD:${path}`));
         expected.version = version;
-        if (path === 'apps/desktop/package.json')
-            expected.opencodeRouterVersion = version;
-        if (path === 'apps/orchestrator/package.json') {
+        if (path === 'apps/orchestrator/package.json')
             expected.dependencies['legalwork-server'] = version;
-            expected.dependencies['opencode-router'] = version;
-        }
         const observed = JSON.parse(readFileSync(resolve(root, path), 'utf8'));
         if (JSON.stringify(observed) !== JSON.stringify(expected))
             throw new Error(`Unexpected release source changes: ${path}`);

@@ -3,7 +3,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { t } from "@/i18n";
-import { isAnalyticsChoiceHidden, isModelCatalogUpdatesHidden } from "@/lawoss/feature-flags";
+import { isAnalyticsChoiceHidden, isHiddenSettingsTab, isModelCatalogUpdatesHidden } from "@/lawoss/feature-flags";
 import type { HideAppMode } from "@/react-app/kernel/local-provider";
 import { useOrgPolicy } from "../../connections/org-policy";
 import { OrgPolicyNote } from "../../connections/org-policy-ui";
@@ -65,7 +65,8 @@ export function PreferencesView(props: PreferencesViewProps) {
           </LayoutSectionItemHeader>
         </LayoutSectionItem>}
 
-        <LayoutSectionItem>
+        {/* LAWOSS: upstream v0.2.12 presunul voľbu do nastavení nahrávača, ktoré LAWOSS skrýva. */}
+        {isHiddenSettingsTab("recorder") ? <LayoutSectionItem>
           <LayoutSectionItemHeader>
             <LayoutSectionItemTitle>{t("settings.hide_app_title")}</LayoutSectionItemTitle>
             <LayoutSectionItemDescription>{t("settings.hide_app_desc")}</LayoutSectionItemDescription>
@@ -93,7 +94,7 @@ export function PreferencesView(props: PreferencesViewProps) {
               </Select>
             </LayoutSectionItemHeaderActions>
           </LayoutSectionItemHeader>
-        </LayoutSectionItem>
+        </LayoutSectionItem> : null}
 
         {isAnalyticsChoiceHidden() ? null : <LayoutSectionItem>
           <LayoutSectionItemHeader>

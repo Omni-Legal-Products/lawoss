@@ -2,7 +2,7 @@
 // Each request retains its owning session for replies and cache removal.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "@/components/ui/sonner";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 
 import { useSessionActivityStore } from "../status/session-activity-store";
 import { hostApprovalScope } from "@/react-app/shell/host-approval-feed";
@@ -17,7 +17,7 @@ import { acknowledgeInteraction, seedTodoState, todoKey } from "./session-sync";
 import { answeredByApp, autoReplyDue, claimPermissionReply, leavePermissionToLawyer, releasePermissionReply, rememberSessionApproval } from "@/lawoss/lite/session-approvals";
 import {
   permissionKey, questionKey, interactionSessionsKey, emptyInteractionSessions,
-  interactionSessionIds, sortInteractionRequests, replyToPermission, replyToQuestion,
+  interactionSessionIds, sortInteractionRequests, replyToPermission, replyToQuestion, permissionToolInput,
   type InteractionSessions,
 } from "./interaction-state";
 
@@ -104,7 +104,28 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
   const firstPermission = pendingPermissions.find((permission) => !answeredByApp(permission, [permission.sessionID, ...(sessionId ? [sessionId] : [])]));
   const firstQuestion = pendingQuestions[0];
   const permissionFirst = firstPermission && (!firstQuestion || sortInteractionRequests(firstPermission, firstQuestion) <= 0);
-  const activePermission = permissionFirst ? firstPermission : null;
+  const permissionRequest = permissionFirst ? firstPermission : null;
+  const inspectTool = Boolean(permissionRequest?.tool && permissionRequest.protocol !== "host");
+  const inputQuery = useQuery({
+    queryKey: ["react-permission-tool-input", workspaceId, permissionRequest?.sessionID, permissionRequest?.id,
+      permissionRequest?.tool?.messageID, permissionRequest?.tool?.callID],
+    enabled: Boolean(client && inspectTool),
+    staleTime: Infinity,
+    retry: 1,
+    queryFn: async ({ signal }) => {
+      if (!client || !permissionRequest?.tool) throw new Error("Permission tool request is unavailable.");
+      const message = unwrap(await client.session.message({
+        sessionID: permissionRequest.sessionID, messageID: permissionRequest.tool.messageID,
+        directory: workspaceRoot || undefined,
+      }, { signal }));
+      return permissionToolInput(permissionRequest, message);
+    },
+  });
+  const activePermission: PendingPermission | null = permissionRequest ? {
+    ...permissionRequest,
+    ...(inspectTool ? { toolInput: inputQuery.isSuccess ? { status: "ready", value: inputQuery.data }
+      : { status: inputQuery.isFetching ? "loading" : inputQuery.isError || !client ? "unavailable" : "loading" } } : {}),
+  } : null;
   const respondPermission = useCallback(
     async (requestID: string, reply: "once" | "always" | "reject", options?: { rememberForSession?: boolean }) => {
       if (!client || !workspaceId || !sessionId) return;
@@ -176,6 +197,7 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
   return {
     pendingInteractionSessionIds,
     activePermission,
+    retryPermissionInput: () => { void inputQuery.refetch(); },
     permissionReplyBusy,
     respondPermission,
     activeQuestion,

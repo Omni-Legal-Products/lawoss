@@ -40,6 +40,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { Dialog, DialogTitle } from "@/components/ui/dialog";
+import { ItemDialogContent } from "@/react-app/design-system/item-detail";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu";
 import { ListPagination } from "@/components/list-pagination";
@@ -111,7 +113,7 @@ import {
 const HOME_PAGE_SIZE = 6;
 
 export type TasksPaneProps = {
-  /** A bounded Home section using the same rows, actions and task viewer. */
+  /** A bounded Home list that opens the full task viewer in a modal. */
   embedded?: boolean;
   onViewAll?: () => void;
   /** Restricts the shared list and new tasks to one project. */
@@ -149,6 +151,8 @@ export function TasksPane(props: TasksPaneProps) {
   const attachments = useMemo(() => createTaskAttachmentState(props.workspaceId, draftScope), [props.workspaceId, draftScope]);
   const attachment = useSyncExternalStore(attachments.subscribe, attachments.getSnapshot, attachments.getSnapshot);
   const attachmentRequest = useRef(0);
+  const detailMode = props.embedded ? "modal" : props.detailMode;
+  const detailRef = useRef<HTMLDivElement>(null);
   const context = { client: props.client, workspaceId: props.workspaceId };
   const access = useTaskAccess(context);
 
@@ -259,7 +263,7 @@ export function TasksPane(props: TasksPaneProps) {
   // fetch only adds the submission, the history and any field changed meanwhile.
   const selectedTask =
     detailQuery.data?.task ?? tasks.find((task) => task.id === selectedTaskId) ?? null;
-  const selectedDraft = selectedTask && props.detailMode !== "panel" ? getTaskDraft(draftScope, props.workspaceId, selectedTask) : undefined;
+  const selectedDraft = selectedTask && detailMode !== "panel" ? getTaskDraft(draftScope, props.workspaceId, selectedTask) : undefined;
   const filtered = !props.embedded && (assignees.length > 0 || endpointIds.length > 0 || selectedTags.length > 0 || statuses.length > 0 || inTrash);
   const syncing = runSync.isPending;
   const refreshing = syncing || (tasksQuery.isFetching && !tasksQuery.isFetchingNextPage);
@@ -295,7 +299,7 @@ export function TasksPane(props: TasksPaneProps) {
     createTask.mutate({ ...input, ...(props.projectId ? { projectId: props.projectId } : {}) }, {
       onSuccess: task => {
         setCreating(false);
-        if (props.detailMode === "panel") requestOpenTask(task.id, task.title, { preview: false });
+        if (detailMode === "panel") requestOpenTask(task.id, task.title, { preview: false });
         else setSelectedTaskId(task.id);
         if (props.embedded) setPage(0);
         if (inTrash) switchView("tasks");
@@ -347,7 +351,7 @@ export function TasksPane(props: TasksPaneProps) {
     const copy = new File([file.data], attachment.filename, { type: attachment.contentType });
     const tab = await importViewerFile(props.client, props.workspaceId, copy);
     if (request !== attachmentRequest.current) return;
-    if (props.detailMode === "panel") requestPanelTab(tab);
+    if (detailMode === "panel") requestPanelTab(tab);
     else attachments.open({ taskId: task.id, tab });
   };
 
@@ -402,13 +406,61 @@ export function TasksPane(props: TasksPaneProps) {
     if (project && mode === "session") { void startRun(task, { workspace: project, workflowName: null }); return; }
     setStartMode(mode);
   });
-  const showingDetail = selectedTask !== null && props.detailMode !== "panel";
+  const showingDetail = selectedTask !== null && detailMode !== "panel" && detailMode !== "modal";
   const selectTask = (id: string) => {
     setSelectedTaskId(id);
-    if (props.detailMode === "panel") requestOpenTask(id, tasks.find((task) => task.id === id)?.title ?? t("tasks.title"));
+    if (detailMode === "panel") requestOpenTask(id, tasks.find((task) => task.id === id)?.title ?? t("tasks.title"));
   };
 
   const pageLayout = !props.embedded && !showingDetail;
+  const detail = selectedTask && detailMode !== "panel" ? (
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {selectedTask.projectId && props.onOpenInProject && <div className={cn("flex justify-end px-4 pt-2", detailMode === "modal" && "pe-12")}><Button variant="ghost" size="sm" onClick={() => {
+        if (hasUnsavedSessionDocument(draftScope, `task:${selectedTask.id}`)) { toast.info(t("workspace.finish_task_edit")); return; }
+        attachments.closeThen(() => props.onOpenInProject?.(selectedTask.projectId!, selectedTask));
+      }}>{t(props.projectId ? "workspace.open_overview_tab" : "workspace.open_in_project")}</Button></div>}
+      {attachmentTab && <div className="flex min-h-0 flex-1 flex-col"><Button variant="ghost" size="sm" className="self-start" onClick={() => attachments.closeThen()}>{t("workspace.back_to_task")}</Button><ArtifactPanel tab={attachmentTab} sessionId={draftScope} client={props.client} workspaceId={props.workspaceId} workspaceRoot={props.workspaces.find(workspace => workspace.id === props.workspaceId)?.path ?? ""} onClose={() => attachments.closeThen()} /></div>}
+      <div className={attachmentTab ? "hidden" : "flex min-h-0 flex-1 flex-col"}><TaskDetail
+        key={selectedTask.id}
+        inDialog={detailMode === "modal"}
+        inPanel={detailMode === "modal"}
+        draft={selectedDraft}
+        draftKey={artifactDocumentKey(props.workspaceId, draftScope, `task:${selectedTask.id}`)}
+        saving={updateTask.isPending || resolveConflict.isPending}
+        task={selectedTask}
+        projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayNameResolved }))}
+        submission={detailQuery.data?.submission}
+        notes={detailQuery.data?.notes ?? []}
+        submissionPending={detailQuery.isLoading}
+        members={members}
+        tagSuggestions={tags}
+        busy={busy}
+        accountUserId={access.accountUserId}
+        onBack={() => setSelectedTaskId(null)}
+        onPatch={async (patch) => {
+          const result = await updateTask.mutateAsync({ taskId: selectedTask.id, patch });
+          selectedDraft?.reconcile(result.task);
+          return result;
+        }}
+        conflicts={detailQuery.data?.conflicts}
+        onResolveConflict={(choice) => resolveConflict.mutateAsync({ taskId: selectedTask.id, choice })}
+        onDelete={() => remove(selectedTask)}
+        onRestore={() => restore(selectedTask)}
+        onStartWorkflow={() => requestRun(selectedTask, "workflow")}
+        onStartSession={() => requestRun(selectedTask, "session")}
+        onOpenSession={(link) => props.onOpenSession(link.workspaceId, link.sessionId)}
+        onDownloadAttachment={(attachment) => downloadAttachment(selectedTask, attachment)}
+        onOpenAttachment={(attachment) => openAttachment(selectedTask, attachment)}
+        onUploadAttachments={(files) => uploadAttachments.mutateAsync({ taskId: selectedTask.id, files })}
+        onUploadStorageAttachment={async (storageFile) => {
+          if (!props.client) throw new Error(t("tasks.upload_failed"));
+          const file = await storageFileDragToFile(props.client, props.workspaceId, storageFile);
+          return uploadAttachments.mutateAsync({ taskId: selectedTask.id, files: [file] });
+        }}
+        onRemoveAttachment={(attachment) => deleteAttachment.mutateAsync({ taskId: selectedTask.id, attachmentId: attachment.id })}
+      /></div>
+    </section>
+  ) : null;
 
   return (
     // Center the list at a readable width until a task is opened. Then the pane splits
@@ -610,52 +662,16 @@ export function TasksPane(props: TasksPaneProps) {
       </ContextMenuContent>
       </ContextMenu>
 
-      {selectedTask && props.detailMode !== "panel" ? (
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {selectedTask.projectId && props.onOpenInProject && <div className="flex justify-end px-4 pt-2"><Button variant="ghost" size="sm" onClick={() => {
-            if (hasUnsavedSessionDocument(draftScope, `task:${selectedTask.id}`)) { toast.info(t("workspace.finish_task_edit")); return; }
-            attachments.closeThen(() => props.onOpenInProject?.(selectedTask.projectId!, selectedTask));
-          }}>{t(props.projectId ? "workspace.open_overview_tab" : "workspace.open_in_project")}</Button></div>}
-          {attachmentTab && <div className="flex min-h-0 flex-1 flex-col"><Button variant="ghost" size="sm" className="self-start" onClick={() => attachments.closeThen()}>{t("workspace.back_to_task")}</Button><ArtifactPanel tab={attachmentTab} sessionId={draftScope} client={props.client} workspaceId={props.workspaceId} workspaceRoot={props.workspaces.find(workspace => workspace.id === props.workspaceId)?.path ?? ""} onClose={() => attachments.closeThen()} /></div>}
-          <div className={attachmentTab ? "hidden" : "flex min-h-0 flex-1 flex-col"}><TaskDetail
-            key={selectedTask.id}
-            draft={selectedDraft}
-            draftKey={artifactDocumentKey(props.workspaceId, draftScope, `task:${selectedTask.id}`)}
-            saving={updateTask.isPending || resolveConflict.isPending}
-            task={selectedTask}
-            projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayNameResolved }))}
-            submission={detailQuery.data?.submission}
-            notes={detailQuery.data?.notes ?? []}
-            submissionPending={detailQuery.isLoading}
-            members={members}
-            tagSuggestions={tags}
-            busy={busy}
-            accountUserId={access.accountUserId}
-            onBack={() => setSelectedTaskId(null)}
-            onPatch={async (patch) => {
-              const result = await updateTask.mutateAsync({ taskId: selectedTask.id, patch });
-              selectedDraft?.reconcile(result.task);
-              return result;
-            }}
-            conflicts={detailQuery.data?.conflicts}
-            onResolveConflict={(choice) => resolveConflict.mutateAsync({ taskId: selectedTask.id, choice })}
-            onDelete={() => remove(selectedTask)}
-            onRestore={() => restore(selectedTask)}
-            onStartWorkflow={() => requestRun(selectedTask, "workflow")}
-            onStartSession={() => requestRun(selectedTask, "session")}
-            onOpenSession={(link) => props.onOpenSession(link.workspaceId, link.sessionId)}
-            onDownloadAttachment={(attachment) => downloadAttachment(selectedTask, attachment)}
-            onOpenAttachment={(attachment) => openAttachment(selectedTask, attachment)}
-            onUploadAttachments={(files) => uploadAttachments.mutateAsync({ taskId: selectedTask.id, files })}
-            onUploadStorageAttachment={async (storageFile) => {
-              if (!props.client) throw new Error(t("tasks.upload_failed"));
-              const file = await storageFileDragToFile(props.client, props.workspaceId, storageFile);
-              return uploadAttachments.mutateAsync({ taskId: selectedTask.id, files: [file] });
-            }}
-            onRemoveAttachment={(attachment) => deleteAttachment.mutateAsync({ taskId: selectedTask.id, attachmentId: attachment.id })}
-          /></div>
-        </section>
-      ) : null}
+      {detailMode === "modal" ? (
+        <Dialog open={selectedTask !== null} onOpenChange={open => {
+          if (!open) attachments.closeThen(() => setSelectedTaskId(null));
+        }}>
+          <ItemDialogContent ref={detailRef} initialFocus={detailRef} className="h-[min(760px,85dvh)] sm:max-w-3xl">
+            <DialogTitle className="sr-only">{selectedTask?.title ?? t("tasks.title")}</DialogTitle>
+            {detail}
+          </ItemDialogContent>
+        </Dialog>
+      ) : detail}
 
       {selectedTask ? (
         <StartWorkflowDialog

@@ -155,3 +155,12 @@ test("shortcut cycles cannot recursively walk the account indefinitely", async (
   const adapter = await googleStorageAdapter(config, request);
   await expect(adapter.list(`${nativeSegment(my)}/${nativeSegment(loop)}/${nativeSegment(loop)}`)).rejects.toMatchObject({ code: "storage_invalid_response" });
 });
+
+
+test("team location folder links resolve to a scoped physical Google folder", async () => {
+  const { request } = fixture();
+  const adapter = await googleStorageAdapter({ ...config, root: "https://drive.google.com/drive/folders/matter?usp=sharing" }, request);
+  const entries = await pages(cursor => adapter.list("", cursor));
+  expect(entries.map(entry => entry.id)).toEqual(["company-file", "company-file-2"]);
+  await expect(googleStorageAdapter({ ...config, root: "https://drive.google.com/file/d/matter" }, request)).rejects.toMatchObject({ code: "invalid_storage_root" });
+});

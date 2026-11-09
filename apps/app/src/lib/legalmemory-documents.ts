@@ -17,9 +17,9 @@ export type LegalMemoryDocument = {
   title: string;
   /** Version status as stored, e.g. "executed", "final", "draft". */
   versionStatus?: string;
-  /** The matter this document belongs to, by id. Resolved to a title
-   * separately: a hit names the matter only by id. */
+  /** Matter context from the result itself; never enumerate other matters for a label. */
   matterId?: string;
+  matterTitle?: string;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -70,6 +70,7 @@ function collectFrom(value: unknown, into: Map<string, LegalMemoryDocument>, dep
       title,
       versionStatus: asString(record.version_status),
       matterId: asString(record.matter_id),
+      matterTitle: asString(record.matter_title),
     });
   }
 

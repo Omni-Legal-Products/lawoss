@@ -46,7 +46,7 @@ describe("detail skillu v Integráciách nie je po anglicky (V14)", () => {
       expect(modal().includes(`"${value}"`) ? value : null).toBeNull();
   });
   test("SK, CS a DE majú vlastné texty detailu", () => {
-    const keys = ["session.details_label", "mcp.server_type", "extension_detail.location", "identities.status_label", "skills.installed_status",
+    const keys = ["session.details_label", "mcp.server_type", "extension_detail.location", "review.status", "skills.installed_status",
       "extension_detail.visibility", "extension_detail.shown", "extension_card.hidden", "common.hide", "office_addins.uninstall", "extension_detail.not_installed",
       "extension_detail.trigger", "extension_detail.availability", "extension_detail.setup"];
     const expected: Record<"sk" | "cs" | "de", string[]> = {

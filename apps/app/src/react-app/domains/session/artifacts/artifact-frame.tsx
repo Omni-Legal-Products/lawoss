@@ -21,8 +21,14 @@ export function ArtifactFrame({ title, icon, meta, actions, expandable, children
   return (
     <div
       data-artifact-expanded={expanded}
+      onKeyDown={(event) => {
+        if (!expanded || event.defaultPrevented || event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        setExpanded(false);
+      }}
       className={expanded
-        ? "fixed inset-0 z-40 flex min-h-0 min-w-0 flex-col overflow-hidden bg-background mac:top-11"
+        ? "fixed inset-0 z-40 flex min-h-0 min-w-0 flex-col overflow-hidden bg-background mac:top-11 windows:top-(--lw-window-bar-height)"
         : "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background"}
     >
       {expanded && <ExpandedDocumentBar label={t("artifact.exit_fullscreen")} onRestore={() => setExpanded(false)} />}

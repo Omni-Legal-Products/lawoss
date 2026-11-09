@@ -12,7 +12,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 export function installedProvenance(plugin: ImportedPlugin): InstalledProvenance | null {
-  const raw: unknown = Reflect.get(plugin, "provenance");
+  // `lawossProvenance` od upstream v0.2.11 (upstream `provenance` je iný tvar); staršie záznamy `provenance`.
+  const current: unknown = Reflect.get(plugin, "lawossProvenance");
+  const raw: unknown = isRecord(current) ? current : Reflect.get(plugin, "provenance");
   if (!isRecord(raw) || !isRecord(raw.source)) return null;
   const { owner, repo, ref } = raw.source;
   if (typeof owner !== "string" || typeof repo !== "string" || typeof ref !== "string") return null;

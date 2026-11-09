@@ -1,5 +1,6 @@
 import { useLocale } from "@/i18n/use-locale";
-import { applyOfficeUiLocale, clearOfficeUiLocale, prepareOfficeUiLocale } from "./ui-locale";
+import { applyOfficeUiLocale, bindOfficeUiLocale, clearOfficeUiLocale } from "./ui-locale";
+import { captureOfficeLaunch, officeServerSettings } from "./office-launch";
 /** @jsxImportSource react */
 import * as React from "react";
 import ReactDOM from "react-dom/client";
@@ -9,7 +10,7 @@ import { HashRouter } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { setAnalyticsConsentOverride, setAnalyticsDistinctId } from "@/app/lib/analytics";
 import { getLegalWorkDeployment } from "@/app/lib/legalwork-deployment";
-import { writeLegalworkServerSettings } from "@/app/lib/legalwork-server";
+import { readLegalworkServerSettings, writeLegalworkServerSettings } from "@/app/lib/legalwork-server";
 import { bootstrapTheme } from "@/app/theme";
 import { initLocale, t } from "@/i18n";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
@@ -24,19 +25,10 @@ import { WordAddinRoot } from "./word-addin-root";
 import "@/app/index.css";
 import "./word-pane.css";
 
-// Consume the manifest capability before HashRouter interprets the fragment.
-const officeCapability = (() => {
-  let capability = new URLSearchParams(window.location.hash.slice(1)).get("capability") || "";
-  try {
-    capability ||= window.sessionStorage.getItem("legalwork.officeCapability") || "";
-    if (capability) window.sessionStorage.setItem("legalwork.officeCapability", capability);
-  } catch { /* The current manifest still pairs when storage is unavailable. */ }
-  if (window.location.hash.includes("capability=")) {
-    window.history.replaceState(null, "", window.location.pathname + window.location.search);
-  }
-  return capability;
-})();
-const officeBootstrapHeaders = { "X-LegalWork-Office-Capability": officeCapability };
+// Consume the manifest launch key before HashRouter interprets the fragment.
+const officeLaunch = captureOfficeLaunch({ location: window.location, history: window.history, session: () => window.sessionStorage, local: () => window.localStorage });
+let officeToken = "";
+const officeBootstrapHeaders = (): Record<string, string> => officeToken ? { Authorization: `Bearer ${officeToken}` } : {};
 
 /**
  * The task pane is a slim surface: the agent session UI only. Everything
@@ -74,15 +66,15 @@ function applyAnalyticsIdentity(data: { analyticsDistinctId?: unknown; analytics
   setAnalyticsConsentOverride(data.analyticsEnabled === true);
 }
 
-// Reuse the paired bootstrap for desktop language and consent changes. Every response carries
-// pairing tokens, so poll sparingly; 15 s keeps a language switch visible without chatter.
+// Reuse the authenticated bootstrap for desktop language and consent changes;
+// 15 s keeps a language switch visible without chatter.
 const ANALYTICS_IDENTITY_POLL_MS = 15_000;
 let analyticsIdentityPollStarted = false;
 function startAnalyticsIdentityPoll() {
   if (analyticsIdentityPollStarted) return;
   analyticsIdentityPollStarted = true;
   setInterval(() => {
-    void fetch("/word-addin/bootstrap", { cache: "no-store", headers: officeBootstrapHeaders })
+    void fetch("/word-addin/bootstrap", { cache: "no-store", headers: officeBootstrapHeaders() })
       .then((response) => {
         if (response.status === 401) clearOfficeUiLocale();
         return response.ok ? response.json() as Promise<Record<string, unknown>> : null;
@@ -95,37 +87,50 @@ function startAnalyticsIdentityPoll() {
 }
 
 /**
- * Pair with the server that serves this page. The bootstrap endpoint is
- * paired by an installation capability and hands out the current client token, so the pane
- * survives server restarts with rotated tokens.
+ * Connect automatically using the credential installed with the Office add-in.
+ * The shared desktop host and client tokens never enter the Office webview.
  */
 async function connectToServer(): Promise<void> {
-  const response = await fetch("/word-addin/bootstrap", { cache: "no-store", headers: officeBootstrapHeaders });
+  const response = await fetch("/word-addin/bootstrap", { cache: "no-store" });
   if (!response.ok) {
     if (response.status === 401) clearOfficeUiLocale();
     throw new Error(`Bootstrap failed with status ${response.status}`);
   }
   const data = (await response.json()) as {
-    uiLocale?: unknown;
-    token?: unknown;
-    hostToken?: unknown;
     analyticsDistinctId?: unknown;
     analyticsEnabled?: unknown;
   };
-  const token = typeof data.token === "string" ? data.token.trim() : "";
-  if (!token) {
-    throw new Error("Bootstrap response did not include a token");
+  const stored = readLegalworkServerSettings();
+  let token = stored.token?.startsWith("office_") ? stored.token : "";
+  if (token) {
+    const check = await fetch("/whoami", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    if (!check.ok) token = "";
   }
-  const hostToken = typeof data.hostToken === "string" ? data.hostToken.trim() : "";
-  writeLegalworkServerSettings({
-    urlOverride: window.location.origin,
-    token,
-    hostToken: hostToken || undefined,
-  });
+  if (!token) {
+    const launch = officeLaunch;
+    if (!launch && !stored.token) throw new Error(t("word_addin.connection_failed"));
+    const response = await fetch("/word-addin/session", {
+      method: "POST", headers: launch
+        ? { "X-Legalwork-Office-Launch": launch }
+        : { Authorization: `Bearer ${stored.token}` },
+    });
+    if (!response.ok) throw new Error(t("word_addin.connection_failed"));
+    const session = await response.json();
+    if (typeof session.token !== "string" || !session.token.startsWith("office_")) throw new Error(t("word_addin.connection_failed"));
+    token = session.token;
+  }
+  // Replace older shared credentials only after the automatic handoff succeeds.
+  // 🟡 LAWOSS: only the office_ token is stored; any older host token is removed.
+  writeLegalworkServerSettings(officeServerSettings(window.location.origin, token));
+  officeToken = token;
+  await bindOfficeUiLocale(token);
+  const paired = await fetch("/word-addin/bootstrap", { cache: "no-store", headers: officeBootstrapHeaders() });
+  if (paired.status === 401) clearOfficeUiLocale();
+  const pairedData = paired.ok ? await paired.json() as { uiLocale?: unknown } : {};
   // Adopt the desktop's analytics identity BEFORE analytics initializes; keep
   // polling for changes.
   applyAnalyticsIdentity(data);
-  applyOfficeUiLocale(data.uiLocale);
+  applyOfficeUiLocale(pairedData.uiLocale);
   startAnalyticsIdentityPoll();
   // Shell updates are handled by the shell itself (version check against
   // the bootstrap response + self-reload; see server word-addin-shell.ts).
@@ -175,6 +180,8 @@ function ConnectScreen({ state, onRetry }: { state: ConnectionState; onRetry: ()
 
 const platform = createDefaultPlatform();
 const queryClient = getReactQueryClient();
+// React StrictMode mounts share one automatic connection request.
+let pendingConnection: Promise<void> | null = null;
 
 function WordAddinApp() {
   useLocale();
@@ -182,7 +189,8 @@ function WordAddinApp() {
 
   const connect = React.useCallback(() => {
     setState({ status: "connecting" });
-    void connectToServer()
+    pendingConnection ??= connectToServer().finally(() => { pendingConnection = null; });
+    void pendingConnection
       .then(() => setState({ status: "ready" }))
       .catch((error: unknown) => {
         setState({
@@ -228,7 +236,7 @@ document.documentElement.classList.add("lw-word-pane");
 
 // Office.js must finish initializing before the app renders; outside Word
 // this resolves immediately and the pane behaves like a plain web client.
-void Promise.all([officeReady(), prepareOfficeUiLocale(officeCapability)]).finally(() => {
+void officeReady().finally(() => {
   seedWordPaneShellConfig();
   ReactDOM.createRoot(root).render(
     <React.StrictMode>

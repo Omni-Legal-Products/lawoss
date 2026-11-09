@@ -1,0 +1,15 @@
+{
+  "reportedAlpha": "0.2.11-alpha.111.g65e4bae",
+  "sdkVersion": "1.18.29",
+  "resourceCopy": "electron-builder getFileMatchers + copyFiles using production YAML",
+  "graphValidation": "All required package manifests present and plugin version matches",
+  "runtimeImports": {
+    "pluginTool": "function",
+    "client": "function",
+    "node": "v22.23.2"
+  },
+  "tests": {
+    "before": "Real builder copy omitted node_modules and failed with ENOENT",
+    "after": "SDK and transitive dependency license files copied successfully"
+  }
+}

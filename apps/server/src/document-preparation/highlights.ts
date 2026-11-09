@@ -29,7 +29,7 @@ type MeasureText = (text: string, fontFamily: string, fontSize: number) => numbe
  * Widths are measured using the run's font and scaled to PDF.js's actual run width.
  * Geometry follows PDF.js's text layer; no LLM-provided coordinates are trusted.
  */
-export function pdfQuoteRegions(content: TextContent, viewport: PageViewport, quote: string, measure: MeasureText): OcrContent["regions"][number]["box"][] {
+export function pdfQuoteRegions(content: TextContent, viewport: Pick<PageViewport, "transform" | "scale" | "width" | "height">, quote: string, measure: MeasureText): OcrContent["regions"][number]["box"][] {
   const items = content.items.filter((item): item is TextItem => "str" in item);
   const text = items.map(item => item.str + (item.hasEOL ? "\n" : " ")).join("");
   const match = quoteRange(text, quote);

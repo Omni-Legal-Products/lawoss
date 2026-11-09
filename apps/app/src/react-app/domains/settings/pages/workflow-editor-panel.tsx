@@ -66,7 +66,7 @@ export function WorkflowEditorPanel({ id, onClose }: { id: string; onClose: () =
       {draft.loading ? <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("skills.loading")}</div> : <>
         <div role="tabpanel" id={`${id}-instructions`} aria-labelledby={`${id}-instructions-tab`} hidden={tab !== "instructions"} className="min-h-0 flex-1 overflow-hidden">
           <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">{t("skills.loading")}</div>}>
-            <MarkdownEditor value={draft.body} baseline={draft.savedBody} readOnly={readOnly} onChange={(body) => editWorkflow(id, { body, title: workflowTitle(body, draft.title) })} imageUpload={imageUpload} imagePreview={imagePreview} />
+            <MarkdownEditor suppressHtmlProcessing value={draft.body} baseline={draft.savedBody} readOnly={readOnly} onChange={(body) => editWorkflow(id, { body, title: workflowTitle(body, draft.title) })} imageUpload={imageUpload} imagePreview={imagePreview} />
           </Suspense>
         </div>
         <div role="tabpanel" id={`${id}-files`} aria-labelledby={`${id}-files-tab`} hidden={tab !== "files"} className="min-h-0 flex-1 overflow-y-auto px-5 py-4">

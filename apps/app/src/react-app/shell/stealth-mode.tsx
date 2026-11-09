@@ -1,9 +1,9 @@
 /** @jsxImportSource react */
 
-import { useEffect, useState } from "react";
-import { Square } from "lucide-react";
+import { useEffect } from "react";
+import { Loader2, NotebookPen, Square } from "lucide-react";
 
-import { windowSetStealth } from "@/app/lib/desktop";
+import { audioMeetingOpen, windowSetStealth } from "@/app/lib/desktop";
 import { t } from "@/i18n";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { useRecorderStore } from "../domains/recorder/recorder-store";
@@ -13,7 +13,7 @@ import { useRecorderStore } from "../domains/recorder/recorder-store";
  *
  * Privacy: the window can be excluded from screen shares / recordings via the
  * main-process `setContentProtection`, driven by the "Hide LegalWork" setting
- * (Settings → Privacy): never / during recording (default) / always. This is
+ * (Settings → Recorder → Meetings): never / during recording (default) / always. This is
  * invisible to the user.
  *
  * Indicator: while a recording runs, a small "Recording locally" pill sits in
@@ -25,7 +25,7 @@ export function StealthMode() {
   const recording = useRecorderStore((state) => state.recording);
   const dictationRecordingId = useRecorderStore((state) => state.dictationRecordingId);
   const stopRecording = useRecorderStore((state) => state.stopRecording);
-  const [stopping, setStopping] = useState(false);
+  const finalizing = useRecorderStore((state) => state.finalizing);
   const { prefs } = useLocal();
   const hideMode = prefs.hideAppMode;
 
@@ -33,7 +33,7 @@ export function StealthMode() {
   // Content protection follows the privacy setting, independent of the badge.
   const shouldHide = hideMode === "always" || (hideMode === "recording" && isRecording);
   // The topbar cue is only for a real recording (not the system-dictation HUD).
-  const showBadge = Boolean(recording && recording.id !== dictationRecordingId);
+  const showBadge = Boolean(recording && !recording.ephemeral && recording.id !== dictationRecordingId);
 
   useEffect(() => {
     // Best-effort: on plain web the bridge is absent and this no-ops.
@@ -51,32 +51,40 @@ export function StealthMode() {
     <>
       {/* A faint red hairline along the very top edge — the universal
           "you're recording" frame cue, kept soft so it never nags. */}
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-[200] h-[2px] bg-gradient-to-r from-transparent via-red-9/80 to-transparent" />
+      {!finalizing ? <div className="pointer-events-none fixed inset-x-0 top-0 z-[200] h-[2px] bg-gradient-to-r from-transparent via-red-9/80 to-transparent" /> : null}
       {/* Centered in the topbar band. The pill is interactive (stop button); the
           row stays pointer-events-none so it never eats a window drag. */}
       <div className="pointer-events-none fixed inset-x-0 top-0 z-[200] flex h-10 items-center justify-center">
         <span className="titlebar-no-drag pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-red-6 bg-red-3/90 py-0.5 pl-2.5 pr-1 backdrop-blur-sm">
-          <span className="relative flex size-1.5">
+          {finalizing ? <Loader2 className="size-3 animate-spin text-red-11" /> : <span className="relative flex size-1.5">
             <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-9 opacity-75" />
             <span className="relative inline-flex size-1.5 rounded-full bg-red-9" />
-          </span>
+          </span>}
           <span className="text-[11px] font-medium leading-none text-red-11">
-            {t("stealth.recording_locally")}
+            {t(finalizing ? "recorder.finishing" : "stealth.recording_locally")}
           </span>
           <button
             type="button"
-            disabled={stopping}
+            disabled={finalizing}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={() => {
-              if (stopping) return;
-              setStopping(true);
-              void stopRecording().finally(() => setStopping(false));
+              void stopRecording();
             }}
             aria-label={t("recorder.stop")}
             title={t("recorder.stop")}
             className="titlebar-no-drag pointer-events-auto ml-0.5 inline-flex size-5 items-center justify-center rounded-full text-red-11 transition-colors hover:bg-red-5 disabled:opacity-50"
           >
             <Square className="size-3" fill="currentColor" />
+          </button>
+          <button
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => { void audioMeetingOpen(); }}
+            aria-label={t("recorder.open_transcript")}
+            title={t("recorder.open_transcript")}
+            className="titlebar-no-drag pointer-events-auto inline-flex size-5 items-center justify-center rounded-full text-red-11 transition-colors hover:bg-red-5"
+          >
+            <NotebookPen className="size-3" />
           </button>
         </span>
       </div>

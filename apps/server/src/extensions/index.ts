@@ -37,7 +37,13 @@ export function listExperimentalExtensionActions(extensionId: string) {
     : LEGALWORK_EXPERIMENTAL_EXTENSION_ACTIONS;
 }
 
-export async function callExperimentalExtensionAction(config: ServerConfig, env: EnvService, input: unknown) {
+export async function callExperimentalExtensionAction(
+  config: ServerConfig,
+  env: EnvService,
+  input: unknown,
+  // Only the authenticated caller can supply this grant; it is never read from input.
+  access: { personalConnections: boolean } = { personalConnections: false },
+) {
   if (!isRecord(input)) {
     throw new ApiError(400, "invalid_payload", "Expected extension action call payload");
   }
@@ -61,7 +67,12 @@ export async function callExperimentalExtensionAction(config: ServerConfig, env:
     if (result) return result;
   }
 
-  if (isConnectorExtension(extensionId)) return callConnectorExtensionAction(config, extensionId, action, args, context);
+  if (isConnectorExtension(extensionId)) {
+    if (!access.personalConnections) {
+      throw new ApiError(403, "forbidden", "Only the LegalWork server owner or their managed agent can use personal account connections.");
+    }
+    return callConnectorExtensionAction(config, extensionId, action, args, context);
+  }
 
   if (extensionId === OPENAI_IMAGE_GENERATION_EXTENSION_ID) {
     const result = await callOpenAiImageGenerationExtensionAction(config, env, action, args, context);

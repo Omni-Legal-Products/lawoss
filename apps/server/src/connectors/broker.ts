@@ -139,6 +139,16 @@ export async function savedConnectorConnections(config: ServerConfig, id: string
   const managed = await readConnectorConnections(config, ownerKey(platform.account), connectionProvider(id));
   return [...managed.map((connection) => connectorConnectionSchema.parse(connection)), ...local];
 }
+/** Only the explicit owner-only team-promotion route may export this capability
+ * to the platform. It is never returned to the renderer or agent tools. */
+export async function managedStorageCapability(config: ServerConfig, id: string, accountId: string) {
+  if (connectorDefinition(id).kind !== "files") throw new ApiError(400, "invalid_payload", "Choose a storage account.");
+  const { owner } = await brokerIdentity(config);
+  const saved = await readConnectorConnections(config, owner, connectionProvider(id));
+  const account = saved.find((entry) => entry.id === accountId && !entry.needsReconnect);
+  if (!account || saved.length !== 1) throw new ApiError(409, "storage_managed_required", "Shared team accounts require a single account connected with Eigenwelt. Own-app accounts can use individual member sign-in.");
+  return account.nangoConnectionId;
+}
 
 /** Settings and Memory Drive use local metadata; only explicit refresh/access contacts the broker. */
 export async function savedConnectorStatus(config: ServerConfig, connectorId?: string) {

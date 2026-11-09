@@ -11,6 +11,7 @@ import { t } from "@/i18n";
 import { StorageEntryMenu } from "./storage-entry-menu";
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { classifyOpenTarget } from "../artifacts/open-target";
+import { StorageAccessError } from "./storage-access-error";
 
 type Props = {
   client: LegalworkServerClient;
@@ -19,6 +20,7 @@ type Props = {
   query: string;
   refreshKey: number | string;
   onOpenFile: (root: StorageRoot, file: StorageEntry) => void;
+  onConnectStorage?: () => void;
 };
 
 export function StorageDriveSearch(props: Props) {
@@ -38,6 +40,7 @@ function ConnectionSearch({
   query,
   refreshKey,
   onOpenFile,
+  onConnectStorage,
 }: Omit<Props, "roots"> & { root: StorageRoot }) {
   const projectFiles = useProjectFiles();
   const [visibleLimit, setVisibleLimit] = useState(STORAGE_PAGE_SIZE);
@@ -93,15 +96,9 @@ function ConnectionSearch({
         </p>
       ) : null}
       {search.isError ? (
-        <div role="alert" className="px-2 py-2 text-xs text-destructive">
-          <p className="break-words">{search.error.message}</p>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void (search.hasNextPage ? search.fetchNextPage() : search.refetch())}
-          >
-            {t("storage.retry")}
-          </Button>
+        <div className="px-2 py-2">
+          <StorageAccessError error={search.error} provider={root.provider} onConnectStorage={onConnectStorage}
+            onRetry={() => void (search.hasNextPage ? search.fetchNextPage() : search.refetch())} />
         </div>
       ) : null}
       {!loading && !search.isError && incomplete ? <p role="status" className="px-2 py-2 text-xs text-muted-foreground">{t("storage.results_incomplete")}</p> : null}

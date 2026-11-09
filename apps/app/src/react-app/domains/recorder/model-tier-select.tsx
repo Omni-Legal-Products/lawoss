@@ -8,7 +8,7 @@
  */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, ChevronsUpDown, Cpu, Download, Loader2, Sparkles } from "lucide-react";
+import { Check, ChevronsUpDown, Cloud, Cpu, Download, Loader2, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ import { t } from "@/i18n";
 import {
   MODEL_TIERS,
   isPremiumEntitled,
+  usePremiumEntitled,
   tierForModelId,
   tierName,
   tierTagline,
@@ -37,6 +38,7 @@ import {
 } from "./model-tiers";
 import { usePremiumUpsell } from "./premium-upsell-context";
 import { useRecorderStore } from "./recorder-store";
+import { cloudModelName } from "./cloud-model-list";
 
 /**
  * Gate shown when a locked tier is picked. `reason` chooses the copy: "premium"
@@ -89,6 +91,7 @@ function TierRow(props: {
 }) {
   const { tier } = props;
   const store = useRecorderStore();
+  const premiumEntitled = usePremiumEntitled();
   const model = store.bootstrap?.models.find((entry) => entry.id === tier.modelId);
   const installed = model?.state === "installed";
   const downloading = model?.state === "downloading";
@@ -112,7 +115,7 @@ function TierRow(props: {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="text-sm font-medium text-ink">{tierName(tier.key)}</span>
-          {tier.premium ? (
+          {tier.premium && !premiumEntitled ? (
             <Badge className="gap-1 text-2xs">
               <Sparkles className="size-2.5" />
               {t("recorder.tier_premium_locked")}
@@ -154,7 +157,10 @@ export function ModelTierSelect(props: { disabled?: boolean; className?: string 
   const recommendedId = store.bootstrap?.device?.recommendedModelId;
   // null when the user hasn't picked a model yet — the trigger shows a
   // "choose a model" placeholder and recording stays disabled until they do.
-  const selectedTier = tierForModelId(store.modelId);
+  const selectedTier = store.transcriptionSource === "local" ? tierForModelId(store.modelId) : null;
+  const cloudModels = (store.bootstrap?.cloud?.models ?? []).filter(model => model.enabled && model.available);
+  const selectedCloud = cloudModels.find(model => model.model === store.cloudModelId);
+  const busy = Boolean(store.recording || store.starting || store.finalizing || store.importing);
   const currentModel = selectedTier
     ? store.bootstrap?.models.find((entry) => entry.id === selectedTier.modelId)
     : undefined;
@@ -182,13 +188,20 @@ export function ModelTierSelect(props: { disabled?: boolean; className?: string 
   };
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu open={open} onOpenChange={value => {
+      setOpen(value);
+      if (value) void store.refreshBootstrap();
+    }}>
         <DropdownMenuTrigger
-          disabled={props.disabled}
+          disabled={props.disabled || busy}
           render={
             <Button variant="outline" size="sm" className={cn("h-8 min-w-[180px] justify-between", props.className)}>
               <span className="flex min-w-0 items-center gap-2">
-                {selectedTier ? (
+                {store.transcriptionSource === "cloud" ? (
+                  <span className="truncate font-medium text-ink">
+                    {selectedCloud ? cloudModelName(selectedCloud.region) : t("recorder.transcription_cloud_unavailable")}
+                  </span>
+                ) : selectedTier ? (
                   <>
                     <span className="font-medium text-ink">{tierName(selectedTier.key)}</span>
                     {!currentInstalled ? (
@@ -215,10 +228,29 @@ export function ModelTierSelect(props: { disabled?: boolean; className?: string 
             <TierRow
               key={tier.key}
               tier={tier}
-              selected={tier.modelId === store.modelId}
+              selected={store.transcriptionSource === "local" && tier.modelId === store.modelId}
               recommended={tier.modelId === recommendedId}
               onSelect={() => pick(tier)}
             />
+          ))}
+          {cloudModels.map(model => (
+            <button
+              key={model.model} type="button"
+              onClick={() => { store.setTranscriptionSource("cloud", model.model); setOpen(false); }}
+              className={cn(
+                "flex w-full items-start gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-hover",
+                store.transcriptionSource === "cloud" && model.model === store.cloudModelId && "bg-sunken",
+              )}
+            >
+              <span className="mt-0.5 w-4 shrink-0">
+                {store.transcriptionSource === "cloud" && model.model === store.cloudModelId ? <Check className="size-4 text-brand" /> : null}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-ink">{cloudModelName(model.region)}</div>
+                <div className="mt-0.5 text-xs text-subtext">{t("recorder.transcription_cloud_tagline")}</div>
+              </div>
+              <Cloud className="mt-0.5 size-3.5 shrink-0 text-subtext" />
+            </button>
           ))}
         </DropdownMenuContent>
       </DropdownMenu>

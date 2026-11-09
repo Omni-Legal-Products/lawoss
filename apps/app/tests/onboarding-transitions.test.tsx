@@ -20,10 +20,11 @@ describe("onboarding transitions", () => {
     expect(html).toContain("fixed inset-0 z-40");
   });
 
-  const plans = (mode: AiPlansOverlayProps["mode"]) =>
+  const plans = (mode: AiPlansOverlayProps["mode"], totalSteps = 6) =>
     renderToStaticMarkup(
       React.createElement(AiPlansOverlay, {
         mode,
+        totalSteps,
         variant: "new",
         account: null,
         serverReady: true,
@@ -42,6 +43,14 @@ describe("onboarding transitions", () => {
     const html = plans("onboarding");
     expect(html).toContain('data-testid="ai-plans-overlay"');
     expect(html).not.toContain("fade-in");
+    expect(html).toContain('aria-valuemax="6"');
+    expect(html).toContain('aria-valuenow="5"');
+  });
+
+  test("web onboarding retains its three-step progress", () => {
+    const html = plans("onboarding", 3);
+    expect(html).toContain('aria-valuemax="3"');
+    expect(html).toContain('aria-valuenow="2"');
   });
 
   test("the plan screen fades in over a working app", () => {

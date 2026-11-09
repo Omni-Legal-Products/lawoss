@@ -139,7 +139,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 24.21.0
+          node-version: 24.22.1
 
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -216,7 +216,7 @@ jobs:
           echo "Latest release tag: $latest_tag -> alpha base ${alpha_base}"
           # The commit sha rides in the prerelease part (…-alpha.<run>.g<sha>),
           # not as +<sha> build metadata: pnpm refuses to workspace-link the
-          # exact-pinned internal deps (legalwork-server, opencode-router) when
+          # exact-pinned internal deps (legalwork-server) when
           # the stamped version carries build metadata, and falls back to the
           # public npm registry (404 / name-squatted package). The "g" prefix
           # (git describe's convention) keeps the identifier valid semver: a

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,5 +30,9 @@ if (!built) {
 }
 
 mkdirSync(helpersDir, { recursive: true });
-copyFileSync(built, path.join(helpersDir, helperName));
+// Replacing a running signed executable in place leaves macOS with stale
+// signature pages. Stage a fresh inode so the next helper can launch safely.
+const staged = path.join(helpersDir, `${helperName}.tmp-${process.pid}`);
+copyFileSync(built, staged);
+renameSync(staged, path.join(helpersDir, helperName));
 console.log(`[key-monitor] staged ${path.join(helpersDir, helperName)}`);

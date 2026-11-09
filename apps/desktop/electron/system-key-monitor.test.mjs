@@ -60,7 +60,13 @@ test("start resolves true and streams events once the helper is ready", async ()
   assert.equal(await startPromise, true);
 
   children[0].emitLine("down\tControl");
-  assert.deepEqual(events, [{ type: "down", key: "Control" }]);
+  children[0].emitLine("down\tOther191");
+  children[0].emitLine("up\tOther191");
+  assert.deepEqual(events, [
+    { type: "down", key: "Control" },
+    { type: "down", key: "Other191" },
+    { type: "up", key: "Other191" },
+  ]);
   monitor.stop();
 });
 

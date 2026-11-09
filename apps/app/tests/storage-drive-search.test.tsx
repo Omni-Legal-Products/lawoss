@@ -28,12 +28,29 @@ function renderSearch(cache: QueryClient) {
         query="contract"
         refreshKey={0}
         onOpenFile={() => {}}
+        onConnectStorage={() => {}}
       />
     </QueryClientProvider>,
   );
 }
 
 describe("Memory Drive filename search", () => {
+  test("offers connector setup for sign-in errors and retains retry for other failures", async () => {
+    for (const code of ["storage_signin_required", "storage_disconnected", "connector_reconnect_required", "storage_settings_conflict"]) {
+      const cache = new QueryClient({ defaultOptions: { queries: { retry: false, retryOnMount: false } } });
+      await cache.prefetchQuery({
+        queryKey: ["storage-filename-search", "workspace", "s3", "contract", 0, client.baseUrl],
+        queryFn: () => { throw new LegalworkServerError(409, code, "Provider error details"); },
+      });
+      const html = renderSearch(cache);
+      const needsSignIn = code !== "storage_settings_conflict";
+      expect(html.includes("Open connectors")).toBe(needsSignIn);
+      expect(html.includes("Sign in to view files")).toBe(needsSignIn);
+      expect(html.includes("Try again")).toBe(!needsSignIn);
+      expect(html.includes("Provider error details")).toBe(!needsSignIn);
+      cache.clear();
+    }
+  });
   test("distinguishes identical filenames in multiple connections and shows their paths", () => {
     const cache = new QueryClient();
     for (const root of roots)

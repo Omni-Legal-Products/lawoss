@@ -5,10 +5,14 @@
  * workspace's OpenCode session AI.
  */
 
+import { isCloudTranscriptionHidden } from "@/lawoss/feature-flags";
 import { create } from "zustand";
 
 import {
   audioCaptureOpenSettings,
+  audioMeetingGet,
+  audioMeetingDetectionSet,
+  audioMeetingSetState,
   audioCapturePermissions,
   audioCapturePermissionsRequest,
   audioDiarizationDownload,
@@ -18,13 +22,16 @@ import {
   audioOverlaySetVisible,
   audioRecorderBootstrap,
   audioSystemDictationGet,
+  audioMiniBarSetEnabled,
+  audioSystemDictationMicrophoneActive,
+  audioSystemDictationMicrophoneSelect,
   audioSystemDictationOpenSettings,
   audioSystemDictationPaste,
   audioSystemDictationReadiness,
   audioSystemDictationRepairPermission,
   audioSystemDictationRequestPermission,
+  audioSystemDictationSetAppearance,
   audioSystemDictationSetEnabled,
-  audioSystemDictationSetMode,
   audioSystemDictationSetShortcut,
   audioSystemDictationSetShortcutCapture,
   audioSystemDictationSetState,
@@ -52,22 +59,27 @@ import type {
   AudioCaptureSourceKind,
   AudioDictationPermissionKind,
   AudioDictationReadiness,
+  AudioDictationMicrophoneState,
   AudioPermissionKind,
   AudioRecorderBootstrap,
   AudioRecorderEvent,
   AudioRecordingDetail,
   AudioRecordingMeta,
+  AudioMeetingStatus,
+  AudioMeetingNotesSettings,
   AudioSystemDictationRuntimeState,
-  AudioSystemDictationMode,
   AudioSystemDictationStatus,
+  AudioDictationAppearance,
   AudioTranscribeLanguage,
   AudioTranscriberStatus,
   AudioTranscriptSegment,
 } from "@legalwork/types/audio";
-import { t } from "@/i18n";
+import { currentLocale, t } from "@/i18n";
 import { MODEL_TIERS, isPremiumEntitled, isPremiumEntitlementKnown, tierForModelId } from "./model-tiers";
 
 import { decodeAudioFileToPcm16k, startCapture, type CaptureHandle, type CaptureLevels } from "./capture";
+import { refreshDictationMicrophones } from "./dictation-microphone";
+import { formatDictationShortcut } from "./dictation-shortcut";
 
 /** PCM chunk size when streaming a decoded file to the worker (~1 s at 16 kHz). */
 const IMPORT_PCM_CHUNK = 16000;
@@ -75,6 +87,17 @@ const IMPORT_PCM_CHUNK = 16000;
 const MODEL_PREF_KEY = "legalwork.recorder.model";
 const LANGUAGE_PREF_KEY = "legalwork.recorder.language";
 const SOURCES_PREF_KEY = "legalwork.recorder.sources";
+const TRANSCRIPTION_SOURCE_PREF_KEY = "legalwork.recorder.transcription-source";
+const CLOUD_MODEL_PREF_KEY = "legalwork.recorder.cloud-model";
+const NOTES_PREF_KEY = "legalwork.recorder.meeting-notes";
+
+function setDictationFeedback(state: AudioSystemDictationRuntimeState, message = "") {
+  // Composer dictation owns its feedback and inserts directly into its draft.
+  if (useRecorderStore.getState().composerDictation) return Promise.resolve();
+  // LAWOSS: the dictation HUD in the main process has only English and German copy.
+  const locale = currentLocale();
+  return audioSystemDictationSetState(state, message, locale === "de" ? "de" : "en");
+}
 
 /**
  * The session composer listens to this event (voice mode uses it too) — but
@@ -109,7 +132,12 @@ export type CopilotEntry = {
   at: number;
 };
 
+let liveTranscriptShareRevision = 0;
+
 export type RecorderState = {
+  transcriptionSource: "local" | "cloud";
+  cloudModelId: string;
+  meetingNotes: AudioMeetingNotesSettings;
   initialized: boolean;
   bootstrap: AudioRecorderBootstrap | null;
   permissions: AudioCapturePermissions | null;
@@ -119,7 +147,7 @@ export type RecorderState = {
   recording: AudioRecordingMeta | null;
   recordingStartedAt: number | null;
   segments: AudioTranscriptSegment[];
-  partial: AudioTranscriptSegment | null;
+  partials: AudioTranscriptSegment[];
   recordings: AudioRecordingMeta[];
   openedRecording: AudioRecordingDetail | null;
   /** A file drag-dropped for transcription is being decoded/transcribed. */
@@ -129,12 +157,19 @@ export type RecorderState = {
   copilotEntries: CopilotEntry[];
   /** Session whose chat currently mirrors the live transcript to a file, if any. */
   liveTranscriptSessionId: string | null;
+  liveTranscriptWorkspacePath: string | null;
+  liveTranscriptNotifiedSessions: string[];
+  liveTranscriptDismissedPaths: string[];
   error: string | null;
   systemDictation: AudioSystemDictationStatus | null;
+  meeting: AudioMeetingStatus | null;
   /** Live OS permission readiness for "Dictate anywhere" (setup wizard). */
   dictationReadiness: AudioDictationReadiness | null;
+  dictationMicrophones: AudioDictationMicrophoneState | null;
   dictationState: AudioSystemDictationRuntimeState;
   dictationRecordingId: string | null;
+  composerDictation: { ownerId: string; onComplete: (text: string) => void | Promise<void> } | null;
+  composerDictationLevel: number;
   modelId: string;
   language: AudioTranscribeLanguage;
   sources: AudioCaptureSourceKind[];
@@ -156,6 +191,8 @@ export type RecorderState = {
 };
 
 type RecorderActions = {
+  setMeetingNotes: (settings: Partial<AudioMeetingNotesSettings>) => void;
+  setTranscriptionSource: (source: "local" | "cloud", cloudModelId?: string) => void;
   init: () => Promise<void>;
   refreshBootstrap: () => Promise<void>;
   refreshRecordings: () => Promise<void>;
@@ -195,18 +232,25 @@ type RecorderActions = {
   stopRecording: () => Promise<void>;
   cancelRecording: () => Promise<void>;
   refreshSystemDictation: () => Promise<void>;
+  refreshDictationMicrophones: () => Promise<void>;
+  selectDictationMicrophone: (selection: string) => Promise<void>;
   /** Probe all OS permissions dictation needs; may heal a dead hotkey monitor. */
   refreshDictationReadiness: () => Promise<void>;
   /** Strongest available re-prompt for one permission (prompt or pane link). */
   requestDictationPermission: (kind: AudioDictationPermissionKind) => Promise<void>;
   /** Reset the app's own stale TCC entries for one permission, then re-prompt. */
   repairDictationPermission: (kind: AudioDictationPermissionKind) => Promise<void>;
+  setDictationAppearance: (appearance: AudioDictationAppearance) => Promise<void>;
+  setMiniBarEnabled: (enabled: boolean) => Promise<void>;
   setSystemDictationEnabled: (enabled: boolean) => Promise<void>;
-  setSystemDictationMode: (mode: AudioSystemDictationMode) => Promise<void>;
   setSystemDictationShortcut: (accelerator: string) => Promise<boolean>;
   setSystemDictationShortcutCapture: (active: boolean) => Promise<void>;
   openSystemDictationSettings: () => Promise<void>;
   startSystemDictation: () => Promise<void>;
+  startComposerDictation: (ownerId: string, onComplete: (text: string) => void | Promise<void>, signal?: AbortSignal) => Promise<void>;
+  refreshMeeting: () => Promise<void>;
+  setMeetingDetection: (enabled: boolean) => Promise<void>;
+  startMeetingRecording: (title?: string) => Promise<void>;
   /** Transcribe a dropped/opened audio file locally; adds it to Recordings. */
   importAudioFile: (file: File) => Promise<void>;
   deleteRecording: (recordingId: string) => Promise<void>;
@@ -222,13 +266,35 @@ type RecorderActions = {
    * no-reply message) that a growing transcript file exists to check. Returns
    * true when armed. Stops automatically when the recording ends.
    */
-  startLiveTranscriptShare: (sessionId: string, workspacePath: string, directory?: string, sessionClient?: Client) => Promise<boolean>;
+  startLiveTranscriptShare: (sessionId: string, workspacePath: string, directory?: string, sessionClient?: Client, automatic?: boolean) => Promise<boolean>;
   stopLiveTranscriptShare: () => Promise<void>;
   setOverlayVisible: (visible: boolean) => Promise<void>;
   ask: (question: string) => Promise<void>;
   suggestFollowUps: () => Promise<void>;
   clearError: () => void;
 };
+
+type TranscriptionSelection = Pick<RecorderState, "bootstrap" | "transcriptionSource" | "modelId" | "cloudModelId">;
+export function transcriptionModelId(state: TranscriptionSelection): string {
+  return state.transcriptionSource === "cloud" ? state.cloudModelId : state.modelId;
+}
+
+export function isTranscriptionReady(state: TranscriptionSelection): boolean {
+  if (state.transcriptionSource === "cloud") return state.bootstrap?.cloud?.models.some(
+    model => model.model === state.cloudModelId && model.enabled && model.available,
+  ) === true;
+  return state.bootstrap?.engine.available !== false && state.bootstrap?.models.some(
+    model => model.id === state.modelId && model.state === "installed",
+  ) === true;
+}
+
+/** Availability can recover; capture, storage and interrupted-stream errors need attention. */
+export function isCloudAvailabilityError(state: Pick<RecorderState, "transcriptionSource" | "error">): boolean {
+  return state.transcriptionSource === "cloud" && state.error !== null && (
+    /^Cloud transcription is (?:currently )?unavailable\./.test(state.error)
+    || state.error === t("recorder.transcription_not_ready")
+  );
+}
 
 function readPref(key: string, fallback: string): string {
   try {
@@ -332,15 +398,23 @@ let eventsSubscribed = false;
 let dictationTogglePending = false;
 let dictationHoldStartPending = false;
 let dictationHoldReleased = false;
+// Cancel in-flight work without deleting a recording another operation is flushing.
+let dictationCancelled = false;
+let dictationShortPress = false;
 let dictationHoldStopPending = false;
 let dictationCancelPending = false;
+let dictationStartController: AbortController | null = null;
+let meetingStartPending = false;
+let recordingStartPending = false;
 // When the last dictation settled (stopped or canceled). A brand-new dictation
 // that tries to start within a beat of the previous one ending is not a human
 // key press — it's a runaway restart (e.g. an empty "no speech" result looping
 // straight back into listening). We refuse it so the loop can't run away.
 let dictationSettleAt = 0;
-const DICTATION_RESTART_COOLDOWN_MS = 1000;
-// Bumped whenever the machine suspends. startRecording captures it on entry
+const DICTATION_RESTART_COOLDOWN_MS = 200;
+// Bumped whenever the machine suspends or dictation is cancelled. Async work
+// from an old session must never publish into a new recording.
+// startRecording captures it on entry
 // and rolls back if it changed by the time capture is wired up — a recording
 // whose start straddled a sleep would otherwise latch on indefinitely (and
 // hold the OS power blocker) until the user next toggles the hotkey.
@@ -403,6 +477,12 @@ async function runCopilotPrompt(question: string, transcript: string, language: 
 }
 
 export const useRecorderStore = create<RecorderState & RecorderActions>((set, get) => {
+  let bootstrapRevision = 0;
+  const clearCloudAvailabilityError = () => {
+    const state = get();
+    if (!state.starting && !state.finalizing && isCloudAvailabilityError(state)) set({ error: null });
+  };
+
   const sendAskAnswer = (askId: string, text: string, done: boolean, error?: string | null) => {
     window.__LEGALWORK_ELECTRON__?.audio?.sendAskAnswer?.(askId, text, done, error ?? null);
   };
@@ -438,6 +518,22 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       upsertCopilotEntry({ ...entry, pending: false, error: message });
       sendAskAnswer(askId, "", true, message);
     }
+  };
+
+  const cancelledDictationFeedback = () => {
+    const status = get().systemDictation;
+    return dictationShortPress && status
+      ? setDictationFeedback("idle", t("recorder.dictation_hold_to_speak", {
+          shortcut: formatDictationShortcut(status.accelerator, status.platform),
+        }))
+      : setDictationFeedback("cancelled");
+  };
+
+  const finishReleasedDictation = async () => {
+    if (!dictationHoldReleased || dictationCancelled || !get().dictationRecordingId || dictationHoldStopPending) return;
+    dictationHoldStopPending = true;
+    const epoch = suspendEpoch;
+    await get().stopRecording().finally(() => { if (epoch === suspendEpoch) dictationHoldStopPending = false; });
   };
 
   const handleEvent = (event: AudioRecorderEvent) => {
@@ -483,77 +579,155 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         break;
       }
       case "transcript-partial": {
-        if (state.recording?.id === event.streamId) set({ partial: event.segment });
+        if (state.recording?.id === event.streamId) {
+          clearCloudAvailabilityError();
+          set(current => ({ partials: [...current.partials.filter(partial => partial.source !== event.segment.source), ...(event.parts ?? [event.segment])] }));
+        }
         break;
       }
       case "transcript-segment": {
         if (state.recording?.id === event.streamId) {
+          clearCloudAvailabilityError();
           set((current) => ({
             segments: [...current.segments, event.segment].sort((a, b) => a.startMs - b.startMs),
-            partial:
-              current.partial && current.partial.endMs <= event.segment.endMs ? null : current.partial,
+            partials: current.partials.filter(partial => partial.source !== event.segment.source || partial.endMs > event.segment.endMs),
           }));
+        }
+        break;
+      }
+      case "transcript-speakers-updated": {
+        if (state.recording?.id === event.streamId) {
+          const updates = new Map(event.segments.map(segment => [segment.id, segment]));
+          const replaced = new Set(event.replacedIds ?? event.segments.map(segment => segment.id));
+          set(current => ({
+            segments: [...current.segments.filter(segment => !replaced.has(segment.id) && !updates.has(segment.id)), ...event.segments].sort((a, b) => a.startMs - b.startMs),
+            recording: current.recording ? { ...current.recording, speakerNames: event.speakerNames } : null,
+          }));
+        }
+        break;
+      }
+      case "recording-warning": {
+        if (state.recording?.id === event.recordingId) set({ error: event.error });
+        break;
+      }
+      case "recording-updated": {
+        set(current => ({ recordings: current.recordings.map(meta => meta.id === event.meta.id ? event.meta : meta) }));
+        if (state.openedRecording?.meta.id === event.meta.id) {
+          void audioRecordingGet(event.meta.id).then(detail => {
+            if (get().openedRecording?.meta.id === event.meta.id) set({ openedRecording: detail });
+          }).catch(() => {});
         }
         break;
       }
       case "transcript-partial-clear": {
         if (state.recording?.id === event.streamId) {
           set((current) => ({
-            partial: current.partial && current.partial.endMs <= event.endMs ? null : current.partial,
+            partials: current.partials.filter(partial => partial.source !== event.source || partial.endMs > event.endMs),
           }));
         }
         break;
       }
       case "recording-error": {
         set({ error: event.error });
+        if (state.transcriptionSource === "cloud" && state.recording?.id === event.recordingId && !state.finalizing) void get().stopRecording();
+        break;
+      }
+      case "meeting-status": {
+        set({ meeting: event.status });
+        break;
+      }
+      case "meeting-recording-start": {
+        void get().startMeetingRecording(event.title);
+        break;
+      }
+      case "meeting-recording-stop": {
+        if (state.recording && !state.recording.ephemeral && !state.finalizing) void get().stopRecording();
+        break;
+      }
+      case "meeting-recording-open": {
+        window.dispatchEvent(new Event("legalwork:open-recorder"));
+        // Settings has its own route; open the existing recorder surface
+        // without reloading the renderer or interrupting audio capture.
+        if (window.location.hash.includes("/settings/")) {
+          window.location.hash = window.location.hash.replace(/\/settings\/.*$/, "/session?recorder=1");
+        }
         break;
       }
       case "system-dictation-toggle": {
-        if (dictationTogglePending) break;
+        if (dictationTogglePending) {
+          if (state.dictationState === "starting") void get().cancelRecording();
+          break;
+        }
+        if (state.finalizing) break;
         dictationTogglePending = true;
+        dictationHoldReleased = false;
+        const toggleEpoch = suspendEpoch;
         void (async () => {
           try {
             await get().init();
+            if (toggleEpoch !== suspendEpoch) return;
             if (get().dictationRecordingId) await get().stopRecording();
             else await get().startSystemDictation();
           } finally {
+            if (toggleEpoch !== suspendEpoch) return;
             dictationTogglePending = false;
+            await finishReleasedDictation();
           }
         })();
         break;
       }
       case "system-dictation-press": {
-        if (dictationHoldStartPending || state.dictationRecordingId) break;
+        if (dictationHoldStartPending || state.dictationRecordingId || state.finalizing || state.dictationState === "starting") break;
         dictationHoldReleased = false;
+        dictationCancelled = false;
+        dictationShortPress = false;
         dictationHoldStartPending = true;
+        const pressEpoch = suspendEpoch;
         void (async () => {
           try {
             await get().init();
+            if (pressEpoch !== suspendEpoch) return;
+            if (dictationCancelled || dictationHoldReleased) {
+              await cancelledDictationFeedback().catch(() => {});
+              return;
+            }
             await get().startSystemDictation();
           } finally {
+            if (pressEpoch !== suspendEpoch) return;
             dictationHoldStartPending = false;
-            if (dictationHoldReleased && get().dictationRecordingId && !dictationHoldStopPending) {
-              dictationHoldStopPending = true;
-              await get().stopRecording().finally(() => {
-                dictationHoldStopPending = false;
-              });
-            }
+            await finishReleasedDictation();
           }
         })();
         break;
       }
       case "system-dictation-release": {
         dictationHoldReleased = true;
-        if (state.dictationRecordingId && !dictationHoldStartPending && !dictationHoldStopPending) {
+        // There is no usable capture to finish yet. Repeated taps must not
+        // queue an empty transcription behind a slow microphone request.
+        if (state.dictationState === "starting") {
+          void get().cancelRecording();
+          break;
+        }
+        if (!dictationHoldStartPending && !dictationTogglePending && !state.finalizing) void finishReleasedDictation();
+        break;
+      }
+      case "system-dictation-stop": {
+        if (state.dictationState === "starting") {
+          void get().cancelRecording();
+          break;
+        }
+        // The explicit finish button always inserts, including a short phrase.
+        if (state.dictationRecordingId && !state.finalizing && !dictationHoldStopPending) {
           dictationHoldStopPending = true;
-          void get().stopRecording().finally(() => {
-            dictationHoldStopPending = false;
-          });
+          const epoch = suspendEpoch;
+          void get().stopRecording().finally(() => { if (epoch === suspendEpoch) dictationHoldStopPending = false; });
         }
         break;
       }
       case "system-dictation-cancel": {
-        if (state.dictationRecordingId && !dictationCancelPending) {
+        dictationShortPress = event.reason === "short-press";
+        if (dictationHoldStartPending) dictationCancelled = true;
+        if ((state.dictationRecordingId || state.dictationState === "starting" || dictationHoldStartPending || dictationTogglePending) && !dictationCancelPending) {
           dictationCancelPending = true;
           void get().cancelRecording().finally(() => {
             dictationCancelPending = false;
@@ -565,7 +739,12 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         set({ systemDictation: event.status, error: event.status.error });
         break;
       }
+      case "system-dictation-microphones": {
+        set({ dictationMicrophones: event.status });
+        break;
+      }
       case "power-suspend": {
+        dictationShortPress = false;
         // Machine is going to sleep. Dictation is canceled (a paste into
         // whatever happens to be focused after wake would be wrong); a call
         // recording is stopped so everything captured so far finalizes to
@@ -575,24 +754,13 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         // swallowed by sleep — release it so the press handler's finally
         // stops it (and so startRecording's post-capture check rolls back).
         dictationHoldReleased = true;
-        // Don't race a stop/start that's already in flight: issuing a cancel
-        // against a recording another handler is finalizing throws
-        // "Unknown recording" and deletes the folder out from under it. A
-        // pending start is covered by the suspendEpoch rollback; a pending
-        // stop already finalizes (and retains on paste failure) on its own.
-        if (
-          dictationTogglePending
-          || dictationHoldStartPending
-          || dictationHoldStopPending
-          || dictationCancelPending
-        ) break;
-        if (state.dictationRecordingId) void get().cancelRecording();
+        if (state.dictationRecordingId || state.dictationState === "starting" || dictationHoldStartPending || dictationTogglePending) void get().cancelRecording();
         else if (state.recording) void get().stopRecording();
         break;
       }
       case "live-transcript-stopped": {
         // Recording ended → the workspace mirror is finalized; reset the toggle.
-        set({ liveTranscriptSessionId: null });
+        set({ liveTranscriptSessionId: null, liveTranscriptWorkspacePath: null });
         break;
       }
       case "overlay-visibility": {
@@ -613,6 +781,18 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
   };
 
   return {
+    // 🟡 LAWOSS: cloud transcription is hidden (feature-flags.ts), so a stored "cloud" choice falls back to local.
+    transcriptionSource: !isCloudTranscriptionHidden() && readPref(TRANSCRIPTION_SOURCE_PREF_KEY, "local") === "cloud" ? "cloud" : "local",
+    cloudModelId: readPref(CLOUD_MODEL_PREF_KEY, ""),
+    meetingNotes: { enabled: readPref(`${NOTES_PREF_KEY}.enabled`,
+      readPref(`${NOTES_PREF_KEY}.title`, "true") === "true" && readPref(`${NOTES_PREF_KEY}.summary`, "true") === "true" ? "true" : "false") === "true",
+      model: readPref(`${NOTES_PREF_KEY}.model`, ""), instructions: readPref(`${NOTES_PREF_KEY}.instructions`, "") },
+    setMeetingNotes: (settings) => {
+      const meetingNotes = { ...get().meetingNotes, ...settings };
+      meetingNotes.instructions = meetingNotes.instructions.slice(0, 1000);
+      for (const [key, value] of Object.entries(meetingNotes)) writePref(`${NOTES_PREF_KEY}.${key}`, String(value));
+      set({ meetingNotes });
+    },
     initialized: false,
     bootstrap: null,
     permissions: null,
@@ -621,7 +801,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     recording: null,
     recordingStartedAt: null,
     segments: [],
-    partial: null,
+    partials: [],
     recordings: [],
     openedRecording: null,
     importing: null,
@@ -629,11 +809,18 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     overlayVisible: false,
     copilotEntries: [],
     liveTranscriptSessionId: null,
+    liveTranscriptWorkspacePath: null,
+    liveTranscriptNotifiedSessions: [],
+    liveTranscriptDismissedPaths: [],
     error: null,
     systemDictation: null,
+    meeting: null,
     dictationReadiness: null,
+    dictationMicrophones: null,
     dictationState: "idle",
     dictationRecordingId: null,
+    composerDictation: null,
+    composerDictationLevel: 0,
     modelId: readPref(MODEL_PREF_KEY, ""),
     language: readLanguagePref(),
     sources: readSourcesPref(),
@@ -646,6 +833,9 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       if (!eventsSubscribed) {
         eventsSubscribed = true;
         window.__LEGALWORK_ELECTRON__?.audio?.onEvent?.(handleEvent);
+        if (typeof navigator !== "undefined") {
+          navigator.mediaDevices?.addEventListener("devicechange", () => { void get().refreshDictationMicrophones(); });
+        }
       }
       if (get().initialized) return;
       set({ initialized: true });
@@ -654,6 +844,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         get().refreshRecordings(),
         get().refreshPermissions(),
         get().refreshSystemDictation(),
+        get().refreshDictationMicrophones(),
+        get().refreshMeeting(),
       ]);
       // Surface any OS permission the raw recorder still needs (microphone /
       // the macOS system-audio recording pane) up front, so the user grants it
@@ -665,6 +857,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       if (needed.length) set({ permissionsNeeded: needed });
       void get().prewarm();
       // LAWOSS: speaker models download when a recording starts, never at app start (no connection without a user action).
+      if (get().dictationState === "idle") void setDictationFeedback("idle").catch(() => {});
     },
 
     /**
@@ -673,15 +866,27 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
      * user ever setting anything up.
      */
     ensureDiarizationReady: async () => {
+      if (get().transcriptionSource === "cloud") return;
       const diarization = get().bootstrap?.diarization;
       if (!diarization || diarization.installed || diarization.downloading) return;
       await get().downloadDiarization();
     },
 
     refreshBootstrap: async () => {
+      const revision = ++bootstrapRevision;
       try {
-        const bootstrap = await audioRecorderBootstrap();
+        const result = await audioRecorderBootstrap();
+        if (revision !== bootstrapRevision) return;
+        // A failed background check is not evidence that a working model was
+        // disabled. Keep the last choices until a successful check replaces them.
+        const previousCloud = get().bootstrap?.cloud;
+        const merged = result.cloud?.error && previousCloud
+          ? { ...result, cloud: { ...result.cloud, models: previousCloud.models } }
+          : result;
+        // 🟡 LAWOSS: no cloud transcription models, region or notes models reach the UI.
+        const bootstrap = isCloudTranscriptionHidden() ? { ...merged, cloud: undefined } : merged;
         set({ bootstrap });
+        if (!bootstrap.cloud?.error && isTranscriptionReady(get())) clearCloudAvailabilityError();
         // Clear a stale selection that no longer maps to a real model (e.g. an
         // old Base/Turbo tier) so the user consciously picks + downloads one.
         // Never auto-select a model on their behalf — recording requires an
@@ -694,8 +899,9 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         // lapsed — fall back to a free tier now that bootstrap knows what's
         // installed.
         get().enforcePremiumGate();
-      } catch (error) {
-        set({ error: error instanceof Error ? error.message : String(error) });
+      } catch {
+        // Navigation/focus refreshes must not create sticky recording errors.
+        // Keep the last snapshot; actual recording failures are reported at start.
       }
     },
 
@@ -745,6 +951,22 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       }
     },
 
+    refreshDictationMicrophones: async () => {
+      try {
+        set({ dictationMicrophones: await refreshDictationMicrophones() });
+      } catch {
+        // Microphone discovery can be unavailable before permission is granted.
+      }
+    },
+
+    selectDictationMicrophone: async (selection) => {
+      try {
+        set({ dictationMicrophones: await audioSystemDictationMicrophoneSelect(selection), error: null });
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : String(error) });
+      }
+    },
+
     refreshDictationReadiness: async () => {
       try {
         const readiness = await audioSystemDictationReadiness();
@@ -777,19 +999,24 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       }
     },
 
-    setSystemDictationEnabled: async (enabled) => {
-      if (!enabled && get().dictationRecordingId) await get().cancelRecording();
+    setMiniBarEnabled: async (enabled) => {
+      set({ systemDictation: await audioMiniBarSetEnabled(enabled) });
+    },
+
+    setDictationAppearance: async (appearance) => {
       try {
-        const status = await audioSystemDictationSetEnabled(enabled);
-        set({ systemDictation: status, error: status.error });
+        set({ systemDictation: await audioSystemDictationSetAppearance(appearance), error: null });
       } catch (error) {
         set({ error: error instanceof Error ? error.message : String(error) });
       }
     },
 
-    setSystemDictationMode: async (mode) => {
+    setSystemDictationEnabled: async (enabled) => {
+      if (!enabled && !get().composerDictation && (get().dictationRecordingId || get().dictationState === "starting")) {
+        await get().cancelRecording();
+      }
       try {
-        const status = await audioSystemDictationSetMode(mode);
+        const status = await audioSystemDictationSetEnabled(enabled);
         set({ systemDictation: status, error: status.error });
       } catch (error) {
         set({ error: error instanceof Error ? error.message : String(error) });
@@ -823,30 +1050,97 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       }
     },
 
+    refreshMeeting: async () => {
+      try { set({ meeting: await audioMeetingGet() }); } catch { /* Plain web has no floating recorder. */ }
+    },
+
+    setMeetingDetection: async (enabled) => {
+      try { set({ meeting: await audioMeetingDetectionSet(enabled) }); }
+      catch (error) { set({ error: error instanceof Error ? error.message : String(error) }); }
+    },
+
+    startMeetingRecording: async (title) => {
+      if (meetingStartPending) return;
+      if (get().finalizing) {
+        await audioMeetingSetState("saving", get().recording?.id)
+          .catch(() => audioMeetingSetState("idle").catch(() => {}));
+        return;
+      }
+      meetingStartPending = true;
+      const startEpoch = suspendEpoch;
+      try {
+        await get().init();
+        if (!get().bootstrap) await get().refreshBootstrap();
+        const current = get().recording;
+        if (current && !current.ephemeral) {
+          await audioMeetingSetState("recording", current.id).catch(() => {});
+          return;
+        }
+        if (recordingStartPending || dictationHoldStartPending || dictationTogglePending || get().dictationState === "starting" || get().dictationRecordingId) {
+          throw new Error(t("recorder.stop_session_first"));
+        }
+        if (!isTranscriptionReady(get())) throw new Error(t("recorder.transcription_not_ready"));
+        await audioMeetingSetState("starting");
+        await get().startRecording(title || t("recorder.meeting_recording_title"), { sources: ["microphone", "system"] });
+        if (suspendEpoch !== startEpoch) { await audioMeetingSetState("idle").catch(() => {}); return; }
+        if (!get().recording) throw new Error(get().error || t("recorder.meeting_setup_required"));
+      } catch (error) {
+        if (suspendEpoch !== startEpoch) { await audioMeetingSetState("idle").catch(() => {}); return; }
+        const message = error instanceof Error ? error.message : String(error);
+        await audioMeetingSetState("error", undefined, message).catch(() => {});
+      } finally { meetingStartPending = false; }
+    },
+
+    startComposerDictation: async (ownerId, onComplete, signal) => {
+      await get().init();
+      if (!get().bootstrap) await get().refreshBootstrap();
+      if (signal?.aborted) return;
+      if (get().recording || get().starting || get().finalizing || get().importing || recordingStartPending || meetingStartPending || get().dictationState === "starting") {
+        throw new Error(t("recorder.stop_session_first"));
+      }
+      if (!isTranscriptionReady(get())) throw new Error(t("recorder.transcription_not_ready"));
+      dictationCancelled = false;
+      dictationShortPress = false;
+      const epoch = suspendEpoch;
+      set({ composerDictation: { ownerId, onComplete }, composerDictationLevel: 0, dictationState: "starting", error: null });
+      try {
+        await get().startRecording("Chat dictation", { sources: ["microphone"], systemDictation: true });
+        if (epoch === suspendEpoch && !get().dictationRecordingId && !dictationCancelled) {
+          throw new Error(get().error ?? t("recorder.mic_access_required"));
+        }
+      } finally {
+        if (epoch === suspendEpoch && !get().dictationRecordingId) set({ composerDictation: null, composerDictationLevel: 0, dictationState: "idle" });
+      }
+    },
+
     startSystemDictation: async () => {
-      const { systemDictation, bootstrap, modelId, recording } = get();
+      const { systemDictation, recording } = get();
       if (!systemDictation?.enabled || !systemDictation.registered) return;
+      if (get().finalizing || meetingStartPending || recordingStartPending || get().dictationState === "starting") return;
       // Guard against a runaway restart loop: a start that lands within a beat
-      // of the previous dictation ending isn't a real key press. Drop it and
-      // settle to idle so the HUD hides instead of re-arming forever.
+      // of the previous dictation ending is usually key bounce. Keep the last
+      // completion feedback instead of flashing the HUD back to idle.
       if (Date.now() - dictationSettleAt < DICTATION_RESTART_COOLDOWN_MS) {
-        set({ dictationState: "idle" });
-        await audioSystemDictationSetState("idle").catch(() => {});
         return;
       }
       if (recording) {
         const message = t("recorder.stop_session_first");
         set({ error: message, dictationState: "error" });
-        await audioSystemDictationSetState("error", message).catch(() => {});
+        await setDictationFeedback("error", message).catch(() => {});
         return;
       }
-      const model = bootstrap?.models.find((entry) => entry.id === modelId);
-      if (!model || model.state !== "installed") {
-        const message = t("recorder.install_model_first");
+      if (!isTranscriptionReady(get())) {
+        const message = t("recorder.transcription_not_ready");
         set({ error: message, dictationState: "error" });
-        await audioSystemDictationSetState("error", message).catch(() => {});
+        await setDictationFeedback("error", message).catch(() => {});
         return;
       }
+      dictationCancelled = false;
+      dictationShortPress = false;
+      const epoch = suspendEpoch;
+      set({ dictationState: "starting", error: null });
+      await setDictationFeedback("starting").catch(() => {});
+      if (epoch !== suspendEpoch) return;
       await get().startRecording("System dictation", {
         sources: ["microphone"],
         systemDictation: true,
@@ -854,6 +1148,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     },
 
     setModelId: (modelId) => {
+      if (get().recording || get().starting || get().finalizing || get().importing) return;
       // A premium tier requires an ACTIVE subscription — not just being signed
       // in, and not merely having the model already downloaded. Without an
       // active sub (and no test-unlock) the selection is refused so the gate /
@@ -868,7 +1163,18 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         return;
       }
       writePref(MODEL_PREF_KEY, modelId);
-      set({ modelId });
+      writePref(TRANSCRIPTION_SOURCE_PREF_KEY, "local");
+      set({ modelId, transcriptionSource: "local", error: null });
+      void get().prewarm();
+    },
+
+    setTranscriptionSource: (source, cloudModelId) => {
+      if (get().recording || get().starting || get().finalizing || get().importing) return;
+      const selected = cloudModelId ?? get().cloudModelId;
+      if (source === "cloud" && (isCloudTranscriptionHidden() || !get().bootstrap?.cloud?.models.some(model => model.model === selected && model.enabled && model.available))) return;
+      writePref(TRANSCRIPTION_SOURCE_PREF_KEY, source);
+      if (source === "cloud") writePref(CLOUD_MODEL_PREF_KEY, selected);
+      set({ transcriptionSource: source, cloudModelId: selected, error: null });
       void get().prewarm();
     },
 
@@ -920,6 +1226,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
      * starts transcribing immediately (large models take seconds to load).
      */
     prewarm: async () => {
+      if (get().transcriptionSource === "cloud") return;
       const { modelId, language, recording, bootstrap } = get();
       if (recording) return;
       const model = bootstrap?.models.find((entry) => entry.id === modelId);
@@ -973,122 +1280,168 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     },
 
     startRecording: async (title, options) => {
-      const { modelId, language, recording, bootstrap } = get();
-      if (recording || get().starting || get().importing) return;
-      // A persisted "system" pref may predate running on a platform that
-      // can't capture it (e.g. macOS 12) — drop unsupported sources.
-      let sources = options?.sources ?? get().sources;
-      if (bootstrap && !bootstrap.capabilities.systemAudio) {
-        sources = sources.filter((source) => source !== "system");
-      }
-      if (!sources.length) sources = ["microphone"];
-
-      // Pre-flight: check OS permissions for the selected sources and show
-      // the guided panel instead of letting capture fail with a raw error.
-      await get().refreshPermissions();
-      const needed = missingPermissionKinds(get().permissions, requiredPermissionKinds(sources));
-      if (needed.length > 0) {
-        set({ permissionsNeeded: needed, error: null });
-        if (options?.systemDictation) {
-          const message = t("recorder.mic_access_required");
-          set({ dictationState: "error" });
-          await audioSystemDictationSetState("error", message).catch(() => {});
-        }
-        return;
-      }
-
-      if (get().recording || get().starting || get().importing) return;
-      set({ starting: true, error: null, permissionsNeeded: [], segments: [], partial: null, copilotEntries: [], diarizing: false });
-      let startedMetaId: string | null = null;
-      // Speaker identification is always on for retained recordings once the
-      // models are present; never a one-shot dictation.
-      const diarize =
-        options?.diarize !== false &&
-        options?.systemDictation !== true &&
-        bootstrap?.diarization.installed === true;
-      // LAWOSS: speaker models download only on an explicit request, never when a recording starts (MČ 5. 10. 2026).
-      // The start window (model cold-load + getUserMedia + track settle) is
-      // seconds wide; if the machine sleeps inside it, roll the whole thing
-      // back instead of latching a recording nobody can see.
+      if (recordingStartPending || get().starting || get().importing || get().finalizing) return;
+      recordingStartPending = true;
+      const startController = options?.systemDictation ? new AbortController() : null;
+      dictationStartController = startController;
       const startEpoch = suspendEpoch;
+      set({ starting: true });
       try {
-        const status = await audioTranscriberStart({ modelId, language });
-        if (status.state === "error") throw new Error(status.error ?? t("recorder.transcriber_start_failed"));
+        const { language, recording, bootstrap } = get();
+        const modelId = transcriptionModelId(get());
+        if (recording) return;
+        // A persisted "system" pref may predate running on a platform that
+        // can't capture it (e.g. macOS 12) — drop unsupported sources.
+        let sources = options?.sources ?? get().sources;
+        if (bootstrap && !bootstrap.capabilities.systemAudio) {
+          sources = sources.filter((source) => source !== "system");
+        }
+        if (!sources.length) sources = ["microphone"];
 
-        const meta = await audioRecordingStart({
-          title,
-          language,
-          modelId,
-          sources,
-          ephemeral: options?.systemDictation === true,
-          projectId: options?.projectId,
-          diarize,
-        });
-        startedMetaId = meta.id;
-        const audio = window.__LEGALWORK_ELECTRON__?.audio;
-        captureHandle = await startCapture(
-          sources,
-          {
-            onPcm: (chunk) => audio?.sendPcm?.(meta.id, chunk),
-            onMediaChunk: (chunk) => audio?.sendMediaChunk?.(meta.id, chunk),
-            onSourceEnded: () => {
-              if (get().recording?.id === meta.id) void get().stopRecording();
+        // Pre-flight: check OS permissions for the selected sources and show
+        // the guided panel instead of letting capture fail with a raw error.
+        await get().refreshPermissions();
+        if (startController?.signal.aborted) return;
+        if (options?.systemDictation && dictationCancelled) {
+          set({ dictationState: "idle" });
+          await cancelledDictationFeedback().catch(() => {});
+          return;
+        }
+        const needed = missingPermissionKinds(get().permissions, requiredPermissionKinds(sources));
+        if (needed.length > 0) {
+          set({ permissionsNeeded: needed, error: null });
+          if (options?.systemDictation) {
+            const message = t("recorder.mic_access_required");
+            set({ dictationState: "error" });
+            await setDictationFeedback("error", message).catch(() => {});
+          }
+          return;
+        }
+
+        set({ error: null, permissionsNeeded: [], segments: [], partials: [], copilotEntries: [], diarizing: false });
+        let startedMetaId: string | null = null;
+        // Speaker identification is always on for retained recordings once the
+        // models are present; never a one-shot dictation.
+        const diarize =
+          options?.diarize !== false &&
+          options?.systemDictation !== true &&
+          (get().transcriptionSource === "cloud" || bootstrap?.diarization.installed === true);
+        // LAWOSS: speaker models download only on an explicit request, never when a recording starts (MČ 5. 10. 2026).
+        // The start window (model cold-load + getUserMedia + track settle) is
+        // seconds wide; if the machine sleeps inside it, roll the whole thing
+        // back instead of latching a recording nobody can see.
+        let startedCapture: CaptureHandle | null = null;
+        try {
+          if (!isTranscriptionReady(get())) throw new Error(t("recorder.transcription_not_ready"));
+          const status = await audioTranscriberStart({ modelId, language });
+          startController?.signal.throwIfAborted();
+          if (status.state === "error") throw new Error(status.error ?? t("recorder.transcriber_start_failed"));
+
+          const meta = await audioRecordingStart({
+            title,
+            language,
+            modelId,
+            sources,
+            separateSources: sources.length > 1,
+            ephemeral: options?.systemDictation === true,
+            projectId: options?.projectId,
+            diarize,
+            ...(get().transcriptionSource === "cloud" && !options?.systemDictation
+              ? { meetingNotes: get().meetingNotes } : {}),
+          });
+          startedMetaId = meta.id;
+          startController?.signal.throwIfAborted();
+          const audio = window.__LEGALWORK_ELECTRON__?.audio;
+          startedCapture = await startCapture(
+            sources,
+            {
+              onPcm: (chunk, source) => audio?.sendPcm?.(meta.id, chunk, source),
+              onMeter: (level) => {
+                if (suspendEpoch !== startEpoch) return;
+                if (get().composerDictation) set({ composerDictationLevel: level });
+                else if (options?.systemDictation) audio?.sendDictationLevel?.(level);
+                else audio?.sendMeetingLevel?.(meta.id, level);
+              },
+              onMicrophone: options?.systemDictation && !get().composerDictation
+                ? (name) => { void audioSystemDictationMicrophoneActive(name).catch(() => {}); } : undefined,
+              onMediaChunk: (chunk, source) => audio?.sendMediaChunk?.(meta.id, chunk, source),
+              onSourceEnded: () => {
+                if (get().recording?.id === meta.id) void get().stopRecording();
+              },
             },
-          },
-        );
-        // Suspended (or a hold-release fired) while we were starting: abandon
-        // the half-built recording rather than leave it running post-wake.
-        if (suspendEpoch !== startEpoch) {
-          await captureHandle.stop().catch(() => {});
-          captureHandle = null;
-          await audioRecordingCancel(meta.id).catch(() => {});
+            { dictation: options?.systemDictation === true, signal: startController?.signal },
+          );
+          if (startController?.signal.aborted) {
+            void startedCapture.stop().catch(() => {});
+            void audioRecordingCancel(meta.id).catch(() => {});
+            return;
+          }
+          if (get().transcriptionSource === "cloud" && get().error) throw new Error(get().error ?? t("recorder.transcription_not_ready"));
+          // Suspended or canceled while we were starting: abandon
+          // the half-built recording rather than leave it running post-wake.
+          if (suspendEpoch !== startEpoch || (options?.systemDictation && dictationCancelled)) {
+            await startedCapture.stop().catch(() => {});
+            await audioRecordingCancel(meta.id).catch(() => {});
+            set({
+              recording: null,
+              recordingStartedAt: null,
+              dictationRecordingId: null,
+              dictationState: options?.systemDictation ? "idle" : get().dictationState,
+            });
+            if (options?.systemDictation) {
+              await (dictationCancelled ? cancelledDictationFeedback() : setDictationFeedback("idle")).catch(() => {});
+            }
+            return;
+          }
+          captureHandle = startedCapture;
+          set({
+            recording: meta,
+            liveTranscriptNotifiedSessions: [],
+            liveTranscriptDismissedPaths: [],
+            recordingStartedAt: Date.now(),
+            dictationRecordingId: options?.systemDictation ? meta.id : null,
+            dictationState: options?.systemDictation ? "listening" : get().dictationState,
+          });
+          levelTimer = window.setInterval(() => {
+            if (captureHandle) set({ levels: captureHandle.readLevels() });
+          }, 150);
+          if (options?.systemDictation) {
+            await setDictationFeedback("listening").catch(() => {});
+          } else {
+            await audioMeetingSetState("recording", meta.id).catch(() => {});
+          }
+        } catch (error) {
+          // Roll back whatever half-started — capture graph first, then the
+          // main-process recording entry created by audioRecordingStart (the
+          // store's `recording` is still null at this point on failure).
+          if (startedCapture) void startedCapture.stop().catch(() => {});
+          if (captureHandle === startedCapture) captureHandle = null;
+          if (startedMetaId) await audioRecordingCancel(startedMetaId).catch(() => {});
+          if (startController?.signal.aborted) return;
+          const message = error instanceof Error ? error.message : String(error);
+          // Permission-shaped runtime failures (status looked fine but the OS
+          // still refused) get the guided panel, not a raw error banner.
+          const permissionKinds = permissionKindsFromCaptureError(message, sources);
+          const cancelled = options?.systemDictation && (dictationCancelled || suspendEpoch !== startEpoch);
           set({
             recording: null,
             recordingStartedAt: null,
             dictationRecordingId: null,
-            dictationState: options?.systemDictation ? "idle" : get().dictationState,
+            dictationState: options?.systemDictation ? cancelled ? "idle" : "error" : get().dictationState,
+            permissionsNeeded: cancelled ? [] : permissionKinds,
+            error: cancelled || permissionKinds.length > 0 ? null : message,
           });
-          if (options?.systemDictation) await audioSystemDictationSetState("idle").catch(() => {});
-          return;
-        }
-        set({
-          recording: meta,
-          recordingStartedAt: Date.now(),
-          dictationRecordingId: options?.systemDictation ? meta.id : null,
-          dictationState: options?.systemDictation ? "listening" : get().dictationState,
-        });
-        if (options?.systemDictation) {
-          await audioSystemDictationSetState("listening").catch(() => {});
-        }
-        levelTimer = window.setInterval(() => {
-          if (captureHandle) set({ levels: captureHandle.readLevels() });
-        }, 150);
-      } catch (error) {
-        // Roll back whatever half-started — capture graph first, then the
-        // main-process recording entry created by audioRecordingStart (the
-        // store's `recording` is still null at this point on failure).
-        if (captureHandle) {
-          await captureHandle.stop().catch(() => {});
-          captureHandle = null;
-        }
-        if (startedMetaId) await audioRecordingCancel(startedMetaId).catch(() => {});
-        const message = error instanceof Error ? error.message : String(error);
-        // Permission-shaped runtime failures (status looked fine but the OS
-        // still refused) get the guided panel, not a raw error banner.
-        const permissionKinds = permissionKindsFromCaptureError(message, sources);
-        set({
-          recording: null,
-          recordingStartedAt: null,
-          dictationRecordingId: null,
-          dictationState: options?.systemDictation ? "error" : get().dictationState,
-          permissionsNeeded: permissionKinds,
-          error: permissionKinds.length > 0 ? null : message,
-        });
-        if (options?.systemDictation) {
-          await audioSystemDictationSetState("error", message).catch(() => {});
+          if (options?.systemDictation) {
+            await (cancelled ? cancelledDictationFeedback() : setDictationFeedback("error", message)).catch(() => {});
+          } else {
+            await audioMeetingSetState("error", undefined, message).catch(() => {});
+          }
         }
       } finally {
-        set({ starting: false });
+        if (dictationStartController === startController) {
+          recordingStartPending = false;
+          set({ starting: false });
+        }
       }
     },
 
@@ -1096,10 +1449,15 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       const recording = get().recording;
       if (!recording || get().finalizing) return;
       const isSystemDictation = get().dictationRecordingId === recording.id;
+      const composerDictation = get().composerDictation;
+      const stoppedCapture = captureHandle;
+      captureHandle = null;
       // Immediate feedback: the finalize round-trip (flush + transcribe the
       // tail) can take seconds on a long recording, and the Stop button would
       // otherwise sit there looking dead.
-      if (!isSystemDictation) set({ finalizing: true });
+      const stopEpoch = suspendEpoch;
+      let captureError: string | null = null;
+      set({ finalizing: true });
       if (levelTimer !== null) {
         window.clearInterval(levelTimer);
         levelTimer = null;
@@ -1107,44 +1465,77 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       try {
         if (isSystemDictation) {
           set({ dictationState: "transcribing" });
-          await audioSystemDictationSetState("transcribing").catch(() => {});
+          await setDictationFeedback("transcribing").catch(() => {});
+          if (stopEpoch !== suspendEpoch) return;
+        } else {
+          await audioMeetingSetState("saving", recording.id).catch(() => {});
         }
-        if (captureHandle) {
-          await captureHandle.stop();
-          captureHandle = null;
+        if (stoppedCapture) {
+          try { await stoppedCapture.stop(); }
+          catch (error) {
+            if (isSystemDictation) throw error;
+            // Save the audio already streamed to disk even if the final
+            // capture packet failed. A meeting must remain recoverable.
+            captureError = error instanceof Error ? error.message : String(error);
+          }
         }
+        if (isSystemDictation && stopEpoch !== suspendEpoch) return;
         const meta = await audioRecordingStop(recording.id);
-        let dictationError: string | null = null;
+        if (isSystemDictation && stopEpoch !== suspendEpoch) return;
+        const transcriptionError = meta.status === "error" ? meta.error || "Transcription failed." : null;
+        let dictationError: string | null = transcriptionError;
+        let dictationCopied = false;
         let recordingsAfterDictation: AudioRecordingMeta[] | null = null;
         if (isSystemDictation) {
           const detail = await audioRecordingGet(meta.id);
+          if (stopEpoch !== suspendEpoch) return;
           const text = (detail?.segments ?? []).map((segment) => segment.text).join(" ").trim();
-          try {
-            const result = await audioSystemDictationPaste(text);
-            dictationError = result.error;
-          } catch (error) {
-            dictationError = error instanceof Error ? error.message : String(error);
+          if (text && !dictationError && !dictationCancelled && suspendEpoch === stopEpoch) {
+            set({ dictationState: "inserting" });
+            await setDictationFeedback("inserting").catch(() => {});
+            if (stopEpoch !== suspendEpoch) return;
+            try {
+              if (composerDictation) await composerDictation.onComplete(text);
+              else {
+                const result = await audioSystemDictationPaste(text);
+                dictationError = result.error;
+                dictationCopied = result.copied && result.pasted === false;
+              }
+            } catch (error) {
+              dictationError = error instanceof Error ? error.message : String(error);
+            }
           }
+          if (stopEpoch !== suspendEpoch) return;
           // Dictation is ephemeral and must never appear in Recordings, even
           // when the paste fails — on failure the text is still on the
           // clipboard (copied), so nothing is silently lost. Always discard it.
           recordingsAfterDictation = await audioRecordingDelete(meta.id).catch(() => null);
-          await audioSystemDictationSetState(
-            dictationError ? "error" : "idle",
-            dictationError ?? "",
+          if (stopEpoch !== suspendEpoch) return;
+          await (dictationCancelled || suspendEpoch !== stopEpoch
+            ? cancelledDictationFeedback()
+            : setDictationFeedback(dictationCopied ? "copied" : dictationError ? "error" : text ? "success" : "idle", dictationCopied ? "" : dictationError ?? "")
           ).catch(() => {});
+          if (stopEpoch !== suspendEpoch) return;
         }
         if (isSystemDictation) dictationSettleAt = Date.now();
+        if (!isSystemDictation) {
+          const meetingError = transcriptionError ?? captureError;
+          const meeting = await audioMeetingSetState(meetingError ? "error" : "idle", undefined, meetingError ?? undefined)
+            .catch(() => get().meeting);
+          set({ meeting });
+        }
         set((state) => ({
           recording: null,
           recordingStartedAt: null,
           dictationRecordingId: null,
+          composerDictation: null,
+          composerDictationLevel: 0,
           dictationState: isSystemDictation && dictationError ? "error" : "idle",
-          partial: null,
+          partials: [],
           levels: {},
           diarizing: false,
           finalizing: false,
-          error: dictationError,
+          error: dictationError ?? transcriptionError ?? captureError,
           // An ephemeral recording (system dictation) must NEVER enter the
           // recordings list. Key off the recording's own flag, not the racy
           // dictationRecordingId, so a loop or state race can't sneak it in.
@@ -1156,21 +1547,33 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
               : [meta, ...state.recordings.filter((item) => item.id !== meta.id)]),
         }));
       } catch (error) {
+        if (isSystemDictation && stopEpoch !== suspendEpoch) return;
+        // A failed capture flush still closes the graph. Discard its
+        // ephemeral session too, so the worker and power blocker are freed.
+        if (isSystemDictation) await audioRecordingCancel(recording.id).catch(() => {});
+        if (isSystemDictation && stopEpoch !== suspendEpoch) return;
         const message = error instanceof Error ? error.message : String(error);
+        const cancelled = isSystemDictation && (dictationCancelled || suspendEpoch !== stopEpoch);
         set({
           recording: null,
           recordingStartedAt: null,
           dictationRecordingId: null,
-          dictationState: isSystemDictation ? "error" : get().dictationState,
+          composerDictation: null,
+          composerDictationLevel: 0,
+          dictationState: isSystemDictation ? cancelled ? "idle" : "error" : get().dictationState,
           levels: {},
           diarizing: false,
           finalizing: false,
-          error: message,
+          error: cancelled ? null : message,
         });
-        if (isSystemDictation) {
+        if (isSystemDictation && !composerDictation) {
           dictationSettleAt = Date.now();
-          await audioSystemDictationSetState("error", message).catch(() => {});
+          await (cancelled ? cancelledDictationFeedback() : setDictationFeedback("error", message)).catch(() => {});
+        } else if (!isSystemDictation) {
+          await audioMeetingSetState("error", recording.id, message).catch(() => {});
         }
+      } finally {
+        if (isSystemDictation && stopEpoch !== suspendEpoch) void audioRecordingDelete(recording.id).catch(() => {});
       }
       await get().refreshRecordings();
     },
@@ -1178,6 +1581,35 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     cancelRecording: async () => {
       const recording = get().recording;
       const isSystemDictation = Boolean(recording && get().dictationRecordingId === recording.id);
+      const isComposerDictation = Boolean(get().composerDictation);
+      if (isSystemDictation || isComposerDictation || get().dictationState === "starting" || dictationHoldStartPending || dictationTogglePending) {
+        // Free the UI and shortcut synchronously. Cleanup and late IPC replies
+        // belong to the cancelled epoch, never to the next dictation.
+        suspendEpoch += 1;
+        dictationCancelled = true;
+        const controller = dictationStartController;
+        dictationStartController = null;
+        const cancelledCapture = captureHandle;
+        captureHandle = null;
+        dictationTogglePending = false;
+        dictationHoldStartPending = false;
+        dictationHoldStopPending = false;
+        dictationCancelPending = false;
+        recordingStartPending = false;
+        dictationHoldReleased = false;
+        dictationSettleAt = 0;
+        if (levelTimer !== null) window.clearInterval(levelTimer);
+        levelTimer = null;
+        if (!isComposerDictation) void cancelledDictationFeedback().catch(() => {});
+        set({ recording: null, recordingStartedAt: null, dictationRecordingId: null,
+          composerDictation: null, composerDictationLevel: 0, dictationState: "idle",
+          starting: false, finalizing: false, partials: [], segments: [], levels: {}, diarizing: false, error: null });
+        controller?.abort();
+        if (cancelledCapture) void cancelledCapture.stop().catch(() => {});
+        if (recording) void audioRecordingCancel(recording.id).catch(() => {});
+        return;
+      }
+      if (recording) set({ finalizing: true });
       if (levelTimer !== null) {
         window.clearInterval(levelTimer);
         levelTimer = null;
@@ -1191,16 +1623,18 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         recording: null,
         recordingStartedAt: null,
         dictationRecordingId: null,
+        composerDictation: null,
+        composerDictationLevel: 0,
         dictationState: "idle",
-        partial: null,
+        partials: [],
         segments: [],
         levels: {},
         diarizing: false,
         finalizing: false,
       });
-      if (isSystemDictation) {
+      if (isSystemDictation && !isComposerDictation) {
         dictationSettleAt = Date.now();
-        await audioSystemDictationSetState("idle").catch(() => {});
+        await cancelledDictationFeedback().catch(() => {});
       }
     },
 
@@ -1320,12 +1754,17 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       return transcriptText(source, 100_000).trim();
     },
 
-    startLiveTranscriptShare: async (sessionId, workspacePath, directory, sessionClient) => {
+    startLiveTranscriptShare: async (sessionId, workspacePath, directory, sessionClient, automatic = false) => {
       const root = workspacePath?.trim();
       if (!root) {
         set({ error: t("recorder.context_inject_no_session") });
         return false;
       }
+      const recordingId = get().recording?.id;
+      if (!recordingId || get().recording?.ephemeral) return false;
+      if (automatic && get().liveTranscriptDismissedPaths.includes(root)) return false;
+      if (get().liveTranscriptWorkspacePath === root && get().liveTranscriptNotifiedSessions.includes(sessionId)) return true;
+      const request = ++liveTranscriptShareRevision;
       let fileName = "live-call-transcript.md";
       try {
         const result = await audioLiveTranscriptStart(root);
@@ -1339,10 +1778,14 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         return false;
       }
 
+      if (request !== liveTranscriptShareRevision || get().recording?.id !== recordingId) return false;
+      set({ liveTranscriptSessionId: sessionId, liveTranscriptWorkspacePath: root,
+        liveTranscriptDismissedPaths: get().liveTranscriptDismissedPaths.filter(path => path !== root) });
       // Tell the agent — once, invisibly (synthetic + noReply) — that a growing
       // transcript file exists to read on demand. No repeated pasting.
       const client = sessionClient ?? copilotContext?.getClient();
-      if (client) {
+      if (client && !get().liveTranscriptNotifiedSessions.includes(sessionId)) {
+        set({ liveTranscriptNotifiedSessions: [...get().liveTranscriptNotifiedSessions, sessionId] });
         const body = t("recorder.live_share_notice").replace("{file}", fileName);
         try {
           unwrap(
@@ -1357,13 +1800,15 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           // The file is already live; a failed notice shouldn't block the toggle.
         }
       }
-      set({ liveTranscriptSessionId: sessionId });
-      return true;
+      return get().recording?.id === recordingId && get().liveTranscriptWorkspacePath === root;
     },
 
     stopLiveTranscriptShare: async () => {
+      liveTranscriptShareRevision += 1;
+      const root = get().liveTranscriptWorkspacePath;
+      if (root) set({ liveTranscriptDismissedPaths: [...get().liveTranscriptDismissedPaths, root] });
       await audioLiveTranscriptStop().catch(() => {});
-      set({ liveTranscriptSessionId: null });
+      set({ liveTranscriptSessionId: null, liveTranscriptWorkspacePath: null });
     },
 
     setOverlayVisible: async (visible) => {

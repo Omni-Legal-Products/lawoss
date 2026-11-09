@@ -107,14 +107,12 @@ import { McpView, type McpViewProps } from "@/react-app/domains/settings/pages/m
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
 import { OfficeAddinsView } from "@/react-app/domains/settings/pages/office-addins-view";
 import { RecorderSettingsView } from "@/react-app/domains/settings/pages/recorder-view";
-import { MessagingView } from "@/react-app/domains/settings/pages/messaging-view";
 import { SkillsView } from "@/react-app/domains/settings/pages/skills-view";
 import { WorkflowsView } from "@/react-app/domains/settings/pages/workflows-view";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
 import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view-model";
-import { useMessagingViewProps } from "@/react-app/domains/settings/state/messaging-view-state";
 import { useElectronUpdaterState } from "@/react-app/domains/settings/state/electron-updater-state";
-import { UPDATE_AUTO_CHECK_STORAGE_KEY } from "@/react-app/domains/settings/state/update-status-store";
+import { loadUpdatePreferences, saveUpdatePreferences, type UpdatePreferences } from "@/react-app/domains/settings/state/update-preferences";
 import { changeOrgPolicySetting, useOrgPolicy, useOrgPolicyForbids, useOrgPolicyStore } from "@/react-app/domains/connections/org-policy";
 import { orgChatEngineId } from "@legalwork/types/org-policy";
 import { useSyncEvents } from "@/react-app/kernel/sync-events";
@@ -174,7 +172,7 @@ import { ROUTE_LEGALWORK_CAPABILITIES } from "./legalwork-capabilities";
 import { useReloadCoordinator } from "./reload-coordinator";
 import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory";
 import { liteSettingsWorkspace } from "@/lawoss/lite/office-scope";
-import { workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
+import { composerSettingsPath, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { refreshProviderListQueries } from "@/react-app/infra/provider-list-query";
 import {
@@ -201,9 +199,6 @@ function reconcileSelectedWorkspaceId(
 }
 
 const SETTINGS_HIDE_TITLEBAR_KEY = "legalwork.react.settings.hide-titlebar";
-// Shared with the sidebar update badge's background check.
-const SETTINGS_UPDATE_AUTO_CHECK_KEY = UPDATE_AUTO_CHECK_STORAGE_KEY;
-const SETTINGS_UPDATE_AUTO_DOWNLOAD_KEY = "legalwork.react.settings.update-auto-download";
 
 function parseSettingsPath(pathname: string): {
   tab: SettingsTab;
@@ -452,12 +447,18 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     return window.localStorage.getItem("legalwork.developerMode") === "1";
   });
   const [hideTitlebar, setHideTitlebar] = useState(() => readStoredBoolean(SETTINGS_HIDE_TITLEBAR_KEY, false));
-  const [updateAutoCheck, setUpdateAutoCheck] = useState(() =>
-    readStoredBoolean(SETTINGS_UPDATE_AUTO_CHECK_KEY, true),
-  );
-  const [updateAutoDownload, setUpdateAutoDownload] = useState(() =>
-    readStoredBoolean(SETTINGS_UPDATE_AUTO_DOWNLOAD_KEY, false),
-  );
+  const [updateAutoCheck, setUpdateAutoCheck] = useState(false);
+  const [updateAutoDownload, setUpdateAutoDownload] = useState(false);
+  const [updatePreferencesLoaded, setUpdatePreferencesLoaded] = useState(false);
+  const saveUpdatePreference = async (patch: Partial<UpdatePreferences>) => {
+    try {
+      const preferences = await saveUpdatePreferences(patch);
+      setUpdateAutoCheck(preferences.autoCheck);
+      setUpdateAutoDownload(preferences.autoDownload);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("notifications.updater_error"));
+    }
+  };
   const [configActionStatus, setConfigActionStatus] = useState<string | null>(null);
   const [revealConfigBusy, setRevealConfigBusy] = useState(false);
   const [resetConfigBusy, setResetConfigBusy] = useState(false);
@@ -859,7 +860,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const evaluationsOff = useOrgPolicyForbids("evaluations.allow");
   const analyticsEnabled = local.prefs.analyticsEnabled === true && firmAnalytics?.value !== false;
   const onReleaseChannelChange = useCallback(
-    (next: "stable" | "alpha") => {
+    (next: "stable" | "prerelease" | "alpha") => {
       local.setPrefs((previous) => ({ ...previous, releaseChannel: next }));
     },
     [local],
@@ -1198,12 +1199,15 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   }, [hideTitlebar]);
 
   useEffect(() => {
-    writeStoredBoolean(SETTINGS_UPDATE_AUTO_CHECK_KEY, updateAutoCheck);
-  }, [updateAutoCheck]);
-
-  useEffect(() => {
-    writeStoredBoolean(SETTINGS_UPDATE_AUTO_DOWNLOAD_KEY, updateAutoDownload);
-  }, [updateAutoDownload]);
+    let cancelled = false;
+    void loadUpdatePreferences().then((preferences) => {
+      if (cancelled) return;
+      setUpdateAutoCheck(preferences.autoCheck);
+      setUpdateAutoDownload(preferences.autoDownload);
+      setUpdatePreferencesLoaded(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   const { markRouteReady: markBootRouteReady } = useBootState();
   const refreshRouteState = useMemo(() => {
@@ -2013,14 +2017,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   };
 
 
-  const handleReconnectMessagingServer = useCallback(async () => {
-    const ok = await legalworkServerStore.reconnectLegalworkServer();
-    if (ok) {
-      await refreshRouteState();
-    }
-    return ok;
-  }, [legalworkServerStore, refreshRouteState]);
-
   const restartLegalworkServerAndRefresh = useCallback(async () => {
     if (!isDesktopRuntime()) return false;
     try {
@@ -2037,21 +2033,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   }, [legalworkServerStore, refreshRouteState]);
 
   const handleRestartLocalServer = restartLegalworkServerAndRefresh;
-  const handleRestartMessagingWorker = restartLegalworkServerAndRefresh;
-
-  const messagingViewProps = useMessagingViewProps({
-    busy,
-    legalworkServerStatus: legalworkServerSnapshot.legalworkServerStatus,
-    legalworkServerUrl: legalworkServerSnapshot.legalworkServerUrl,
-    legalworkServerClient:
-      legalworkClient ?? legalworkServerSnapshot.legalworkServerClient,
-    legalworkReconnectBusy: legalworkServerSnapshot.legalworkReconnectBusy,
-    reconnectLegalworkServer: handleReconnectMessagingServer,
-    restartMessagingWorker: handleRestartMessagingWorker,
-    workspaceId: runtimeWorkspaceId,
-    selectedWorkspaceRoot,
-  });
-
   if (route.redirectPath && !props.embedded) {
     const target = selectedWorkspaceId
       ? workspaceSettingsRoute(selectedWorkspaceId, route.redirectPath)
@@ -2307,6 +2288,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             reviewClient={legalworkClient}
             reviewWorkspaceId={hubWorkspaceId}
             onShareReviewSet={shareReviewSetWithFirm}
+            onManagePlugins={() => navigate(composerSettingsPath("plugins"))}
             onOpenReviewSetShare={canShareWithFirm ? () => {
               setTeamShareKinds(["review_set"]);
               setTeamShareInitial(null);
@@ -2323,6 +2305,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               />
             }
             kind={route.tab === "workflows" ? "workflows" : "skills"}
+            pluginImports={extensionsStore}
             workspaceName={selectedWorkspaceName}
             busy={busy}
             showHeader={props.singleView === true}
@@ -2342,6 +2325,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                   legalworkClient={legalworkClient}
                   workspaceId={hubWorkspaceId}
                   kind="workflow"
+                  readSkill={extensionsStore.readFirmSkill}
                   onConfigApplied={() => {
                     void extensionsStore.refreshSkills({ force: true });
                     void reloadWorkspaceEngineFromUi();
@@ -2456,6 +2440,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             pluginCreation={extensionsStore}
             skillImports={extensionsStore}
             skillTools={extensionsStore}
+            libraryConnection={selectedWorkspaceEndpoint?.client ?? legalworkClient}
             canImportSkills={canWriteWorkspaceSkills}
             canAddConnector={!isRemoteWorkspace || (routeLegalworkStatus === "connected" && Boolean(routeLegalworkCapabilities?.mcp?.write))}
             canAddSkill={canWriteWorkspaceSkills}
@@ -2568,14 +2553,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       case "updates":
         return (
           <UpdatesView
-            busy={busy}
+            busy={busy || !updatePreferencesLoaded}
             webDeployment={platform.platform === "web"}
             appVersion={electronUpdaterState.appVersion}
             updateEnv={electronUpdaterState.updateEnv}
             updateAutoCheck={effectiveUpdateAutoCheck}
-            toggleUpdateAutoCheck={() => void changeOrgPolicySetting("updates.autoCheck", () => setUpdateAutoCheck(!effectiveUpdateAutoCheck))}
+            toggleUpdateAutoCheck={() => void changeOrgPolicySetting("updates.autoCheck", () => saveUpdatePreference({ autoCheck: !effectiveUpdateAutoCheck }))}
             updateAutoDownload={effectiveUpdateAutoDownload}
-            toggleUpdateAutoDownload={() => void changeOrgPolicySetting("updates.autoDownload", () => setUpdateAutoDownload(!effectiveUpdateAutoDownload))}
+            toggleUpdateAutoDownload={() => void changeOrgPolicySetting("updates.autoDownload", () => saveUpdatePreference({ autoDownload: !effectiveUpdateAutoDownload }))}
             updateStatus={electronUpdaterState.updateStatus}
             anyActiveRuns={activeReloadBlockingSessions.length > 0}
             checkForUpdates={electronUpdaterState.checkForUpdates}
@@ -2620,7 +2605,15 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       case "office-addins":
         return <OfficeAddinsView />;
       case "recorder":
-        return recorderOff ? <SettingsStack><OrgPolicyFeatureOff policyKey="recorder.allow" /></SettingsStack> : <RecorderSettingsView />;
+        return recorderOff ? <SettingsStack><OrgPolicyFeatureOff policyKey="recorder.allow" /></SettingsStack> : (
+          <RecorderSettingsView
+            busy={busy}
+            hideAppMode={local.prefs.hideAppMode}
+            onChangeHideAppMode={(mode) => {
+              local.setPrefs((previous) => ({ ...previous, hideAppMode: mode }));
+            }}
+          />
+        );
       case "debug":
         return <DebugView {...debugViewProps} />;
       default:
@@ -2632,11 +2625,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     <>
       {props.singleView ? (
         // Standalone pages use the same pane-relative gutters and content width.
-        // Workflows owns its frame so its list and editor can scroll independently.
-        <div className={route.tab === "workflows"
+        // Libraries keep their controls fixed while their lists scroll independently.
+        <div className={route.tab === "workflows" || route.tab === "extensions"
           ? "flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
           : "@container/page min-w-0 min-h-0 flex-1 overflow-y-auto bg-background"}>
-          {route.tab === "workflows" ? settingsView : <div className="lw-page-content lw-page-top flex flex-col gap-6 pb-8">{settingsView}</div>}
+          {route.tab === "workflows" || route.tab === "extensions" ? settingsView : <div className="lw-page-content lw-page-top flex flex-col gap-6 pb-8">{settingsView}</div>}
         </div>
       ) : (
         <SettingsShell

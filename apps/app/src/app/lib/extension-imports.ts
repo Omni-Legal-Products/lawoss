@@ -1,3 +1,6 @@
+import { provenanceSchema, importStateSchema, importHistorySchema } from "@legalwork/types/plugin-import-state";
+import type { PluginImportProvenance, PluginImportReadiness, PluginImportRequirement, PluginImportHistory } from "@legalwork/types/plugin-import";
+
 export type ImportedSkill = {
   cloudSkillId: string;
   installedName: string;
@@ -37,6 +40,10 @@ export type ImportedPluginFile = {
 };
 
 export type ImportedPlugin = {
+  provenance?: PluginImportProvenance;
+  importState?: { readiness: PluginImportReadiness; requirements: PluginImportRequirement[] };
+  history?: PluginImportHistory[];
+  canRollback?: boolean;
   excludedConnectors?: Array<{ name: string; message: string }>;
   scope?: "global";
   sourceKind?: "plugin" | "skill" | "connector";
@@ -174,6 +181,10 @@ export function readWorkspaceImports(value: unknown): WorkspaceImports {
         : [];
       const imported = {
         pluginId,
+        provenance: provenanceSchema.safeParse(entry.provenance).data,
+        importState: importStateSchema.safeParse(entry.importState).data,
+        history: importHistorySchema.safeParse(entry.history).data,
+        canRollback: Array.isArray(entry.snapshots) && entry.snapshots.length > 0,
         ...(Array.isArray(entry.excludedConnectors) ? { excludedConnectors: entry.excludedConnectors.flatMap(item => isRecord(item) && typeof item.name === "string" && typeof item.message === "string" ? [{ name: item.name, message: item.message }] : []) } : {}),
         ...(entry.sourceKind === "plugin" || entry.sourceKind === "skill" || entry.sourceKind === "connector" ? { sourceKind: entry.sourceKind } : {}),
         ...(entry.scope === "global" ? { scope: "global" } : {}),

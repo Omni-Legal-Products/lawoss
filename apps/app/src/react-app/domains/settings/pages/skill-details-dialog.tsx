@@ -30,6 +30,10 @@ export function SkillDetailsDialog(props: { skill: SkillCard; extensions: SkillD
   const forbidden = useOrgPolicyForbids("skills.allowCustom");
   const canEdit = props.canEdit && !forbidden;
   const dirty = content !== saved;
+  const instructions = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+  const generatedFooter = instructions.match(/\n+Imported package resources: [^\n]+\. Resolve package-relative paths there\.\r?\n+Component mapping: [^\n]+\.\s*$/)?.[0];
+  const technicalDetails = generatedFooter?.includes(` → ${props.skill.name}`) ? generatedFooter : null;
+  const visibleInstructions = technicalDetails ? instructions.slice(0, -technicalDetails.length) : instructions;
   useEffect(() => {
     let stopped = false;
     setLoading(true);
@@ -71,7 +75,10 @@ export function SkillDetailsDialog(props: { skill: SkillCard; extensions: SkillD
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
           {error ? <div role="alert" className="space-y-2 text-sm text-destructive"><p>{error}</p>{!dirty ? <Button variant="outline" size="sm" onClick={() => setRevision(value => value + 1)}>{t("common.refresh")}</Button> : null}</div> : null}
           {loading ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("skills.loading")}</p> : !error || content ? <>
-            {editing && canEdit ? <Textarea aria-label={t("plugin_details.instructions")} value={content} onChange={event => setContent(event.currentTarget.value)} disabled={saving || props.busy} spellCheck={false} className="min-h-80 font-mono text-xs leading-relaxed" /> : <MarkdownBlock text={content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "")} />}
+            {editing && canEdit ? <Textarea aria-label={t("plugin_details.instructions")} value={content} onChange={event => setContent(event.currentTarget.value)} disabled={saving || props.busy} spellCheck={false} className="min-h-80 font-mono text-xs leading-relaxed" /> : <>
+              <MarkdownBlock text={visibleInstructions} />
+              {technicalDetails ? <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">{t("mcp.technical_details")}</summary><div className="mt-3 [overflow-wrap:anywhere]"><MarkdownBlock text={technicalDetails.trim()} /></div></details> : null}
+            </>}
             <SkillResourcesPanel skillName={props.skill.name} busy={props.busy || saving || !canEdit} extensions={props.extensions} onChanged={() => void syncResources()} />
           </> : null}
         </div>

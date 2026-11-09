@@ -7,7 +7,7 @@ import { createLocalOcrEngine, type LocalOcrRuntime } from "./local.js";
 import type { LocalEngineSettings } from "./settings.js";
 import { ApiError } from "../errors.js";
 import { LayoutRuntime } from "../document-preparation/layout-runtime.js";
-import { prepareSmallModel, prepareLayoutModel, layoutModelReady } from "./models.js";
+import { prepareSmallModel, prepareLayoutModel, layoutModelReady, type ModelDownloadFetch } from "./models.js";
 import { llamaSupported, prepareQualityModel, qualityModelReady } from "./llama.js";
 
 const exists = async (path: string) => access(path).then(() => true, () => false);
@@ -20,7 +20,7 @@ export class OcrRuntime {
   installation: OcrSettingsView["installation"] = null;
   private controller?: AbortController;
 
-  constructor(readonly root: string) {
+  constructor(readonly root: string, private readonly download?: ModelDownloadFetch) {
     const resources = "resourcesPath" in process && typeof process.resourcesPath === "string" ? process.resourcesPath : undefined;
     const bundledNode = resources ? join(resources, "node", process.platform === "win32" ? "node.exe" : "node") : undefined;
     const packaged = resources && existsSync(join(resources, "app.asar"));
@@ -62,7 +62,7 @@ export class OcrRuntime {
   async layoutReady() { return layoutModelReady(this.local.modelDirectory); }
   private async prepareLayout(signal: AbortSignal, stage: (value: NonNullable<OcrSettingsView["installation"]>["stage"], id?: string) => void) {
     stage("models", "local-layout");
-    await prepareLayoutModel(this.local.modelDirectory, signal);
+    await prepareLayoutModel(this.local.modelDirectory, signal, this.download);
     stage("checking");
     const layout = new LayoutRuntime(this.local);
     const result = await layout.detect(await ocrTestPage(), signal).finally(() => layout.close());
@@ -94,11 +94,11 @@ export class OcrRuntime {
     this.startInstall(engine.id, async (signal, stage) => {
       if (engine.model === "pp-ocrv6-small") {
         stage("models");
-        await prepareSmallModel(this.local.modelDirectory, signal);
+        await prepareSmallModel(this.local.modelDirectory, signal, this.download);
       } else {
         stage("models");
-        await prepareQualityModel(this.local.modelDirectory, signal);
-        await prepareSmallModel(this.local.modelDirectory, signal);
+        await prepareQualityModel(this.local.modelDirectory, signal, this.download);
+        await prepareSmallModel(this.local.modelDirectory, signal, this.download);
       }
       stage("checking");
       const check = createLocalOcrEngine(engine, this.local);

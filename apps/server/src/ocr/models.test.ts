@@ -45,6 +45,25 @@ test("model downloads stay isolated from engine requests and reuse verified asse
   expect(await readdir(root)).toEqual([asset.name]);
 });
 
+test("a host download transport receives the bounded abort signal and verified assets are reused", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ocr-proxy-")); roots.push(root);
+  // LAWOSS: bez spyOn na globálnom fetch (súbežné testy servera); neplatná doména
+  // zlyhá, ak by sťahovanie obišlo transport hostiteľa.
+  const hosted = { ...asset, url: "https://example.invalid/model" };
+  let requests = 0;
+  const download = async (url: string, init: { signal: AbortSignal }) => {
+    requests++;
+    expect(url).toBe(hosted.url);
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    return new Response(bytes);
+  };
+  const path = join(root, asset.name);
+  await downloadModelAsset(hosted, path, new AbortController().signal, download);
+  await downloadModelAsset(hosted, path, new AbortController().signal, download);
+  expect(await readFile(path)).toEqual(bytes);
+  expect(requests).toBe(1);
+});
+
 test("corruption, over-limit streams and cancellation cannot publish a model", async () => {
   const root = await mkdtemp(join(tmpdir(), "ocr-model-")); roots.push(root);
   let reply = (response: ServerResponse) => { response.end("corrupt"); };

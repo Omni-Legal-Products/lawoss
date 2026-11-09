@@ -13,7 +13,7 @@ import type {
 import { formatBytes } from "../../../../app/utils";
 import { tierName } from "../../recorder/model-tiers";
 import { SetupStep, recommendedTier } from "../../recorder/recorder-setup";
-import { useRecorderStore } from "../../recorder/recorder-store";
+import { useRecorderStore, isTranscriptionReady } from "../../recorder/recorder-store";
 
 /** How often the page re-probes the OS while something is still missing. */
 const READINESS_POLL_MS = 4000;
@@ -68,7 +68,7 @@ export function DictationReadinessGate(props: { children: ReactNode }) {
   /** Keep the completed checklist visible until the user continues. */
   const [setupEngaged, setSetupEngaged] = useState(false);
 
-  const modelInstalled = store.bootstrap?.models.some((model) => model.state === "installed") ?? false;
+  const modelInstalled = store.transcriptionSource === "cloud" ? isTranscriptionReady(store) : store.bootstrap?.models.some((model) => model.state === "installed") ?? false;
   const steps = useMemo(
     () => readinessSteps(readiness, modelInstalled),
     [readiness, modelInstalled],

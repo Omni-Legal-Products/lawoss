@@ -401,7 +401,7 @@ source SHA-256 hashes and pre-manifest tree digest are in `build-manifest.json`.
 The accepted runtime-tools lock hash is pinned in the build helper. Updating it
 requires deliberate review of that constant. No SDK payload is distributed.
 
-Run under exact host Node 24.21.0, passing absolute paths:
+Run under exact host Node 24.22.1, passing absolute paths:
 
 ```sh
 node package-runtime.mjs OUTPUT SCRATCH SCRATCH/store GENUINE_PNPM_CLI offline

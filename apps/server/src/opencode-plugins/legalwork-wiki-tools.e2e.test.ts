@@ -7,7 +7,6 @@ import { join } from "node:path";
 import { z } from "zod";
 import { ViewPreviewSchema } from "@legalwork/types/views";
 import { startServer } from "../server.js";
-import { TokenService } from "../tokens.js";
 import { serve } from "../serve-node.js";
 import { scopedWikiRuntime } from "../wiki/scoped-runtime.test-helper.js";
 import { WikiStore } from "../wiki/store.js";
@@ -48,7 +47,6 @@ test("an agent captures an authorized source into real Markdown through the serv
     authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli",
     logFormat: "pretty", logRequests: false,
   };
-  const owner = await new TokenService(config).create("owner", { label: "Wiki integration fixture" });
   const agentToken = await ensureWikiAgentToken(config);
   await grantWikiAgentSession(config, { sessionId: "session-capture", directory: project, scope: "owner" });
   const server = await startServer(config);
@@ -68,7 +66,7 @@ test("an agent captures an authorized source into real Markdown through the serv
   process.env.LEGALWORK_SERVER_URL = url;
   process.env.LEGALWORK_SERVER_TOKEN = config.token;
   adoptWikiAgentSecret(agentToken);
-  const headers = { Authorization: `Bearer ${owner.token}`, "Content-Type": "application/json" };
+  const headers = { "X-LegalWork-Host-Token": config.hostToken, "Content-Type": "application/json" };
   const created = await fetch(`${url}/wikis`, { method: "POST", headers,
     body: JSON.stringify({ name: "Practice knowledge", root: join(root, "knowledge"), template: "firm" }) });
   expect(created.status).toBe(201);
@@ -283,7 +281,8 @@ test("with AI boundaries on, authenticated session origins are preserved while p
     "x-legalwork-wiki-agent-token": runtimeToken, "x-legalwork-wiki-agent-session": "ses_http_origin",
     "x-legalwork-wiki-agent-directory": encodeURIComponent(project),
   } });
-  expect(narrow.status).toBe(403);
+  // Upstream v0.2.18 removed /tokens (guest sharing); the agent credential reaches nothing there.
+  expect(narrow.status).toBe(404);
 });
 
 test("with AI boundaries off (alpha default), authenticated proxy session origin grants local wiki access and a collaborator prompt downgrades it", async () => {
@@ -360,5 +359,5 @@ test("with AI boundaries off (alpha default), authenticated proxy session origin
     "x-legalwork-wiki-agent-token": runtimeToken, "x-legalwork-wiki-agent-session": "ses_http_origin",
     "x-legalwork-wiki-agent-directory": encodeURIComponent(project),
   } });
-  expect(narrow.status).toBe(403);
+  expect(narrow.status).toBe(404);
 });

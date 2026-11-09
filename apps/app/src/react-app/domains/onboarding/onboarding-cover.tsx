@@ -3,6 +3,7 @@
  * Shared centered shell for the full-screen onboarding steps.
  */
 import type { ReactNode } from "react";
+import { t } from "@/i18n";
 import { ArrowLeft } from "lucide-react";
 import { Page, PageTitlebarRegion } from "@/components/page";
 
@@ -10,7 +11,7 @@ import { Page, PageTitlebarRegion } from "@/components/page";
  * wider pill so users always know where they are in the flow. */
 export function StepDots(props: { step: number; total: number }) {
   return (
-    <div className="mb-6 flex items-center gap-1.5">
+    <div className="mb-6 flex items-center gap-1.5" role="progressbar" aria-label={t("onboarding_audio.setup_progress")} aria-valuemin={1} aria-valuemax={props.total} aria-valuenow={props.step}>
       {Array.from({ length: props.total }, (_, index) => (
         <span
           key={index}
@@ -28,11 +29,12 @@ export function StepDots(props: { step: number; total: number }) {
 }
 
 /** Wizard footer back button — bottom-left of the centered column. */
-export function CoverBackButton(props: { label: string; onClick: () => void }) {
+export function CoverBackButton(props: { label: string; onClick: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
-      className="inline-flex items-center gap-1.5 text-[13px] text-dls-secondary transition-colors hover:text-dls-text"
+      disabled={props.disabled}
+      className="inline-flex items-center gap-1.5 text-[13px] text-dls-secondary transition-colors hover:text-dls-text disabled:pointer-events-none disabled:opacity-50"
       onClick={props.onClick}
     >
       <ArrowLeft className="size-3.5" />
@@ -42,11 +44,12 @@ export function CoverBackButton(props: { label: string; onClick: () => void }) {
 }
 
 /** Wizard footer skip/continue — bottom-right of the centered column. */
-export function CoverSkipButton(props: { label: string; onClick: () => void }) {
+export function CoverSkipButton(props: { label: string; onClick: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
-      className="text-[13px] text-dls-secondary transition-colors hover:text-dls-text"
+      disabled={props.disabled}
+      className="text-[13px] text-dls-secondary transition-colors hover:text-dls-text disabled:pointer-events-none disabled:opacity-50"
       onClick={props.onClick}
     >
       {props.label}

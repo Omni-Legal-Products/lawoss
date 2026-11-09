@@ -7,6 +7,7 @@ import type { registerProjectFolderRoutes } from "./project-folders.js";
 import { readFile, rename, rm, writeFile, lstat } from "node:fs/promises";
 import { realpath } from "../lawoss/canonical-path.js";
 import { basename, dirname, resolve, isAbsolute, relative, sep } from "node:path";
+import { withFileWriteLock } from "../file-write-lock.js";
 import { recordAudit } from "../audit.js";
 import { readProjectTemplates, saveProjectTemplates, localizeProjectTemplates, projectFieldsFromTemplate } from "../project-templates.js";
 import { ApiError } from "../errors.js";
@@ -234,26 +235,28 @@ async function persistServerWorkspaceState(config: ServerConfig): Promise<boolea
   const configPath = config.configPath?.trim() ?? "";
   if (!configPath) return false;
 
-  const parsed = await readServerConfigFile(configPath);
-  const next = {
-    ...parsed,
-    workspaces: config.workspaces.map(serializeWorkspaceConfigEntry),
-    authorizedRoots: Array.from(new Set(config.authorizedRoots.map((root) => resolve(root)))),
-  };
+  return withFileWriteLock(configPath, async () => {
+    const parsed = await readServerConfigFile(configPath);
+    const next = {
+      ...parsed,
+      workspaces: config.workspaces.map(serializeWorkspaceConfigEntry),
+      authorizedRoots: Array.from(new Set(config.authorizedRoots.map((root) => resolve(root)))),
+    };
 
-  await ensureDir(dirname(configPath));
-  const tmpPath = `${configPath}.tmp.${shortId()}`;
-  try {
-    await writeFile(tmpPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
-    await rename(tmpPath, configPath);
-    return true;
-  } finally {
+    await ensureDir(dirname(configPath));
+    const tmpPath = `${configPath}.tmp.${shortId()}`;
     try {
-      await rm(tmpPath);
-    } catch {
-      // ignore
+      await writeFile(tmpPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+      await rename(tmpPath, configPath);
+      return true;
+    } finally {
+      try {
+        await rm(tmpPath);
+      } catch {
+        // ignore
+      }
     }
-  }
+  });
 }
 
 /**

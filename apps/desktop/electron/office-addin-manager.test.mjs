@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOfficeAddinManager } from "./office-addin-manager.mjs";
@@ -15,7 +15,7 @@ function fixture(t, { failManifest = false } = {}) {
   const dist = join(root, "dist");
   mkdirSync(dist);
   writeFileSync(join(dist, "package.json"), '{"type":"module"}');
-  writeFileSync(join(dist, "word-addin.js"), 'export const buildWordAddinManifest = (input) => JSON.stringify(input);');
+  writeFileSync(join(dist, "word-addin.js"), 'export const buildWordAddinManifest = (input) => JSON.stringify(input);\nexport const loadOfficeConnectionToken = async () => "' + "t".repeat(64) + '";');
   const statePath = join(root, "office-addins.json");
   writeFileSync(statePath, JSON.stringify({ enabled: true, port: 47443, installedAt: 123 }), { mode: 0o644 });
   const manifests = [];
@@ -29,30 +29,30 @@ function fixture(t, { failManifest = false } = {}) {
   return { root, manager, statePath, manifests };
 }
 
-test("legacy Office installs receive one persistent private capability and all paired manifests before listening", async (t) => {
+// Upstream v0.2.18: the installation credential comes from the server's private
+// token file; LAWOSS keeps the state file private and atomically written.
+test("existing Office installs refresh every manifest with the private connection credential", async (t) => {
   const f = fixture(t);
-  const first = await f.manager.serverConfig();
-  assert.match(first.wordAddinCapability, /^[a-f0-9]{64}$/);
-  assert.equal(f.manifests.length, 3);
+  await f.manager.refreshManifests();
   assert.deepEqual(f.manifests.map((entry) => entry.id), ["word", "excel", "powerpoint"]);
-  assert.ok(f.manifests.every((entry) => entry.input.capability === first.wordAddinCapability));
-  const state = JSON.parse(readFileSync(f.statePath, "utf8"));
-  assert.equal(state.capability, first.wordAddinCapability);
-  assert.equal(state.installedAt, 123);
-  if (process.platform !== "win32") assert.equal(statSync(f.statePath).mode & 0o777, 0o600);
-  assert.equal((await f.manager.serverConfig()).wordAddinCapability, first.wordAddinCapability);
-  assert.equal(JSON.stringify(f.manager.status()).includes(first.wordAddinCapability), false);
+  assert.ok(f.manifests.every((entry) => entry.input.connectionToken === "t".repeat(64)));
+  const config = await f.manager.serverConfig();
+  assert.equal(config.wordAddin, true);
+  assert.equal("wordAddinCapability" in config, false);
+  assert.equal(JSON.stringify(f.manager.status()).includes("t".repeat(64)), false);
+  assert.equal(readFileSync(f.statePath, "utf8").includes("t".repeat(64)), false);
 });
 
-test("failed manifest migration leaves the Office listener disabled", async (t) => {
+test("a failed manifest refresh does not block the Office listener", async (t) => {
   const f = fixture(t, { failManifest: true });
-  assert.equal(await f.manager.serverConfig(), null);
-  assert.match(JSON.parse(readFileSync(f.statePath, "utf8")).capability, /^[a-f0-9]{64}$/);
+  await f.manager.refreshManifests();
+  assert.notEqual(await f.manager.serverConfig(), null);
 });
 
-test("an uninstalled Office integration does not create a capability or listener", async (t) => {
+test("an uninstalled Office integration starts no listener and writes no manifest", async (t) => {
   const f = fixture(t);
   writeFileSync(f.statePath, JSON.stringify({ apps: { word: false, excel: false, powerpoint: false } }));
+  await f.manager.refreshManifests();
   assert.equal(await f.manager.serverConfig(), null);
   assert.equal(f.manifests.length, 0);
 });

@@ -9,6 +9,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster, toast } from "@/components/ui/sonner";
 import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { setLocale, t } from "@/i18n";
+import { EigenweltSignInTimeoutError } from "@/app/lib/eigenwelt-sign-in";
 import { WelcomePage, type ProjectCreatePhase } from "@/react-app/domains/onboarding/welcome-page";
 import { OfficeStep } from "@/react-app/domains/onboarding/office-step";
 import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
@@ -52,6 +53,7 @@ const permissionsClient: LegalworkServerClient = {
 };
 
 function OnboardingPreview() {
+  const signInAttempt = useRef(0);
   const [analytics, setAnalytics] = useState(true);
   const [phase, setPhase] = useState<ProjectCreatePhase | null>(null);
   const [step, setStep] = useState(params.get("step") ?? "welcome");
@@ -61,16 +63,25 @@ function OnboardingPreview() {
       <div className="fixed right-6 top-5 z-50 rounded-full border border-border bg-background/90 px-3 py-1 text-[10px] text-muted-foreground">Preview · Simulated setup</div>
       {step === "ai" && params.has("sync-flow") ? <SyncFlowPreview />
       : step === "office" ? <OfficeStep onBack={() => setStep("welcome")} onDone={() => setStep("audio")} />
-      : step === "audio" ? <AudioStep legalworkClient={null} workspaceId={null} onBack={() => setStep("office")} onDone={() => setStep("ai")} />
-      : step === "permissions" ? <PermissionsStep legalworkClient={permissionsClient} runtimeWorkspaceId="preview" onConfigUpdated={() => {}} onBack={() => setStep("audio")} onDone={previewAction} />
+      : step === "audio" || step === "dictation" ? <AudioStep feature={step === "audio" ? "meetings" : "dictation"} legalworkClient={null} workspaceId={null} onBack={() => setStep(step === "dictation" ? "audio" : "office")} onDone={() => setStep(step === "audio" ? "dictation" : "ai")} />
+      : step === "permissions" ? <PermissionsStep totalSteps={params.has("web") ? 3 : 6} legalworkClient={permissionsClient} runtimeWorkspaceId="preview" onConfigUpdated={() => {}} onBack={params.has("web") ? undefined : () => setStep("dictation")} onDone={previewAction} />
       : step === "ai" ? <AiPlansOverlay
+        totalSteps={params.has("web") ? 3 : 6}
         mode="onboarding"
         variant="new"
         account={null}
         serverReady
-        onBack={params.has("web") ? undefined : () => setStep("audio")}
-        onStartSignIn={async () => { throw new Error("Sign-in is disabled in this preview."); }}
-        onWaitSignIn={async () => ({ connected: false, cancelled: true })}
+        onBack={params.has("web") ? undefined : () => setStep("dictation")}
+        onStartSignIn={async options => {
+          if (!params.has("signin-timeout")) throw new Error("Sign-in is disabled in this preview.");
+          const sessionId = `preview-timeout-${++signInAttempt.current}`;
+          console.info("[timeout-preview] sign-in", JSON.stringify({ sessionId, ...options }));
+          return { authorizeUrl: "about:blank", sessionId };
+        }}
+        onWaitSignIn={async () => {
+          if (params.has("signin-timeout")) throw new EigenweltSignInTimeoutError(t("providers.eigenwelt_signin_timeout"));
+          return { connected: false, cancelled: true };
+        }}
         onSignedIn={() => setStep("permissions")}
         onBringOwnModel={() => setStep("permissions")}
         onOpenBilling={previewAction}
@@ -78,7 +89,7 @@ function OnboardingPreview() {
       />
       : <WelcomePage
         client={permissionsClient}
-        totalSteps={params.has("web") ? 3 : 5}
+        totalSteps={params.has("web") ? 3 : 6}
         analyticsEnabled={analytics}
         onAnalyticsChange={setAnalytics}
         busy={phase !== null}
@@ -150,7 +161,7 @@ function SyncFlowPreview() {
         connected: true, platformURL: null,
         account: { userId: "preview", orgId: "preview", userName: "Preview", userEmail: null, orgName: "Preview" },
         entitlements: { plan, subscriptionStatus: "active", features: [], seats: 1, usage: {
-          window: "week", allowanceCents: 0, remainingCents: 0, usedPercent: 0, resetsAt: null,
+          window: "month", allowanceCents: 0, remainingCents: 0, usedPercent: 0, resetsAt: null,
           dailyAllowanceCents: 0, dailyRemainingCents: 0, dailyUsedPercent: 0,
           extraUsageEnabled: true, prepaidBalanceCents: 0,
         } },

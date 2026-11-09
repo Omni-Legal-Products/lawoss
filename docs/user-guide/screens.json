@@ -1,0 +1,264 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "scripts/gen-core-skills.mjs",
+  "note": "Source-defined routes and visible settings for the build that bundles this file. Runtime, platform, account and permissions can restrict them.",
+  "routes": [
+    {
+      "path": "*",
+      "guide": "zaciatok.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/",
+      "guide": "zaciatok.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/calendar",
+      "guide": "index.md",
+      "hidden": true,
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/evals",
+      "guide": "pokrocily-rezim.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/home",
+      "guide": "chaty.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/projects",
+      "guide": "klienti-a-pripady.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/recorder",
+      "guide": "index.md",
+      "hidden": true,
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/scheduled",
+      "guide": "index.md",
+      "hidden": true,
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/session",
+      "guide": "chaty.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/session/:sessionId",
+      "guide": "chaty.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/settings/*",
+      "guide": "nastavenia.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/tasks",
+      "guide": "pokrocily-rezim.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/welcome",
+      "guide": "zaciatok.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/wikis",
+      "guide": "index.md",
+      "hidden": true,
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/wikis/:workspaceId",
+      "guide": "index.md",
+      "hidden": true,
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/wikis/:workspaceId/session/:sessionId",
+      "guide": "index.md",
+      "hidden": true,
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workflows",
+      "guide": "pokrocily-rezim.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/calendar",
+      "guide": "index.md",
+      "hidden": true,
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/dashboards",
+      "guide": "index.md",
+      "hidden": true,
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/evals",
+      "guide": "pokrocily-rezim.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/files",
+      "guide": "klienti-a-pripady.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/project",
+      "guide": "klienti-a-pripady.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/reviews",
+      "guide": "pokrocily-rezim.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/session",
+      "guide": "chaty.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/session/:sessionId",
+      "guide": "chaty.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/sessions",
+      "guide": "chaty.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/settings/*",
+      "guide": "nastavenia.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/tasks",
+      "guide": "pokrocily-rezim.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    }
+  ],
+  "settings": [
+    {
+      "id": "account",
+      "scope": "global",
+      "guide": "index.md",
+      "hidden": true,
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "ai",
+      "scope": "global",
+      "guide": "ai-a-modely.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "appearance",
+      "scope": "global",
+      "guide": "nastavenia.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "debug",
+      "scope": "global",
+      "guide": "riesenie-problemov.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx",
+      "developerOnly": true
+    },
+    {
+      "id": "environment",
+      "scope": "global",
+      "guide": "nastavenia.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "extensions",
+      "scope": "global",
+      "guide": "integracie.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "general",
+      "scope": "global",
+      "guide": "nastavenia.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "notifications",
+      "scope": "global",
+      "guide": "nastavenia.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "office-addins",
+      "scope": "global",
+      "guide": "pokrocily-rezim.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx",
+      "desktopOnly": true
+    },
+    {
+      "id": "permissions",
+      "scope": "workspace",
+      "guide": "nastavenia.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "personalisation",
+      "scope": "global",
+      "guide": "nastavenia.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "preferences",
+      "scope": "global",
+      "guide": "nastavenia.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "recorder",
+      "scope": "global",
+      "guide": "index.md",
+      "hidden": true,
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx",
+      "desktopOnly": true
+    },
+    {
+      "id": "safety",
+      "scope": "global",
+      "guide": "nastavenia.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "shell",
+      "scope": "global",
+      "guide": "nastavenia.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "tabular-review",
+      "scope": "global",
+      "guide": "pokrocily-rezim.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "updates",
+      "scope": "global",
+      "guide": "nastavenia.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    }
+  ]
+}

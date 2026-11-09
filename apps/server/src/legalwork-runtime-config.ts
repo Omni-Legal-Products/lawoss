@@ -24,6 +24,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   legalworkPluginPath,
   legalworkExtensionsPreviewPluginPath,
+  legalworkChromeDevtoolsPluginPath,
   legalworkSandboxPluginPath,
   legalworkCapabilitiesKnowledgePluginPath,
   legalworkLegalMemoryKnowledgePluginPath,
@@ -324,12 +325,12 @@ export async function buildLegalworkRuntimeConfigObject(
       [REVIEW_AGENT]: reviewAgentConfig(),
       [PROJECT_TASK_AGENT]: {
         description: "Scheduled task with access to this project only", mode: "primary", hidden: true,
-        prompt: agentPrompt + "\nThis scheduled run may access only its own project through the project-scoped tools. Use legalwork_project_list/read, project calendar and review tools. Shell, browser, delegation and unrestricted connectors are unavailable. Do not work around a scope denial. Explain any missing capability. Existing chat history remains visible.",
+        prompt: agentPrompt + "\nThis scheduled run may access its own project through the project-scoped tools. Use legalwork_project_list/read, project calendar and review tools. The recording tools legalwork_recordings_list and legalwork_recording_read also include unassigned global recordings; other projects' recordings are unavailable. Shell, browser, delegation and unrestricted connectors are unavailable. Do not work around a scope denial or request broader project access during the run. Explain any missing capability. Existing chat history remains visible.",
         permission: projectTaskPermissions(permission),
       },
       [ALL_PROJECTS_TASK_AGENT]: {
         description: "Scheduled task with access to all authorized local projects", mode: "primary", hidden: true,
-        prompt: agentPrompt + "\nThis scheduled run may access all authorized local projects. Use legalwork_schedule_projects and legalwork_schedule_project_list/read to find and read project data. Read chat transcripts directly using kind=sessions and exact chat IDs. Do not open chats or navigate the LegalWork UI to retrieve data. If direct reads are unavailable, report that limitation. Existing tool permissions and approvals still apply.",
+        prompt: agentPrompt + "\nThis scheduled run may access all authorized local projects. Use legalwork_schedule_projects and legalwork_schedule_project_list/read to find and read project data. Use legalwork_recordings_list and legalwork_recording_read for recordings across those projects and unassigned global recordings. Read chat transcripts directly using kind=sessions and exact chat IDs. Do not open chats or navigate the LegalWork UI to retrieve data. If direct reads are unavailable, report that limitation. Existing tool permissions and approvals still apply.",
         // LAWOSS: after the copied rules, so a `*` allow there cannot silence lawoss_files.
         permission: withFileChangeRule(allProjectTaskPermissions(permission), permission),
       },
@@ -343,10 +344,12 @@ export async function buildLegalworkRuntimeConfigObject(
       },
     },
     plugin: (await Promise.all([
-      "opencode-chrome-devtools",
-      // Adds "Sign in with Anthropic" auth methods (Claude Pro/Max subscription
-      // OAuth + "Create an API Key" console OAuth) to the provider list. Without
-      // this plugin the engine only offers manual Anthropic API-key entry.
+      bundledPluginSpec(legalworkChromeDevtoolsPluginPath(), config),
+      // LAWOSS: Adds "Sign in with Anthropic" auth methods (Claude Pro/Max
+      // subscription OAuth + "Create an API Key" console OAuth) to the provider
+      // list. Upstream v0.2.11 removed it; LAWOSS keeps it as an alpha entry
+      // condition (owner decision). Without it the engine only offers manual
+      // Anthropic API-key entry.
       "opencode-anthropic-auth",
       bundledPluginSpec(legalworkExtensionsPreviewPluginPath(), config),
       bundledPluginSpec(legalworkCapabilitiesKnowledgePluginPath(), config),

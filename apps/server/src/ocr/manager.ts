@@ -8,7 +8,7 @@ import { createConfiguredOcrService } from "./index.js";
 import { isLoopbackOcrEndpoint, OcrSettingsStore, serverEngineSchema, type OcrSettings, type ServerEngineSettings } from "./settings.js";
 import type { OcrFetch, OcrSecretResolver } from "./server-engine.js";
 import { OcrRuntime, ocrTestPage } from "./runtime.js";
-import { layoutModelAsset } from "./models.js";
+import { layoutModelAsset, type ModelDownloadFetch } from "./models.js";
 import { OcrVault, vaultLock } from "./vault.js";
 
 const serverInput = z.strictObject({
@@ -43,11 +43,12 @@ export class OcrManager {
   private automaticAttempted = false;
   private automaticPending = false;
   private automaticCancelled = false;
+  private automaticInstall = false;
   private stopped = false;
-  constructor(root: string, private readonly firm?: () => Promise<FirmOcr>, private readonly remoteTransport?: {unsupported: () => Promise<boolean>; request: OcrFetch}) {
+  constructor(root: string, private readonly firm?: () => Promise<FirmOcr>, private readonly remoteTransport?: {unsupported: () => Promise<boolean>; request: OcrFetch}, download?: ModelDownloadFetch) {
     this.store = new OcrSettingsStore(join(root, "settings.json"));
     this.vault = new OcrVault(join(root, "keys.vault"));
-    this.runtime = new OcrRuntime(root);
+    this.runtime = new OcrRuntime(root, download);
   }
   /** The member's settings with the firm's engines and default applied, and no own servers while the firm allows none. */
   private async effective(): Promise<{ settings: OcrSettings; resolveApiKey: OcrSecretResolver; firmKeys: Map<string, "firm" | "member"> }> {
@@ -177,6 +178,18 @@ export class OcrManager {
     }
     this.runtime.cancel();
   }
+  async setAutomaticDownloads(enabled: boolean) {
+    this.automaticCancelled = !enabled;
+    if (!enabled) {
+      if (this.automaticInstall) this.runtime.cancel();
+      return;
+    }
+    await rm(join(this.runtime.root, "auto-download-cancelled"), { force: true });
+    if (!this.runtime.busy) {
+      this.automaticAttempted = false;
+      void this.downloadDefaultIfNeeded();
+    }
+  }
   stop() { this.stopped = true; this.runtime.cancel(); }
   async install(id: string, automatic = false) {
     if (this.stopped || this.testing || this.startingInstall) throw new ApiError(409, "ocr_busy", "Wait for the current OCR operation to finish.");
@@ -190,6 +203,7 @@ export class OcrManager {
         this.automaticCancelled = false;
       }
       if (!this.stopped && !(automatic && this.automaticCancelled)) {
+        this.automaticInstall = automatic;
         if (id === "local-layout") await this.runtime.installLayout();
         else if (engine?.kind === "local") await this.runtime.install(engine);
       }

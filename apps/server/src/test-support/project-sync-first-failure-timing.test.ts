@@ -507,7 +507,8 @@ describe("first settings invocation failure observation", () => {
 // Canonical TypeScript printer hashes captured BEFORE edits from exact
 // Function: immutable dev48846426 + existing PR157 lifetime wrapper (independently printed).
 // Selected fixture: 6ccc1bd258cc9632c2b92068bff50f67484b1619. No snapshot refresh at runtime.
-const frozenFunctionHash = "6f63631efa24b71557c9ec98796e4c82707e231e263f61eb30c5a2d5d0c50674";
+// Updated at the upstream v0.2.11 sync (cloud-folder refusal added by upstream #309).
+const frozenFunctionHash = "fa41d0bf556609eba3971e67cd31dca8bbe299db93c4a420c1b6357f9043b34d";
 const frozenSelectedTestHash = "69d34d0fab87a5d332945bc948cce4a6279a580a6d9dc2b53666eaea3f172277";
 const printer = ts.createPrinter({ removeComments: true });
 function sourceFile(relative: string) {
@@ -570,12 +571,13 @@ describe("settings observation source adoption and placement guards", () => {
     }
     block(callback.body);
     expect(layout).toEqual([
-      "callback-enter", "connection-enter", "original0", "connection-done", "original1",
-      "project-store-enter", "original2", "project-store-done", "task-store-enter", "original3", "task-store-done",
-      "link-checks-enter", "original4", "original5", "original6", "link-checks-done", "original7:new-link",
-      "metadata-enter", "original8", "original9", "metadata-done", "mutations-enter", "original10", "original11", "original12",
-      "else", "mutations-enter", "original13", "original14", "original15", "original16", "original17", "end-link",
-      "mutations-done", "schedule-enter", "original18", "schedule-done", "status-call", "original19",
+      // upstream v0.2.11: original2 is the cloud-folder refusal before the project store.
+      "callback-enter", "connection-enter", "original0", "connection-done", "original1", "original2",
+      "project-store-enter", "original3", "project-store-done", "task-store-enter", "original4", "task-store-done",
+      "link-checks-enter", "original5", "original6", "original7", "link-checks-done", "original8:new-link",
+      "metadata-enter", "original9", "original10", "metadata-done", "mutations-enter", "original11", "original12", "original13",
+      "else", "mutations-enter", "original14", "original15", "original16", "original17", "original18", "end-link",
+      "mutations-done", "schedule-enter", "original19", "schedule-done", "status-call", "original20",
     ]);
     expect(printed(callback.body.statements.at(-1)!, source)).toBe("return projectSyncStatus(config, workspace);");
     let removed = 0;

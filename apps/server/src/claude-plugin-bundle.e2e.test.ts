@@ -4,6 +4,8 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { zipSync, strToU8 } from "fflate";
+import type { PluginImportPreview } from "@legalwork/types/plugin-import";
 import { startServer } from "./server.js";
 import { parseClaudePluginSource } from "./claude-plugin-bundle.js";
 import type { ServerConfig } from "./types.js";
@@ -62,7 +64,8 @@ const PLUGIN_FILES: Record<string, string> = {
 };
 
 function startMockGithub(options?: { branch?: string; files?: Record<string, string> }) {
-  const files = options?.files ?? PLUGIN_FILES;
+  // LAWOSS: vlastné súbory balíka pre test pribaleného Node MCP (LAWOSS Marketplace).
+  const files = options?.files;
   const branch = options?.branch ?? "main";
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -73,22 +76,14 @@ function startMockGithub(options?: { branch?: string; files?: Record<string, str
       if (url.pathname === "/repos/slackapi/slack-mcp-plugin") {
         return Response.json({ default_branch: branch });
       }
-      // API: recursive tree (ref may arrive %2F-encoded for slash branches)
-      const treePrefix = "/repos/slackapi/slack-mcp-plugin/git/trees/";
-      if (url.pathname.startsWith(treePrefix)) {
-        const ref = decodeURIComponent(url.pathname.slice(treePrefix.length));
-        if (ref !== branch) return Response.json({ message: "not found" }, { status: 404 });
-        return Response.json({
-          tree: Object.keys(files).map((path) => ({ path, type: "blob", sha: `sha-${path}` })),
-        });
+      if (url.pathname.startsWith("/repos/slackapi/slack-mcp-plugin/commits/")) {
+        return decodeURIComponent(url.pathname.split("/commits/")[1] || "") === branch ? Response.json({ sha: "a".repeat(40) }) : new Response("missing", { status: 404 });
       }
-      // Raw files (slash-branch refs appear as literal path segments)
-      const rawPrefix = `/slackapi/slack-mcp-plugin/${branch}/`;
-      if (url.pathname.startsWith(rawPrefix)) {
-        const path = decodeURIComponent(url.pathname.slice(rawPrefix.length));
-        const content = files[path];
-        if (content !== undefined) return new Response(content);
+      if (url.pathname.endsWith(`/zipball/${"a".repeat(40)}`)) {
+        const entries = files ?? { ...PLUGIN_FILES, ".mcp.json": JSON.stringify({ mcpServers: { slack: { url: `${url.origin}/mcp` }, "local-helper": { command: "${CLAUDE_PLUGIN_ROOT}/bin/run" } } }) };
+        return new Response(zipSync(Object.fromEntries(Object.entries(entries).map(([path, text]) => [`repo-snapshot/${path}`, strToU8(text)]))));
       }
+      if (url.pathname === "/mcp" && request.method === "POST") return Response.json({ jsonrpc: "2.0", id: 1, result: { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "mock" } } });
       return Response.json({ message: "not found" }, { status: 404 });
     },
   }) as Served;
@@ -199,93 +194,64 @@ describe("parseClaudePluginSource", () => {
   });
 });
 
-describe("claude plugin bundles", () => {
-  test("dryRun returns the Will-install preview with warnings", async () => {
+type PreviewResponse = { preview: { name: string; version: string | null; source: { ref: string; dir: string | null }; components: Array<{ type: string; name: string }>; review: PluginImportPreview } };
+async function review(legalwork: Awaited<ReturnType<typeof startLegalwork>>, url = "https://github.com/slackapi/slack-mcp-plugin"): Promise<PreviewResponse["preview"]> {
+  const response = await fetch(`${legalwork.base}/workspace/ws_1/claude-plugins`, { method: "POST", headers: legalwork.headers, body: JSON.stringify({ url, dryRun: true }) });
+  expect(response.status).toBe(200);
+  return (await response.json() satisfies PreviewResponse).preview;
+}
+
+describe("claude plugin bundles use the shared import lifecycle", () => {
+  test("reviews an immutable full archive, preserves assets and identifies unsupported components", async () => {
     const legalwork = await startLegalwork();
-
-    const response = await fetch(`${legalwork.base}/workspace/ws_1/claude-plugins`, {
-      method: "POST",
-      headers: legalwork.headers,
-      body: JSON.stringify({ url: "https://github.com/slackapi/slack-mcp-plugin", dryRun: true }),
-    });
-    expect(response.status).toBe(200);
-    const body = await response.json() as { preview: { name: string; version: string | null; components: Array<{ type: string; name: string }>; warnings: string[] } };
-
-    expect(body.preview.name).toBe("Slack");
-    expect(body.preview.version).toBe("1.0.0");
-    const byType = (type: string) => body.preview.components.filter((entry) => entry.type === type).map((entry) => entry.name);
-    expect(byType("mcp")).toEqual(["slack"]);
-    expect(byType("skill")).toEqual(["slack-search"]);
-    expect(byType("command")).toEqual(["standup"]);
-    // local-helper uses ${CLAUDE_PLUGIN_ROOT} and must be skipped with a warning.
-    expect(body.preview.warnings.some((warning) => warning.includes("local-helper"))).toBe(true);
-    // Nothing installed on dryRun.
-    expect(existsSync(join(legalwork.workspaceRoot, ".opencode/skills/slack-plugin"))).toBe(false);
+    const preview = await review(legalwork);
+    expect(preview.name).toBe("Slack");
+    expect(preview.version).toBe("1.0.0");
+    expect(preview.review.provenance?.revision).toBe("a".repeat(40));
+    expect(preview.components.filter(item => item.type === "skill").map(item => item.name)).toEqual(["slack-search"]);
+    expect(preview.review.connectors?.find(item => item.name === "local-helper")).toMatchObject({ status: "blocked", code: "program_missing" });
+    expect(preview.review.readiness).toBe("partial");
+    expect(existsSync(join(legalwork.workspaceRoot, ".opencode/imported-plugins"))).toBe(false);
   });
 
-  test("resolves branch names containing slashes in /tree/ URLs", async () => {
+  test("resolves branch names containing slashes", async () => {
     const legalwork = await startLegalwork({ branch: "release/v1" });
-
-    const response = await fetch(`${legalwork.base}/workspace/ws_1/claude-plugins`, {
-      method: "POST",
-      headers: legalwork.headers,
-      body: JSON.stringify({
-        url: "https://github.com/slackapi/slack-mcp-plugin/tree/release/v1",
-        dryRun: true,
-      }),
-    });
-    expect(response.status).toBe(200);
-    const body = await response.json() as { preview: { name: string; source: { ref: string; dir: string | null } } };
-    // "release" fails as a ref, so the resolver falls through to "release/v1".
-    expect(body.preview.source.ref).toBe("release/v1");
-    expect(body.preview.source.dir).toBeNull();
-    expect(body.preview.name).toBe("Slack");
+    const preview = await review(legalwork, "https://github.com/slackapi/slack-mcp-plugin/tree/release/v1");
+    expect(preview.source).toMatchObject({ ref: "release/v1", dir: null });
   });
 
-  test("installs skills, commands, and MCP servers; uninstall cleans up", async () => {
+  test("requires reviewed digest and partial consent; installs complete files and uninstalls ownership", async () => {
     const legalwork = await startLegalwork();
-
-    const installResponse = await fetch(`${legalwork.base}/workspace/ws_1/claude-plugins`, {
-      method: "POST",
-      headers: legalwork.headers,
-      body: JSON.stringify({ url: "https://github.com/slackapi/slack-mcp-plugin" }),
-    });
-    expect(installResponse.status).toBe(200);
-    const installBody = await installResponse.json() as { item: { pluginId: string; files: Array<{ objectType: string; path: string }> } };
-    expect(installBody.item.pluginId).toBe("github:slackapi/slack-mcp-plugin");
-
-    // Skill and command land namespaced under .opencode/.
-    const skillPath = join(legalwork.workspaceRoot, ".opencode/skills/slack-plugin/slack-search/SKILL.md");
-    const commandPath = join(legalwork.workspaceRoot, ".opencode/commands/slack-plugin/standup.md");
-    expect(existsSync(skillPath)).toBe(true);
-    expect(existsSync(commandPath)).toBe(true);
+    const endpoint = `${legalwork.base}/workspace/ws_1/claude-plugins`;
+    const url = "https://github.com/slackapi/slack-mcp-plugin";
+    const send = (payload: Record<string, unknown>) => fetch(endpoint, { method: "POST", headers: legalwork.headers, body: JSON.stringify({ url, ...payload }) });
+    expect((await send({})).status).toBe(409);
+    const preview = await review(legalwork);
+    const payload = { digest: preview.review.digest, validationId: preview.review.validationId };
+    expect((await send(payload)).status).toBe(409);
+    expect((await send({ ...payload, digest: "stale", acknowledgePartial: true })).status).toBe(409);
+    const response = await send({ ...payload, acknowledgePartial: true });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const skillFile = body.item.files.find((file: { objectType: string }) => file.objectType === "skill");
+    const skillPath = join(legalwork.workspaceRoot, skillFile.path);
     expect(await readFile(skillPath, "utf8")).toContain("Search Slack messages effectively");
-
-    // MCP registered in the runtime DB. LAWOSS (RAM 2 GB, issue #367): the engine
-    // gets it once the client is open, not while the client stays unopened.
-    const listResponse = await fetch(`${legalwork.base}/workspace/ws_1/mcp`, { headers: legalwork.headers });
-    const listBody = await listResponse.json() as { items: Array<{ name: string; source: string }> };
-    const slackEntry = listBody.items.find((entry) => entry.name === "slack");
-    expect(slackEntry?.source).toBe("config.remote");
+    expect(await readFile(join(skillPath, "../references/tips.md"), "utf8")).toBe("Extra reference file.");
+    const connectorName = preview.review.connectors?.find(item => item.name === "slack")?.installedName;
+    const list = await (await fetch(`${legalwork.base}/workspace/ws_1/mcp`, { headers: legalwork.headers })).json();
+    expect(list.items.some((item: { name: string }) => item.name === connectorName)).toBe(true);
+    // LAWOSS (RAM 2 GB, issue #367): the engine gets the MCP once the client is
+    // open, not while the client stays unopened.
     expect(legalwork.engine.requests.some((entry) => entry.method === "POST" && entry.pathname === "/mcp")).toBe(false);
     await (await fetch(`${legalwork.base}/workspace/ws_1/opencode/mcp`, { headers: legalwork.headers })).arrayBuffer();
     expect(legalwork.engine.requests.some((entry) => entry.method === "POST" && entry.pathname === "/mcp")).toBe(true);
-
-    // Uninstall through the shared cloud-plugins route.
-    const removeResponse = await fetch(
-      `${legalwork.base}/workspace/ws_1/cloud-plugins/${encodeURIComponent(installBody.item.pluginId)}`,
-      { method: "DELETE", headers: legalwork.headers },
-    );
-    expect(removeResponse.status).toBe(200);
+    const removal = await fetch(`${legalwork.base}/workspace/ws_1/cloud-plugins/${encodeURIComponent(body.item.pluginId)}`, { method: "DELETE", headers: legalwork.headers });
+    expect(removal.status).toBe(200);
     expect(existsSync(skillPath)).toBe(false);
-    expect(existsSync(commandPath)).toBe(false);
-    const afterRemove = await fetch(`${legalwork.base}/workspace/ws_1/mcp`, { headers: legalwork.headers });
-    const afterRemoveBody = await afterRemove.json() as { items: Array<{ name: string }> };
-    expect(afterRemoveBody.items.some((entry) => entry.name === "slack")).toBe(false);
   });
 });
 
-
+// LAWOSS: balík LAWOSS Marketplace s pribaleným Node runtime (runtime-config.json + scripts/run.mjs).
 test("bundled Node MCP installs runtime and runs outside plugin cwd", async () => {
   const files = {
     ".claude-plugin/plugin.json": JSON.stringify({ name: "registry", version: "1.0.0" }),
@@ -296,21 +262,26 @@ test("bundled Node MCP installs runtime and runs outside plugin cwd", async () =
     "skills/registry/SKILL.md": "---\nname: registry\ndescription: Read registry\n---\nUse registry MCP.",
   };
   const app = await startLegalwork({ files });
-  const response = await fetch(`${app.base}/workspace/ws_1/claude-plugins`, { method: "POST", headers: app.headers, body: JSON.stringify({ url: "https://github.com/slackapi/slack-mcp-plugin" }) });
+  const preview = await review(app);
+  const response = await fetch(`${app.base}/workspace/ws_1/claude-plugins`, { method: "POST", headers: app.headers, body: JSON.stringify({ url: "https://github.com/slackapi/slack-mcp-plugin", digest: preview.review.digest, validationId: preview.review.validationId, acknowledgePartial: true }) });
   expect(response.status).toBe(200);
   const imported = await response.json();
   const mcpResponse = await fetch(`${app.base}/workspace/ws_1/mcp`, { headers: app.headers });
   const mcps = await mcpResponse.json();
-  const config = mcps.items.find((item: {name: string}) => item.name === "registry").config;
+  const config = mcps.items.find((item: { name: string }) => item.name.startsWith("registry")).config;
   expect(config.timeout).toBe(300000);
+  // Upstream v0.2.11: imported declarations stay off until the lawyer finishes setup and enables them.
+  expect(config.enabled).toBe(false);
   const command = config.command;
   const execution = Bun.spawnSync(command, { cwd: tmpdir(), stdout: "pipe", stderr: "pipe" });
   expect(execution.exitCode).toBe(0);
   expect(execution.stdout.toString()).toBe('{"ok":true}');
-  const runtime = imported.item.files.find((file: {path: string}) => file.path.endsWith("runtime/data.json"));
-  expect(runtime).toBeDefined();
-  expect(await readFile(join(app.workspaceRoot, runtime.path), "utf8")).toBe('{"ok":true}');
+  // Upstream v0.2.11 owns the complete package as one bundle directory entry.
+  const bundle = imported.item.files.find((file: { path: string }) => file.path.startsWith(".opencode/imported-plugins/"));
+  expect(bundle).toBeDefined();
+  const runtime = join(app.workspaceRoot, bundle.path, "runtime/data.json");
+  expect(await readFile(runtime, "utf8")).toBe('{"ok":true}');
   const removed = await fetch(`${app.base}/workspace/ws_1/cloud-plugins/${encodeURIComponent(imported.item.pluginId)}`, { method: "DELETE", headers: app.headers });
   expect(removed.status).toBe(200);
-  expect(existsSync(join(app.workspaceRoot, runtime.path))).toBe(false);
+  expect(existsSync(runtime)).toBe(false);
 });

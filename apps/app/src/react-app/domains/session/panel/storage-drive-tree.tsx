@@ -6,7 +6,7 @@ import { hasProjectFileDrag } from "@/app/lib/project-file-drag";
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, ChevronRight, FolderPlus, Loader2, LockKeyhole, RefreshCw, Upload } from "lucide-react";
+import { ChevronRight, FolderPlus, Loader2, LockKeyhole, RefreshCw, Upload } from "lucide-react";
 import { type StorageEntry, type StorageRoot, type StorageTransferProgress } from "@legalwork/types/file-storage";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { readStorageDrop, storageUploadFiles, uploadStorageBatch, type StorageUploadBatch } from "@/app/lib/storage-upload";
@@ -27,6 +27,7 @@ import { t } from "@/i18n";
 import { FolderIcon } from "@/react-app/design-system/folder-icon";
 import { StorageEntryMenu } from "./storage-entry-menu";
 import { StorageTransferStatus } from "./storage-transfer-status";
+import { StorageAccessError } from "./storage-access-error";
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { classifyOpenTarget } from "../artifacts/open-target";
 
@@ -37,8 +38,9 @@ type TreeProps = {
   workspaceId: string;
   roots: StorageRoot[];
   onOpenFile: (root: StorageRoot, file: StorageEntry) => void;
+  onConnectStorage?: () => void;
 };
-export function StorageDriveTree({ client, workspaceId, roots, onOpenFile }: TreeProps) {
+export function StorageDriveTree({ client, workspaceId, roots, onOpenFile, onConnectStorage }: TreeProps) {
   const queryClient = useQueryClient();
   const [selection, setSelected] = useState<Location | null>(null);
   const selectedRoot = roots.find((root) => root.id === selection?.root.id);
@@ -217,6 +219,7 @@ export function StorageDriveTree({ client, workspaceId, roots, onOpenFile }: Tre
           selected={selected}
           onSelect={setSelected}
           onFile={(entry) => onOpenFile(root, entry)}
+          onConnectStorage={onConnectStorage}
           onUpload={upload}
           onTaskAttachmentDrop={copyTaskAttachment}
           onEntryDrop={transfer}
@@ -305,6 +308,7 @@ type FolderProps = Location & {
   selected: Location | null;
   onSelect: (target: Location) => void;
   onFile: (entry: StorageEntry) => void;
+  onConnectStorage?: () => void;
   onUpload: (target: Location, source: File[] | DataTransfer) => Promise<void>;
   onTaskAttachmentDrop: (target: Location, attachment: TaskAttachmentDragItem) => Promise<void>;
   onEntryDrop: (target: Location, item: StorageEntryDragItem) => Promise<void>;
@@ -511,18 +515,9 @@ function StorageFolder(props: FolderProps) {
           )}
           {children.data?.pages.some((page) => page.truncated) && <p role="status" style={{ paddingLeft: 25 + depth * 15 }} className="py-2 text-xs text-muted-foreground">{t("storage.results_incomplete")}</p>}
           {children.isError && (
-            <div style={{ paddingLeft: 25 + depth * 15 }} className="py-2 text-xs text-destructive">
-              <p className="break-words">
-                <AlertCircle className="mr-1 inline size-3" />
-                {children.error.message}
-              </p>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void (children.hasNextPage ? children.fetchNextPage() : children.refetch())}
-              >
-                {t("storage.retry")}
-              </Button>
+            <div style={{ paddingLeft: 25 + depth * 15 }} className="py-2 pr-2">
+              <StorageAccessError error={children.error} provider={root.provider} onConnectStorage={props.onConnectStorage}
+                onRetry={() => void (children.hasNextPage ? children.fetchNextPage() : children.refetch())} />
             </div>
           )}
           {children.hasNextPage && (

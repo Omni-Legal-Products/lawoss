@@ -27,9 +27,10 @@ test('native engine setup uses the owner workspace proxy without exported engine
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 
-test('native engine client rejects a remote server or missing owner capability', () => {
-  assert.throws(() => createNativeEngineClient({ baseUrl: 'https://example.com', ownerToken: 'synthetic-owner' }, 'ws_native_1'), /loopback/);
-  assert.throws(() => createNativeEngineClient({ baseUrl: 'http://127.0.0.1:1234', clientToken: 'synthetic-viewer' }, 'ws_native_1'), /owner token/);
+// Upstream v0.2.18: owner bearer tokens are retired; the owned server's client token is required.
+test('native engine client rejects a remote server or missing client capability', () => {
+  assert.throws(() => createNativeEngineClient({ baseUrl: 'https://example.com', clientToken: 'synthetic-client' }, 'ws_native_1'), /loopback/);
+  assert.throws(() => createNativeEngineClient({ baseUrl: 'http://127.0.0.1:1234' }, 'ws_native_1'), /client token/);
 });
 
 test('startup readiness and workspace reload are bounded separately from ordinary engine requests', async () => {

@@ -383,8 +383,9 @@ STRUCTURE.push(
   },
   {
     file: "apps/app/src/react-app/domains/settings/pages/workflows-view.tsx",
-    must: [/\{isLegalQuantsHidden\(\) \? null : <DropdownMenuItem[^\n]*setLegalQuantsOpen\(true\)/],
-    why: "Položka LegalQuants v ponuke Workflows sa bez zdroja LegalWork neponúka.",
+    // Upstream v0.2.18: LegalQuants je voľba v dialógu importu (onImportLegalQuants).
+    must: [/onImportLegalQuants=\{isLegalQuantsHidden\(\) \? undefined : \(\) => setLegalQuantsOpen\(true\)\}/],
+    why: "Položka LegalQuants v importe Workflows sa bez zdroja LegalWork neponúka.",
   },
 );
 

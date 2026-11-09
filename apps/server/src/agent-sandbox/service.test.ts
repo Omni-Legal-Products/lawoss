@@ -1,6 +1,7 @@
 import { grantWikiAgentSession, verifiedWikiSessionOrigin } from "../wiki/agent-access.js";
 import { grantWikiProjectAccess, revokeWikiProjectAccess, wikiProjectAccessRevision, wikiProjectAccessSignal, wikiProjectGrants, wikiProjectSandboxMounts } from "../wiki/project-access.js";
 import { afterEach, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,10 +10,10 @@ import { explicitFileApprovals, managedPermissionRules } from "./engine-policy.j
 import { webInputSchema } from "./web.js";
 import { brokerRequest, type OutboundRequest, type OutboundResponse, prepareOutboundRequest } from "./network.js";
 import type { SandboxRun } from "./vm.js";
-import { readSandboxNetworkMode, writeSandboxNetworkMode, writeSandboxDefault, writeSessionSandbox, effectiveSandbox } from "./settings.js";
+import { SANDBOX_DEFAULT_ID, sandboxSessionId, readSandboxNetworkMode, writeSandboxNetworkMode, writeSandboxDefault, writeSessionSandbox, effectiveSandbox } from "./settings.js";
 import { ApprovalService } from "../approvals.js";
 import { resetOrgPolicyRuntimeForTests } from "../org-policy.js";
-import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import { closeRuntimeOpencodeConfig, runtimeStorageDir, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ApprovalRequest, ServerConfig, WorkspaceInfo } from "../types.js";
 import { WikiStore } from "../wiki/store.js";
 import { unregisterWorkspace } from "../routes/workspaces.js";
@@ -847,4 +848,33 @@ test("unchanged config writes retain remembered network approval but permission 
   f.service.approvals.respond(again.id, "deny");
   expect(await repeated).toBeInstanceOf(Error);
   expect(net.sent).toHaveLength(3);
+});
+
+
+test("corrupt execution settings block commands and web before runtime, DNS or prompts, and allow explicit repair", async () => {
+  const f = await fixture({ bash: "allow", webfetch: "allow" });
+  const db = new Database(join(runtimeStorageDir(f.config), "runtime.sqlite"));
+  const net = observedWebNetwork();
+  try {
+    for (const malformed of ["{", "[]", JSON.stringify({ sandbox: { enabled: true, networkMode: "typo" } }), JSON.stringify({ sandbox: { enabled: "false", networkMode: "allow" } })]) {
+      db.run("UPDATE runtime_opencode_configs SET config_json = ? WHERE workspace_id = ?", [malformed, SANDBOX_DEFAULT_ID]);
+      await expect(f.run()).rejects.toThrow("Commands and web access are blocked");
+      await expect(effectiveSandbox(f.config, f.workspace.id, [])).rejects.toMatchObject({ details: { settingsScope: "application" } });
+      await expect(f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send)).rejects.toThrow("Commands and web access are blocked");
+      expect(f.executions).toHaveLength(0);
+      expect(f.prompts).toHaveLength(0);
+      expect(net.resolved).toHaveLength(0);
+      expect(net.sent).toHaveLength(0);
+    }
+    await writeSandboxDefault(f.config, { enabled: true, networkMode: "block" });
+    expect(await effectiveSandbox(f.config, f.workspace.id, [])).toMatchObject({ enabled: true, networkMode: "block" });
+    await f.run();
+    expect(f.executions).toHaveLength(1);
+    await writeSessionSandbox(f.config, f.workspace.id, "weather", { enabled: true, networkMode: "block" });
+    db.run("UPDATE runtime_opencode_configs SET config_json = ? WHERE workspace_id = ?", ["{", sandboxSessionId(f.workspace.id, "weather")]);
+    await expect(f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send)).rejects.toThrow("Commands and web access are blocked");
+    await expect(effectiveSandbox(f.config, f.workspace.id, ["weather"])).rejects.toMatchObject({ details: { settingsScope: "session" } });
+    await writeSessionSandbox(f.config, f.workspace.id, "weather", null);
+    expect(await effectiveSandbox(f.config, f.workspace.id, ["weather"])).toMatchObject({ enabled: true, networkMode: "block" });
+  } finally { db.close(); }
 });

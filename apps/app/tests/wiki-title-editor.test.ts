@@ -49,6 +49,12 @@ test("HTML in wiki pages stays inert text in both inline and block positions", (
   }
 });
 
+test("imported skill instructions preserve unclosed placeholders and import comments", () => {
+  const source = '<!-- Modified by LegalWork: skill name and workflow metadata adapted for import. -->\n\nUse the publisher URL and <stable-id> for each provision.';
+  expect(requiresMarkdownSource(source, true)).toBe(false);
+  expect(bodyEditor(source).getEditorState().read(() => $getRoot().getTextContent())).toBe(source);
+});
+
 test("every default starter page is compatible with rendered editing", () => {
   for (const template of ["firm", "blank"] satisfies Parameters<typeof createWikiStarterFiles>[0][]) {
     for (const [path, content] of Object.entries(createWikiStarterFiles(template, "Example wiki"))) {

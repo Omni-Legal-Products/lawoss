@@ -20,7 +20,7 @@
  * single OS prompt. Operations return structured results with per-step
  * outcomes and real error details; failures also log to the main console.
  */
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { platform } from "node:os";
 import { join } from "node:path";
@@ -91,12 +91,11 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
       }
       return {
         apps,
-        capability: typeof parsed.capability === "string" && /^[a-f0-9]{64}$/.test(parsed.capability) ? parsed.capability : null,
         port: Number.isFinite(parsed.port) ? parsed.port : DEFAULT_PORT,
         installedAt: Number.isFinite(parsed.installedAt) ? parsed.installedAt : null,
       };
     } catch {
-      return { apps: emptyApps(), capability: null, port: DEFAULT_PORT, installedAt: null };
+      return { apps: emptyApps(), port: DEFAULT_PORT, installedAt: null };
     }
   }
 
@@ -124,25 +123,10 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
     if (!anyEnabled(state)) return null;
     const { leafCertPath, leafKeyPath } = certPaths();
     if (!existsSync(leafCertPath) || !existsSync(leafKeyPath)) return null;
-    // Upgrade existing installations before starting the listener: their old
-    // cached redirector would discard the new pairing fragment.
-    if (!backend) return null;
-    state.capability ||= randomBytes(32).toString("hex");
-    writeState(state);
-    for (const [appId, enabled] of Object.entries(state.apps)) {
-      if (!enabled) continue;
-      const manifest = await buildManifest(state.port, backend.manifestHost(appId), state.capability);
-      const result = manifest ? backend.writeManifest(appId, manifest) : null;
-      if (!result?.ok) {
-        logError("Could not refresh the paired Office manifest. Reinstall the add-in in settings.");
-        return null;
-      }
-    }
     const distPath = locatePaneDist?.() ?? undefined;
     return {
       wordAddin: true,
       wordAddinPort: state.port,
-      wordAddinCapability: state.capability,
       wordAddinCert: leafCertPath,
       wordAddinKey: leafKeyPath,
       ...(distPath ? { wordAddinDist: distPath } : {}),
@@ -150,19 +134,37 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
   }
 
   // ── Manifests ─────────────────────────────────────────────────────────
-  async function buildManifest(port, host, capability) {
+  async function buildManifest(port, host) {
     const dist = locateServerDist?.();
     if (!dist) return null;
     const modulePath = join(dist, "word-addin.js");
     if (!existsSync(modulePath)) return null;
-    const { buildWordAddinManifest } = await import(pathToFileURL(modulePath).href);
+    const { buildWordAddinManifest, loadOfficeConnectionToken } = await import(pathToFileURL(modulePath).href);
     const version = typeof app.getVersion === "function" ? `${app.getVersion()}.0` : undefined;
     return buildWordAddinManifest({
       baseUrl: `https://localhost:${port}`,
-      capability,
+      connectionToken: await loadOfficeConnectionToken(certPaths().leafKeyPath),
       version,
       ...(host ? { host } : {}),
     });
+  }
+
+  // Refresh existing installations on upgrade without a confirmation step.
+  async function refreshManifests() {
+    if (!backend) return;
+    const state = readState();
+    for (const [appId, enabled] of Object.entries(state.apps)) {
+      if (!enabled) continue;
+      try {
+        const manifest = await buildManifest(state.port, backend.manifestHost(appId));
+        if (!manifest) throw new Error("Office add-in server bundle is missing");
+        const written = backend.writeManifest(appId, manifest);
+        if (!written.ok) throw new Error(written.error);
+      } catch (error) {
+        // A removed Office app or unwritable manifest must not block LegalWork.
+        logError(`Could not refresh ${appId} manifest: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
   }
 
   // ── Shared install pieces ─────────────────────────────────────────────
@@ -256,8 +258,7 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
       return { ok: false, steps, status: status(), error: certError };
     }
 
-    state.capability ||= randomBytes(32).toString("hex");
-    const manifest = await buildManifest(state.port, backend.manifestHost(appId), state.capability);
+    const manifest = await buildManifest(state.port, backend.manifestHost(appId));
     if (!manifest) {
       const detail = "Could not build the add-in manifest (server bundle missing).";
       steps.push({ step: "manifest", ok: false, error: detail });
@@ -317,7 +318,7 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
       return { ok: false, steps, status: status(), error: removed.error };
     }
 
-    writeState({ apps: nextApps, port: state.port, capability: lastOne ? null : state.capability, installedAt: lastOne ? null : state.installedAt });
+    writeState({ apps: nextApps, port: state.port, installedAt: lastOne ? null : state.installedAt });
     await applyListenerState(steps);
 
     return { ok: true, steps, status: status() };
@@ -331,5 +332,5 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
     return backend.openApp(appId);
   }
 
-  return { readState, serverConfig, status, install, uninstall, openApp };
+  return { readState, serverConfig, refreshManifests, status, install, uninstall, openApp };
 }

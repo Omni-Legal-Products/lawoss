@@ -1,0 +1,2 @@
+# Older uv embeds the affected emSign CA trust store.
+required-version = ">=0.13.4"

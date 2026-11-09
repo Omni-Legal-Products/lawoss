@@ -520,7 +520,7 @@ export function SessionPage(props: SessionPageProps) {
       const scope = destination && typeof destination === "object" && "workspaceId" in destination && typeof destination.workspaceId === "string" ? workspacePanelKey(destination.workspaceId) : panelStateSessionId;
       const pane = destination && typeof destination === "object" && "paneId" in destination && typeof destination.paneId === "string" ? destination.paneId : undefined;
       openTab(scope, tab, pane, undefined, { preview: tab.openAsPreview, besideChat: tab.openBesideChat });
-      if (tab.type === "artifact" && tab.pendingImportId && destination?.kind === "workspace") {
+      if (destination?.kind === "workspace" && ((tab.type === "artifact" && tab.pendingImportId) || (tab.type === "recording" && hasMainView))) {
         navigate(workspaceSessionRoute(destination.workspaceId) + "?view=workspace");
       }
       if (scope !== panelStateSessionId) return;
@@ -889,6 +889,11 @@ export function SessionPage(props: SessionPageProps) {
     selectedWorkspaceGroupError ||
     "";
   const showSelectedWorkspaceError = Boolean(selectedWorkspaceErrorMessage);
+  const workspaceErrorNotice = showSelectedWorkspaceError ? (
+    <div role="alert" className="mx-6 mt-4 shrink-0 rounded-xl border border-red-7/35 bg-red-1/40 p-4 text-sm text-red-11">
+      <p className="whitespace-pre-wrap wrap-anywhere">{selectedWorkspaceErrorMessage}</p>
+    </div>
+  ) : null;
   const selectedWorkspaceErrorTitle =
     props.selectedWorkspaceDisplay.workspaceType === "remote"
       ? "Remote workspace unavailable"
@@ -1068,6 +1073,8 @@ export function SessionPage(props: SessionPageProps) {
       projectId={props.selectedWorkspaceId}
       isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
       onStartRecording={props.onStartProjectRecording}
+      inWorkspace={inWorkspace}
+      active={active}
       name={projectName}
       onOpenFile={openWorkspaceFileEntry}
       onBeforeDeleteNote={(entry) => {
@@ -1210,7 +1217,7 @@ export function SessionPage(props: SessionPageProps) {
           </div>
           {!mobile && sidePanelOpen && <div ref={setViewerHeaderTarget} data-panel-header="viewer" className="lw-window-panel-header" style={{ width: viewerHeaderWidth }} />}
           {!mobile && fileSidebar && (!hasMainView || panelStateSessionId === EVALS_PANEL_SESSION_ID) && <div ref={setFilesHeaderTarget} data-panel-header="files" className="lw-window-panel-header" style={{ width: filesHeaderWidth }} />}
-          {!mobile && (!hasMainView || panelStateSessionId === EVALS_PANEL_SESSION_ID) && (sidePanelOpen || fileSidebar) && <div aria-hidden className="shrink-0" style={{ width: shellConfig.panelRail ? "calc(var(--lw-window-right-rail-width) + 1px)" : 1 }} />}
+          {!mobile && (!hasMainView || panelStateSessionId === EVALS_PANEL_SESSION_ID) && (sidePanelOpen || fileSidebar) && <div aria-hidden className="shrink-0" style={{ width: "var(--lw-window-panel-rail-width)" }} />}
         </header>
         <AppSidebar
           accountClient={props.environmentClient ?? props.legalworkServerClient ?? null}
@@ -1277,7 +1284,7 @@ export function SessionPage(props: SessionPageProps) {
             <ResizablePanelGroup orientation="horizontal" className={cn("lw-workspace-surface min-h-0 flex-1", workflowFocusMode && "!grid !grid-cols-1")}>
               <ResizablePanel id="session-content" minSize={workflowFocusMode ? "0px" : workflowsPage ? "280px" : "360px"} className={cn("min-w-0", workflowFocusMode && "hidden")}>
             <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-
+              {workspaceErrorNotice}
               <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", props.projectPage && "@container/project-page")}>{props.projectPage ? <div ref={setOverviewHost} className="h-full min-h-0" /> : workflowsPage ? <div ref={setWorkflowLibraryHost} className="h-full min-h-0" /> : mainView}</div>
               {shellConfig.statusBar ? (
                 <StatusBar
@@ -1417,7 +1424,10 @@ export function SessionPage(props: SessionPageProps) {
                 </div>
               ) : null}
 
-              {canRenderWorkspace && <div ref={setWorkspaceHost} className="h-full min-h-0" />}
+              {canRenderWorkspace && <div className="flex h-full min-h-0 flex-col">
+                {workspaceErrorNotice}
+                <div ref={setWorkspaceHost} className="min-h-0 flex-1" />
+              </div>}
 
               {!showDelayedSessionLoadingState && !canRenderWorkspace && !showStartupSkeleton ? (
                 <div className={`mx-auto h-full max-w-[800px] overflow-y-auto px-6 pb-8 ${showWorkspaceSetupEmptyState ? "pt-20" : "pt-3"}`}>

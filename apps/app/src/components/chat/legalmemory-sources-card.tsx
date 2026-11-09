@@ -12,23 +12,14 @@ const SOURCES_PER_PAGE = 5
 /**
  * The sources under an answer.
  *
- * The retrieval steps above are what the model looked at, most of which did not
- * end up mattering. This is the other list: the documents the answer actually
- * rests on, which is the one a lawyer checks. Keeping them apart is the point,
- * because "what was searched" and "what this claim is based on" are different
- * questions and a single list conflating them answers neither.
- *
- * It is derived from the citations in the reply rather than from the tool
- * results, so it cannot drift from the prose. A document that was retrieved but
- * never cited does not appear, which is correct: it supported nothing.
+ * Documents identified by this turn's tool results. Matter labels use only
+ * that returned context, with the matter id when no title was supplied.
  */
 export function LegalMemorySourcesCard({
   documents,
-  matters,
   streaming,
 }: {
   documents: LegalMemoryDocument[]
-  matters: Record<string, string>
   streaming: boolean
 }) {
   const [page, setPage] = useState(0)
@@ -84,9 +75,9 @@ export function LegalMemorySourcesCard({
                     </span>
                   ) : null}
                 </span>
-                {document.matterId && matters[document.matterId] ? (
+                {document.matterTitle || document.matterId ? (
                   <span className="mt-0.5 block truncate text-xs text-[var(--lw-text-secondary)]">
-                    {matters[document.matterId]}
+                    {document.matterTitle || document.matterId}
                   </span>
                 ) : null}
               </span>

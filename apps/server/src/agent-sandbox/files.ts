@@ -1,5 +1,6 @@
 import { lstat, mkdir, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
+import { ApiError } from "../errors.js";
 
 export type SandboxMount = { source: string; target: string; writable: boolean };
 
@@ -25,7 +26,7 @@ export async function validateMounts(mounts: SandboxMount[], protectedPaths: str
     if (!(await lstat(source)).isDirectory()) throw new Error("Sandbox folder is not a directory.");
     for (const protectedPath of protectedPaths) {
       const root = await realpath(protectedPath).catch(() => protectedPath);
-      if (within(source, root) || within(root, source)) throw new Error("This folder overlaps LegalWork's private runtime. Choose a narrower document folder.");
+      if (within(source, root) || within(root, source)) throw new ApiError(403, "sandbox_private_runtime", "This folder overlaps LegalWork's private runtime. Choose a narrower document folder.");
     }
     result.push({ ...mount, source });
   }

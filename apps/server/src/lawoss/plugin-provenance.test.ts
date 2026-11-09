@@ -43,19 +43,19 @@ describe("LAWOSS: pôvod nainštalovaného pluginu", () => {
         serverConfig: config, workspaceId: WORKSPACE_ID, workspaceRoot: root, marketplaceId: null, resolved,
         provenance: { source, version: "1.1.0" },
       });
-      expect(imported.provenance).toEqual({ source, version: "1.1.0" });
+      expect(imported.lawossProvenance).toEqual({ source, version: "1.1.0" });
       const skill = imported.files.find((file) => file.objectType === "skill")!;
       const written = await readFile(join(root, skill.path), "utf8");
       expect(skill.contentSha256).toBe(contentSha256(written));
       expect(skill.versionId).toBe("blob_1");
 
       const stored = await readInstalledCloudPlugins(config, WORKSPACE_ID);
-      expect(stored.plugins[resolved.plugin.id]?.provenance).toEqual({ source, version: "1.1.0" });
+      expect(stored.plugins[resolved.plugin.id]?.lawossProvenance).toEqual({ source, version: "1.1.0" });
       expect(stored.plugins[resolved.plugin.id]?.files[0]?.contentSha256).toBe(contentSha256(written));
 
       // Inštalácia bez pôvodu (firemný marketplace) pole nezapíše.
       const again = await installCloudPlugin({ serverConfig: config, workspaceId: WORKSPACE_ID, workspaceRoot: root, marketplaceId: null, resolved });
-      expect("provenance" in again).toBe(false);
+      expect("lawossProvenance" in again).toBe(false);
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;
@@ -67,6 +67,10 @@ describe("LAWOSS: pôvod nainštalovaného pluginu", () => {
     expect(readProvenance({})).toEqual({});
     expect(readProvenance({ provenance: { source: { owner: "a", repo: "b" } } })).toEqual({});
     expect(readProvenance({ provenance: { source: { owner: "a", repo: "b", ref: "c", dir: 3 }, version: 1 } }))
-      .toEqual({ provenance: { source: { owner: "a", repo: "b", ref: "c", dir: null }, version: null } });
+      .toEqual({ lawossProvenance: { source: { owner: "a", repo: "b", ref: "c", dir: null }, version: null } });
+    expect(readProvenance({ lawossProvenance: { source: { owner: "a", repo: "b", ref: "d", dir: "x" }, version: "1.0.0" } }))
+      .toEqual({ lawossProvenance: { source: { owner: "a", repo: "b", ref: "d", dir: "x" }, version: "1.0.0" } });
+    // Upstream `provenance` (zdroj importu) nemá `source` a nie je pôvodom LAWOSS.
+    expect(readProvenance({ provenance: { provider: "claude", kind: "github", location: "https://github.com/a/b", root: "", digest: "x", version: null } })).toEqual({});
   });
 });

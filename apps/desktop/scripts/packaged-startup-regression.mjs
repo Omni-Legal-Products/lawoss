@@ -7,11 +7,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { assertPackagedServerImports } from "./check-packaged-server-imports.mjs";
+import { assertPackagedOpencodeSdk } from "./packaged-opencode-sdk.cjs";
 
 const target = process.argv[2];
 if (!target) throw new Error("Usage: node packaged-startup-regression.mjs <packaged executable>");
 const resources = path.resolve(path.dirname(target), process.platform === "darwin" ? "../Resources" : "resources");
 assertPackagedServerImports(path.join(resources, "app.asar"));
+assertPackagedOpencodeSdk(resources);
 const root = await mkdtemp(path.join(tmpdir(), "legalwork-packaged-startup-"));
 const userData = path.join(root, "userdata");
 const runtime = path.join(root, "runtime");

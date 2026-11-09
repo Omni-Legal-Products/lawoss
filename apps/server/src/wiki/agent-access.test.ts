@@ -123,6 +123,25 @@ test("claimed parents, mismatched engine IDs and changed directories cannot gran
   await expect(authenticateWikiAgentRequest(config, child)).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
 });
 
+test("descendants inherit saved scheduled project scope and cannot retain an earlier broader grant", async () => {
+  const { config, root, request } = await fixture();
+  configureWikiAgentSessionLookup(config, async (_workspace, id) => ({ id, directory: root, ...(id === "child" ? { parentID: "parent" } : {}) }));
+  const child = request("/recorder/recordings", { session: "child" });
+  child.headers.set("x-legalwork-scheduled-projects", "all");
+  await grantWikiAgentSession(config, { sessionId: "parent", directory: root, scope: "owner", scheduledProjects: "all" });
+  const all = await authenticateWikiAgentRequest(config, child);
+  // LAWOSS: the shared engine credential cannot prove an all-projects run; it keeps its own client.
+  expect(all?.scheduledProjects).toEqual(["project"]);
+  await grantWikiAgentSession(config, { sessionId: "parent", directory: root, scope: "owner", scheduledProjects: ["project"] });
+  const limited = await authenticateWikiAgentRequest(config, child);
+  expect(limited?.scheduledProjects).toEqual(["project"]);
+  expect(limited?.generation).not.toBe(all?.generation);
+  await grantWikiAgentSession(config, { sessionId: "parent", directory: root, scope: "owner" });
+  const interactive = await authenticateWikiAgentRequest(config, child);
+  expect(interactive?.scheduledProjects).toBeUndefined();
+  expect(interactive?.generation).not.toBe(limited?.generation);
+});
+
 test("cycles and excessive ancestry fail closed, and revoked ancestors cannot fall back to an older grant", async () => {
   const { config, root, request } = await fixture();
   const child = request("/wikis", { session: "child" });

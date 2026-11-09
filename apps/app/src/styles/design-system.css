@@ -190,6 +190,7 @@
   --lw-window-bar-height: 44px;
   --lw-window-left-rail-width: 48px;
   --lw-window-right-rail-width: 44px;
+  --lw-window-empty-rail-width: 6px;
   --lw-window-curve: 18px;
   background: var(--lw-window-chrome);
 }
@@ -199,7 +200,7 @@
   background: var(--lw-window-chrome);
 }
 .lw-window-topbar {
-  --lw-window-panel-rail-width: 1px;
+  --lw-window-panel-rail-width: calc(var(--lw-window-empty-rail-width) + 1px);
   height: var(--lw-window-bar-height);
   background: var(--lw-window-chrome);
 }
@@ -327,6 +328,10 @@ html.legalwork-electron.legalwork-platform-mac .lw-window-navigation {
 .lw-workspace-shell .lw-session-rail {
   background: var(--lw-window-chrome);
   backdrop-filter: none;
+}
+/* Keep a slim chrome rail when a page has no workspace tools on the right. */
+.lw-workspace-shell .lw-session-workspace:not(:has(.lw-session-rail)) {
+  padding-right: var(--lw-window-empty-rail-width);
 }
 .lw-workspace-shell .lw-chat-sidebar {
   overflow: hidden;

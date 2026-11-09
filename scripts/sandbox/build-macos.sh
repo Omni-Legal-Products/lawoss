@@ -18,6 +18,7 @@ export PKG_CONFIG_LIBDIR="$work/qemu-deps/lib/pkgconfig:$work/qemu-deps/share/pk
 export PKG_CONFIG_PATH="$PKG_CONFIG_LIBDIR"
 export PATH="$work/sandbox-tools/bin:$PATH"
 python3 -m venv "$work/sandbox-tools"
+"$work/sandbox-tools/bin/python" -I -S "$root/apps/server/resources/agent-sandbox/bootstrap-pip.py"
 "$work/sandbox-tools/bin/pip" install --disable-pip-version-check meson==1.10.0
 fetch_pinned() {
   local url="$1" file="$2" attempt

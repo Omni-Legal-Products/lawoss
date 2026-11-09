@@ -12,12 +12,23 @@ import type { ServerConfig } from "./types.js";
 import { readInstalledCloudPlugins, resolveWorkspaceInstallPath } from "./cloud-plugins.js";
 
 const names = z.array(z.string().min(1).max(256)).max(50);
-const createSchema = z.object({ name: z.string().trim().min(1).max(80), description: z.string().trim().max(1024).optional(), skills: names, connectors: names });
+const headerName = z.string().regex(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/).refine(name => !["host", "content-length"].includes(name.toLowerCase()));
+const headerValue = z.string().max(16384).refine(value => !/[\r\n\0]/.test(value));
+const newConnectorSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("remote"), url: z.string().trim().max(4096).url().refine(value => { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password; }),
+    headers: z.record(headerName, headerValue).optional(),
+    oauth: z.union([z.literal(false), z.object({ clientId: z.string().max(4096).optional(), clientSecret: z.string().max(16384).optional(), scope: z.string().max(4096).optional() }).strict()]),
+  }).strict(),
+  z.object({ type: z.literal("local"), command: z.array(z.string().max(16384).refine(value => !value.includes("\0"))).min(1).max(100).refine(parts => Boolean(parts[0]?.trim())),
+    environment: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string().max(16384).refine(value => !value.includes("\0"))).optional(),
+  }).strict(),
+]);
+const createSchema = z.object({ name: z.string().trim().min(1).max(80), description: z.string().trim().max(1024).optional(), skills: names, connectors: names, newConnector: newConnectorSchema.optional() });
 
 export function parsePluginCreateRequest(value: unknown): PluginCreateRequest {
   const parsed = createSchema.safeParse(value);
   if (!parsed.success) throw new ApiError(400, "invalid_plugin", "Enter a plugin name and choose items from your library.");
-  if (parsed.data.skills.length + parsed.data.connectors.length === 0) throw new ApiError(400, "empty_plugin", "Choose at least one skill or connector.");
+  if (parsed.data.skills.length + parsed.data.connectors.length === 0 && !parsed.data.newConnector) throw new ApiError(400, "empty_plugin", "Choose at least one skill or connector.");
   if (new Set(parsed.data.skills).size !== parsed.data.skills.length || new Set(parsed.data.connectors).size !== parsed.data.connectors.length) throw new ApiError(400, "invalid_plugin", "Choose each item only once.");
   return parsed.data;
 }
@@ -92,6 +103,11 @@ export async function planPluginCreation(config: ServerConfig, workspaceRoot: st
     // Rebase command/argument paths into the new bundle without touching OAuth
     // sessions, which are stored separately and never read by the creator.
     connectorEntries.push([name, owner ? rebasePaths({ ...connector, enabled: false }, owner.source, owner.destination) : { ...connector, enabled: false }]);
+  }
+  if (input.newConnector) {
+    const name = pluginSlug(input.name);
+    if (connectorEntries.some(([existing]) => existing === name)) throw new ApiError(400, "duplicate_connector", "The new connector has the same name as a selected connector.");
+    connectorEntries.push([name, { ...input.newConnector, enabled: true }]);
   }
   const manifest = { name: pluginSlug(input.name), description: input.description || undefined, version: "1.0.0", interface: { displayName: input.name } };
   for (const [path, value] of Object.entries({ "plugin.json": manifest, "mcp.json": { mcpServers: Object.fromEntries(connectorEntries) } })) addFile({ path, bytes: Buffer.from(JSON.stringify(value, null, 2)), mode: 0o600 });

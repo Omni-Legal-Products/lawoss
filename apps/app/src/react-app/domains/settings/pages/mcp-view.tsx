@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { packageParts } from "./plugin-package-contents";
 import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationAddRequest, useIntegrationLibraryLayout } from "./integration-library";
 import { useEffect, useState, type SetStateAction } from "react";
 import { connectorDefinitions } from "@legalwork/types/connectors";
@@ -224,8 +225,10 @@ export function McpView(props: McpViewProps) {
   useEffect(() => {
     if (libraryLayout?.directoryRequest) setDirectoryOpen(true);
   }, [libraryLayout?.directoryRequest]);
+  useEffect(() => { if (libraryLayout?.addRequest || libraryLayout?.customPluginOpen) setDirectoryOpen(false); }, [libraryLayout?.addRequest, libraryLayout?.customPluginOpen]);
   const [detailsFromDirectory, setDetailsFromDirectory] = useState(false);
-  const [librarySearch, setLibrarySearch] = useState("");
+  const [localLibrarySearch, setLibrarySearch] = useState("");
+  const librarySearch = libraryLayout?.pluginSearch ?? localLibrarySearch;
   useEffect(() => {
     const name = libraryLayout?.connectorToOpen;
     if (!name || !props.mcpServers.some(entry => entry.name === name)) return;
@@ -268,6 +271,7 @@ export function McpView(props: McpViewProps) {
   const [addMcpModalOpen, setAddMcpModalOpen] = useState(false);
   const [togglingMcp, setTogglingMcp] = useState<string | null>(null);
   const managedAdd = useIntegrationAddRequest("connector", async () => {
+    setDirectoryOpen(false);
     if (props.busy || connectorsForbidden || !showLocal) return;
     if (await orgPolicyAllows("connectors.allowCustom")) setAddMcpModalOpen(true);
   });
@@ -351,7 +355,7 @@ export function McpView(props: McpViewProps) {
     `${name} ${description ?? ""}`.toLocaleLowerCase().includes(libraryQuery);
   const libraryServers = props.mcpServers.filter(entry => {
     const owner = importedConnectorPlugin(entry.name, importedPackages);
-    return matchesLibrary(`${displayName(entry.name)} ${owner ? pluginImportName(owner) : ""}`, resolveQuickConnectMatch(entry.name)?.description);
+    return !(libraryLayout?.pluginSearch !== undefined && owner) && matchesLibrary(`${displayName(entry.name)} ${owner ? pluginImportName(owner) : ""}`, resolveQuickConnectMatch(entry.name)?.description);
   });
   const libraryEntries = quickConnectList.filter(entry =>
     !isQuickConnectConfigured(entry) && isEntryConfigured(entry) && !isLegalWorkExtensionHidden(entry) && matchesLibrary(entry.name, entry.description));
@@ -359,6 +363,14 @@ export function McpView(props: McpViewProps) {
     setDetailsFromDirectory(directoryOpen);
     setDirectoryOpen(false);
     setDetailEntry(entry);
+  };
+  const connectDirectoryEntry = (entry: McpDirectoryInfo) => {
+    // Adding hands off to connection setup and its automatic sign-in flow.
+    // Dismissing the catalogue must not reopen it above the sign-in dialog.
+    setDetailsFromDirectory(false);
+    setDirectoryOpen(false);
+    setDetailEntry(null);
+    return props.connectMcp(entry);
   };
 
   const launchCommandForEntry = (entry: McpDirectoryInfo) => {
@@ -425,7 +437,7 @@ export function McpView(props: McpViewProps) {
   }
 
   return (
-    <section className="space-y-6 max-w-5xl w-full animate-in fade-in duration-300">
+    <section className={`space-y-6 w-full animate-in fade-in duration-300${libraryLayout ? "" : " max-w-5xl"}`}>
       <div className="space-y-5 empty:hidden">
         <IntegrationLibraryHeader title={t("extensions.connectors_label")} description={t("integrations.connectors_description")} leadingActions={showLocal ? <Button variant="outline" size="sm" disabled={props.busy} onClick={() => setDirectoryOpen(true)}>{t("mcp.browse_directory")}</Button> : undefined} actions={showLocal ? <>
           {!managedAdd ? <IntegrationAddMenu disabled={props.busy} actions={[
@@ -511,9 +523,12 @@ export function McpView(props: McpViewProps) {
             <DialogDescription>{t("mcp.directory_description")}</DialogDescription>
           </DialogHeader>
           <div className="shrink-0 space-y-3">
-            <div className="relative w-full">
+            <div className="flex items-center gap-3">
+              <div className="relative min-w-0 flex-1">
               <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-dls-secondary" />
               <Input autoFocus className="ps-10" aria-label={t("mcp.search_directory")} placeholder={t("mcp.search_directory")} value={search} onChange={event => setSearch(event.target.value)} />
+              </div>
+              {libraryLayout?.directoryActions ? <div className="shrink-0">{libraryLayout.directoryActions}</div> : null}
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 text-[13px]">
               <HubTabs items={directoryFilters} value={filter} onChange={setFilter} label={t("mcp.directory_title")} />
@@ -583,7 +598,7 @@ export function McpView(props: McpViewProps) {
               isConfigured={isEntryConfigured}
               enablementForEntry={props.enablementContext ? enablementForEntry : undefined}
               statusForEntry={quickConnectStatus}
-              onConnect={props.connectMcp}
+              onConnect={connectDirectoryEntry}
               onDetail={openEntryDetails}
               shareRefForEntry={
                 props.canShareWithFirm && props.onShareWithFirm
@@ -646,7 +661,7 @@ export function McpView(props: McpViewProps) {
         open={Boolean(setupEntry)}
         onClose={() => setSetupEntry(null)}
         onCancel={props.cancelPendingMcpAuth}
-        onConnect={props.connectMcp}
+        onConnect={connectDirectoryEntry}
       />
 
       {detailEntry ? (() => {
@@ -699,11 +714,12 @@ export function McpView(props: McpViewProps) {
               setDetailEntry(null);
             } : hasConfigSlot ? undefined : () => {
               if (entryNeedsSetup(detailEntry)) {
+                setDetailsFromDirectory(false);
                 setSetupEntry(detailEntry);
+                setDetailEntry(null);
               } else {
-                props.connectMcp(detailEntry);
+                void connectDirectoryEntry(detailEntry);
               }
-              setDetailEntry(null);
             }}
             onRequestAccess={detailEntry.requestAccessUrl ? () => {
               void openDesktopUrl(detailEntry.requestAccessUrl!);
@@ -1026,7 +1042,9 @@ function McpConfiguredServersSection(props: {
   canShareWithFirm?: boolean;
   onShareWithFirm?: (mcpName: string, displayName?: string) => void | Promise<void>;
 }) {
-  const source = useIntegrationLibraryLayout()?.source ?? "all";
+  const layout = useIntegrationLibraryLayout();
+  const source = layout?.source ?? "all";
+  const hasPluginResults = layout?.pluginSearch !== undefined && source !== "team" && layout.importedPackages?.some(plugin => (plugin.sourceKind === undefined || plugin.sourceKind === "plugin") && `${pluginImportName(plugin)} ${plugin.description ?? ""} ${packageParts(plugin.files.map(file => file.objectType))}`.toLowerCase().includes(props.search.trim().toLowerCase()));
   const renderLibrary = (firmItems: FirmHubItem[]) => {
     const query = props.search.trim().toLowerCase();
     const matchingFirmItems = firmItems.filter(item => !query || `${item.name} ${firmConnectorName(item.name)} ${item.description}`.toLowerCase().includes(query));
@@ -1085,8 +1103,8 @@ function McpConfiguredServersSection(props: {
               );
             })}
           </div>
-        ) : (
-          <IntegrationEmptyState icon={Unplug} title={t(props.searching ? "mcp.no_connector_matches" : source === "team" ? "integrations.no_shared_connectors" : "mcp.no_apps_yet")} description={props.searching ? t("mcp.connector_search_hint") : source === "team" ? undefined : t("mcp.no_apps_hint")} />
+        ) : hasPluginResults ? null : (
+          <IntegrationEmptyState icon={Unplug} title={t(props.searching ? layout?.pluginSearch !== undefined ? "integrations.no_plugin_matches" : "mcp.no_connector_matches" : source === "team" ? "integrations.no_shared_connectors" : layout?.pluginSearch !== undefined ? "integrations.no_plugins" : "mcp.no_apps_yet")} description={props.searching ? t("mcp.connector_search_hint") : source === "team" ? undefined : t("mcp.no_apps_hint")} />
         )}
       </div>
     );

@@ -1,7 +1,7 @@
 {
   "name": "legalwork-orchestrator",
   "version": "0.0.0",
-  "description": "LegalWork host orchestrator for opencode + LegalWork server + opencode-router",
+  "description": "LegalWork host orchestrator for OpenCode and LegalWork server",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,9 +12,10 @@
     "build:bin:bundled": "node scripts/clean-dist.mjs && node ../desktop/scripts/prepare-sidecar.mjs --outdir dist && bun ./script/build.ts --outdir dist --filename legalwork && bun scripts/build-bin.ts",
     "build:sidecars": "node scripts/build-sidecars.mjs",
     "typecheck": "tsc -p tsconfig.typecheck.json",
-    "test:router": "node --test scripts/router-process.test.mjs scripts/router-control-security.test.mjs && pnpm build && node scripts/router.mjs",
+    "test:router": "node --test scripts/router-process.test.mjs && pnpm build && node scripts/router.mjs",
     "test:files": "pnpm build && node scripts/files-session.mjs",
-    "prepublishOnly": "node -e \"console.error('legalwork-orchestrator is published via apps/orchestrator/scripts/publish-npm.mjs (meta + platform packages)'); process.exit(1);\""
+    "prepublishOnly": "node -e \"console.error('legalwork-orchestrator is published via apps/orchestrator/scripts/publish-npm.mjs (meta + platform packages)'); process.exit(1);\"",
+    "test:messaging-removal": "pnpm build && node --test scripts/messaging-removal.test.mjs"
   },
   "files": [
     "dist",
@@ -47,7 +48,6 @@
     "@opencode-ai/sdk": "^1.18.29",
     "@opentui/core": "0.1.77",
     "@opentui/solid": "0.1.77",
-    "opencode-router": "0.0.0",
     "legalwork-server": "0.0.0",
     "solid-js": "1.9.9"
   },

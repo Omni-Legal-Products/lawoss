@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import type { ApprovalMode, ApprovalConfig, ServerConfig, WordAddinConfig, WorkspaceConfig, LogFormat } from "./types.js";
@@ -27,7 +26,6 @@ export interface CliArgs {
   help?: boolean;
   wordAddin?: boolean;
   wordAddinPort?: number;
-  wordAddinCapability?: string;
   wordAddinCert?: string;
   wordAddinKey?: string;
   wordAddinDist?: string;
@@ -68,7 +66,7 @@ function normalizeLogFormat(value: string | undefined): LogFormat | undefined {
   return undefined;
 }
 
-function parseBoolean(value: string | undefined): boolean | undefined {
+export function parseBoolean(value: string | undefined): boolean | undefined {
   if (!value) return undefined;
   const normalized = value.trim().toLowerCase();
   if (["true", "1", "yes", "on"].includes(normalized)) return true;
@@ -373,7 +371,6 @@ export async function resolveServerConfig(
     cliOrEnv ? resolve(cliOrEnv) : fromFile ? resolve(configDir, fromFile) : undefined;
   const wordAddin: WordAddinConfig = {
     enabled: wordAddinEnabled,
-    capability: cli.wordAddinCapability ?? fileConfig.wordAddin?.capability ?? randomBytes(32).toString("hex"),
     port: Number.isNaN(wordAddinPortRaw) ? DEFAULT_WORD_ADDIN_PORT : wordAddinPortRaw,
     certPath: resolveWordAddinPath(
       cli.wordAddinCert ?? process.env.LEGALWORK_WORD_ADDIN_CERT,

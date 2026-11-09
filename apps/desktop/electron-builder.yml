@@ -32,6 +32,19 @@ extraResources:
     to: NOTICE
   - from: resources/engine-dependencies
     to: engine-dependencies
+  # Cloud dictation detects silence locally before opening a paid session.
+  - from: node_modules/@ricky0123/vad-web/dist/silero_vad_legacy.onnx
+    to: speech/silero_vad_legacy.onnx
+  - from: resources/licenses
+    to: licenses
+  - from: resources/opencode-sdk
+    to: opencode-sdk
+    filter:
+      - package.json
+  # FileMatcher always skips a source's root node_modules directory. Copy
+  # its contents as a separate resource so the SDK dependency graph ships.
+  - from: resources/opencode-sdk/node_modules
+    to: opencode-sdk/node_modules
   - from: resources/actaport-mcp
     to: actaport-mcp
     filter:
@@ -68,6 +81,8 @@ extraResources:
     filter:
       - "*.js"
       - "!*.test.js"
+      # Do not ship a retired plugin left by an incremental server build.
+      - "!legalwork-anthropic-auth.js"
   # The runtime dock/window icon, which the .icns baked in below cannot supply:
   # resolveAppIconPath() reads these out of `process.resourcesPath/icons` so the
   # dock can swap to the ink plate when macOS is in dark mode. Without them a
@@ -127,7 +142,7 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
-    NSAppleEventsUsageDescription: LAWOSS uses Apple Mail or Microsoft Outlook to open editable email drafts with the recipients and attachments you choose.
+    NSAppleEventsUsageDescription: LAWOSS uses System Events to paste dictated text, and Apple Mail or Microsoft Outlook to open editable email drafts with the recipients and attachments you choose.
     NSMicrophoneUsageDescription: LAWOSS uses the microphone when you start Voice Mode or record a conversation in the Recorder tab.
     NSAudioCaptureUsageDescription: LAWOSS captures system audio when you record calls or meetings in the Recorder tab. Audio is transcribed locally on this device and never uploaded.
     NSInputMonitoringUsageDescription: LAWOSS uses keyboard monitoring to detect your dictation shortcut and support hold-to-talk outside the app.

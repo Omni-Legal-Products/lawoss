@@ -15,6 +15,9 @@ import { connectorRuntimeCapability } from "../connectors/capability.js";
 import { ConnectorStorageAccounts } from "./connector-accounts.js";
 import { updateProjectRemote, readProjectDetails } from "../project-store.js";
 import { connectionFingerprint, ProjectFolderBindings } from "./project-folders.js";
+import { TeamStorage } from "./team.js";
+import { withStorage } from "./service.js";
+import type { StoredStorage } from "./store.js";
 import { nativeSegment } from "./native-drive.js";
 
 const nativeFetch = globalThis.fetch;
@@ -50,12 +53,11 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 async function serve() { server = await startServer(config); base = `http://127.0.0.1:${server.port}`; }
-async function scopedToken(scope: "viewer" | "collaborator") {
-  const response = await nativeFetch(`${base}/tokens`, { method: "POST", headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" }, body: JSON.stringify({ scope }) });
-  expect(response.status).toBe(201); return z.object({ token: z.string() }).parse(await response.json()).token;
+function scopedToken(scope: "viewer" | "collaborator") {
+  return scope === "viewer" ? "owt_retired_viewer" : config.token;
 }
-async function api(path: string, token = config.token, body?: unknown) {
-  return nativeFetch(`${base}/workspace/project/storage${path}`, { method: body === undefined ? "GET" : "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(token === config.token ? { "x-legalwork-host-token": config.hostToken } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+async function api(path: string, token?: string, body?: unknown) {
+  return nativeFetch(`${base}/workspace/project/storage${path}`, { method: body === undefined ? "GET" : "POST", headers: { Authorization: `Bearer ${token ?? config.token}`, "Content-Type": "application/json", ...(token === undefined ? { "x-legalwork-host-token": config.hostToken } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 }
 
 test("saved account status and root discovery never request Nango status or tokens", async () => {
@@ -110,7 +112,8 @@ test("write settings stay default-off and folder views reuse one saved account",
 test("personal roots and every generic read/write path remain owner-only", async () => {
   await serve();
   const id = encodeURIComponent(`connector:google-drive:${account.id}`);
-  const scopes: ("viewer" | "collaborator")[] = ["viewer", "collaborator"];
+  expect((await api("/roots", scopedToken("viewer"))).status).toBe(401);
+  const scopes: ("collaborator")[] = ["collaborator"];
   for (const scope of scopes) {
     const token = await scopedToken(scope);
     const roots = z.object({ roots: z.array(z.object({ id: z.string() })) }).parse(await (await api("/roots", token)).json()); expect(roots.roots).toHaveLength(0);
@@ -140,10 +143,22 @@ test("a switched Eigenwelt account cannot inherit a saved cloud folder view", as
   await expect(bridge.validate(input)).rejects.toMatchObject({ code: "storage_disconnected" }); expect(calls).toHaveLength(0);
 });
 
-test("team promotion rejects personal cloud credentials before contacting the platform", async () => {
+test("sharing a member location removes the personal handle and makes no Nango request", async () => {
+  const priorFetch = globalThis.fetch;
+  let published: unknown;
+  globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.pathname === "/api/storage-connections" && init?.method === "POST") {
+      published = JSON.parse(String(init.body)); return Response.json({ connection: { id: "af506b2e-82eb-40cd-936a-fef613abc765" } });
+    }
+    return priorFetch(input, init);
+  }, { preconnect: nativeFetch.preconnect });
   await serve(); calls.length = 0;
-  const response = await nativeFetch(`${base}/workspace/project/storage/team`, { method: "POST", headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" }, body: JSON.stringify({ name: "Drive", config: { kind: "oauth", provider: "google-drive", accountId: account.id, root: "" } }) });
-  expect(response.status).toBe(403); expect(calls.some((path) => path.includes("storage") || path.includes("connectors"))).toBe(false);
+  const response = await nativeFetch(`${base}/workspace/project/storage/team`, { method: "POST", headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" }, body: JSON.stringify({ name: "Drive", config: { kind: "oauth", provider: "google-drive", accountId: account.id, root: "", sharingMode: "member" } }) });
+  expect(response.status).toBe(201);
+  expect(published).toMatchObject({ config: { provider: "google-drive", sharingMode: "member" }, secrets: {} });
+  expect(JSON.stringify(published)).not.toContain(account.id);
+  expect(calls.some(path => path.startsWith("/api/connectors"))).toBe(false);
 });
 
 
@@ -155,7 +170,7 @@ test("the owner's managed agent can use generic storage while ordinary collabora
   const response = await nativeFetch(`${base}/workspace/project/storage/${encodeURIComponent(roots.roots[0].id)}/children`, { headers }); expect(response.status).toBe(200);
   expect(calls).toContain("/api/connectors/google-drive/connection/token");
   const viewer = await scopedToken("viewer");
-  expect((await nativeFetch(`${base}/workspace/project/storage/${encodeURIComponent(roots.roots[0].id)}/children`, { headers: { Authorization: `Bearer ${viewer}`, "x-legalwork-connector-token": capability } })).status).toBe(403);
+  expect((await nativeFetch(`${base}/workspace/project/storage/${encodeURIComponent(roots.roots[0].id)}/children`, { headers: { Authorization: `Bearer ${viewer}`, "x-legalwork-connector-token": capability } })).status).toBe(401);
 });
 
 test("own OAuth storage remains available without Eigenwelt sign-in and creates no second grant", async () => {
@@ -172,4 +187,48 @@ test("own OAuth storage remains available without Eigenwelt sign-in and creates 
   await serve(); const response = await api(`/${encodeURIComponent(roots[0].id)}/children`); expect(response.status).toBe(200);
   expect(calls.some((path) => path.startsWith("/api/connectors"))).toBe(false);
   expect((await savedConnectorStatus(config, "google-drive")).connectors[0].connections).toHaveLength(1);
+});
+
+
+function sharedCloud(mode: "team" | "member"): StoredStorage {
+  return { ...storageInputSchema.parse({ name: "Firm drive", config: { kind: "oauth", provider: "google-drive", root: "", sharingMode: mode }, readOnly: false }),
+    id: "team:af506b2e-82eb-40cd-936a-fef613abc765", workspaceId: "project", updatedAt: 1,
+    team: { orgId: "firm", version: 1, installed: true } };
+}
+test("shared accounts use a team token without looking up the server owner's personal account", async () => {
+  const item = sharedCloud("team"), team = new TeamStorage(config);
+  team.list = async () => ({ connections: [item], status: { connected: true, canManage: false } });
+  let tokens = 0;
+  team.accessToken = async (_workspace, id, version) => { expect(id).toBe(item.id); expect(version).toBe(1); tokens++; return "shared-storage-access"; };
+  const bound = await new ConnectorStorageAccounts(config, team).bind(item);
+  const adapter = await withStorage(bound, async adapter => { await adapter.list(""); return adapter; });
+  expect(tokens).toBe(1); expect(calls.some(path => path.startsWith("/api/connectors"))).toBe(false);
+  item.enabled = false;
+  await expect(adapter.list("")).rejects.toMatchObject({ code: "storage_team_unavailable" });
+});
+test("member locations reuse the sole personal account and preserve default-off write control", async () => {
+  const item = sharedCloud("member"), team = new TeamStorage(config);
+  const bound = await new ConnectorStorageAccounts(config, team).bind(item);
+  expect(bound.readOnly).toBe(true);
+  await withStorage(bound, async adapter => {
+    expect((await adapter.list("")).entries.map(entry => entry.name)).toContain("Shared drives");
+    await expect(adapter.mkdir("Unsafe")).rejects.toMatchObject({ code: "connector_writes_disabled" });
+  });
+  expect(calls).toContain("/api/connectors/google-drive/connection/token");
+  expect((await savedConnectorStatus(config, "google-drive")).connectors[0].connections).toHaveLength(1);
+});
+test("unconnected member locations stay visible without looking up Nango accounts", async () => {
+  await writeConnectorConnections(config, owner, "google-drive", []);
+  const item = await new ConnectorStorageAccounts(config, new TeamStorage(config)).bind(sharedCloud("member"));
+  await expect(withStorage(item, adapter => adapter.list(""))).rejects.toMatchObject({ code: "storage_signin_required" });
+  expect(calls).toHaveLength(0);
+});
+
+
+test("binding a cached team location never overwrites its admin write policy", async () => {
+  const item = sharedCloud("member"), bridge = new ConnectorStorageAccounts(config, new TeamStorage(config));
+  expect((await bridge.bind(item)).readOnly).toBe(true);
+  expect(item.readOnly).toBe(false);
+  await saveConnectorWriteSetting(config, "google-drive", { writeAccess: true });
+  expect((await bridge.bind(item)).readOnly).toBe(false);
 });

@@ -82,10 +82,10 @@ export function availableUpdates(plugins: readonly CloudImportedPlugin[], state:
   const release = state.lastCheck.release;
   return plugins.flatMap((plugin) => {
     if (!isMarketplacePlugin(plugin)) return [];
-    const dir = plugin.provenance?.source.dir ?? plugin.pluginId.slice(MARKETPLACE_ID_PREFIX.length);
+    const dir = plugin.lawossProvenance?.source.dir ?? plugin.pluginId.slice(MARKETPLACE_ID_PREFIX.length);
     const next = release.plugins.find((item) => item.path === dir);
-    if (!next || !isNewerVersion(next.version, plugin.provenance?.version ?? null)) return [];
-    return [{ pluginId: plugin.pluginId, name: plugin.name, installed: plugin.provenance?.version ?? null, available: next.version, path: next.path }];
+    if (!next || !isNewerVersion(next.version, plugin.lawossProvenance?.version ?? null)) return [];
+    return [{ pluginId: plugin.pluginId, name: plugin.name, installed: plugin.lawossProvenance?.version ?? null, available: next.version, path: next.path }];
   });
 }
 

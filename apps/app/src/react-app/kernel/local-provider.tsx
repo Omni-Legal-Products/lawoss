@@ -74,16 +74,12 @@ export type LocalPreferences = {
    */
   hasCompletedOnboarding: boolean;
   /**
-   * Where the in-session onboarding covers stand. PERSISTED so a reload or
-   * crash resumes the flow instead of silently ending it. One action per
-   * step: "office" (install the Word add-in) -> "audio" (turn on
-   * transcription & dictation) -> "permissions" (what the agent may do on
-   * its own) -> "ai" (start the trial / skip) -> "done". "setup" is a legacy
-   * value from an interim build, treated as "office". The welcome route sets
-   * the first step when the first workspace is created ("office" on desktop,
-   * "permissions" elsewhere — the Office and audio steps need the desktop).
+   * Persisted so a reload or crash resumes the current step. Desktop order:
+   * office -> audio (meetings) -> dictation -> ai -> permissions -> done.
+   * "setup" is a legacy value treated as "office". The welcome route starts
+   * at "office" on desktop and "ai" on the web.
    */
-  onboardingStage: "ai" | "office" | "audio" | "permissions" | "setup" | "done";
+  onboardingStage: "ai" | "office" | "audio" | "dictation" | "permissions" | "setup" | "done";
   /**
    * User preference committed from the welcome-screen toggle (nothing is
    * applied before then); switchable anytime in Settings -> Privacy.

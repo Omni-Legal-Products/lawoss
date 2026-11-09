@@ -76,3 +76,34 @@ test("caller cancellation reaches the transport and is not reported as a timeout
     server.stop(true);
   }
 });
+
+test("connector creation survives slow discovery and registration before opening sign-in", async () => {
+  const paths: string[] = [];
+  const server = Bun.serve({ port: 0, idleTimeout: 20, async fetch(request) {
+    const path = new URL(request.url).pathname;
+    paths.push(path);
+    await Bun.sleep(11_000);
+    if (path === "/mcp") return Response.json({ research: { status: "needs_auth" } });
+    if (path.endsWith("/probe")) return Response.json({ url: "https://example.com/mcp", reachable: true, auth: "oauth", steps: [] });
+    if (path.endsWith("/register-client")) return Response.json({ registered: true, client: { clientId: "test-client" } });
+    return Response.json({ items: [{ name: "research", config: { type: "remote", url: "https://example.com/mcp", oauth: {} } }] });
+  } });
+  try {
+    const engine = createClient(String(server.url));
+    const api = createLegalworkServerClient({ baseUrl: String(server.url) });
+    const payload = { url: "https://example.com/mcp" };
+    const [probe, registered, saved, added] = await Promise.all([
+      api.probeMcp("ws_test", payload),
+      api.registerMcpClient("ws_test", payload),
+      api.addMcp("ws_test", { name: "research", config: { type: "remote", ...payload, oauth: {} } }),
+      engine.mcp.add({ name: "research", config: { type: "remote", ...payload, oauth: {} } }, { throwOnError: true }),
+    ]);
+    expect(probe.auth).toBe("oauth");
+    expect(registered.registered).toBe(true);
+    expect(saved.items.map(item => item.name)).toEqual(["research"]);
+    expect(added.data?.research.status).toBe("needs_auth");
+    expect(paths.sort()).toEqual(["/mcp", "/workspace/ws_test/mcp", "/workspace/ws_test/mcp/probe", "/workspace/ws_test/mcp/register-client"]);
+  } finally {
+    server.stop(true);
+  }
+}, 20_000);

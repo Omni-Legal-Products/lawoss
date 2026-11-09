@@ -89,10 +89,10 @@ test('bootstrap uses the authenticated production host reload for the selected w
     const baseUrl=`http://127.0.0.1:${engine.address().port}`;
     const {startServer}=await import('../../../../apps/server/dist/server.js');
     const config={host:'127.0.0.1',port:0,token:'client',hostToken:'host',configPath:path.join(root,'server.json'),approval:{mode:'auto',timeoutMs:1000},corsOrigins:['*'],workspaces:[{...selected,baseUrl,opencodeUsername:'fixture',opencodePassword:'synthetic'}],authorizedRoots:[selected.path],readOnly:false,startedAt:Date.now(),tokenSource:'cli',hostTokenSource:'cli',logFormat:'pretty',logRequests:false};
-    const {TokenService}=await import('../../../../apps/server/dist/tokens.js');
-    const owner=await new TokenService(config).create('owner');
+    // Upstream v0.2.18: owner bearer tokens are retired; the desktop renderer uses the client token.
+    const owner={token:config.token};
     host=await startServer(config);
-    const serverInfo={baseUrl:`http://127.0.0.1:${host.port}`,ownerToken:owner.token};
+    const serverInfo={baseUrl:`http://127.0.0.1:${host.port}`,clientToken:owner.token};
     const headers={authorization:'Bearer '+owner.token,'content-type':'application/json'};
     const providerConfig={'isir-native':{npm:'@ai-sdk/openai-compatible',name:'Synthetic contract',options:{baseURL:'http://127.0.0.1:1/v1'},models:{synthetic:{name:'Synthetic'}}}};
     const request=(url,options)=>fetch(url,{...options,signal:AbortSignal.timeout(2000)});

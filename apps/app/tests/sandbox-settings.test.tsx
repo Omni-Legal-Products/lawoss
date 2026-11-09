@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
+import { createLegalworkServerClient, LegalworkServerError } from "../src/app/lib/legalwork-server";
 import { resolveWorkspaceEndpoint } from "../src/app/lib/workspace-endpoint";
 import { SessionSandbox } from "../src/react-app/domains/session/surface/session-sandbox";
 import { SandboxStatus } from "../src/react-app/domains/settings/panels/sandbox-status";
@@ -48,5 +48,30 @@ test("firm defaults and released policies leave the chat control available", () 
     expect(html).toContain('aria-label="Sandboxing for this chat"');
     expect(html).toContain("Sandbox on");
   }
+  cache.clear();
+});
+
+
+test("unreadable execution settings display the blocking error and explicit protected recovery", async () => {
+  const cache = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, retry: false, retryOnMount: false } } });
+  const message = "Saved execution settings could not be read. Commands and web access are blocked.";
+  const queryFn = async () => { throw new LegalworkServerError(409, "execution_settings_invalid", message, { settingsScope: "application" }); };
+  await cache.fetchQuery({ queryKey: ["sandbox-default", client.baseUrl], queryFn }).catch(() => {});
+  await cache.fetchQuery({ queryKey: ["session-sandbox", client.baseUrl, "workspace", "chat"], queryFn }).catch(() => {});
+  const settings = renderToStaticMarkup(<QueryClientProvider client={cache}><SandboxStatus client={client} canWrite /></QueryClientProvider>);
+  expect(settings).toContain('role="alert"');
+  expect(settings).toContain(message);
+  expect(settings).toContain("Block all network traffic");
+  const session = renderToStaticMarkup(<QueryClientProvider client={cache}><SessionSandbox client={client} workspaceId="workspace" sessionId="chat" /></QueryClientProvider>);
+  expect(session).toContain(message);
+  expect(session).toContain('role="alert"');
+  expect(session).toContain("restore the application settings");
+  expect(session).not.toContain("Block all network traffic");
+  await cache.fetchQuery({ queryKey: ["session-sandbox", client.baseUrl, "workspace", "chat"], queryFn: async () => {
+    throw new LegalworkServerError(409, "execution_settings_invalid", message, { settingsScope: "session" });
+  } }).catch(() => {});
+  const sessionRecovery = renderToStaticMarkup(<QueryClientProvider client={cache}><SessionSandbox client={client} workspaceId="workspace" sessionId="chat" /></QueryClientProvider>);
+  expect(sessionRecovery).toContain("Block all network traffic");
+  expect(sessionRecovery).not.toContain("restore the application settings");
   cache.clear();
 });

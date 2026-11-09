@@ -52,7 +52,7 @@ export async function awaitNativeStartup({ engineRequest, request, serverInfo, w
   const receipt = await awaitDirectoryInstance({
     request: (url, options) => request(url, options, Math.max(1, deadline - Date.now())),
     baseUrl: `${serverInfo.baseUrl}/workspace/${encodeURIComponent(workspace.id)}/opencode`,
-    headers: { authorization: `Bearer ${serverInfo.ownerToken}` }, directory: workspace.path, deadline, observe,
+    headers: { authorization: `Bearer ${serverInfo.ownerToken || serverInfo.clientToken}` }, directory: workspace.path, deadline, observe,
   });
   return { ...receipt, elapsedMs: Math.round(performance.now() - started), remainingMs: Math.max(0, deadline - Date.now()) };
 }

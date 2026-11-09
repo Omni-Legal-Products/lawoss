@@ -36,7 +36,7 @@ test('genuine CLI admission rejects a wrapper or mismatched package', async () =
     await assert.rejects(validatePnpm(path.join(root, 'bin/pnpm.mjs')), /INVALID_PNPM/);
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
-for (const [version, expected] of [['v0.0.0', /INVALID_NODE/], ['v24.21.0', /INVALID_PNPM/]]) {
+for (const [version, expected] of [['v0.0.0', /INVALID_NODE/], ['v24.22.1', /INVALID_PNPM/]]) {
   test(`packager version admission ${version} refuses before installer/output mutation`, async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'runtime-version-test-'));
     const node = path.join(root, 'inert-node');

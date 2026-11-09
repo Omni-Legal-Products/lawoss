@@ -1,3 +1,4 @@
+import { HubScopeContext, HubScopeToggle, type HubScope } from "@/react-app/domains/settings/pages/hub-scope-context";
 /** @jsxImportSource react */
 // Development fixture for the real settings panel. No production build entry.
 import { useEffect, useState } from "react";
@@ -15,11 +16,12 @@ import { StorageDriveTree } from "@/react-app/domains/session/panel/storage-driv
 import { useQuery } from "@tanstack/react-query";
 import { ConnectorConfig } from "@/react-app/domains/settings/connector-config";
 import { ExtensionDetailModal } from "@/react-app/design-system/extension-detail-modal";
-import { connectorDefinitions } from "@legalwork/types/connectors";
+import { connectorDefinitions, connectorStatusSchema } from "@legalwork/types/connectors";
+import { storageInputSchema, type StorageRoot, type StorageConnection } from "@legalwork/types/file-storage";
 import { PlatformProvider, createDefaultPlatform } from "@/react-app/kernel/platform";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
-import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
+import { createLegalworkServerClient, LegalworkServerError } from "@/app/lib/legalwork-server";
 import { initLocale, t } from "@/i18n";
 import "./app/index.css";
 
@@ -31,13 +33,40 @@ const queryClient = new QueryClient();
 const fixtureDraftsSchema = z.object({ workspaceId: z.string(), gmail: EmailDraftSchema, outlook: EmailDraftSchema, "google-calendar": CalendarEventDraftSchema, "outlook-calendar": CalendarEventDraftSchema, "google-calendar-update": CalendarEventDraftSchema });
 const noop = () => {};
 
+function StorageSignInPreview() {
+  const [settings, setSettings] = useState(false);
+  const connection: StorageConnection = {
+    ...storageInputSchema.parse({ name: "Google Drive", config: { kind: "oauth", provider: "google-drive", sharingMode: "member" }, readOnly: true }),
+    id: "team:signin-preview", updatedAt: 1, configuredSecrets: [], team: { orgId: "preview-firm", version: 1, installed: true },
+  };
+  const root: StorageRoot = { id: connection.id, name: connection.name, kind: "oauth", provider: "google-drive", writable: false };
+  const previewClient = {
+    ...client,
+    storageChildren: async () => { throw new LegalworkServerError(409, "storage_signin_required", "Connect your own account in File Storage to use this team location."); },
+    storageConnections: async () => ({ connections: [connection] }),
+    storageOAuthProviders: async () => ({ providers: [] }),
+    connectorSavedStatus: async () => connectorStatusSchema.parse({ configured: false, requiresSignIn: true, connectors: [] }),
+  };
+  return <PlatformProvider value={createDefaultPlatform()}><TooltipProvider>
+    <main className="mx-auto min-h-dvh max-w-4xl space-y-6 px-8 py-10">
+      <div><h1 className="text-xl font-semibold">{settings ? "File integrations" : "Memory Drive"}</h1><p className="mt-1 text-sm text-muted-foreground">Synthetic team location · No account or provider requests</p></div>
+      {settings ? <FileStorageView client={previewClient} workspaceId="signin-preview" /> :
+        <aside className="w-72"><StorageDriveTree client={previewClient} workspaceId="signin-preview" roots={[root]} onOpenFile={noop} onConnectStorage={() => setSettings(true)} /></aside>}
+    </main>
+  </TooltipProvider></PlatformProvider>;
+}
+
 function StoragePreview() {
-  const roots = useQuery({ queryKey: ["fixture-storage-roots"], queryFn: () => client.storageRoots("fixture-project"), refetchOnWindowFocus: false });
-  return <PlatformProvider value={createDefaultPlatform()}><TooltipProvider><main className="mx-auto min-h-dvh max-w-6xl space-y-6 p-8">
+  const [scope, setScope] = useState<HubScope>("local");
+  const roots = useQuery({ queryKey: ["storage-roots", "fixture-project"], queryFn: () => client.storageRoots("fixture-project"), refetchOnWindowFocus: false });
+  return <PlatformProvider value={{ ...createDefaultPlatform(), openLink: (authUrl) => {
+    // The storage fixture completes synthetic Google consent without opening a provider.
+    void fetch("http://127.0.0.1:44642/fixture/authorize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: "google-drive", authUrl }) });
+  } }}><TooltipProvider><main className="mx-auto min-h-dvh max-w-6xl space-y-6 p-8">
     <h1 className="text-xl font-semibold">File Storage · Synthetic accounts</h1>
     <div className="grid gap-8 md:grid-cols-[15rem_1fr]">
       <aside className="rounded-2xl border p-2"><h2 className="p-2 text-sm font-medium">Memory Drive</h2>{roots.data && <StorageDriveTree client={client} workspaceId="fixture-project" roots={roots.data.roots} onOpenFile={() => {}} />}</aside>
-      <FileStorageView client={client} workspaceId="fixture-project" />
+      <div className="space-y-4"><HubScopeToggle scope={scope} onChange={setScope} /><HubScopeContext.Provider value={scope}><FileStorageView client={client} workspaceId="fixture-project" /></HubScopeContext.Provider></div>
     </div>
   </main></TooltipProvider></PlatformProvider>;
 }
@@ -85,5 +114,5 @@ function Preview() {
 const root = document.getElementById("root");
 if (!root) throw new Error("Preview root element not found.");
 const previewRoot = createRoot(root);
-previewRoot.render(new URLSearchParams(window.location.search).has("storage") ? <QueryClientProvider client={queryClient}><StoragePreview /></QueryClientProvider> : new URLSearchParams(window.location.search).has("drafts") ? <DraftPreview /> : <Preview />);
+previewRoot.render(new URLSearchParams(window.location.search).has("storage-signin") ? <QueryClientProvider client={queryClient}><StorageSignInPreview /></QueryClientProvider> : new URLSearchParams(window.location.search).has("storage") ? <QueryClientProvider client={queryClient}><StoragePreview /></QueryClientProvider> : new URLSearchParams(window.location.search).has("drafts") ? <DraftPreview /> : <Preview />);
 if (import.meta.hot) import.meta.hot.dispose(() => previewRoot.unmount());

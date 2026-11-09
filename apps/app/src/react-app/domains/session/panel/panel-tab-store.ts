@@ -10,7 +10,7 @@ import type { SearchSourceReference } from "@legalwork/types/search";
 import { create } from "zustand";
 import type { ReviewSourceReference } from "@legalwork/types/reviews";
 import { hasUnsavedSessionDocument, confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
-import { createJSONStorage, persist } from "zustand/middleware";
+import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 
 import { classifyOpenTarget, isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
 import type { StorageFileSource } from "./storage-file-tab";
@@ -81,10 +81,12 @@ export type TaskPanelTab = {
   label: string;
 };
 
+export type RecordingPanelTab = { id: string; type: "recording"; recordingId: string; label: string };
+
 export type WorkflowPanelTab = { id: string; type: "workflow"; label: string };
 export type WorkflowResourcePanelTab = { id: string; type: "workflow-resource"; label: string };
 
-export type PanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | BrowserPanelTab | ArtifactPanelTab | TaskPanelTab | WorkflowPanelTab | WorkflowResourcePanelTab | WikiPanelTab | ViewPanelTab | ViewDraftTab;
+export type PanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | BrowserPanelTab | ArtifactPanelTab | TaskPanelTab | WorkflowPanelTab | WorkflowResourcePanelTab | WikiPanelTab | ViewPanelTab | ViewDraftTab | RecordingPanelTab;
 
 export type DocumentPaneState = { id: string; tabIds: string[]; activeTabId: string | null; previewTabId?: string };
 export type SessionPanelState = {
@@ -99,7 +101,7 @@ export type SessionPanelState = {
   sideActiveTabId: string | null;
 };
 
-type PersistedPanelTab = ViewPanelTab | WikiPanelTab | ProjectViewTab | ChatPanelTab | ReviewPanelTab | TaskPanelTab | { id: string; type: "browser"; background?: boolean } | { id: string; type: "artifact"; label: string; value: string } | ArtifactPanelTab;
+type PersistedPanelTab = RecordingPanelTab | ViewPanelTab | WikiPanelTab | ProjectViewTab | ChatPanelTab | ReviewPanelTab | TaskPanelTab | { id: string; type: "browser"; background?: boolean } | { id: string; type: "artifact"; label: string; value: string } | ArtifactPanelTab;
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -128,6 +130,7 @@ function restoredTab(value: unknown): PanelTab | null {
     return { id: value.id, type: "artifact", label: value.label, value: value.value, preview: classifyOpenTarget(value.value, "file"),
       ...(record(value.wikiSuggestion) && typeof value.wikiSuggestion.workspaceId === "string" && typeof value.wikiSuggestion.id === "string" && suggestionIdFromFile(value.value) === value.wikiSuggestion.id ? { wikiSuggestion: { workspaceId: value.wikiSuggestion.workspaceId, id: value.wikiSuggestion.id } } : {}) };
   if (typeof value.label === "string") {
+    if (value.type === "recording" && typeof value.recordingId === "string" && value.recordingId) return { id: value.id, type: "recording", recordingId: value.recordingId, label: value.label };
     if (value.type === "project-view" && isProjectView(value.view)) return projectViewTab(value.view, value.label);
     if (value.type === "chat" && typeof value.sessionId === "string") return chatPanelTab(value.sessionId, value.label);
     if (value.type === "review" && typeof value.reviewId === "string") return { id: value.id, type: "review", reviewId: value.reviewId, label: value.label };
@@ -154,7 +157,7 @@ export type PanelTabStore = {
   finishFileImport: (id: string, file: { path: string; size?: number; updatedAt?: number }) => void;
   setStorageWorkingPath: (sessionId: string, tabId: string, path: string) => void;
   updateWikiPaths: (serverUrl: string, wikiId: string, path: string, destination: string | null) => void;
-  reconnectWikiTabs: (serverUrl: string, wikiIds: string[]) => void;
+  reconnectLocalTabs: (serverUrl: string, wikiIds: string[], workspaceIds?: string[]) => void;
   closeTab: (sessionId: string, tabId: string) => void;
   selectTab: (sessionId: string, tabId: string) => void;
   restoreNavigationTab: (scope: string, tab: unknown, paneId: string) => void;
@@ -292,7 +295,7 @@ function openInSession(scope: string, session: SessionPanelState, tab: PanelTab,
   if (!id) return next;
   const destination = next.panes.find(item => item.tabIds.includes(id));
   if (!destination) return next;
-  const eligible = tab.type === "view" || tab.type === "artifact" || tab.type === "task" || tab.type === "review";
+  const eligible = tab.type === "view" || tab.type === "artifact" || tab.type === "task" || tab.type === "review" || tab.type === "recording";
   if (preview && eligible && !existing && !edge) {
     const previous = destination.previewTabId;
     if (previous && previous !== id && !hasUnsavedSessionDocument(scope, previous)) {
@@ -356,6 +359,10 @@ function isSameTab(left: PanelTab, right: PanelTab) {
     return left.label === right.label && left.taskId === right.taskId;
   }
 
+  if (left.type === "recording" && right.type === "recording") {
+    return left.label === right.label && left.recordingId === right.recordingId;
+  }
+
   if (left.type === "workflow" && right.type === "workflow") return left.label === right.label;
   if (left.type === "workflow-resource" && right.type === "workflow-resource") return left.label === right.label;
   if (left.type === "view" && right.type === "view") return left.label === right.label && left.serverUrl === right.serverUrl && left.viewId === right.viewId && left.owner.kind === right.owner.kind && left.owner.id === right.owner.id;
@@ -404,7 +411,7 @@ function mergePersistedSessions(
   };
 }
 
-export const createPanelTabStore = () => create<PanelTabStore>()(
+export const createPanelTabStore = (storage?: () => StateStorage) => create<PanelTabStore>()(
   persist(
     (set, get) => ({
       sessions: {},
@@ -457,20 +464,21 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
         if (scope !== sessionId) delete sessions[sessionId];
         return { sessions };
       }),
-      reconnectWikiTabs: (serverUrl, wikiIds) => set(state => {
+      reconnectLocalTabs: (serverUrl, wikiIds, workspaceIds = []) => set(state => {
         if (!isLoopbackLegalworkServerUrl(serverUrl)) return state;
-        const known = new Set(wikiIds);
+        const knownWikis = new Set(wikiIds), knownWorkspaces = new Set(workspaceIds);
         const sessions = { ...state.sessions };
         let changed = false;
         for (const [scope, session] of Object.entries(sessions)) {
           const renamed = new Map<string, string>();
           const tabs = session.tabs.map(tab => {
             if (tab.type !== "wiki" && tab.type !== "view") return tab;
-            const wikiId = tab.type === "wiki" ? tab.wikiId : tab.owner.kind === "wiki" ? tab.owner.id : null;
-            // A desktop restart can change its port. Reconnect only wiki IDs
+            const known = tab.type === "wiki" ? knownWikis.has(tab.wikiId)
+              : tab.owner.kind === "wiki" ? knownWikis.has(tab.owner.id) : knownWorkspaces.has(tab.owner.id);
+            // A desktop restart can change its port. Reconnect only owners
             // confirmed by the current local server, never remote tabs.
-            if (!wikiId || !known.has(wikiId) || tab.serverUrl === serverUrl || !isLoopbackLegalworkServerUrl(tab.serverUrl)) return tab;
-            const next = tab.type === "wiki" ? wikiPanelTab(serverUrl, wikiId, tab.location, tab.label) : viewPanelTab(serverUrl, tab, tab.label);
+            if (!known || tab.serverUrl === serverUrl || !isLoopbackLegalworkServerUrl(tab.serverUrl)) return tab;
+            const next = tab.type === "wiki" ? wikiPanelTab(serverUrl, tab.wikiId, tab.location, tab.label) : viewPanelTab(serverUrl, tab, tab.label);
             renamed.set(tab.id, next.id);
             return next;
           });
@@ -764,7 +772,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
     }),
     {
       name: PERSISTED_PANEL_TAB_STORE_KEY,
-      storage: createJSONStorage(() => {
+      storage: createJSONStorage(storage ?? (() => {
         if (typeof window === "undefined") return localStorage;
         // A detached window keeps its own layout even after navigation removes
         // the initial query parameter, including after a renderer reload.
@@ -776,14 +784,14 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
           setItem: (key, value) => sessionStorage.setItem(key, value),
           removeItem: key => sessionStorage.removeItem(key),
         };
-      }),
+      })),
       partialize: (state) => ({
         opening: state.opening,
         sessions: Object.fromEntries(
           Object.entries(state.sessions).map(([sessionId, session]) => {
             const tabs = session.tabs
               .flatMap<PersistedPanelTab>((tab) => {
-                if (tab.type === "chat" || tab.type === "review" || tab.type === "task" || tab.type === "project-view" || tab.type === "wiki" || tab.type === "view") return [tab];
+                if (tab.type === "recording" || tab.type === "chat" || tab.type === "review" || tab.type === "task" || tab.type === "project-view" || tab.type === "wiki" || tab.type === "view") return [tab];
                 // Workflow drafts and their service bindings are in-memory; never restore empty editor stubs.
                 if (tab.type === "workflow" || tab.type === "workflow-resource" || tab.type === "view-draft") return [];
                 if (tab.type === "browser") return [{ id: tab.id, type: tab.type, background: tab.background }];

@@ -22,7 +22,7 @@ test("a bare dependency import is reported", () => {
 test("node: builtins and relative imports are fine", () => {
   const dir = fixture({
     "a.js": 'import { join } from "node:path";\nimport { x } from "./shared.js";\nimport("node:fs/promises");\n',
-    "shared.js": "export const x = 1;\n",
+    "shared.js": 'import { createHash } from "crypto";\nexport const x = 1;\n',
   });
   assert.deepEqual(findUnresolvableImports(dir), []);
 });

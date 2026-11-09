@@ -9,44 +9,67 @@ function script(html: string) {
   return match[1];
 }
 
-test("the paired manifest bypasses legacy caches and the redirector never selects an old cached shell", () => {
-  const capability = "b".repeat(64);
-  const manifest = buildWordAddinManifest({ baseUrl: "https://localhost:47443", capability });
-  expect(manifest.match(/taskpane.html\?pairing=2#capability=/g)?.length).toBe(2);
-  const navigations: string[] = [];
-  runInNewContext(script(buildWordAddinRedirectorHtml()), {
-    localStorage: { getItem: () => "5" },
-    location: { hash: `#capability=${capability}`, replace: (url: string) => navigations.push(url) },
-  });
-  expect(navigations).toEqual([`shell-v${WORD_ADDIN_SHELL_VERSION}.html#capability=${capability}`]);
+type Element = { textContent: string; addEventListener(): void; classList: { add(): void; remove(): void } };
+function elements() {
+  const map = new Map<string, Element>();
+  return (id: string) => {
+    if (!map.has(id)) map.set(id, { textContent: "", addEventListener() {}, classList: { add() {}, remove() {} } });
+    return map.get(id)!;
+  };
+}
+
+test("the private manifest sends its credential only in a fragment, with no credential in the public manifest", () => {
+  const connectionToken = "a".repeat(64);
+  const xml = buildWordAddinManifest({ baseUrl: "https://localhost:47443", connectionToken });
+  const source = xml.match(/<SourceLocation DefaultValue="([^"]+)"/u)?.[1];
+  if (!source) throw new Error("Manifest task pane source missing");
+  const url = new URL(source);
+  expect(url.pathname).toBe(`/word-addin/shell-v${WORD_ADDIN_SHELL_VERSION}.html`);
+  expect(url.search).toBe("");
+  expect(new URLSearchParams(url.hash.slice(1)).get("office_launch")).toBe(connectionToken);
+  expect(buildWordAddinManifest({ baseUrl: url.origin })).not.toContain("office_launch");
 });
 
-test("shell authenticates bootstrap and preserves pairing through handoff even when storage is blocked", async () => {
-  for (const blockedStorage of [false, true]) {
-    const capability = "c".repeat(64);
-    const requests: Array<{ headers: Record<string, string> }> = [];
-    const navigations: string[] = [];
-    const stored = new Map<string, string>();
+// 🟡 LAWOSS (MČ 8. 11. 2026): the installation key stays in sessionStorage, never in localStorage.
+test("the shell keeps the installed credential only in sessionStorage and out of HTTP requests", async () => {
+  for (const blockedSession of [false, true]) {
+    const connectionToken = "a".repeat(64);
+    const local = new Map<string, string>(), session = new Map<string, string>();
+    const navigation: string[] = [], history: string[] = [], requests: Array<{ url: string; init?: { headers?: Record<string, string> } }> = [];
     runInNewContext(script(buildWordAddinShellHtml()), {
-      URLSearchParams, AbortController, setTimeout, clearTimeout, setInterval, clearInterval,
-      localStorage: { getItem: () => "en", setItem: () => {} },
-      sessionStorage: { getItem: (key: string) => stored.get(key), setItem: (key: string, value: string) => { if (blockedStorage) throw new Error("blocked"); stored.set(key, value); } },
-      history: { replaceState: () => {} },
-      location: { hash: `#capability=${capability}`, pathname: "/word-addin/shell.html", search: "", replace: (url: string) => navigations.push(url) },
-      document: { getElementById: () => ({ addEventListener: () => {}, classList: { add: () => {}, remove: () => {} } }) },
-      fetch: async (_url: string, init: { headers: Record<string, string> }) => { requests.push(init); return { ok: true, json: async () => ({ shellVersion: WORD_ADDIN_SHELL_VERSION }) }; },
+      URLSearchParams, AbortController,
+      localStorage: { getItem: (key: string) => local.get(key) ?? null, setItem: (key: string, value: string) => local.set(key, value) },
+      sessionStorage: { getItem: (key: string) => session.get(key) ?? null, setItem: (key: string, value: string) => { if (blockedSession) throw new Error("blocked"); session.set(key, value); } },
+      location: { hash: `#office_launch=${connectionToken}`, pathname: `/word-addin/shell-v${WORD_ADDIN_SHELL_VERSION}.html`, search: "", replace: (url: string) => navigation.push(url) },
+      history: { replaceState: (_state: unknown, _title: string, url: string) => history.push(url) },
+      document: { documentElement: { lang: "" }, getElementById: elements() },
+      fetch: async (url: string, init?: { headers?: Record<string, string> }) => {
+        requests.push({ url, init });
+        return { ok: true, json: async () => ({ shellVersion: WORD_ADDIN_SHELL_VERSION }) };
+      },
+      setInterval() {}, clearInterval() {}, setTimeout, clearTimeout,
     });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(requests[0]?.headers["X-LegalWork-Office-Capability"]).toBe(capability);
-    expect(navigations).toEqual([`app.html#capability=${capability}`]);
-    if (!blockedStorage) expect(stored.get("legalwork.officeCapability")).toBe(capability);
+    for (let attempt = 0; attempt < 10 && !navigation.length; attempt++) await new Promise(resolve => setImmediate(resolve));
+    expect(requests.map(request => request.url)).toEqual(["bootstrap"]);
+    expect(JSON.stringify(requests)).not.toContain(connectionToken);
+    expect(navigation).toEqual(["app.html"]);
+    expect(history).toEqual([`/word-addin/shell-v${WORD_ADDIN_SHELL_VERSION}.html`]);
+    expect([...local.values()]).not.toContain(connectionToken);
+    expect(session.get("legalwork.office.launch")).toBe(blockedSession ? undefined : connectionToken);
   }
+});
+
+test("the redirector of older manifests forwards the launch fragment to the current shell", () => {
+  const navigations: string[] = [];
+  runInNewContext(script(buildWordAddinRedirectorHtml()), {
+    location: { hash: `#office_launch=${"b".repeat(64)}`, replace: (url: string) => navigations.push(url) },
+  });
+  expect(navigations).toEqual([`shell-v${WORD_ADDIN_SHELL_VERSION}.html#office_launch=${"b".repeat(64)}`]);
 });
 
 test("offline Office shell uses cached Czech, otherwise the supported system language", async () => {
   for (const [cached, system, expected] of [["cs", "sk-SK", "LAWOSS není spuštěný"], ["system", "cs-CZ", "LAWOSS není spuštěný"], ["sk", "cs-CZ", "LAWOSS nie je spustený"]]) {
-    const elements = new Map<string, { textContent: string; addEventListener: () => void; classList: { add: () => void; remove: () => void } }>();
-    const element = (id: string) => { if (!elements.has(id)) elements.set(id, { textContent: "", addEventListener() {}, classList: { add() {}, remove() {} } }); return elements.get(id)!; };
+    const element = elements();
     runInNewContext(script(buildWordAddinShellHtml()), {
       URLSearchParams, AbortController, setTimeout, clearTimeout, setInterval: () => 0, clearInterval,
       navigator: { languages: [system] },
@@ -58,32 +81,6 @@ test("offline Office shell uses cached Czech, otherwise the supported system lan
     });
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(element("offline-title").textContent).toBe(expected);
-  }
-});
-
-test("shell invalidates a different pairing's cached language and clears presentation cache on 401", async () => {
-  for (const rejected of [false, true]) {
-    const capability = "d".repeat(64);
-    const values = new Map([["legalwork.language", "sk"], ["legalwork.officeLocaleScope", "old-pairing"]]);
-    const elements = new Map<string, { textContent: string; addEventListener(): void; classList: { add(): void; remove(): void } }>();
-    const element = (id: string) => {
-      if (!elements.has(id)) elements.set(id, { textContent: "", addEventListener() {}, classList: { add() {}, remove() {} } });
-      return elements.get(id)!;
-    };
-    await runInNewContext(script(buildWordAddinShellHtml()), {
-      crypto: globalThis.crypto, TextEncoder, Uint8Array, URLSearchParams, AbortController, setTimeout, clearTimeout, setInterval: () => 0, clearInterval,
-      navigator: { languages: ["cs-CZ"] },
-      localStorage: { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) },
-      sessionStorage: { getItem: () => "", setItem() {} }, history: { replaceState() {} },
-      location: { hash: `#capability=${capability}`, pathname: "/word-addin/shell-v7.html", search: "", replace() {} },
-      document: { documentElement: { lang: "" }, getElementById: element },
-      fetch: async () => { if (!rejected) throw new Error("offline"); return { ok: false, status: 401 }; },
-    });
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(element("offline-title").textContent).toBe(rejected ? "Otevřete doplněk Office znovu" : "LAWOSS není spuštěný");
-    expect(values.has("legalwork.language")).toBe(false);
-    expect(values.has("legalwork.officeLocaleScope")).toBe(!rejected);
-    expect([...values.values()]).not.toContain(capability);
   }
 });
 

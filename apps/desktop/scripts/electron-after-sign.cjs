@@ -2,12 +2,30 @@ const { spawnSync } = require("node:child_process");
 const { mkdtempSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
 const { createHash } = require("node:crypto");
 const { tmpdir } = require("node:os");
+const { setTimeout: delay } = require("node:timers/promises");
 const path = require("node:path");
 
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: "inherit" });
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(" ")} failed with status ${result.status}`);
+  }
+}
+
+async function runStapler(action, appPath) {
+  const args = ["stapler", action, appPath];
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const result = spawnSync("xcrun", args, { stdio: "inherit" });
+    if (result.status === 0) return;
+    // Apple ticket lookups can lose their CloudKit connection even after
+    // notarization was accepted or stapling succeeded. Retry that service
+    // failure only; every attempt must still pass Apple's real validation.
+    if (result.status !== 68 || attempt === 5) {
+      throw new Error(`xcrun ${args.join(" ")} failed with status ${result.status}`);
+    }
+    const waitMs = Math.min(15_000 * 2 ** (attempt - 1), 60_000);
+    console.warn(`[electron-after-sign] Apple ticket service failed during ${action}; retrying in ${waitMs / 1000}s (${attempt}/5).`);
+    await delay(waitMs);
   }
 }
 
@@ -63,8 +81,8 @@ async function afterSign(context) {
       issuer,
       "--wait",
     ]);
-    run("xcrun", ["stapler", "staple", appPath]);
-    run("xcrun", ["stapler", "validate", appPath]);
+    await runStapler("staple", appPath);
+    await runStapler("validate", appPath);
   } finally {
     rmSync(notaryTempDir, { recursive: true, force: true });
   }

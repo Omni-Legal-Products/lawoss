@@ -1,10 +1,116 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { EventEmitter } from "node:events";
+import { spawnSync } from "node:child_process";
+import { runInNewContext } from "node:vm";
+import { fileURLToPath } from "node:url";
 
 import { SystemDictationService } from "./audio/system-dictation.mjs";
+
+async function pasteCommandFixture(codes = [0], helperAvailable = true) {
+  const source = await readFile(new URL("./main.mjs", import.meta.url), "utf8");
+  const start = source.indexOf("const WINDOWS_PASTE_SCRIPT =");
+  const end = source.indexOf("async function showSupportLogsProgressWindow", start);
+  const calls = [];
+  const context = {
+    setTimeout, clearTimeout, app: {},
+    existsSync: () => helperAvailable,
+    resolveKeyMonitorPath: () => "/helpers/LegalWorkKeyMonitor",
+    spawn: (executable, args) => {
+      calls.push({ executable, args });
+      const child = Object.assign(new EventEmitter(), { kill: () => {} });
+      queueMicrotask(() => child.emit("exit", codes.shift() ?? 0));
+      return child;
+    },
+  };
+  runInNewContext(source.slice(start, end) + "\nthis.runPaste = runSystemPasteCommand;", context);
+  return { runPaste: context.runPaste, calls };
+}
+
+test("accepted paste commands succeed without inspecting the focused field", async () => {
+  const mac = await pasteCommandFixture();
+  assert.equal(await mac.runPaste("darwin"), true);
+  assert.equal(mac.calls[0].executable, "/helpers/LegalWorkKeyMonitor");
+  assert.equal(mac.calls[0].args[0], "--paste");
+  const windows = await pasteCommandFixture();
+  assert.equal(await windows.runPaste("windows"), true);
+  assert.match(windows.calls[0].args.at(-1), /LegalWorkPaste\]::Paste\(\)/);
+  assert.doesNotMatch(windows.calls[0].args.at(-1), /HasEditableFocus|AutomationElement|ValuePattern/);
+});
+
+test("observed insertion failure retains clipboard recovery without a second paste", async () => {
+  const mac = await pasteCommandFixture([4]);
+  assert.equal(await mac.runPaste("darwin"), false);
+  assert.equal(mac.calls.length, 1);
+  const unknown = await pasteCommandFixture([0]);
+  assert.equal(await unknown.runPaste("darwin"), true, "unreadable editors retain normal paste and clipboard restoration");
+});
+
+test("native paste observes field contents only after both key events", async () => {
+  const source = await readFile(new URL("../native/key-monitor/Sources/KeyMonitor/Paste.swift", import.meta.url), "utf8");
+  const paste = source.slice(source.indexOf("func runPasteMode()"));
+  assert.ok(paste.indexOf("verifyPasteDelivery(") > paste.indexOf("keyUp.post("));
+  assert.doesNotMatch(paste.slice(0, paste.indexOf("keyDown.post(")), /AXFocusedUIElement|AXValue|AXRole|verifyPasteDelivery/);
+});
+
+test("native delivery distinguishes absent fields, readable failures and unsupported editors", { skip: process.platform !== "darwin" }, async t => {
+  const directory = await tempDir();
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const main = path.join(directory, "main.swift");
+  const executable = path.join(directory, "delivery-test");
+  await writeFile(main, `import AppKit
+assert(classifyPasteDelivery(role: "AXTextArea", value: "Before. Hello world. After.", expected: "Hello world.") == .inserted)
+assert(classifyPasteDelivery(role: "AXTextField", value: "HELLO\\nworld.", expected: "Hello world.") == .inserted)
+assert(classifyPasteDelivery(role: "AXGroup", value: "Hello world.", expected: "Hello world.") == .inserted)
+assert(classifyPasteDelivery(role: "AXTextArea", value: "", expected: "Hello world.") == .awaitingText)
+assert(classifyPasteDelivery(role: "AXTextArea", value: "Unchanged text", expected: "Hello world.") == .awaitingText)
+assert(classifyPasteDelivery(role: "AXButton", value: nil, expected: "Hello world.") == .notInserted)
+assert(classifyPasteDelivery(role: "AXWebArea", value: nil, expected: "Hello world.") == .notInserted)
+assert(classifyPasteDelivery(role: nil, value: nil, expected: "Hello world.", noFocusedElement: true) == .notInserted)
+assert(classifyPasteDelivery(role: "AXTextArea", value: nil, expected: "Hello world.") == .unknown)
+assert(classifyPasteDelivery(role: "AXGroup", value: nil, expected: "Hello world.") == .unknown)
+assert(classifyPasteDelivery(role: "CustomEditor", value: "Other", expected: "Hello world.") == .unknown)
+assert(classifyPasteDelivery(role: nil, value: nil, expected: "Hello world.") == .unknown)
+assert(classifyPasteDelivery(role: "AXButton", value: nil, expected: "") == .unknown)
+`);
+  const compiled = spawnSync("/usr/bin/swiftc", [fileURLToPath(new URL("../native/key-monitor/Sources/KeyMonitor/PasteDelivery.swift", import.meta.url)), main, "-o", executable], { encoding: "utf8", timeout: 30_000 });
+  assert.equal(compiled.status, 0, compiled.stderr);
+  const run = spawnSync(executable, { encoding: "utf8", timeout: 5_000 });
+  assert.equal(run.status, 0, run.stderr);
+});
+
+test("macOS falls back when the native paste command fails or is missing", async () => {
+  for (const helperAvailable of [true, false]) {
+    const fixture = await pasteCommandFixture(helperAvailable ? [2, 0] : [0], helperAvailable);
+    assert.equal(await fixture.runPaste("darwin"), true);
+    const fallback = fixture.calls.at(-1);
+    assert.equal(fallback.executable, "/usr/bin/osascript");
+    assert.match(fallback.args[1], /keystroke "v" using command down/);
+    assert.doesNotMatch(fallback.args[1], /AXFocusedUIElement|AXValue|AXRole|settable/);
+  }
+});
+
+test("unresolved keyboard layouts and failed commands preserve the failure result", async () => {
+  const layout = await pasteCommandFixture([3]);
+  await assert.rejects(layout.runPaste("darwin"), /exited with code 3/);
+  assert.equal(layout.calls.length, 1, "do not post a different key as a layout fallback");
+  const mac = await pasteCommandFixture([2, 1]);
+  await assert.rejects(mac.runPaste("darwin"), /exited with code 1/);
+  const windows = await pasteCommandFixture([2]);
+  await assert.rejects(windows.runPaste("windows"), /exited with code 2/);
+});
+
+test("the macOS fallback script compiles", { skip: process.platform !== "darwin" }, async t => {
+  const fixture = await pasteCommandFixture([0], false);
+  await fixture.runPaste("darwin");
+  const directory = await tempDir();
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const result = spawnSync("/usr/bin/osacompile", ["-o", path.join(directory, "paste.scpt"), "-e", fixture.calls[0].args[1]], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+});
 
 class FakeShortcuts {
   constructor(blocked = []) {
@@ -82,6 +188,19 @@ class FakeClipboard {
     this.formats.set(format, Buffer.from(data));
   }
 
+  readHTML() { return this.readBuffer("text/html").toString(); }
+
+  readRTF() { return this.readBuffer("text/rtf").toString(); }
+
+  readImage() { return { isEmpty: () => true }; }
+
+  write(data) {
+    this.clear();
+    for (const [name, format] of [["text", "text/plain"], ["html", "text/html"], ["rtf", "text/rtf"]]) {
+      if (data[name] !== undefined) this.formats.set(format, Buffer.from(data[name]));
+    }
+  }
+
   readText() {
     return this.formats.get("text/plain")?.toString("utf8") ?? "";
   }
@@ -98,7 +217,7 @@ async function tempDir() {
 
 test("system dictation persists, registers fallback shortcut, and handles cancel", async () => {
   const userDataDir = await tempDir();
-  const shortcuts = new FakeShortcuts(["Control+Super+D", "Control+Alt+Q"]);
+  const shortcuts = new FakeShortcuts(["Control", "Control+Super", "Control+Super+D", "Control+Alt+Q"]);
   let toggles = 0;
   let cancels = 0;
   const service = new SystemDictationService({
@@ -107,7 +226,7 @@ test("system dictation persists, registers fallback shortcut, and handles cancel
     globalShortcut: shortcuts,
     clipboard: new FakeClipboard(),
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => { toggles += 1; },
     onCancel: () => { cancels += 1; },
   });
@@ -141,6 +260,15 @@ test("system dictation persists, registers fallback shortcut, and handles cancel
   service.setRuntimeState("listening");
   shortcuts.callbacks.get("Escape")?.();
   assert.equal(cancels, 1);
+  service.setRuntimeState("starting");
+  shortcuts.callbacks.get("Escape")?.();
+  service.setRuntimeState("transcribing");
+  shortcuts.callbacks.get("Escape")?.();
+  assert.equal(cancels, 3);
+  service.setRuntimeState("inserting");
+  assert.equal(shortcuts.callbacks.has("Escape"), true);
+  shortcuts.callbacks.get("Escape")?.();
+  assert.equal(cancels, 4);
   service.setRuntimeState("idle");
   assert.equal(shortcuts.callbacks.has("Escape"), false);
 
@@ -156,7 +284,7 @@ test("system dictation persists, registers fallback shortcut, and handles cancel
     globalShortcut: restoredShortcuts,
     clipboard: new FakeClipboard(),
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => {},
     onCancel: () => {},
   });
@@ -166,6 +294,25 @@ test("system dictation persists, registers fallback shortcut, and handles cancel
   assert.equal(restoredStatus.registered, true);
   restored.dispose();
   await rm(userDataDir, { recursive: true, force: true });
+});
+
+test("cancelling before native paste dispatch skips the shortcut and restores the clipboard", async t => {
+  const userDataDir = await tempDir();
+  const clipboard = new FakeClipboard();
+  clipboard.writeText("Previous copy");
+  let commands = 0;
+  const service = new SystemDictationService({
+    userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard,
+    systemPreferences: { isTrustedAccessibilityClient: () => true }, shell: { openExternal: async () => {} },
+    runPasteCommand: async () => { commands += 1; return true; }, onToggle: () => {}, onCancel: () => {},
+  });
+  t.after(async () => { service.dispose(); await rm(userDataDir, { recursive: true, force: true }); });
+  const paste = service.pasteText("Cancelled transcript");
+  await new Promise(resolve => setTimeout(resolve, 10));
+  service.cancel();
+  assert.equal((await paste).pasted, false);
+  assert.equal(commands, 0);
+  assert.equal(clipboard.readText(), "Previous copy");
 });
 
 test("macOS dictation requires Accessibility and preserves the clipboard after paste", async () => {
@@ -186,7 +333,7 @@ test("macOS dictation requires Accessibility and preserves the clipboard after p
       },
     },
     shell: { openExternal: async (url) => { openedUrl = url; } },
-    runPasteCommand: async () => { pasteCount += 1; },
+    runPasteCommand: async () => { pasteCount += 1; return true; },
     onToggle: () => {},
     onCancel: () => {},
   });
@@ -212,7 +359,62 @@ test("macOS dictation requires Accessibility and preserves the clipboard after p
   await rm(userDataDir, { recursive: true, force: true });
 });
 
-test("native shortcut monitoring supports modifier-only capture and hold-to-talk", async () => {
+test("successful paste restores an empty clipboard and preserves a newly copied value", async t => {
+  const userDataDir = await tempDir();
+  const clipboard = new FakeClipboard();
+  clipboard.clear();
+  let copyDuringPaste = false;
+  const service = new SystemDictationService({
+    userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard,
+    systemPreferences: { isTrustedAccessibilityClient: () => true },
+    shell: { openExternal: async () => {} },
+    runPasteCommand: async () => { if (copyDuringPaste) clipboard.writeText("New user copy"); return true; },
+    onToggle: () => {}, onCancel: () => {},
+  });
+  t.after(() => { service.dispose(); return rm(userDataDir, { recursive: true, force: true }); });
+  assert.deepEqual(await service.pasteText("Dictation"), { pasted: true, copied: true, error: null });
+  assert.deepEqual(clipboard.availableFormats(), []);
+  copyDuringPaste = true;
+  await service.pasteText("Second dictation");
+  assert.equal(clipboard.readText(), "New user copy");
+});
+
+test("recording prepares observation once per start and never waits for or requires it", async t => {
+  const userDataDir = await tempDir();
+  let preparations = 0;
+  const service = new SystemDictationService({
+    userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard: new FakeClipboard(),
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => true,
+    preparePaste: () => { preparations += 1; throw new Error("AX unsupported"); },
+    onToggle: () => {}, onCancel: () => {},
+  });
+  t.after(() => { service.dispose(); return rm(userDataDir, { recursive: true, force: true }); });
+  service.setRuntimeState("starting");
+  service.setRuntimeState("starting");
+  service.setRuntimeState("listening");
+  assert.equal(service.runtimeState, "listening");
+  assert.equal(preparations, 1);
+  service.setRuntimeState("cancelled");
+  service.setRuntimeState("starting");
+  assert.equal(preparations, 2);
+});
+
+test("when an attempted paste reports failure dictation stays on the clipboard", async t => {
+  const userDataDir = await tempDir();
+  const clipboard = new FakeClipboard();
+  const service = new SystemDictationService({
+    userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard,
+    systemPreferences: { isTrustedAccessibilityClient: () => true },
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => false,
+    onToggle: () => {}, onCancel: () => {},
+  });
+  t.after(async () => { service.dispose(); await rm(userDataDir, { recursive: true, force: true }); });
+  assert.deepEqual(await service.pasteText("Keep this dictated text."), { pasted: false, copied: true, error: null });
+  assert.equal(clipboard.readText(), "Keep this dictated text.");
+});
+
+test("native shortcut monitoring supports modifier-only capture and both dictation gestures", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
   const userDataDir = await tempDir();
   const keyMonitor = new FakeKeyMonitor();
   let presses = 0;
@@ -226,7 +428,7 @@ test("native shortcut monitoring supports modifier-only capture and hold-to-talk
     clipboard: new FakeClipboard(),
     systemPreferences: { isTrustedAccessibilityClient: () => true },
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => { toggles += 1; },
     onPress: () => { presses += 1; },
     onRelease: () => { releases += 1; },
@@ -245,11 +447,11 @@ test("native shortcut monitoring supports modifier-only capture and hold-to-talk
   assert.equal(service.status().accelerator, "Fn+Control");
   assert.equal(service.status().shortcutCaptureActive, false);
 
-  const hold = await service.setMode("hold");
-  assert.equal(hold.mode, "hold");
   await keyMonitor.emit("down", "Fn");
   await keyMonitor.emit("down", "Control");
   assert.equal(presses, 1);
+  assert.equal(service.status().mode, "hold");
+  t.mock.timers.tick(500);
   await keyMonitor.emit("up", "Control");
   assert.equal(releases, 1);
   await keyMonitor.emit("up", "Fn");
@@ -258,19 +460,30 @@ test("native shortcut monitoring supports modifier-only capture and hold-to-talk
   await keyMonitor.emit("down", "Control");
   await keyMonitor.emit("up", "Control");
   assert.equal(service.status().accelerator, "Control");
-  await service.setMode("tap");
   await keyMonitor.emit("down", "Control");
-  assert.equal(toggles, 1);
+  t.mock.timers.tick(50);
   await keyMonitor.emit("up", "Control");
+  t.mock.timers.tick(100);
+  await keyMonitor.emit("down", "Control");
+  await keyMonitor.emit("up", "Control");
+  assert.equal(service.status().mode, "tap");
+  t.mock.timers.tick(500);
+  assert.equal(presses, 2, "double-tap keeps the first capture");
+  assert.equal(releases, 1, "neither tap releases hands-free capture");
+  assert.equal(toggles, 0);
+  await keyMonitor.emit("down", "Control");
+  await keyMonitor.emit("up", "Control");
+  assert.equal(releases, 2, "one press finishes hands-free dictation");
 
   const stored = JSON.parse(await readFile(path.join(userDataDir, "system-dictation.json"), "utf8"));
   assert.equal(stored.accelerator, "Control");
-  assert.equal(stored.mode, "tap");
+  assert.equal(stored.mode, undefined, "gesture choice is no longer a preference");
   service.dispose();
   await rm(userDataDir, { recursive: true, force: true });
 });
 
-test("a monitor reset releases a latched hold and clears chord state", async () => {
+test("a monitor reset releases a latched hold and clears chord state", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
   const userDataDir = await tempDir();
   const keyMonitor = new FakeKeyMonitor();
   let presses = 0;
@@ -283,7 +496,7 @@ test("a monitor reset releases a latched hold and clears chord state", async () 
     clipboard: new FakeClipboard(),
     systemPreferences: { isTrustedAccessibilityClient: () => true },
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => {},
     onPress: () => { presses += 1; },
     onRelease: () => { releases += 1; },
@@ -295,24 +508,331 @@ test("a monitor reset releases a latched hold and clears chord state", async () 
   await service.setShortcutCapture(true);
   await keyMonitor.emit("down", "Control");
   await keyMonitor.emit("up", "Control");
-  await service.setMode("hold");
 
   // Hold engaged, then the tap/hook is rebuilt (wake, session switch) and
   // the key-up is lost: the reset must finalize the dictation, not leave it
   // latched "recording" forever.
   await keyMonitor.emit("down", "Control");
+  t.mock.timers.tick(120);
   assert.equal(presses, 1);
   await keyMonitor.emit("reset", "*");
   assert.equal(releases, 1);
 
   // Chord state was cleared, so the next press starts cleanly.
   await keyMonitor.emit("down", "Control");
+  t.mock.timers.tick(120);
   assert.equal(presses, 2);
+  t.mock.timers.tick(500);
   await keyMonitor.emit("up", "Control");
   assert.equal(releases, 2);
 
   service.dispose();
   await rm(userDataDir, { recursive: true, force: true });
+});
+
+async function gestureService(t, platform = "darwin", accelerator = "Fn") {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
+  const userDataDir = await tempDir();
+  const keyMonitor = new FakeKeyMonitor();
+  const shortcuts = new FakeShortcuts();
+  const events = [];
+  const cancelReasons = [];
+  const service = new SystemDictationService({
+    userDataDir, platform, globalShortcut: shortcuts, keyMonitor,
+    clipboard: new FakeClipboard(), systemPreferences: { isTrustedAccessibilityClient: () => true },
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => true,
+    onPress: () => { events.push("start"); service.setRuntimeState("starting"); },
+    onRelease: () => { events.push("finish"); service.setRuntimeState("transcribing"); },
+    onToggle: () => { events.push("toggle"); service.setRuntimeState("starting"); },
+    onCancel: (reason) => { cancelReasons.push(reason); events.push("cancel"); service.setRuntimeState("cancelled"); },
+  });
+  t.after(async () => { service.dispose(); await rm(userDataDir, { recursive: true, force: true }); });
+  await service.initialize();
+  await service.setEnabled(true);
+  if (accelerator) await service.setShortcut(accelerator);
+  return { service, keyMonitor, shortcuts, events, cancelReasons };
+}
+
+for (const { platform, keys, previousDefault } of [
+  { platform: "darwin", keys: ["Control"], previousDefault: "Control+Alt" },
+  { platform: "win32", keys: ["Control"], previousDefault: "Control+Super" },
+]) {
+  test(`${platform} default supports hold and double-tap without a letter key`, async (t) => {
+    const { service, keyMonitor, events } = await gestureService(t, platform, null);
+    const press = async () => {
+      for (const key of keys) await keyMonitor.emit("down", key);
+    };
+    const release = async () => {
+      for (const key of [...keys].reverse()) await keyMonitor.emit("up", key);
+    };
+    assert.equal(service.status().accelerator, keys.join("+"));
+    assert.equal(service.status().customAccelerator, false);
+    await press();
+    t.mock.timers.tick(119);
+    assert.deepEqual(events, [], "allow time to distinguish Control from a normal chord");
+    t.mock.timers.tick(1);
+    assert.deepEqual(events, ["start"]);
+    t.mock.timers.tick(380);
+    await release();
+    assert.deepEqual(events, ["start", "finish"]);
+
+    service.setRuntimeState("success");
+    t.mock.timers.tick(250);
+    await press();
+    t.mock.timers.tick(60);
+    await release();
+    t.mock.timers.tick(150);
+    await press();
+    await release();
+    t.mock.timers.tick(500);
+    assert.deepEqual(events, ["start", "finish", "start"]);
+    assert.equal(service.status().mode, "tap");
+    await press();
+    await release();
+    assert.deepEqual(events, ["start", "finish", "start", "finish"]);
+  });
+
+  test(`${platform} updates the saved default while preserving an explicitly chosen shortcut`, async (t) => {
+    const { service } = await gestureService(t, platform, null);
+    await writeFile(service.settingsPath, JSON.stringify({ enabled: true, accelerator: previousDefault, customAccelerator: false }));
+    const upgraded = await service.initialize();
+    assert.equal(upgraded.accelerator, keys.join("+"));
+    assert.equal(upgraded.registered, true);
+    await writeFile(service.settingsPath, JSON.stringify({ enabled: true, accelerator: previousDefault, customAccelerator: true }));
+    const customized = await service.initialize();
+    assert.equal(customized.accelerator, previousDefault);
+    assert.equal(customized.customAccelerator, true);
+  });
+
+  test(`${platform} Control combinations never activate dictation or show short-press guidance`, async (t) => {
+    const { keyMonitor, events, cancelReasons } = await gestureService(t, platform, null);
+    for (const key of ["C", "V", "Alt", "Other191"]) {
+      await keyMonitor.emit("down", "Control");
+      t.mock.timers.tick(60);
+      await keyMonitor.emit("down", key);
+      await keyMonitor.emit("up", key);
+      t.mock.timers.tick(500);
+      await keyMonitor.emit("up", "Control");
+    }
+    await keyMonitor.emit("down", "Shift");
+    await keyMonitor.emit("down", "Control");
+    await keyMonitor.emit("up", "Shift");
+    t.mock.timers.tick(500);
+    await keyMonitor.emit("up", "Control");
+    assert.deepEqual(events, []);
+    assert.deepEqual(cancelReasons, []);
+  });
+
+  test(`${platform} modifying Control cancels a tentative hold but preserves hands-free capture`, async (t) => {
+    const { service, keyMonitor, events, cancelReasons } = await gestureService(t, platform, null);
+    await keyMonitor.emit("down", "Control");
+    t.mock.timers.tick(120);
+    assert.deepEqual(events, ["start"]);
+    await keyMonitor.emit("down", "C");
+    await keyMonitor.emit("up", "C");
+    await keyMonitor.emit("up", "Control");
+    t.mock.timers.tick(500);
+    assert.deepEqual(events, ["start", "cancel"]);
+    assert.deepEqual(cancelReasons, [undefined], "a Control chord cancels without short-press guidance");
+
+    await keyMonitor.emit("down", "Control");
+    t.mock.timers.tick(60);
+    await keyMonitor.emit("up", "Control");
+    t.mock.timers.tick(150);
+    await keyMonitor.emit("down", "Control");
+    await keyMonitor.emit("up", "Control");
+    assert.equal(service.status().mode, "tap");
+    await keyMonitor.emit("down", "Control");
+    t.mock.timers.tick(500);
+    await keyMonitor.emit("down", "V");
+    await keyMonitor.emit("up", "V");
+    await keyMonitor.emit("up", "Control");
+    assert.deepEqual(events, ["start", "cancel", "start"], "Ctrl+V leaves hands-free dictation running");
+    await keyMonitor.emit("down", "Control");
+    await keyMonitor.emit("up", "Control");
+    assert.deepEqual(events, ["start", "cancel", "start", "finish"]);
+  });
+}
+
+test("Control double-tap accepts a second press near the gap boundary and ignores a modified second press", async (t) => {
+  const { service, keyMonitor, events, cancelReasons } = await gestureService(t, "darwin", null);
+  await keyMonitor.emit("down", "Control");
+  t.mock.timers.tick(60);
+  await keyMonitor.emit("up", "Control");
+  t.mock.timers.tick(299);
+  await keyMonitor.emit("down", "Control");
+  t.mock.timers.tick(150);
+  await keyMonitor.emit("down", "C");
+  await keyMonitor.emit("up", "C");
+  await keyMonitor.emit("up", "Control");
+  assert.deepEqual(events, ["start", "cancel"]);
+  assert.deepEqual(cancelReasons, [undefined]);
+  t.mock.timers.tick(250);
+  await keyMonitor.emit("down", "Control");
+  t.mock.timers.tick(60);
+  await keyMonitor.emit("up", "Control");
+  t.mock.timers.tick(299);
+  await keyMonitor.emit("down", "Control");
+  t.mock.timers.tick(150);
+  await keyMonitor.emit("up", "Control");
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, ["start", "cancel", "start"]);
+  assert.equal(service.status().mode, "tap");
+});
+
+for (const action of ["reset", "unavailable", "disable", "capture", "dispose"]) {
+  test(`${action} clears a pending Control press before it can start capture`, async (t) => {
+    const { service, keyMonitor, events } = await gestureService(t, "darwin", null);
+    await keyMonitor.emit("down", "Control");
+    t.mock.timers.tick(60);
+    if (action === "reset" || action === "unavailable") await keyMonitor.emit(action);
+    else if (action === "disable") await service.setEnabled(false);
+    else if (action === "capture") await service.setShortcutCapture(true);
+    else service.dispose();
+    t.mock.timers.tick(1000);
+    assert.deepEqual(events, []);
+  });
+}
+
+test("double-tap during microphone startup starts once and finishes with one press", async (t) => {
+  const { service, keyMonitor, events } = await gestureService(t);
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("down", "Fn"); // OS auto-repeat is ignored.
+  t.mock.timers.tick(60);
+  await keyMonitor.emit("up", "Fn");
+  t.mock.timers.tick(150);
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("up", "Fn");
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, ["start"]);
+  assert.equal(service.status().mode, "tap");
+  service.setRuntimeState("listening");
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("up", "Fn");
+  await keyMonitor.emit("down", "Fn"); // No extra start or stop during transcription.
+  await keyMonitor.emit("up", "Fn");
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, ["start", "finish"]);
+});
+
+test("one quick tap requests guidance and a late second tap does not lock recording", async (t) => {
+  const { keyMonitor, events, cancelReasons } = await gestureService(t);
+  await keyMonitor.emit("down", "Fn");
+  t.mock.timers.tick(60);
+  await keyMonitor.emit("up", "Fn");
+  t.mock.timers.tick(299);
+  assert.deepEqual(events, ["start"]);
+  t.mock.timers.tick(1);
+  assert.deepEqual(events, ["start", "cancel"]);
+  assert.deepEqual(cancelReasons, ["short-press"]);
+  t.mock.timers.tick(250);
+  await keyMonitor.emit("down", "Fn");
+  t.mock.timers.tick(500);
+  await keyMonitor.emit("up", "Fn");
+  assert.deepEqual(events, ["start", "cancel", "start", "finish"]);
+});
+
+test("brief holds up to 499 ms show guidance instead of transcribing", async (t) => {
+  const { keyMonitor, events, cancelReasons } = await gestureService(t);
+  for (const duration of [200, 350, 499]) {
+    await keyMonitor.emit("down", "Fn");
+    t.mock.timers.tick(duration);
+    await keyMonitor.emit("up", "Fn");
+    assert.equal(events.at(-1), "cancel", `${duration} ms is too short to dictate`);
+    assert.equal(cancelReasons.at(-1), "short-press");
+    t.mock.timers.tick(300);
+  }
+  assert.deepEqual(events, ["start", "cancel", "start", "cancel", "start", "cancel"]);
+  await keyMonitor.emit("down", "Fn");
+  t.mock.timers.tick(500);
+  await keyMonitor.emit("up", "Fn");
+  assert.equal(events.at(-1), "finish", "500 ms is a valid hold");
+});
+
+test("a press during completion debounce cannot latch or restart dictation", async (t) => {
+  const { service, keyMonitor, events } = await gestureService(t);
+  await keyMonitor.emit("down", "Fn");
+  t.mock.timers.tick(500);
+  await keyMonitor.emit("up", "Fn");
+  service.setRuntimeState("success");
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("up", "Fn");
+  assert.deepEqual(events, ["start", "finish"]);
+  t.mock.timers.tick(250);
+  await keyMonitor.emit("down", "Fn");
+  t.mock.timers.tick(500);
+  await keyMonitor.emit("up", "Fn");
+  assert.deepEqual(events, ["start", "finish", "start", "finish"]);
+});
+
+test("cancel frees every busy state before the renderer responds and allows an immediate restart", async t => {
+  const { service, shortcuts, events } = await gestureService(t);
+  service.onCancel = () => { events.push("cancel"); };
+  for (const state of ["starting", "listening", "transcribing", "inserting"]) {
+    service.setRuntimeState(state);
+    shortcuts.callbacks.get("Escape")();
+    assert.equal(service.runtimeState, "idle");
+    service.pressShortcut();
+    assert.equal(events.at(-1), "start");
+    assert.equal(service.runtimeState, "starting");
+  }
+});
+
+test("Escape, monitor reset, and disposal clear a pending double-tap", async (t) => {
+  const { service, keyMonitor, shortcuts, events } = await gestureService(t);
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("up", "Fn");
+  shortcuts.callbacks.get("Escape")();
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, ["start", "cancel"]);
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("up", "Fn");
+  await keyMonitor.emit("reset");
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, ["start", "cancel", "start", "cancel"]);
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("up", "Fn");
+  service.dispose();
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, ["start", "cancel", "start", "cancel", "start"]);
+});
+
+test("old saved Tap or Hold choices no longer decide shortcut behavior", async (t) => {
+  const { service, keyMonitor, events } = await gestureService(t);
+  await writeFile(service.settingsPath, JSON.stringify({ enabled: true, accelerator: "Fn", mode: "tap" }));
+  await service.initialize();
+  await keyMonitor.emit("down", "Fn");
+  t.mock.timers.tick(500);
+  await keyMonitor.emit("up", "Fn");
+  assert.deepEqual(events, ["start", "finish"]);
+  await writeFile(service.settingsPath, JSON.stringify({ enabled: true, accelerator: "Fn", mode: "hold" }));
+  service.setRuntimeState("idle");
+  t.mock.timers.tick(250);
+  await service.initialize();
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("up", "Fn");
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("up", "Fn");
+  t.mock.timers.tick(500);
+  assert.equal(service.status().mode, "tap");
+  assert.deepEqual(events, ["start", "finish", "start"]);
+});
+
+test("an empty dictation is a successful no-op that preserves rich clipboard data", async (t) => {
+  const userDataDir = await tempDir();
+  const clipboard = new FakeClipboard();
+  let pasteCount = 0;
+  const service = new SystemDictationService({
+    userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard,
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => { pasteCount += 1; return true; },
+    onToggle: () => {}, onCancel: () => {},
+  });
+  t.after(async () => { service.dispose(); await rm(userDataDir, { recursive: true, force: true }); });
+  assert.deepEqual(await service.pasteText(" \n "), { pasted: false, copied: false, error: null });
+  assert.equal(pasteCount, 0);
+  assert.equal(clipboard.readText(), "before");
+  assert.equal(clipboard.readBuffer("text/html").toString(), "<b>before</b>");
 });
 
 test("refreshAfterResume restarts the monitor and re-registers only a lost chord", async () => {
@@ -326,7 +846,7 @@ test("refreshAfterResume restarts the monitor and re-registers only a lost chord
     clipboard: new FakeClipboard(),
     systemPreferences: { isTrustedAccessibilityClient: () => true },
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => {},
     onCancel: () => {},
   });
@@ -354,7 +874,7 @@ test("refreshAfterResume re-registers the Electron chord the OS lost", async () 
     globalShortcut: shortcuts,
     clipboard: new FakeClipboard(),
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => { toggles += 1; },
     onCancel: () => {},
   });
@@ -378,4 +898,116 @@ test("refreshAfterResume re-registers the Electron chord the OS lost", async () 
 
   service.dispose();
   await rm(userDataDir, { recursive: true, force: true });
+});
+
+
+test("mini bar visibility persists independently of shortcuts, including old settings and failed saves", async (t) => {
+  const userDataDir = await tempDir();
+  t.after(() => rm(userDataDir, { recursive: true, force: true }));
+  const updates = [];
+  const shortcuts = new FakeShortcuts();
+  const options = {
+    userDataDir, platform: "win32", globalShortcut: shortcuts, clipboard: new FakeClipboard(),
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => true,
+    onToggle: () => {}, onCancel: () => {}, onStatus: status => updates.push(status.miniBarEnabled),
+  };
+  const service = new SystemDictationService(options);
+  t.after(() => service.dispose());
+  assert.equal((await service.initialize()).miniBarEnabled, true);
+  await service.setEnabled(true);
+  const shortcutCount = shortcuts.registerCount;
+  for (const enabled of [false, true, false]) {
+    const status = await service.setMiniBarEnabled(enabled);
+    assert.equal(status.miniBarEnabled, enabled);
+    assert.equal(status.enabled, true);
+    assert.equal(status.registered, true);
+    assert.equal(shortcuts.registerCount, shortcutCount, "visibility never re-registers shortcuts");
+    const restored = new SystemDictationService({ ...options, globalShortcut: new FakeShortcuts() });
+    assert.equal((await restored.initialize()).miniBarEnabled, enabled);
+    restored.dispose();
+  }
+  assert.deepEqual(updates, [false, true, false]);
+  await assert.rejects(service.setMiniBarEnabled("false"), /Invalid mini bar visibility/);
+  service.settingsPath = path.join(userDataDir, "missing", "settings.json");
+  await assert.rejects(service.setMiniBarEnabled(true));
+  assert.equal(service.status().miniBarEnabled, false, "failed writes preserve the last saved choice");
+  assert.deepEqual(updates, [false, true, false], "failed writes never broadcast a change");
+  await writeFile(path.join(userDataDir, "system-dictation.json"), JSON.stringify({ enabled: false }));
+  const migrated = new SystemDictationService(options);
+  assert.equal((await migrated.initialize()).miniBarEnabled, true, "existing settings keep the bar enabled");
+  migrated.dispose();
+});
+
+test("overlay appearance defaults to app mode, persists each choice, and rejects invalid values", async () => {
+  const userDataDir = await tempDir();
+  const updates = [];
+  const options = {
+    userDataDir, platform: "win32", globalShortcut: new FakeShortcuts(), clipboard: new FakeClipboard(),
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => true,
+    onToggle: () => {}, onCancel: () => {}, onStatus: status => updates.push(status.appearance),
+  };
+  try {
+    const service = new SystemDictationService(options);
+    assert.equal((await service.initialize()).appearance, "app");
+    for (const appearance of ["white", "black", "app"]) {
+      assert.equal((await service.setAppearance(appearance)).appearance, appearance);
+      const restored = new SystemDictationService(options);
+      assert.equal((await restored.initialize()).appearance, appearance);
+      restored.dispose();
+    }
+    await assert.rejects(service.setAppearance("invalid"), /Invalid overlay color/);
+    assert.equal(service.status().appearance, "app");
+    assert.deepEqual(updates.slice(-1), ["app"]);
+    service.dispose();
+    await writeFile(path.join(userDataDir, "system-dictation.json"), JSON.stringify({ appearance: "old-value" }));
+    const migrated = new SystemDictationService(options);
+    assert.equal((await migrated.initialize()).appearance, "app");
+    migrated.dispose();
+  } finally {
+    await rm(userDataDir, { recursive: true, force: true });
+  }
+});
+
+for (const releaseOrder of [["<", "Control"], ["Control", "<"]]) {
+  test(`Ctrl+< captures, persists and releases with ${releaseOrder[0]} released first`, async (t) => {
+    const { service, keyMonitor, events } = await gestureService(t);
+    await service.setShortcutCapture(true);
+    await keyMonitor.emit("down", "Control");
+    await keyMonitor.emit("down", "<");
+    await keyMonitor.emit("down", "<"); // Native repeat must not change the chord.
+    await keyMonitor.emit("up", releaseOrder[0]);
+    assert.equal(service.status().shortcutCaptureActive, true);
+    await keyMonitor.emit("up", releaseOrder[1]);
+    assert.equal(service.status().shortcutCaptureActive, false);
+    assert.equal(service.status().accelerator, "Control+<");
+    assert.equal(service.status().registered, true);
+    assert.equal(service.status().error, null);
+    assert.deepEqual(events, [], "setting a shortcut must not start recording");
+    const saved = JSON.parse(await readFile(service.settingsPath, "utf8"));
+    assert.equal(saved.accelerator, "Control+<");
+    assert.equal((await service.initialize()).accelerator, "Control+<");
+
+    await keyMonitor.emit("down", "Control");
+    t.mock.timers.tick(600);
+    assert.deepEqual(events, [], "Control alone does not activate a two-key shortcut");
+    await keyMonitor.emit("down", "<");
+    await keyMonitor.emit("down", "<");
+    assert.deepEqual(events, ["start"]);
+    t.mock.timers.tick(600);
+    await keyMonitor.emit("up", releaseOrder[0]);
+    await keyMonitor.emit("up", releaseOrder[1]);
+    assert.deepEqual(events, ["start", "finish"], "releasing either key finishes exactly once");
+  });
+}
+
+test("punctuation shortcuts support Plus and still reject multiple non-modifier keys", async (t) => {
+  const { service } = await gestureService(t);
+  for (const key of ["<", ">", ",", ".", ";", "'", "\\", "Plus"]) {
+    const status = await service.setShortcut(`Control+${key}`);
+    assert.equal(status.accelerator, `Control+${key}`);
+    assert.equal(status.error, null);
+  }
+  const invalid = await service.setShortcut("Control+<+D");
+  assert.match(invalid.error, /Choose one key/);
+  assert.equal(invalid.accelerator, "Control+Plus");
 });

@@ -11,11 +11,14 @@ import { LayoutRuntime } from "../document-preparation/layout-runtime.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
-async function setup() {
+async function setup(download?: models.ModelDownloadFetch) {
   const root = await mkdtemp(join(tmpdir(), "ocr-setup-")); roots.push(root);
-  const runtime = new OcrRuntime(root), calls: string[] = [];
-  const small = spyOn(models, "prepareSmallModel").mockImplementation(async () => { calls.push("small-download"); });
-  const layout = spyOn(models, "prepareLayoutModel").mockImplementation(async () => {
+  const runtime = new OcrRuntime(root, download), calls: string[] = [];
+  const small = spyOn(models, "prepareSmallModel").mockImplementation(async (_directory, _signal, transport) => {
+    expect(transport).toBe(download); calls.push("small-download");
+  });
+  const layout = spyOn(models, "prepareLayoutModel").mockImplementation(async (_directory, _signal, transport) => {
+    expect(transport).toBe(download);
     expect(runtime.installation).toEqual({ engineId: "local-layout", stage: "models" }); calls.push("layout-download");
   });
   const ready = spyOn(runtime, "layoutReady").mockResolvedValue(false);
@@ -42,6 +45,31 @@ test("small OCR installation downloads and checks shared layout in the same setu
     expect(calls).toEqual(["small-download", "small-check", "layout-download", "layout-check"]);
     expect(runtime.installation).toEqual({ engineId: "local-layout", stage: "complete" });
   } finally { restore(); }
+});
+
+test("the host transport reaches both text recognition and shared layout downloads", async () => {
+  const { runtime, calls, restore } = await setup(async () => new Response());
+  try {
+    await runtime.install({ id: "local-fast", label: "Small", kind: "local", model: "pp-ocrv6-small" });
+    await done(runtime);
+    expect(calls).toEqual(["small-download", "small-check", "layout-download", "layout-check"]);
+  } finally { restore(); }
+});
+
+test("turning off automatic downloads aborts an active model transfer", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ocr-disable-active-")); roots.push(root);
+  const manager = new OcrManager(root);
+  let entered!: () => void;
+  const downloading = new Promise<void>(resolve => { entered = resolve; });
+  const transfer = spyOn(models, "prepareSmallModel").mockImplementation(async (_directory, signal) => {
+    entered();
+    await new Promise<void>((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+  });
+  try {
+    await manager.downloadDefaultIfNeeded(); await downloading;
+    await manager.setAutomaticDownloads(false); await done(manager.runtime);
+    expect(manager.runtime.installation?.stage).toBe("cancelled");
+  } finally { manager.stop(); transfer.mockRestore(); }
 });
 
 test("layout failure retains installed OCR and layout retry does not repeat OCR", async () => {
