@@ -1119,7 +1119,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: LawossSe
         if (lineage.includes(id) || lineage.length >= 64) throw new ApiError(400, "sandbox_session", "Invalid chat ancestry.");
         const currentId: string = id;
         const session = await client.session.get({ sessionID: currentId }, { signal: AbortSignal.timeout(10000) });
-        if (!(await sandboxOwnsSession(workspace, session))) throw new ApiError(403, "sandbox_session", "This chat belongs to a different workspace.");
+        // Upstream contract (getWorkspaceEngineSession): a chat of another project is indistinguishable from a missing one.
+        if (!(await sandboxOwnsSession(workspace, session))) throw new ApiError(404, "session_not_found", "This chat does not belong to the project.");
         lineage.push(id);
         id = session.parentID;
       }

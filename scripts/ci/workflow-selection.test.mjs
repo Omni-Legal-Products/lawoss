@@ -50,11 +50,12 @@ test('failed prerequisites cannot become successful selected-check summaries', (
   assert.throws(() => run({ build: { result: 'cancelled' } }));
 });
 
-test('all six package jobs retain storage checks without a duplicate six-host suite', () => {
+// LAWOSS: matica balenia má štyri hostiteľov (ubuntu x64, Windows x64/ARM64, macOS ARM64); „Package and launch“ sú povinné kontroly rulesetu.
+test('all LAWOSS package jobs retain storage checks without a duplicate six-host suite', () => {
   const packaging = workflow('ci-desktop-packaging').jobs['package-smoke'];
   const matrix = packaging.strategy.matrix.slice(3, -2).trim().replace(/inputs\.([\w-]+)/g, 'inputs["$1"]');
   const selected = Function('inputs', 'fromJSON', `return (${matrix});`)({ 'windows-only': false }, JSON.parse);
-  assert.equal(selected.include.length, 6);
+  assert.equal(selected.include.length, 4);
   const commands = packaging.steps.map(step => step.run ?? '').join('\n');
   for (const file of ['native-config-state.test.ts', 'connectors/storage-transition.test.ts', 'agent-sandbox/project-approvals.test.ts']) assert.ok(commands.includes(file));
   assert.equal(main.jobs['native-storage-acceptance'], undefined);
@@ -65,9 +66,13 @@ test('required PR workflows have job filtering, and reusable/manual workflows st
     assert.equal(workflow(name).on.pull_request.paths, undefined);
     assert.ok(workflow(name).jobs.changes);
   }
-  for (const name of ['ci-opencode-derivative', 'ci-opencode-source-hosts', 'ci-desktop-packaging', 'ci-windows-opencode-install', 'mac-engine-signing-acceptance']) {
+  for (const name of ['ci-opencode-derivative', 'ci-opencode-source-hosts', 'ci-windows-opencode-install', 'mac-engine-signing-acceptance']) {
     assert.deepEqual(Object.keys(workflow(name).on), ['workflow_call']);
   }
+  // LAWOSS: balenie beží aj samostatne na PR a pushi do dev („Package and launch“ sú povinné kontroly rulesetu).
+  const packaging = workflow('ci-desktop-packaging').on;
+  assert.deepEqual(Object.keys(packaging).sort(), ['pull_request', 'push', 'workflow_call']);
+  assert.deepEqual([packaging.pull_request.branches, packaging.push.branches], [['dev'], ['dev']]);
   for (const file of readdirSync(new URL('../../.github/workflows/', import.meta.url))) {
     const config = workflow(file.slice(0, -4));
     for (const job of Object.values(config.jobs)) {

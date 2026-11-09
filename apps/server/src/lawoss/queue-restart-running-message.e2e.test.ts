@@ -17,34 +17,37 @@ afterEach(async () => { while (cleanups.length) await cleanups.pop()?.(); });
 
 const messageId = (id: string) => `msg_${id.replaceAll("-", "")}`;
 
+// LAWOSS v2: fake engine 2.1.4. A prompt is admitted at once (POST prompt) and the chat then runs
+// (`/api/session/active`); the engine database keeps the admitted user message across the restart.
 function engine(chat: { id: string; directory: string }) {
   const state = { phase: "before" as "before" | "after", busy: false, delivered: [] as string[], accepted: new Set<string>() };
-  const info = { id: chat.id, title: "Stav prípadov", slug: chat.id, directory: chat.directory, time: { created: 100, updated: 200, archived: 0 } };
+  const info = { id: chat.id, projectID: "project", title: "Stav prípadov", location: { directory: chat.directory }, time: { created: 100, updated: 200 } };
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
-    const { pathname } = new URL(request.url);
-    if (pathname === "/session/status") return Response.json(state.busy ? { [chat.id]: { type: "busy" } } : {});
-    if (pathname === "/session") return Response.json(decodeURIComponent(request.headers.get("x-opencode-directory") ?? "") === chat.directory ? [info] : []);
-    if (pathname === "/command") return Response.json([]);
-    if (pathname === `/session/${chat.id}/message` && request.method === "POST") {
-      const body = await request.json() as { messageID?: string };
-      const id = body.messageID ?? "";
+    const url = new URL(request.url), { pathname } = url;
+    const directory = url.searchParams.get("location[directory]");
+    if (pathname === "/api/session/active") return Response.json({ data: state.busy ? { [chat.id]: { type: "running" } } : {} });
+    if (pathname === "/api/session") return Response.json({ data: directory === null || directory === chat.directory ? [info] : [], cursor: {} });
+    if (pathname === "/api/command" || pathname === "/api/plugin") return Response.json({ data: [] });
+    const base = `/api/session/${chat.id}`;
+    if (pathname === base && request.method === "GET") return Response.json({ data: info });
+    if (pathname === base || pathname === `${base}/model` || pathname === `${base}/agent`) return new Response(null, { status: 204 });
+    if (pathname === `${base}/inbox`) return Response.json({ data: [] });
+    if (pathname === `${base}/prompt` && request.method === "POST") {
+      const body = await request.json() as { id?: string; text?: string };
+      const id = body.id ?? "";
       state.accepted.add(id);
-      if (state.phase === "before") {
-        // The first message runs until LAWOSS quits; the old engine never answers it.
-        state.busy = true;
-        return new Promise<Response>(() => {});
-      }
-      state.delivered.push(id);
-      return Response.json({ info: { id: "msg_reply", sessionID: chat.id, role: "assistant", time: { created: 1, completed: 2 }, finish: "stop" }, parts: [] });
+      // The first message runs until LAWOSS quits; the old engine never finishes it.
+      if (state.phase === "before") state.busy = true;
+      else state.delivered.push(id);
+      return Response.json({ data: { id, type: "user", text: body.text ?? "", time: { created: 1 } } });
     }
-    const stored = pathname.match(new RegExp(`^/session/${chat.id}/message/([^/]+)$`));
+    if (pathname === `${base}/message`) return Response.json({ data: [], cursor: {} });
+    const stored = pathname.match(new RegExp(`^${base}/message/([^/]+)$`));
     if (stored) {
-      // The engine database keeps the interrupted first message across the restart.
-      if (!state.accepted.has(stored[1]!)) return new Response("not found", { status: 404 });
-      return Response.json({ info: { id: stored[1], sessionID: chat.id, role: "user", time: { created: 1 } }, parts: [] });
+      if (!state.accepted.has(stored[1]!)) return Response.json({ code: "not_found", message: "Not found" }, { status: 404 });
+      return Response.json({ data: { id: stored[1], type: "user", text: "", time: { created: 1 } } });
     }
-    if (pathname === `/session/${chat.id}`) return Response.json(info);
-    return Response.json({});
+    return Response.json({ code: "not_found", message: "Not found" }, { status: 404 });
   } });
   cleanups.push(() => server.stop(true));
   return { state, url: `http://127.0.0.1:${server.port}` };
@@ -100,7 +103,8 @@ test("after a restart during a run, the message waiting behind it waits for the 
   expect(await until(() => setup.fake.state.busy)).toBe(true);
   // During the run the lawyer queues a second message.
   expect((await before.enqueue(waiting, "Na záver to zhrň do troch odrážok")).status).toBe(200);
-  expect((await before.read()).entries).toEqual([expect.objectContaining({ id: running, status: "sending" }), expect.objectContaining({ id: waiting, status: "queued" })]);
+  // LAWOSS v2: the engine admitted the first message (status "accepted" instead of v1 "sending").
+  expect((await before.read()).entries).toEqual([expect.objectContaining({ id: running, status: "accepted" }), expect.objectContaining({ id: waiting, status: "queued" })]);
   await first.stop();
 
   // LAWOSS restarts; the new engine is idle and has the interrupted first message.

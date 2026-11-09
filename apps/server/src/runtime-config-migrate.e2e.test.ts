@@ -128,11 +128,13 @@ describe("runtime-config migrate route", () => {
     const workspaceRoot = await createTempRoot("legalwork-runtime-migrate-effective-");
     const globalDir = join(process.env.XDG_CONFIG_HOME!, "opencode");
     await mkdir(globalDir, { recursive: true });
+    // LAWOSS v2: the user's global file is a native v2 document (engine 2.1.4 writes this shape);
+    // the project file below is the legacy v1 shape that the migration imports.
     await writeFile(join(globalDir, "opencode.jsonc"), JSON.stringify({
-      mcp: {
-        shadowed: { type: "remote", url: "https://global.example.test/mcp", enabled: false },
+      mcp: { servers: {
+        shadowed: { type: "remote", url: "https://global.example.test/mcp", disabled: true },
         "global-only": { type: "remote", url: "https://global-only.example.test/mcp", oauth: false },
-      },
+      } },
     }, null, 2) + "\n", "utf8");
     await writeFile(join(workspaceRoot, "opencode.jsonc"), JSON.stringify({
       tools: { deny: ["mcp.shadowed"] },
@@ -162,26 +164,20 @@ describe("runtime-config migrate route", () => {
       },
     }, null, 2) + "\n", "utf8");
 
-    const { base } = await startLegalworkServer(workspaceRoot);
+    const { base, config } = await startLegalworkServer(workspaceRoot);
     const list = async () => {
       const response = await fetch(`${base}/workspace/ws_1/mcp`, { headers: clientAuth() });
       expect(response.status).toBe(200);
       return (await response.json() as { items: Array<Record<string, unknown>> }).items;
     };
 
+    // LAWOSS v2: offline display reads native definitions only (upstream listMcpDisplay), so the legacy
+    // project entries appear after the migration and the v1 `tools.deny` mark has no v2 counterpart.
     const before = await list();
     expect(before.map((item) => [item.name, item.source])).toEqual([
+      ["shadowed", "config.global"],
       ["global-only", "config.global"],
-      ["shadowed", "config.project"],
-      ["local-full", "config.project"],
     ]);
-    expect(before.find((item) => item.name === "shadowed")).toMatchObject({
-      disabledByTools: true,
-      config: {
-        url: "https://project.example.test/mcp",
-        oauth: { callbackPort: 43123, redirectUri: "http://127.0.0.1:43123/callback" },
-      },
-    });
 
     const migration = await fetch(`${base}/workspace/ws_1/runtime-config/migrate`, {
       method: "POST",
@@ -195,19 +191,16 @@ describe("runtime-config migrate route", () => {
       ["shadowed", "config.remote"],
       ["local-full", "config.remote"],
     ]);
-    expect(after.find((item) => item.name === "shadowed")).toEqual(before.find((item) => item.name === "shadowed") && {
-      ...before.find((item) => item.name === "shadowed"),
-      source: "config.remote",
-    });
-    expect(after.find((item) => item.name === "local-full")).toMatchObject({
-      config: {
-        command: ["bunx", "synthetic-mcp"],
-        cwd: "/synthetic/workspace",
-        environment: { MODE: "test" },
-        enabled: false,
-        timeout: 5_000,
-      },
-    });
+    // LAWOSS v2: the shared runtime row holds native v2 definitions; the display only reports which
+    // fields are configured (upstream mcpDisplayItem never returns saved URLs or OAuth values).
+    const stored = await readGlobalMcpMap(config);
+    expect(stored.shadowed).toEqual({ type: "remote", url: "https://project.example.test/mcp", headers: { Authorization: "Bearer synthetic" },
+      oauth: { client_id: "synthetic-client", client_secret: "synthetic-secret", scope: "files.read", callback_port: 43123, redirect_uri: "http://127.0.0.1:43123/callback" },
+      disabled: false, timeout: { startup: 7_500, catalog: 7_500, execution: 7_500 } });
+    expect(stored["local-full"]).toEqual({ type: "local", command: ["bunx", "synthetic-mcp"], cwd: "/synthetic/workspace", environment: { MODE: "test" },
+      disabled: true, timeout: { startup: 5_000, catalog: 5_000, execution: 5_000 } });
+    expect(stored["global-only"]).toBeUndefined();
+    expect(after.find((item) => item.name === "shadowed")).toMatchObject({ configured: { url: true, oauth: true, headers: ["Authorization"] } });
     const shadowed = after.find((item) => item.name === "shadowed")!;
     expect(shadowed).not.toHaveProperty("oauthStatus");
     expect(JSON.stringify(shadowed)).not.toContain("accessToken");

@@ -7,9 +7,11 @@ import path from "node:path";
 import { syncBuiltinESMExports } from "node:module";
 import { mock } from "node:test";
 
+import { registerInertOpencodeCandidate } from "../../../lawoss/testing/inert-opencode-candidate.mjs";
+
 const root = process.env.HOME;
-const ownedBinary = path.join(root, "inert-opencode");
-fs.writeFileSync(ownedBinary, "inert: never executable");
+// LAWOSS v2: the doctor verifies the engine against the prepared selection first; register an inert candidate.
+const ownedBinary = await registerInertOpencodeCandidate(root, "inert: never executable");
 const originals = { spawnSync: childProcess.spawnSync, spawn: childProcess.spawn,
   existsSync: fs.existsSync, createServer: net.createServer, error: console.error };
 const calls = [];
@@ -39,7 +41,8 @@ try {
   });
   const manager = createManager();
   const doctor = () => manager.engineDoctor({ opencodeBinPath: ownedBinary });
-  const success = doctor();
+  // Upstream v0.3.0: engineDoctor is async (it awaits the pinned candidate selection first).
+  const success = await doctor();
   assert.deepEqual(calls, [
     { program: ownedBinary, argv: ["--version"], options: { encoding: "utf8", timeout: 2000, maxBuffer: 1048576, windowsHide: true } },
     { program: ownedBinary, argv: ["serve", "--help"], options: { encoding: "utf8", timeout: 2000, maxBuffer: 1048576, windowsHide: true } },
@@ -50,7 +53,11 @@ try {
     serveHelpStdout: "1.2.3", serveHelpStderr: null,
   });
   calls.length = 0;
-  assert.deepEqual(manager.engineDoctor(), {
+  // Upstream v0.3.0: with a prepared derivative selection a missing selected engine is an explicit
+  // error and never falls back to PATH or known locations; the official selection keeps "not found".
+  const { opencodeEngineSelection } = await import("../../../packages/opencode-release/selection.mjs");
+  if (opencodeEngineSelection.kind === "derivative") await assert.rejects(manager.engineDoctor(), /selected LegalWork engine is missing/);
+  else assert.deepEqual(await manager.engineDoctor(), {
     found: false, inPath: false, resolvedPath: null, resolvedSource: null, version: null,
     supportsServe: false, notes: ["OpenCode binary not found in bundled sidecars or PATH."],
     serveHelpStatus: null, serveHelpStdout: null, serveHelpStderr: null,
@@ -63,7 +70,7 @@ try {
   ]) {
     calls.length = 0;
     probe = () => failure;
-    assert.deepEqual(doctor(), {
+    assert.deepEqual(await doctor(), {
       found: true, inPath: false, resolvedPath: ownedBinary, resolvedSource: "custom", version: "partial",
       supportsServe: false,
       notes: ["Using custom: " + ownedBinary, "OpenCode version probe failed.", "OpenCode serve --help probe failed."],

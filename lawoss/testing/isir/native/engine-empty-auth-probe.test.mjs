@@ -96,10 +96,14 @@ test('frozen diagnostic jobs cannot automatically renew while normal native pack
 test('complete phase proves final version even if bounded request retention has evicted initial HTTP rows',()=>{const r=observedReceipt(),m=progressed();m.phase='complete';m.requests=[];r.exit='ok';r.lifecycle.code=0;r.engine.afterVersionVerified=true;assert.equal(api.classifyAltered(r,m),'altered-complete');r.stage='complete';r.outcome='altered-complete';r.alteredBoundary=api.compactBoundary(m);assert.doesNotThrow(()=>api.projectReceipt(r));});
 test('receipt rejects forged origin, incomplete stages and contradictory collector exit codes',()=>{const r=observedReceipt();for(const mutate of [v=>v.originalBoundary.phase='complete',v=>v.originalBoundary.health200=false,v=>v.originalBoundary.startupStage='verified',v=>v.exit='ok',v=>{v.exit='child-unclosed';},v=>{v.stage='awaiting-lawoss-build';},v=>{v.engine.afterVersionVerified=true;},v=>{v.producer.status='not-run';v.producer.ackSha256=null;},v=>{v.exit='not-run';}]){const v=structuredClone(r);mutate(v);assert.throws(()=>api.projectReceipt(v));}});
 test('timeout and unclosed outcomes cannot be promoted by late bounded child evidence',()=>{const r=observedReceipt(),m=progressed();r.exit='timeout';r.lifecycle.code=0;assert.equal(api.classifyAltered(r,m),'unknown');const unclosed=structuredClone(r);unclosed.exit='child-unclosed';unclosed.lifecycle.closed=false;unclosed.lifecycle.code=null;unclosed.stage='native';unclosed.engine.afterSha256=null;unclosed.engine.afterManifestsSha256=null;unclosed.producer={status:'unknown',ackSha256:null};unclosed.engine.beforeVersionVerified=false;unclosed.alteredBoundary=null;assert.doesNotThrow(()=>api.projectReceipt(unclosed));assert.equal(api.classifyAltered(unclosed,m),'unknown');});
+// LAWOSS v2: engine 2.1.4 dostane heslo cez OPENCODE_PASSWORD (bez OPENCODE_SERVER_*); poistky LAWOSS idú po
+// options.env a heslo posledné. Prostredie aj snímka sú filtrované cez withoutServerCredentials.
 function assertManagedCredentialBoundary(managed) {
   assert.match(managed,/const lawossEnv = lawossEngineEnv\(options\.inheritEnvironment === false \? \{\} : process\.env\);/);
-  assert.match(managed,/const env = withoutServerCredentials\(\{\s+\.\.\.\(options\.inheritEnvironment === false \? \{\} : process\.env\),\s+\.\.\.features,\s+\.\.\.options\.env,\s+\.\.\.lawossEnv,\s+OPENCODE_SERVER_USERNAME: username,\s+OPENCODE_SERVER_PASSWORD: password,\s+\}\);/);
-  assert.match(managed,/Object.entries\(withoutServerCredentials\(\{\s+\.\.\.features,\s+\.\.\.\(options\.env \?\? \{\}\),\s+\.\.\.lawossEnv,\s+OPENCODE_SERVER_USERNAME: username,\s+OPENCODE_SERVER_PASSWORD: password,\s+\}\)\)/);
+  assert.match(managed,/const env: Record<string, string \| undefined> = withoutServerCredentials\(\{ \.\.\.\(options\.inheritEnvironment === false \? \{\} : process\.env\), \.\.\.options\.env \}\);/);
+  assert.match(managed,/Object\.assign\(env, \{\s+\.\.\.serviceEnv,(?:\s+\/\/[^\n]*)*\s+OPENCODE_DISABLE_FFF: "true",(?:\s+\/\/[^\n]*)*\s+NODE_USE_SYSTEM_CA: "1",\s+\.\.\.lawossEnv,\s+\.\.\.\(options\.service \? \{\} : \{ OPENCODE_PASSWORD: password \}\),\s+\}\);/);
+  assert.match(managed,/delete env\.OPENCODE_SERVER_USERNAME;\s+delete env\.OPENCODE_SERVER_PASSWORD;/);
+  assert.match(managed,/Object\.entries\(withoutServerCredentials\(\{\s+\.\.\.\(options\.env \?\? \{\}\),\s+\.\.\.serviceEnv,\s+OPENCODE_DISABLE_FFF: "true",\s+NODE_USE_SYSTEM_CA: "1",\s+\.\.\.lawossEnv,\s+\.\.\.\(options\.service \? \{\} : \{ OPENCODE_PASSWORD: password \}\),\s+\}\)\)/);
   assert.match(managed,/spawn\(command, args, \{\s+cwd: options.cwd,\s+env,/);
 }
 test('source propagation retains reserved filters and current-dev credential stripping',async()=>{
@@ -111,24 +115,26 @@ test('source propagation retains reserved filters and current-dev credential str
   assert.match(runtime,/\.\.\.loadUserEnvFile\(\),\s+\.\.\.process\.env,/);
   assert.ok(runtime.includes('const serverEnv = await buildChildEnv({});\n    Object.assign(process.env, serverEnv);'));
   assertManagedCredentialBoundary(managed);
-  assert.throws(()=>assertManagedCredentialBoundary(managed.replace('const env = withoutServerCredentials({','const env = ({')));
+  assert.throws(()=>assertManagedCredentialBoundary(managed.replace('const env: Record<string, string | undefined> = withoutServerCredentials({','const env: Record<string, string | undefined> = ({')));
   assert.ok(!network.includes('OPENCODE_AUTH_CONTENT'));
 });
 test('managed credential source guard rejects inheritance, wrapper and precedence regressions',async()=>{
   const managed=await fs.readFile(path.join(repo,'apps/server/src/managed-opencode.ts'),'utf8');
   assertManagedCredentialBoundary(managed);
   const ambient='...(options.inheritEnvironment === false ? {} : process.env),';
+  const password='    ...(options.service ? {} : { OPENCODE_PASSWORD: password }),\n';
   const mutations=[
     ['inverted inheritance',ambient,'...(options.inheritEnvironment !== false ? {} : process.env),'],
     ['unconditional inheritance',ambient,'...process.env,'],
     ['reversed inheritance branches',ambient,'...(options.inheritEnvironment === false ? process.env : {}),'],
     ['network helper inherits ambient env','lawossEngineEnv(options.inheritEnvironment === false ? {} : process.env)','lawossEngineEnv(process.env)'],
-    ['removed spawn credential wrapper','const env = withoutServerCredentials({','const env = ({'],
+    ['removed spawn credential wrapper','const env: Record<string, string | undefined> = withoutServerCredentials({','const env: Record<string, string | undefined> = ({'],
     ['removed snapshot credential wrapper','Object.entries(withoutServerCredentials({','Object.entries(({'],
-    ['removed features','    ...features,\n',''],
-    ['ambient after feature guards',ambient+'\n    ...features,','...features,\n    '+ambient],
-    ['options override LAWOSS guards','...options.env,\n    ...lawossEnv,','...lawossEnv,\n    ...options.env,'],
-    ['snapshot options override LAWOSS guards','...(options.env ?? {}),\n    ...lawossEnv,','...lawossEnv,\n    ...(options.env ?? {}),'],
+    ['removed feature guard','    OPENCODE_DISABLE_FFF: "true",\n',''],
+    ['options override LAWOSS guards','    ...lawossEnv,\n'+password,'    ...lawossEnv,\n    ...options.env,\n'+password],
+    ['password before LAWOSS guards','    ...lawossEnv,\n'+password,password+'    ...lawossEnv,\n'],
+    ['retained ambient v1 credentials','  delete env.OPENCODE_SERVER_PASSWORD;\n',''],
+    ['snapshot options override LAWOSS guards','    ...lawossEnv,\n'+password+'  }))','    ...lawossEnv,\n    ...(options.env ?? {}),\n'+password+'  }))'],
     ['snapshot includes ambient credentials','...(options.env ?? {}),','...process.env,'],
     ['spawn uses unfiltered options','cwd: options.cwd,\n      env,','cwd: options.cwd,\n      env: options.env,'],
   ];

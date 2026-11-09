@@ -7,6 +7,8 @@ import {createServer} from 'node:http';
 import {mkdtemp,mkdir,realpath,rm} from 'node:fs/promises';
 import {configureNativeProvider} from './bootstrap.mjs';
 import {createNativeEngineClient} from './engine-client.mjs';
+import {managedEngineSettingsFilePath} from '../../../../apps/server/dist/legalwork-runtime-config.js';
+import {readManagedEngineSettings} from '../../../../apps/server/dist/managed-engine-settings.js';
 
 // The production pretty logger writes to stdout and has no injected test sink.
 // Capture only its exact expected fixture line; preserve every other write.
@@ -62,25 +64,40 @@ test('bootstrap uses the authenticated production host reload for the selected w
   const previous=new Map(names.map(name=>[name,process.env[name]]));
   os.homedir=()=>root;syncBuiltinESMExports();
   for(const name of names)delete process.env[name];
-  let host,readyResponse,pendingOutcome,primaryError;
+  let host,readyResponse,pendingOutcome,primaryError,published,config;
   const received=[];
   const selected={id:'ws_native_7',name:'Synthetic selected',path:path.join(root,'Workspace Č'),preset:'starter',workspaceType:'local'};
   let ready;
   const readiness=new Promise(resolve=>{ready=resolve;});
   const auth='Basic '+Buffer.from('fixture:synthetic').toString('base64');
+  // Model.Info as the engine reports it; the host proxy validates the native shape.
+  const model={id:'synthetic',modelID:'synthetic',providerID:'isir-native',name:'Synthetic',capabilities:{tools:true,input:['text'],output:['text']},variants:[],time:{released:0},cost:[],status:'active',enabled:true,limit:{context:128000,output:16000}};
+  // LAWOSS v2: the fake engine speaks the 2.1.4 HTTP protocol (`/api/...`, `location[directory]`),
+  // like apps/server/src/lawoss-engine-mcp-budget.e2e.test.ts. `/api/info` and `/api/session/active`
+  // are location-free; every other route must carry the selected directory.
   const engine=createServer(async(req,res)=>{
     const url=new URL(req.url,'http://fixture');
-    received.push({method:req.method,pathname:url.pathname,directory:url.searchParams.get('directory'),authorized:req.headers.authorization===auth});
+    const header=req.headers['x-opencode-directory'];
+    const directory=url.searchParams.get('location[directory]')??(typeof header==='string'?decodeURIComponent(header):null);
+    received.push({method:req.method,pathname:url.pathname,directory,authorized:req.headers.authorization===auth});
     if(req.headers.authorization!==auth){res.writeHead(401).end();return;}
-    if(url.pathname==='/auth/isir-native'){
+    const json=(status,value)=>res.writeHead(status,{'content-type':'application/json'}).end(JSON.stringify(value));
+    if(url.pathname==='/api/info'){json(200,{version:'2.1.4',pid:process.pid});return;}
+    if(url.pathname==='/api/session/active'){json(200,{data:{}});return;}
+    if(directory!==selected.path){res.writeHead(400).end();return;}
+    if(url.pathname==='/api/model'){json(200,{location:{directory},data:[model]});return;}
+    if(req.method==='POST'&&url.pathname==='/api/integration/isir-native/connect/key'){
       let body='';for await(const chunk of req)body+=chunk;
-      assert.deepEqual(JSON.parse(body),{type:'api',key:'synthetic-local-only'});
-      res.writeHead(200).end('{}');return;
+      assert.deepEqual(JSON.parse(body),{key:'synthetic-local-only'});
+      res.writeHead(204).end();return;
     }
-    if(url.searchParams.get('directory')!==selected.path){res.writeHead(400).end();return;}
-    if(url.pathname==='/instance/dispose'){res.writeHead(200).end('true');return;}
-    if(url.pathname==='/mcp'){readyResponse=res;ready();return;}
-    if(url.pathname==='/provider'){res.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({connected:['isir-native'],all:[]}));return;}
+    // The host reload awaits the managed location refresh; holding it holds the reload readiness.
+    // Like the engine's managed-settings plugin, read what the host published for this location.
+    if(req.method==='POST'&&url.pathname==='/api/rpc/legalwork.managed-settings/refresh'){
+      published=await readManagedEngineSettings(managedEngineSettingsFilePath(config),directory).catch(error=>({error}));
+      readyResponse=res;ready();return;
+    }
+    if(url.pathname==='/api/provider'){json(200,{location:{directory},data:[{id:'isir-native',name:'Synthetic contract',activation:'auto',package:'@opencode/ai/providers/openai-compatible'}]});return;}
     res.writeHead(404).end();
   });
   try {
@@ -88,13 +105,14 @@ test('bootstrap uses the authenticated production host reload for the selected w
     await new Promise(resolve=>engine.listen(0,'127.0.0.1',resolve));
     const baseUrl=`http://127.0.0.1:${engine.address().port}`;
     const {startServer}=await import('../../../../apps/server/dist/server.js');
-    const config={host:'127.0.0.1',port:0,token:'client',hostToken:'host',configPath:path.join(root,'server.json'),approval:{mode:'auto',timeoutMs:1000},corsOrigins:['*'],workspaces:[{...selected,baseUrl,opencodeUsername:'fixture',opencodePassword:'synthetic'}],authorizedRoots:[selected.path],readOnly:false,startedAt:Date.now(),tokenSource:'cli',hostTokenSource:'cli',logFormat:'pretty',logRequests:false};
+    config={host:'127.0.0.1',port:0,token:'client',hostToken:'host',configPath:path.join(root,'server.json'),approval:{mode:'auto',timeoutMs:1000},corsOrigins:['*'],workspaces:[{...selected,baseUrl,opencodeUsername:'fixture',opencodePassword:'synthetic'}],authorizedRoots:[selected.path],readOnly:false,startedAt:Date.now(),tokenSource:'cli',hostTokenSource:'cli',logFormat:'pretty',logRequests:false};
     // Upstream v0.2.18: owner bearer tokens are retired; the desktop renderer uses the client token.
     const owner={token:config.token};
     host=await startServer(config);
     const serverInfo={baseUrl:`http://127.0.0.1:${host.port}`,clientToken:owner.token};
     const headers={authorization:'Bearer '+owner.token,'content-type':'application/json'};
-    const providerConfig={'isir-native':{npm:'@ai-sdk/openai-compatible',name:'Synthetic contract',options:{baseURL:'http://127.0.0.1:1/v1'},models:{synthetic:{name:'Synthetic'}}}};
+    // LAWOSS v2: native provider definition (Config.Provider), as the app saves it.
+    const providerConfig={'isir-native':{package:'@opencode/ai/providers/openai-compatible',name:'Synthetic contract',settings:{baseURL:'http://127.0.0.1:1/v1'},models:{synthetic:{name:'Synthetic'}}}};
     const request=(url,options)=>fetch(url,{...options,signal:AbortSignal.timeout(2000)});
     const args={request,serverInfo,serverAuth:headers,engineRequest:createNativeEngineClient(serverInfo,selected.id,request),workspace:selected,providerConfig};
     await assert.rejects(configureNativeProvider({...args,serverAuth:{...headers,authorization:'Bearer invalid'}}),{name:'AssertionError'});
@@ -106,18 +124,23 @@ test('bootstrap uses the authenticated production host reload for the selected w
     if(first.error)throw first.error;
     assert.equal(first.ready,true,'Production scoped reload must reach engine readiness');
     assert.equal(finished,false,'Catalogue must await host readiness response');
-    assert.equal(received.some(r=>r.pathname==='/provider'),false);
-    const stored=await (await fetch(`${serverInfo.baseUrl}/workspace/${selected.id}/config`,{headers})).json();
-    assert.deepEqual(stored.opencode.provider['isir-native'],providerConfig['isir-native'],'Actual host config persisted provider');
-    readyResponse.writeHead(200,{'content-type':'application/json'}).end('{}');
+    assert.equal(received.some(r=>r.pathname==='/api/provider'),false);
+    // LAWOSS v2: the host's settings GET projects the engine's resolved documents; what the host
+    // persisted reaches the engine as the managed settings file it publishes before the refresh.
+    assert.equal(published?.error,undefined);
+    // The engine's decoder yields schema class instances; compare their JSON values. The host publishes
+    // custom providers globally, so both the location's and the shared configuration carry it.
+    for(const layer of [published.configuration,published.sharedConfiguration])assert.deepEqual(JSON.parse(JSON.stringify(layer.providers?.['isir-native'])),providerConfig['isir-native'],'Actual host config persisted provider');
+    readyResponse.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({refreshed:true}));
     const result=await outcome;
     assert.equal(result.error,undefined);
     assert.deepEqual(result.value.connected,['isir-native']);
-    assert.deepEqual(received.map(r=>r.pathname),['/auth/isir-native','/instance/dispose','/mcp','/provider']);
+    assert.deepEqual(received.map(r=>`${r.method} ${r.pathname}`),['GET /api/model','POST /api/integration/isir-native/connect/key','POST /api/rpc/legalwork.managed-settings/refresh','GET /api/provider']);
     assert.ok(received.every(r=>r.authorized));
-    assert.ok(received.slice(1).every(r=>r.directory===selected.path));
+    // LAWOSS v2: every request here is location-bound, including the credential connect.
+    assert.ok(received.every(r=>r.directory===selected.path));
   } catch(error) {primaryError=error;throw error;} finally {
-    if(readyResponse&&!readyResponse.writableEnded)readyResponse.end('{}');
+    if(readyResponse&&!readyResponse.writableEnded)readyResponse.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({refreshed:true}));
     await pendingOutcome;
     engine.closeAllConnections();
     await new Promise(resolve=>engine.close(resolve));

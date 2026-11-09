@@ -13,6 +13,7 @@ import { CORE_OPENCODE_FILES } from "../core-skills.js";
 import { legalResearchWikiFiles } from "./legal-research-template.js";
 import { researchIndexGroups } from "@legalwork/types/legal-research-wiki";
 import { openSqlite } from "../runtime-db.js";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "../opencode-plugins/wiki-agent-secret.js";
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "research-wiki-")), project = join(root, "project");
@@ -122,6 +123,7 @@ test("research wiki migration respects read-only mode and recovers the registrat
 test("default wiki is owner-provisioned and requested legal findings stage until the human saves", async () => {
   const { root, config, project } = await fixture();
   const previous = Object.fromEntries(["LEGALWORK_SERVER_URL", "LEGALWORK_SERVER_TOKEN", "LEGALWORK_WIKI_AGENT_TOKEN"].map(key => [key, process.env[key]]));
+  const previousSecret = wikiAgentSecret();
   const agentToken = await ensureWikiAgentToken(config);
   await grantWikiAgentSession(config, { sessionId: "research", directory: project, scope: "owner" });
   const server = await startServer(config), store = new WikiStore(config);
@@ -142,6 +144,8 @@ test("default wiki is owner-provisioned and requested legal findings stage until
     process.env.LEGALWORK_SERVER_URL = url;
     process.env.LEGALWORK_SERVER_TOKEN = config.token;
     process.env.LEGALWORK_WIKI_AGENT_TOKEN = agentToken;
+    // LAWOSS v2: the engine plugin holds the chat-bound secret in-process (wiki-agent-secret.ts), not in its env.
+    adoptWikiAgentSecret(agentToken);
     const plugin = await nativePluginTools(WikiTools, { directory: project, sessionID: "research" });
     try {
       const prompt: { system: Array<{ type: "text"; text: string }> } = { system: [] };
@@ -174,6 +178,7 @@ test("default wiki is owner-provisioned and requested legal findings stage until
     } finally { await plugin.close(); }
   } finally {
     await store.close(); await server.stop();
+    adoptWikiAgentSecret(previousSecret ?? "");
     for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
     await rm(root, { recursive: true, force: true });
   }

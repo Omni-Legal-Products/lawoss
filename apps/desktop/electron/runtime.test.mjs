@@ -7,7 +7,8 @@ import { syncBuiltinESMExports } from "node:module";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { mkdir, mkdtemp, readFile, rm, writeFile, stat, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile, stat, symlink } from "node:fs/promises";
+import { registerInertOpencodeCandidate } from "../../../lawoss/testing/inert-opencode-candidate.mjs";
 import { realpathSync } from "node:fs";
 
 import {
@@ -450,8 +451,9 @@ describe("selected existing project startup", () => {
 });
 
 for (const appFiles of ["inside","outside"]) it(`existing canonical aliases still reach ordinary runtime startup (${appFiles})`, async()=>{
- const root=await mkdtemp(path.join(os.tmpdir(),"lawoss-runtime-existing-"));
- const ownedBinary=path.join(root,"inert-opencode");
+ const root=await realpath(await mkdtemp(path.join(os.tmpdir(),"lawoss-runtime-existing-")));
+ // LAWOSS v2: startup and doctor verify the engine against the prepared selection; register an inert candidate.
+ const ownedBinary=await registerInertOpencodeCandidate(root);
  const controlledCalls=[],unexpectedSync=[],unexpectedAsync=[];
  const syncMock=mock.method(childProcess,"spawnSync",(program,argv,options)=>{
   if(program==="/usr/libexec/path_helper"||program==="ps")return {status:0,stdout:"",stderr:""};
@@ -462,7 +464,6 @@ for (const appFiles of ["inside","outside"]) it(`existing canonical aliases stil
  const asyncMock=mock.method(childProcess,"spawn",()=>{unexpectedAsync.push(true);throw new Error("Unexpected startup child denied");});
  syncBuiltinESMExports();
  try {
-  await writeFile(ownedBinary,"Inert diagnostic fixture; never executable");
   const target=path.join(root,"actual"),alias=path.join(root,"alias");await mkdir(target);await symlink(target,alias,process.platform==="win32"?"junction":"dir");
   const manager=createRuntimeManager({app:{isPackaged:true,getPath:key=>key==="exe"?path.join(root,"app","Electron"):root},desktopRoot:path.join(root,"desktop"),listLocalWorkspacePaths:async()=>[],listLocalWorkspaceAppFiles:async()=>({}),listLocalWorkspaces:async()=>[],reconnectHostWorkspace:async()=>null,recorder:undefined,onSidecarExit:()=>{},getApprovalWindow:()=>null});
   // This Node fixture has no packaged Node binary. The real existing-root

@@ -134,7 +134,8 @@ export class AssistantProactivityStore {
   private transaction<T>(run: () => T): T {
     this.db.exec("BEGIN IMMEDIATE");
     try { const result = run(); this.db.exec("COMMIT"); return result; }
-    catch (error) { this.db.exec("ROLLBACK"); throw error; }
+    // LAWOSS: a failed COMMIT may already have ended the transaction; keep the primary error.
+    catch (error) { try { this.db.exec("ROLLBACK"); } catch { /* primary error below */ } throw error; }
   }
   close() { this.db.close(); }
 }
