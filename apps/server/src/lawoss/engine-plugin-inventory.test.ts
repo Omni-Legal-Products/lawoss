@@ -69,7 +69,9 @@ test("konfigurácia enginu zaregistruje každý plugin LAWOSS a prihlásenie Ant
   const mandatoryPlugins = mandatory !== null && typeof mandatory === "object" && "plugins" in mandatory && Array.isArray(mandatory.plugins) ? mandatory.plugins : [];
   const plugins = [...(Array.isArray(built.plugins) ? built.plugins : []), ...mandatoryPlugins];
   const targets = plugins.map((plugin: unknown) => typeof plugin === "string" ? plugin
-    : plugin !== null && typeof plugin === "object" && "package" in plugin && typeof plugin.package === "string" ? plugin.package : "");
+    : plugin !== null && typeof plugin === "object" && "package" in plugin && typeof plugin.package === "string" ? plugin.package : "")
+    // `-<id>` je direktíva enginu, ktorá vypne vstavaný plugin (napr. `-opencode.config.command`), nie cieľ inštalácie.
+    .filter(target => !target.startsWith("-"));
   // Každý cieľ je pribalený priečinok: engine pri štarte nič nesťahuje z npm.
   expect(targets).not.toContain(NPM_PLUGIN);
   expect(targets.filter(target => !isAbsolute(target))).toEqual([]);

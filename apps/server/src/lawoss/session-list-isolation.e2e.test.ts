@@ -323,7 +323,8 @@ for (const [name, bin] of engines) {
       expect({ session, status: (await queue(session)).status }).toEqual({ session, status: 404 });
       expect({ session, status: (await queue(session, { type: "pause", paused: true })).status }).toEqual({ session, status: 404 });
       expect({ session, status: (await queue(session, enqueue("cudzí"))).status }).toEqual({ session, status: 404 });
-      expect({ session, status: (await sandbox(session)).status }).toEqual({ session, status: 403 });
+      // Ako upstream (sessionLineage v server.ts): chat iného klienta sa nelíši od neexistujúceho.
+      expect({ session, status: (await sandbox(session)).status }).toEqual({ session, status: 404 });
     }
 
     if (engine.fake) {

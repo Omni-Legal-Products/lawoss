@@ -367,7 +367,8 @@ describe("legalwork runtime config files", () => {
     expect(pluginTargets(parsed.plugins)).not.toContain("opencode-anthropic-auth");
     expect(projection).not.toContain("opencode-anthropic-auth");
     for (const target of [...pluginTargets(parsed.plugins), ...pluginTargets(mandatory.plugins)].filter(target => !target.startsWith("-"))) expect([target, isAbsolute(target)]).toEqual([target, true]);
-    for (const name of ["lawoss-okf-handoff", "lawoss-linked-folders", "lawoss-file-operations", "lawoss-memory-tools", "lawoss-view-tools", "lawoss-anthropic-auth"]) await expectBundle(sources, name);
+    // lawoss-linked-folders is in the mandatory layer (checked against `guards` above), never the common one.
+    for (const name of ["lawoss-okf-handoff", "lawoss-file-operations", "lawoss-memory-tools", "lawoss-view-tools", "lawoss-anthropic-auth"]) await expectBundle(sources, name);
   });
 
   test("bundled plugins use host-resolved directory entrypoints on every platform", async () => {
