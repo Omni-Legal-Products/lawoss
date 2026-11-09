@@ -34,7 +34,8 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 
 const names = (entries: ReadonlyArray<{ serverName?: string }>) => entries.map((entry) => entry.serverName);
-const UPSTREAM = ["notion", "dropbox", "courtlistener", "open-computer-use", "google-workspace", "legalwork-ui", "legalwork-voice"];
+// Upstream v0.3.9 (#359) zrušil balík google-workspace; Gmail je samostatný natívny konektor.
+const UPSTREAM = ["notion", "dropbox", "courtlistener", "open-computer-use", "gmail", "legalwork-ui", "legalwork-voice"];
 
 // Bun zdieľa jeden proces a cache modulov: každý test vráti katalógy do predvoleného stavu.
 function reset() {
@@ -69,7 +70,7 @@ describe("LAWOSS zdroje integrácií: rýchle pripojenie MCP", () => {
     for (const name of UPSTREAM) expect(visible).toContain(name);
     expect(visible).not.toContain("legalmemory");
     expect(visible.length).toBe(MCP_QUICK_CONNECT_ALL.length - HIDDEN_QUICK_CONNECT_SERVERS.size);
-    expect(LEGALWORK_EXTENSION_CATALOG.map((entry) => entry.id)).toEqual(expect.arrayContaining(["open-computer-use", "google-workspace"]));
+    expect(LEGALWORK_EXTENSION_CATALOG.map((entry) => entry.id)).toEqual(expect.arrayContaining(["open-computer-use", "gmail"]));
   });
 
   test("LegalMemory ostane skrytý bez ohľadu na prepínač", () => {

@@ -10,7 +10,8 @@ test("Office project and chat pickers expose loading, empty, success and retry s
   expect(screens).toHaveLength(5);
   for (const screen of screens) {
     expect(screen.html).not.toContain('data-testid="startup-screen"');
-    expect(screen.html).toContain(screen.state === "sessions" ? 'aria-label="New session"' : 'aria-label="New workspace"');
+    // 🟡 LAWOSS: session is "chat" in the LAWOSS English dictionary.
+    expect(screen.html).toContain(screen.state === "sessions" ? 'aria-label="New chat"' : 'aria-label="New workspace"');
     if (screen.state === "loading") expect(screen.html).toContain("Loading...");
     if (screen.state === "empty") expect(screen.html).toContain("No workspaces");
     if (screen.state === "projects") expect(screen.html).toContain("Office project fixture");

@@ -45,7 +45,7 @@ import { ConnectorOverview, ConnectorOwnership } from "./connector-overview";
 import { ConnectionMethodPicker } from "./connection-method-picker";
 import type { ExtensionsViewProps } from "./extensions-view";
 // 🟡 LAWOSS: natívne konektory, úložiská v alfe a firemný hub (connector-browser-policy.ts).
-import { areFirmItemsHidden, isNativeConnectorOffered, isNewStorageDisabled } from "@/lawoss/domains/integrations/connector-browser-policy";
+import { areFirmItemsHidden, isNativeConnectorOffered, isNewStorageDisabled, visibleConnectorCategories } from "@/lawoss/domains/integrations/connector-browser-policy";
 
 type Target =
   | { kind: "service"; entry: McpDirectoryInfo }
@@ -289,7 +289,8 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
   const query = search.trim().toLocaleLowerCase();
   const matches = (item: Item) => `${item.name} ${item.description} ${categoryLabel(item.category)}`.toLocaleLowerCase().includes(query);
   const visibleCatalog = catalog.filter(matches);
-  const sections = category ? [category] : query ? connectorCategories.filter(value => value !== "popular") : connectorCategories;
+  const categories = visibleConnectorCategories(connectorCategories);
+  const sections = category ? [category] : query ? categories.filter(value => value !== "popular") : categories;
   const row = (item: Item) => <div key={item.id} className="group flex min-w-0 items-center gap-2 rounded-xl py-3 transition-colors hover:bg-muted/40">
     <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => select(item.id)}>{item.icon}<span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{item.name}</span><span className="mt-1 block truncate text-xs text-muted-foreground">{item.description}</span><ConnectionTags target={item.target} count={connectionCount(item)} /></span></button>
     <Button variant="ghost" size="icon-sm" disabled={disabled(item)} aria-label={t(item.installed ? "catalog.manage_named" : "catalog.add_named", { name: item.name })} onClick={() => { if (item.installed) select(item.id); else manage(item); }}>{item.installed ? <MoreHorizontal className="size-4" /> : <Plus className="size-4" />}</Button>
@@ -345,7 +346,7 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
           {related.length ? <section className="space-y-3 border-t border-border/60 pt-6"><h2 className="text-sm font-medium">{t(target?.kind === "research" ? "catalog.your_logins" : "catalog.your_connections")}</h2>{related.map(row)}</section> : null}
         </article> : selectedId ? <p role="status" className="text-sm text-muted-foreground">{t(loading ? "common.loading" : "catalog.not_found")}</p> : <>
           {props.lawossIntro}
-          <nav aria-label={t("catalog.categories")} className="-mx-3 flex flex-wrap gap-1 px-3"><Button size="sm" variant={category === null ? "secondary" : "ghost"} className="shrink-0 rounded-full" onClick={() => setCategory(null)}>{t("catalog.all")}</Button>{connectorCategories.map(value => <Button key={value} size="sm" variant={category === value ? "secondary" : "ghost"} className="shrink-0 rounded-full" onClick={() => setCategory(value)}>{categoryLabel(value)}</Button>)}</nav>
+          <nav aria-label={t("catalog.categories")} className="-mx-3 flex flex-wrap gap-1 px-3"><Button size="sm" variant={category === null ? "secondary" : "ghost"} className="shrink-0 rounded-full" onClick={() => setCategory(null)}>{t("catalog.all")}</Button>{categories.map(value => <Button key={value} size="sm" variant={category === value ? "secondary" : "ghost"} className="shrink-0 rounded-full" onClick={() => setCategory(value)}>{categoryLabel(value)}</Button>)}</nav>
           <div className="sm:hidden"><h2 className="mb-2 text-sm font-medium">{t("catalog.installed")}</h2>{installed.filter(matches).map(row)}</div>
           {sections.map(value => { const items = visibleCatalog.filter(item => value === "popular" ? item.popular : item.category === value).sort((a, b) => Number(b.target.kind === "research") - Number(a.target.kind === "research")); if (!items.length) return null; const displayed = category || query ? items : items.slice(0, 6); return <section key={value} className="space-y-3"><button type="button" onClick={() => setCategory(value)} className="flex items-center gap-1 text-sm font-medium">{categoryLabel(value)}<ChevronRight className="size-3.5 text-muted-foreground" /></button>{value === "legal" ? <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t("catalog.research_description")}</p> : null}<div className="grid grid-cols-1 gap-x-12 gap-y-2 @min-[850px]/integrations:grid-cols-2">{displayed.map(row)}</div>{items.length > displayed.length ? <Button variant="link" size="sm" className="px-0 text-muted-foreground" onClick={() => setCategory(value)}>{t("catalog.see_all", { count: items.length })}</Button> : null}</section>; })}
           {!visibleCatalog.some(item => !category || category === "popular" ? !category || item.popular : item.category === category) ? <p className="py-12 text-center text-sm text-muted-foreground">{t("catalog.no_matches")}</p> : null}

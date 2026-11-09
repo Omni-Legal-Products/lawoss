@@ -28,7 +28,9 @@ describe("LAWOSS: upstream Assistant ostáva skrytý", () => {
     expect(home).toContain("{assistantHidden ? null : <DropdownMenuItem onClick={() => props.onProjectChange(null)}>");
     expect(home).toContain('assistantHidden ? t("home.new_project_hint")');
     const route = source("react-app/shell/session-route.tsx");
-    expect(route).toContain('if (!isCommercialSurfaceHidden("assistant") && (!homeProjectId || workspaces.find(item => item.id === homeProjectId)?.preset === "main-assistant") && !assistantIncluded) {');
+    // Upstream v0.3.9 počíta Domov Asistenta raz (`homeAssistant`); LAWOSS ho pri skrytom Asistentovi vypne.
+    expect(route).toContain('const homeAssistant = !isCommercialSurfaceHidden("assistant") && (!homeProjectId || workspaces.find(item => item.id === homeProjectId)?.preset === "main-assistant");');
+    expect(route).toContain("if (homeAssistant && !assistantIncluded) {");
     // Priestor Assistanta sa medzi klientmi nezobrazí.
     expect(route).toContain('workspace.preset !== "main-assistant"');
   });

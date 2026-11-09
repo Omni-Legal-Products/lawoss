@@ -44,7 +44,9 @@ async function withDialog(run: () => Promise<void>) {
     const noop = () => undefined;
     const container = { nodeType: 1, nodeName: "DIV", tagName: "DIV", addEventListener: noop, removeEventListener: noop, ownerDocument: { addEventListener: noop, removeEventListener: noop } };
     const root = createRoot(container as unknown as Element);
-    await act(async () => { root.render(createElement(DocumentDiscardDialog)); });
+    // Upstream v0.3.9: the same component also hosts the close/restart dialog, which navigates.
+    const { MemoryRouter } = await import("react-router-dom");
+    await act(async () => { root.render(createElement(MemoryRouter, null, createElement(DocumentDiscardDialog))); });
     await run();
     await act(async () => { root.unmount(); });
   } finally {

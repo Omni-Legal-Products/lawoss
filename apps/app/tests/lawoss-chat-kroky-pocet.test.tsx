@@ -22,16 +22,17 @@ const read: DynamicToolUIPart = { type: "dynamic-tool", toolName: "read", toolCa
 /** Text malého čísla vedľa názvu kroku (`tabular-nums`) v zbalenej hlavičke. */
 function headerCount(parts: DynamicToolUIPart[], active = false): string {
   const html = renderToStaticMarkup(<ToolRun parts={parts} showDetails={false} renderTool={() => null} active={active} />);
-  const match = html.match(/<span class="[^"]*tabular-nums[^"]*">([^<]*)<\/span>/);
-  if (!match) throw new Error("Hlavička krokov bez čísla");
-  return match[1] ?? "";
+  // Upstream v0.3.9: „· N akcií“ za stavom kroku; bez vykonaných krokov sa číslo nezobrazí.
+  const match = html.match(/<span class="[^"]*tabular-nums[^"]*">· ([^<]*)<\/span>/);
+  return match?.[1]?.match(/\d+/)?.[0] ?? "";
 }
 
 describe("hlavička krokov pri dávke zmien súborov (N-A8-5)", () => {
   test("dávka 5 presunov je „Zmena súborov 5“, nie 1", () => {
     setLocale("sk");
     const html = renderToStaticMarkup(<ToolRun parts={[batch(["done", "done", "done", "done", "done"])]} showDetails={false} renderTool={() => null} />);
-    expect(html).toContain("Zmena súborov");
+    expect(html).toContain("Dokončené");
+    expect(html).toContain("Akcie: 5");
     expect(headerCount([batch(["done", "done", "done", "done", "done"])])).toBe("5");
   });
 

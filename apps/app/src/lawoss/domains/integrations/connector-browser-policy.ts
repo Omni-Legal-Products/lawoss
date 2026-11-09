@@ -25,3 +25,8 @@ export function isNewStorageDisabled(isStorage: boolean, existing: boolean): boo
 export function areFirmItemsHidden(): boolean {
   return isCommercialSurfaceHidden("firm-hub");
 }
+
+/** Kategória „Rozšírenia Eigenwelt“ má položky len zo zdroja LegalWork; bez neho sa v navigácii neukáže. */
+export function visibleConnectorCategories<T extends string>(categories: readonly T[]): T[] {
+  return isLegalworkSourceEnabled() ? [...categories] : categories.filter(category => category !== "eigenwelt");
+}

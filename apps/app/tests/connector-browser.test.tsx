@@ -1,6 +1,6 @@
 import { connectorCategory, popularConnector } from "../src/react-app/domains/settings/pages/connector-categories";
 import { expect, test } from "bun:test";
-import { MCP_QUICK_CONNECT } from "../src/app/constants";
+import { MCP_QUICK_CONNECT, MCP_QUICK_CONNECT_ALL } from "../src/app/constants";
 import type { ImportedPlugin } from "../src/app/lib/extension-imports";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
@@ -158,7 +158,8 @@ test("connection details surface ownership, permissions and file storage type", 
 });
 
 test("SharePoint and Dropbox each have one catalog provider and preserve custom links", () => {
-  const overrides = { mcpView: <McpView {...props.mcpView.props} quickConnect={MCP_QUICK_CONNECT.filter(entry => entry.serverName === "dropbox" || entry.serverName === "sharepoint")} /> };
+  // 🟡 LAWOSS: upstream entries reach the quick-connect list only with the LegalWork source; this checks the browser itself.
+  const overrides = { mcpView: <McpView {...props.mcpView.props} quickConnect={MCP_QUICK_CONNECT_ALL.filter(entry => entry.serverName === "dropbox" || entry.serverName === "sharepoint")} /> };
   const catalog = render(undefined, { ...overrides, initialSection: "storage" }).split("<section")[1];
   expect(catalog.match(/>SharePoint</g)).toHaveLength(1);
   expect(catalog.match(/>Dropbox</g)).toHaveLength(1);
@@ -174,7 +175,8 @@ test("catalog categories place storage and Eigenwelt tools correctly and omit th
   for (const name of ["legalmemory", "open-computer-use", "legalwork-ui"]) expect(connectorCategory(name, name)).toBe("eigenwelt");
   for (const name of ["beck-online", "juris", "legalmemory"]) expect(popularConnector(name)).toBe(false);
   expect(MCP_QUICK_CONNECT.some(item => item.id === "google-workspace")).toBe(false);
-  const ui = MCP_QUICK_CONNECT.find(item => item.serverName === "legalwork-ui");
+  const ui = MCP_QUICK_CONNECT_ALL.find(item => item.serverName === "legalwork-ui");
   expect(ui?.iconSrc).toContain("legalwork-mark-dark.svg");
-  expect(render()).toContain("Eigenwelt Extensions");
+  // 🟡 LAWOSS: without the LegalWork source the Eigenwelt category has no entries and is not offered.
+  expect(render()).not.toContain("Eigenwelt Extensions");
 });
