@@ -17,6 +17,7 @@ import { readNativeQuitAcceptance } from "../lawoss/testing/isir/native/quit-acc
 import { stopNativeChild } from "../lawoss/testing/isir/native/owned-process.mjs";
 import { createNativeDiagnostics, settleCleanup, errorMetadata, observePromptClick, summarizeRecoveryVerification, recoveryRendererIdentity } from "../lawoss/testing/isir/native/diagnostics.mjs";
 import { configureNativeProvider } from "../lawoss/testing/isir/native/bootstrap.mjs";
+import { syntheticNativeEngineConfig } from "../lawoss/testing/isir/native/engine-config.mjs";
 import { openNativeProjectFiles } from "../lawoss/testing/isir/native/project-files-navigation.mjs";
 import { awaitNativeStartup } from "../lawoss/testing/isir/native/startup-readiness.mjs";
 import { parseCsv } from "../apps/server/dist/lawoss/documents/validation.js";
@@ -86,13 +87,15 @@ Object.assign(env, {
   LEGALWORK_ENV_STORE: path.join(root, "empty.env"), LEGALWORK_WORD_ADDIN: "0", LEGALWORK_DESKTOP_DISABLE_WORKSPACE_RECOVERY: "1",
   LEGALWORK_ELECTRON_START_URL: `http://127.0.0.1:${uiPort}`, LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT: String(cdpPort),
   LAWOSS_ISIR_NATIVE_ROOT: root, OPENCODE_DISABLE_AUTOUPDATE: "1", OPENCODE_DISABLE_DEFAULT_PLUGINS: "1",
-  OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: "isir-native/synthetic", small_model: "isir-native/synthetic", provider: { "isir-native": { npm: "@ai-sdk/openai-compatible", name: "ISIR synthetic protocol", options: { baseURL: provider.url, apiKey: "synthetic-local-only" }, models: { synthetic: { name: "ISIR synthetic", limit: { context: 128000, output: 16000 }, tool_call: true, reasoning:true, variants:{low:{reasoningEffort:"low"},high:{reasoningEffort:"high"}} } } } } }),
 });
+// LAWOSS v2: the embedded server gives the engine its own OPENCODE_CONFIG_CONTENT (mandatory plugins), so the
+// synthetic provider reaches it only through the native settings flow (bootstrap.mjs) in the 2.1.4 shape.
+const syntheticEngine = syntheticNativeEngineConfig(provider.url);
 await applyProducer(env, emptyAuthProbe, preparedEngine.expectedHash);
 for (const dir of [profile,env.APPDATA,env.LOCALAPPDATA,env.HOME, path.join(root, "documents"), path.join(root, "runtime"), env.XDG_CONFIG_HOME, env.XDG_DATA_HOME, env.XDG_CACHE_HOME, env.XDG_STATE_HOME]) await mkdir(dir, { recursive: true });
 const configDir = path.join(profile, "legalwork-dev-data/xdg/config/opencode");
 await mkdir(configDir, {recursive:true});
-await writeFile(path.join(configDir,"opencode.json"), env.OPENCODE_CONFIG_CONTENT);
+await writeFile(path.join(configDir,"opencode.json"), JSON.stringify(syntheticEngine.config));
 const workspaces = [];
 for (const [index, entry] of corpus.cases.entries()) {
   const folder = path.join(root, "cases", index===4?`${entry.id} český spis`:entry.id);
@@ -188,9 +191,8 @@ try {
   const startupReceipt=await awaitNativeStartup({engineRequest,request:nativeFetch,serverInfo,workspace:workspaces[0],observe:diagnostics.startup,onDeadline:deadline=>{engineLogDeadlineWallMs=deadline;}});
   console.log('Native selected-instance startup',JSON.stringify(startupReceipt));
   diagnostics.phase("configure-provider");
-  const providerConfig = JSON.parse(env.OPENCODE_CONFIG_CONTENT).provider;
-  await configureNativeProvider({request:nativeFetch,serverInfo,serverAuth,engineRequest,workspace:workspaces[0],providerConfig});
-  console.log('PASS running engine1.18.29; configured synthetic provider connected after supported workspace reload');
+  await configureNativeProvider({request:nativeFetch,serverInfo,serverAuth,engineRequest,workspace:workspaces[0],providerConfig:syntheticEngine.providers});
+  console.log(`PASS running engine ${initialEngineIdentity.version}; configured synthetic provider connected after supported workspace reload`);
   // Persisted selected-agent is fixture input, consumed by the ordinary
   // native preference loader. It does not replace any send/tool callback.
   await cdp.send('Page.enable');
