@@ -65,15 +65,19 @@ async function fixture() {
     await response.arrayBuffer();
     return response.status;
   };
-  /** Requests that built (or would build) a location, and the location each one built. */
-  const locationsBuilt = () => requests.filter(entry => entry.location !== null && !(entry.method === "DELETE" && entry.pathname === "/api/debug/location"))
-    .map(entry => entry.location);
+  /** Location-bound requests (each builds its location if needed) in order. */
+  const locationRequests = () => requests.filter(entry => entry.location !== null && !(entry.method === "DELETE" && entry.pathname === "/api/debug/location"));
+  /** Locations built, one per admission into the budget: the admission first activates the location (`GET /api/model`). */
+  const locationsBuilt = () => locationRequests().filter(entry => entry.method === "GET" && entry.pathname === "/api/model").map(entry => entry.location);
+  /** The first request into each location after its admission must be the activation, never the forwarded request. */
+  const unactivated = () => locationRequests().filter((entry, index, all) => (index === 0 || all[index - 1]!.location !== entry.location)
+    && !(entry.method === "GET" && entry.pathname === "/api/model"));
   const evictions = () => requests.filter(entry => entry.method === "DELETE" && entry.pathname === "/api/debug/location").map(entry => entry.location);
-  return { paths, requests, running, openMcp, locationsBuilt, evictions };
+  return { paths, requests, running, openMcp, locationsBuilt, evictions, unactivated };
 }
 
 test("engine v2: MCP sa spustí len pre otvoreného klienta, ďalší otvorený klient uvoľní nečinného", async () => {
-  const { paths: [a, b, c], openMcp, locationsBuilt, evictions } = await fixture();
+  const { paths: [a, b, c], openMcp, locationsBuilt, evictions, unactivated } = await fixture();
   expect(await openMcp("ws_a")).toBe(200);
   expect(locationsBuilt()).toEqual([a]);
   expect(evictions()).toEqual([]);
@@ -84,10 +88,11 @@ test("engine v2: MCP sa spustí len pre otvoreného klienta, ďalší otvorený 
   // Neotvorený klient C nedostal ani jednu požiadavku viazanú na lokáciu.
   expect(locationsBuilt()).not.toContain(c);
   expect(evictions()).not.toContain(c);
+  expect(unactivated()).toEqual([]);
 });
 
 test("engine v2: bežiaci chat sa neuvoľní, ani keď sa otvorí iný klient", async () => {
-  const { paths: [a, b, c], running, openMcp, evictions, locationsBuilt } = await fixture();
+  const { paths: [a, b, c], running, openMcp, evictions, locationsBuilt, unactivated } = await fixture();
   expect(await openMcp("ws_a")).toBe(200);
   running.set("ses_a", a!);
   expect(await openMcp("ws_b")).toBe(200);
@@ -97,6 +102,7 @@ test("engine v2: bežiaci chat sa neuvoľní, ani keď sa otvorí iný klient", 
   expect(await openMcp("ws_c")).toBe(200);
   expect(evictions()).toEqual([a, b]);
   expect(locationsBuilt()).toEqual([a, b, c]);
+  expect(unactivated()).toEqual([]);
 });
 
 test("engine v2: zisťovanie behu a pripravenosť nestavajú lokáciu (náhrada v1 /path a /session/status)", async () => {

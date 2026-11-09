@@ -6185,6 +6185,20 @@ async function disposeEngineDirectory(scope: EngineScope): Promise<void> {
   });
 }
 
+// LAWOSS (RAM 2 GB, #367): engine 2.1.4 postaví lokáciu po uvoľnení (`debug.location.evict`) bez aktivácie. Agenti,
+// príkazy a pluginy sú prázdne a vytvorenie povolenia vráti `deny`, kým lokáciu neaktivuje čítanie modelov; samo
+// `GET /api/model` na aktiváciu počká. Lokácia prijatá do rozpočtu (prvé otvorenie aj návrat po uvoľnení pre limit,
+// nečinnosť, zastaranie alebo reset) sa preto aktivuje skôr, než ju dostane požiadavka. Studená lokácia môže pri prvom
+// spustení inštalovať pluginy, preto rovnaká lehota ako sonda lístka (lawoss/engine-agent-ticket.ts).
+const ENGINE_ACTIVATION_TIMEOUT_MS = 300_000;
+async function activateEngineDirectory(scope: EngineScope): Promise<void> {
+  const url = new URL("/api/model", scope.baseUrl);
+  url.searchParams.set("location[directory]", scope.directory);
+  const response = await fetch(url, { headers: engineHeaders(scope), signal: AbortSignal.timeout(ENGINE_ACTIVATION_TIMEOUT_MS) });
+  await response.arrayBuffer().catch(() => undefined);
+  if (!response.ok) throw new ApiError(502, "opencode_activation_failed", "OpenCode location activation failed", { status: response.status });
+}
+
 // Engine spustí chat v lokácii chatu, nie v lokácii požiadavky. Neznámy priečinok ostane v požiadavke:
 // rozpočet tak nikdy nezavrie iný priečinok pre neistú odpoveď.
 async function engineSessionScope(scope: EngineScope, sessionId: string): Promise<EngineScope> {
@@ -6208,7 +6222,11 @@ function installEngineMcpBudget(config: ServerConfig): () => void {
     busy: engineDirectoryBusy,
     staleBusy: engineDirectoryClearlyBusy,
     dispose: disposeEngineDirectory,
-    // Engine v2 číta MCP lokácie zo súborov konfigurácie sám; nič sa nedopĺňa.
+    // Engine v2 číta MCP lokácie zo súborov konfigurácie sám; prijatá lokácia sa len aktivuje (activateEngineDirectory).
+    // Beží v poradí prijímania po uvoľnení nad limitom, takže limit drží. Platí aj bez limitu (uvoľnenie pre nečinnosť).
+    initialize: scope => activateEngineDirectory(scope).catch(error => {
+      logger.log("warn", "Engine location activation failed", { "engine.directory": scope.directory, "error.message": error instanceof Error ? error.message : String(error) });
+    }),
     log: (message, fields) => logger.log("info", message, fields),
   });
   engineMcpBudgets.set(config, budget);
