@@ -283,7 +283,9 @@ describe("workspace activation", () => {
       method: "POST", headers: hostAuth(legalwork.hostToken),
     });
     expect(response.status).toBe(200);
-    expect(requests).toEqual(["/api/rpc/legalwork.managed-settings/refresh", "/api/model", "/api/rpc/legalwork.managed-settings/refresh"]);
+    // LAWOSS (RAM 2 GB): prijatie lokácie do rozpočtu MCP ju najprv aktivuje (server.ts activateEngineDirectory),
+    // takže RPC je dostupné hneď a záložné čítanie modelov pred druhým pokusom netreba.
+    expect(requests).toEqual(["/api/model", "/api/rpc/legalwork.managed-settings/refresh"]);
   });
 
   test("does not retry an admitted settings handler that reports a different engine error", async () => {
@@ -299,7 +301,8 @@ describe("workspace activation", () => {
       method: "POST", headers: hostAuth(legalwork.hostToken),
     });
     expect(response.status).toBe(400);
-    expect(requests).toEqual(["/api/rpc/legalwork.managed-settings/refresh"]);
+    // LAWOSS (RAM 2 GB): aktivácia lokácie pri prijatí do rozpočtu MCP (server.ts activateEngineDirectory).
+    expect(requests).toEqual(["/api/model", "/api/rpc/legalwork.managed-settings/refresh"]);
   });
 
   test("navigation remains available when its engine is unreachable", async () => {
