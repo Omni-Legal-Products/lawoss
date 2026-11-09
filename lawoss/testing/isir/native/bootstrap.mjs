@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { directoryKey } from './startup-readiness.mjs';
 
 // Use the same persisted provider configuration and authenticated host lifecycle
 // as native settings. The host owns directory normalization, readiness and MCPs.
@@ -17,8 +18,16 @@ export async function configureNativeProvider({request,serverInfo,serverAuth,eng
     assert.equal(response.status,status,'Native provider bootstrap HTTP status');
   };
   await complete(await request(`${serverInfo.baseUrl}/workspace/${workspace.id}/config`,{method:'PATCH',headers:serverAuth,body:JSON.stringify({opencode:{providers:providerConfig}})}));
-  // LAWOSS v2: like the app, read the location's model catalogue right before connecting the key.
-  await complete(await engineRequest(`/model?${location}`));
+  // LAWOSS v2: the saved definition reaches the engine through the managed settings of the opened
+  // location; the host reload awaits the derived configuration (AGENTS.md). Without it the location
+  // may not know the new integration yet and `connect/key` answers 404 (observed on 2.1.4).
+  await complete(await engineRequest.reload());
+  // Like the app, read the location's model catalogue right before connecting the key. It
+  // gets the cold-location budget and proves the engine's selected scope.
+  const models=await engineRequest(`/model?${location}`,{signal:AbortSignal.timeout(300_000)},300_000);
+  assert.equal(models.status,200,'Native provider bootstrap HTTP status');
+  const scope=await models.json();
+  assert.equal(directoryKey(scope?.location?.directory),directoryKey(workspace.path),'Native engine location must be the opened client folder');
   // LAWOSS v2: `POST /api/integration/:id/connect/key` answers 204 (client contract successStatus).
   await complete(await engineRequest(`/integration/${encodeURIComponent(providerID)}/connect/key?${location}`,{method:'POST',body:JSON.stringify({key:'synthetic-local-only'})}),204);
   await complete(await engineRequest.reload());

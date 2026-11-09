@@ -23,10 +23,13 @@ function endpoint(url) {
   if (/\/workspace\/[^/]+\/events$/.test(pathname)) return 'reload-poll';
   if (/\/workspace\/[^/]+\/.*\bevent$/.test(pathname)) return 'scoped-workspace-engine';
   if (pathname==='/event') return parsed.searchParams.has('directory')||parsed.searchParams.has('workspace')?'scoped-workspace-engine':'unscoped-engine';
-  if (/\/prompt_async$/.test(pathname)) return 'prompt';
+  // LAWOSS v2: engine 2.1.4 routes behind the owned workspace proxy (`/workspace/:id/opencode`
+  // prepends `/api`); a queued native prompt goes through the host session queue.
+  if (/\/workspace\/[^/]+\/sessions\/[^/]+\/queue$/.test(pathname)) return 'queue';
+  if (/\/session\/[^/]+\/prompt$/.test(pathname)) return 'prompt';
   if (/\/sessions?\/[^/]+\/snapshot$/.test(pathname)) return 'snapshot';
   if (/\/files\/(?:list|raw|content)$/.test(pathname)) return 'files';
-  const fixed = new Map([['/path','engine.path'],['/global/health','engine.health'],['/provider','provider'],['/instance/dispose','engine.dispose'],['/auth/isir-native','synthetic.auth'],['/json/list','cdp.targets'],['/experimental/session','engine.sessions'],['/','ui']]);
+  const fixed = new Map([['/info','engine.info'],['/model','engine.model'],['/provider','provider'],['/session/active','engine.active'],['/debug/location','engine.dispose'],['/integration/isir-native/connect/key','synthetic.auth'],['/json/list','cdp.targets'],['/','ui']]);
   const enginePath=pathname.replace(/^\/workspace\/[^/]+\/opencode(?=\/|$)/,'');
   if(fixed.has(enginePath))return fixed.get(enginePath);
   if (/\/workspace\/[^/]+\/engine\/reload$/.test(pathname))return 'engine.reload';
@@ -91,6 +94,39 @@ export function summarizeRecoveryVerification(snapshot = {}, events = []) {
     if(request.headers!==null)result.maxHeadersMs=Math.max(result.maxHeadersMs,elapsed(request.headers,request.started));
   }
   return {panel,identity,requests};
+}
+// #384: on Windows the Generate click produced no provisioning POST within 240s. The
+// panel refuses before any HTTP (fresh-source, profile and model preflight) only through a
+// visible alert. Runs inside the owned page after the primary failure; it returns fixed
+// categories and counts, never alert text, paths or IDs. English is the fixture locale.
+export function observeGenerationPanel(expected = {}) {
+  const categories={sourcesChanged:'Source changed or preparation is pending.',preflightFailed:'Model or engine is unavailable:',sendFailed:'Send failed:',busy:'An action is already running.',toolModel:'Selected model does not support tools.',modelUnavailable:'Selected model is unavailable.',noModel:'No AI connected.',noSources:'Select at least one source.',directory:'Enter an existing subdirectory of the selected client.'};
+  const visible=e=>e.isConnected&&e.getBoundingClientRect().width>0&&e.getBoundingClientRect().height>0;
+  const panels=[...document.querySelectorAll('[aria-label="Document processing"]')];
+  const panel=panels.find(visible)??null;
+  const alerts=Object.fromEntries([...Object.keys(categories),'other'].map(key=>[key,0]));
+  for(const alert of panel?.querySelectorAll('[role="alert"]')??[]){
+    const text=alert.textContent.trim();
+    const key=Object.keys(categories).find(name=>text.startsWith(categories[name]));
+    alerts[key??'other']++;
+  }
+  const labels={generate:'Generate through chat',newGeneration:'Start a new generation',retry:'Retry in created chat'};
+  const controls=Object.fromEntries(Object.entries(labels).map(([key,label])=>{const buttons=[...(panel?.querySelectorAll('button')??[])].filter(e=>e.textContent.trim()===label);return [key,{count:buttons.length,disabled:buttons.filter(e=>e.disabled||e.getAttribute('aria-disabled')==='true').length}]}));
+  const statuses=[...(panel?.querySelectorAll('[role="status"]')??[])].map(e=>e.textContent.trim());
+  let phase='none';
+  try{
+    const binding=JSON.parse(localStorage.getItem('lawoss.document-generations.v1')??'[]').map(item=>item?.[1]).find(item=>item?.workspaceId===expected.workspaceId&&item?.transport==='protected-documents-v1');
+    phase=binding?['accepted','running','completed','error'].includes(binding.phase)?binding.phase:'unknown':'none';
+  }catch{phase='unknown';}
+  return {panelCount:panels.length,visible:Boolean(panel),alerts,controls,runActive:statuses.includes('Generation is running in the existing chat.'),bindingPhase:phase};
+}
+export function summarizeGenerationPanel(snapshot) {
+  if(!snapshot||typeof snapshot!=='object')return {capture:'unavailable'};
+  const count=value=>Number.isInteger(value)&&value>=0&&value<=100?value:0;
+  const alerts=Object.fromEntries(['sourcesChanged','preflightFailed','sendFailed','busy','toolModel','modelUnavailable','noModel','noSources','directory','other'].map(key=>[key,count(snapshot.alerts?.[key])]));
+  const controls=Object.fromEntries(['generate','newGeneration','retry'].map(key=>[key,{count:count(snapshot.controls?.[key]?.count),disabled:count(snapshot.controls?.[key]?.disabled)}]));
+  return {capture:'captured',panelCount:count(snapshot.panelCount),visible:snapshot.visible===true,alerts,controls,runActive:snapshot.runActive===true,
+    bindingPhase:['none','accepted','running','completed','error'].includes(snapshot.bindingPhase)?snapshot.bindingPhase:'unknown'};
 }
 export function summarizeNetwork(events) {
   const active=new Map(),origins=new Map(),loaders=new Map();
@@ -238,12 +274,12 @@ export function summarizePromptEvents(events,context,start=0,end=events.length){
       const request=p.request??{};if(request.method==='POST')count(result,'anyPost');
       let url;try{url=new URL(request.url);}catch{continue;}
       const queued=url.pathname.match(/^\/workspace\/([^/]+)\/sessions\/([^/]+)\/queue$/);
-      const match=queued??url.pathname.match(/^(?:\/workspace\/([^/]+)\/opencode)?\/session\/([^/]+)(\/prompt_async)?$/);
+      const match=queued??url.pathname.match(/^(?:\/workspace\/([^/]+)\/opencode)?\/session\/([^/]+)(\/prompt)?$/);
       if(!match)continue;
       let row;
       if(request.method==='POST'&&(queued||match[3])){
         row=prompt;count(row,'count');
-        if(request.url.endsWith('/prompt_async'))count(row,'originalSuffix');
+        if(request.url.endsWith('/prompt'))count(row,'originalSuffix');
         if(url.search.length)count(row,'queryPresent');
         count(row,match[2]===context.sessionId?'sessionMatch':'sessionMismatch');
         count(row,match[1]===undefined?'workspaceUnknown':match[1]===context.workspaceId?'workspaceMatch':'workspaceMismatch');
@@ -253,8 +289,9 @@ export function summarizePromptEvents(events,context,start=0,end=events.length){
           count(row,'bodyKnown');if(body.includes(context.marker))count(row,'inlineMarker');
           try{
             const parsed=JSON.parse(body);count(row,'jsonValid');
-            const parts=queued?(parsed?.type==='enqueue'&&parsed.execution?.kind==='prompt'?parsed.execution.parts:null):parsed?.parts;
-            if(Array.isArray(parts)&&parts.some(part=>part?.type==='text'&&typeof part.text==='string'&&part.text.includes(context.marker)))count(row,'jsonTextMarker');
+            // Engine v2 prompt text: queued `execution.text`, direct `POST …/prompt` `text`.
+            const text=queued?(parsed?.type==='enqueue'&&parsed.execution?.kind==='prompt'?parsed.execution.text:null):parsed?.text;
+            if(typeof text==='string'&&text.includes(context.marker))count(row,'jsonTextMarker');
           }catch{count(row,'jsonInvalid');}
         }
       }else if(request.method==='PATCH'&&!match[3]&&match[2]===context.sessionId&&(match[1]===undefined||match[1]===context.workspaceId)){
@@ -282,8 +319,9 @@ export async function settleCleanup(primary, operations) {
   for(const operation of operations)try {await operation();}catch(error){failures.push(error);}
   return {error:primary??(failures.length?new AggregateError(failures,'Owned native cleanup failed'):null),failures};
 }
-// Pinned engine v1.18.29 default file format, not a raw-log redactor. The
-// logger batches writes: missing markers never establish an unreached stage.
+// Engine 2.1.4 default file format (`timestamp level run message …` records in
+// XDG_DATA_HOME/opencode/log/opencode.log), not a raw-log redactor. The logger
+// batches writes: missing markers never establish an unreached stage.
 const LOG_BYTES=256*1024,LOG_LINE_BYTES=16*1024,LOG_LINES=4096,LOG_EVENTS=64;
 const bounded=value=>Math.min(Number.MAX_SAFE_INTEGER,Math.max(0,Math.trunc(value)));
 const emptyEngineLog=(status='disabled')=>({status,clockWindowValid:false,correlation:'unavailable',absenceInconclusive:true,bytesRead:0,unscannedBytesAtOpen:0,fileChanged:false,scannedLines:0,oversizedLineCount:0,partialLineCount:0,malformedCount:0,unknownCount:0,timestampOutlierCount:0,otherDirectoryCount:0,runCount:0,directoryCount:0,ambiguous:false,lineLimitReached:false,eventLimitReached:false,droppedEvents:0,events:[]});
@@ -293,17 +331,15 @@ function directoryKey(value,platform=process.platform){
   const normalized=paths.normalize(value);
   return platform==='win32'?normalized.replace(/\\/g,'/').replace(/\/+$/,'').toLowerCase():normalized.replace(/\/+$/,'');
 }
+// Verified against the 2.1.4 derivative: a location boot/eviction names its
+// `directory`; the other records describe the whole engine run.
 const directoryMarkers=new Map([
-  ['creating instance','instance.create-observed'],['fromDirectory','project.resolve-observed'],
-  ['bootstrapping','bootstrap.enter-observed'],['reloading instance','instance.reload-observed'],['disposing instance','instance.dispose-observed'],
+  ['location services booted','location.boot-observed'],['location services evicted','location.evict-observed'],
 ]);
 const engineMarkers=new Map([
-  ['INFO:loading','config.read-observed'],['INFO:all LSPs are disabled','post-plugin.lsp-observed'],
-  ['INFO:enabled LSP servers','post-plugin.lsp-observed'],['INFO:all formatters are disabled','post-plugin.format-observed'],
-  ['WARN:background dependency install failed','config.dependency-error-observed'],
-  ['ERROR:failed to load global config, using defaults','config.global-error-observed'],
-  ['ERROR:failed to load internal plugin','plugin.internal-error-observed'],['ERROR:failed to load plugin','plugin.apply-error-observed'],
-  ['ERROR:plugin config hook failed','plugin.config-error-observed'],['WARN:init failed','bootstrap.service-error-observed'],
+  ['INFO:cli starting','cli.start-observed'],['INFO:database schema bootstrap completed','database.bootstrap-observed'],
+  ['INFO:location services reloaded','location.reload-observed'],
+  ['WARN:failed to load plugin','plugin.load-error-observed'],['ERROR:configured plugin watch failed','plugin.watch-error-observed'],
 ]);
 function parseEngineRecord(line){
   const fields=new Map();let offset=0;
@@ -513,6 +549,7 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
   let generationHostErrors=[],hostErrorsCaptured=false;
   let provisioningHostErrors=[];
   let generationRun=null;
+  let generationPanel=null;
   let provisioningRun=null;
   const readGenerationError=run=>{
     if(!enabled||!ci||mode!=='synthetic'||recoveryFrozen||typeof readGenerationResponseBody!=='function'||run.receipt.status<500||run.receipt.status>599)return;
@@ -612,16 +649,22 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
         if(!['http:','https:'].includes(origin.protocol)||origin.username||origin.password||origin.pathname!=='/'||origin.search||origin.hash||
           ![context.workspaceId,context.sessionId].every(value=>typeof value==='string'&&value.length>0&&value.length<=512)||
           !Array.isArray(events)||!Number.isSafeInteger(start)||start<0||start>events.length)return;
-        const prefix=`/workspace/${encodeURIComponent(context.workspaceId)}/opencode/session/${encodeURIComponent(context.sessionId)}`;
+        const prefix=`/workspace/${encodeURIComponent(context.workspaceId)}/sessions/${encodeURIComponent(context.sessionId)}/queue`;
         const receipt={caseIndex:index,issued:false,route:null,state:'unissued',status:null,failure:null};
         generationPrompts.push(receipt);
         // Entering the next case ends observation of the previous case. Replay
         // starts before its Generate click, including a prompt already emitted
         // before the provisioning response and persisted binding were inspected.
-        generationRun={receipt,origin:origin.origin,paths:new Map(['prompt_async','message'].map(route=>[`${prefix}/${route}`,route])),requestId:null};
+        // LAWOSS v2: the protected document task is queued (`enqueue`) on the host session queue.
+        generationRun={receipt,origin:origin.origin,paths:new Map([[prefix,'queue']]),requestId:null};
         generationRuns.push(generationRun);
         for(let i=start;i<events.length&&generationRun;i++)observeNetworkEvent(events[i]);
       } catch { /* Invalid diagnostic ownership cannot fabricate a receipt. */ }
+    },
+    // Primary-failure panel projection of the generation phase (closed categories only).
+    generationPanel(snapshot){
+      if(!recoveryFrozen||generationPanel||phase!=='generation')return;
+      try{generationPanel=summarizeGenerationPanel(snapshot);}catch{generationPanel={capture:'unavailable'};}
     },
     promptStart(role,events,start,context){
       if(recoveryFrozen||!['attachment','recovery'].includes(role)||promptRuns[role])return;
@@ -708,7 +751,7 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
     },
     async write({events=[],error=null,cleanupErrors=[]}={}){
       if(!enabled)return;
-      const data={schema:6,generationPrompts,provisioning,...(hostErrorsCaptured?{generationHostErrors,provisioningHostErrors}:{}),promptObservations:promptProjection(),recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
+      const data={schema:7,generationPrompts,provisioning,...(generationPanel?{generationPanel}:{}),...(hostErrorsCaptured?{generationHostErrors,provisioningHostErrors}:{}),promptObservations:promptProjection(),recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
       await writeFile(outputFile,JSON.stringify(data,null,2),{mode:0o600});
     },
     failure(error){

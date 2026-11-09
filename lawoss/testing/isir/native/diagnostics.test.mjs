@@ -74,11 +74,14 @@ test('recovery request timings use fixed document categories and monotonic netwo
 
 test('workspace engine proxy diagnostics keep typed endpoints without workspace identities', () => {
   const result = summarizeNetwork([
-    { method:'Network.requestWillBeSent',params:{requestId:'synthetic',timestamp:1,request:{url:'http://127.0.0.1:999/workspace/private-id/opencode/global/health'}} },
+    { method:'Network.requestWillBeSent',params:{requestId:'synthetic',timestamp:1,request:{url:'http://127.0.0.1:999/workspace/private-id/opencode/info'}} },
     { method:'Network.requestWillBeSent',params:{requestId:'reload',timestamp:2,request:{url:'http://127.0.0.1:999/workspace/private-id/engine/reload'}} },
+    { method:'Network.requestWillBeSent',params:{requestId:'model',timestamp:3,request:{url:'http://127.0.0.1:999/workspace/private-id/opencode/model?location%5Bdirectory%5D=private'}} },
+    { method:'Network.requestWillBeSent',params:{requestId:'queue',timestamp:4,request:{url:'http://127.0.0.1:999/workspace/private-id/sessions/ses_private/queue',method:'POST'}} },
+    { method:'Network.requestWillBeSent',params:{requestId:'v1',timestamp:5,request:{url:'http://127.0.0.1:999/workspace/private-id/opencode/path?directory=private'}} },
   ]);
-  assert.equal(result.requests[0].endpoint, 'engine.health');
-  assert.equal(result.requests[1].endpoint, 'engine.reload');
+  // LAWOSS v2: engine 2.1.4 routes; the v1 `/path` probe is no longer a typed endpoint.
+  assert.deepEqual(result.requests.map(r=>r.endpoint), ['engine.info','engine.reload','engine.model','queue','other']);
   assert.doesNotMatch(JSON.stringify(result), /private-id|127\.0/);
 });
 
@@ -286,9 +289,9 @@ test('selected-instance category and finite startup/census projections are bound
     assert.throws(()=>d.startup('PRIVATE-STAGE'),/stage/);
     assert.throws(()=>d.ownedProcess({stage:'PRIVATE-STAGE'}),/stage/);
     assert.throws(()=>d.ownedProcess({stage:'term-wait',index:-1}),/census/);
-    await d.write({events:[{method:'Network.requestWillBeSent',params:{requestId:'PRIVATE-ID',timestamp:1,request:{url:'http://private-host/path?directory=PRIVATE-ROOT&token=PRIVATE-TOKEN'}}}]});
+    await d.write({events:[{method:'Network.requestWillBeSent',params:{requestId:'PRIVATE-ID',timestamp:1,request:{url:'http://private-host/info?location%5Bdirectory%5D=PRIVATE-ROOT&token=PRIVATE-TOKEN'}}}]});
     const text=await readFile(outputFile,'utf8'),result=JSON.parse(text);
-    assert.equal(result.schema,6);assert.equal(result.network.requests[0].endpoint,'engine.path');
+    assert.equal(result.schema,7);assert.equal(result.network.requests[0].endpoint,'engine.info');
     assert.equal(result.startup.length,32);assert.equal(result.startupDropped,8);
     assert.equal(result.ownedProcesses.length,128);assert.equal(result.ownedProcessesDropped,22);
     assert.deepEqual(result.ownedProcesses[0],{phase:'startup',stage:'term-wait',index:23,elapsedMs:22,knownLive:1,unknown:0,moved:0,mismatched:0,leaderExited:true,anchored:true});
@@ -330,20 +333,21 @@ function assertClosedLog(value){
   for(const event of value.events){
     assert.deepEqual(Object.keys(event).sort(),['event','evidenceScope']);
     assert.ok(['selected-directory','engine-run'].includes(event.evidenceScope));
-    assert.match(event.event,/^(instance\.(create|reload|dispose)|project\.resolve|bootstrap\.(enter|service-error)|config\.(read|dependency-error|global-error)|post-plugin\.(lsp|format)|plugin\.(internal-error|apply-error|config-error))-observed$/);
+    // LAWOSS v2: markers verified against the engine 2.1.4 derivative log.
+    assert.match(event.event,/^(location\.(boot|evict|reload)|cli\.start|database\.bootstrap|plugin\.(load-error|watch-error))-observed$/);
   }
 }
 test('default engine log uses exact tuples, private fields and selected-directory scope only',async()=>{
   await logFixture(async f=>{
     const sentinels=['PRIVATE-AUTH','https://PRIVATE-URL','PRIVATE-BODY','PRIVATE-ERROR','PRIVATE-CAUSE','PRIVATE-STACK','PRIVATE-COMMAND','PRIVATE-PLUGIN','PRIVATE-RUN','PRIVATE-CASE','PRIVATE-ANNOTATION'];
     const extras=sentinels.map((v,i)=>`field${i}=${JSON.stringify(v+' \"quoted\" \\ escaped')}`).join(' ');
-    const known=[['all LSPs are disabled','INFO','post-plugin.lsp-observed'],['enabled LSP servers','INFO','post-plugin.lsp-observed'],['all formatters are disabled','INFO','post-plugin.format-observed'],['loading','INFO','config.read-observed'],['background dependency install failed','WARN','config.dependency-error-observed'],['failed to load global config, using defaults','ERROR','config.global-error-observed'],['failed to load internal plugin','ERROR','plugin.internal-error-observed'],['failed to load plugin','ERROR','plugin.apply-error-observed'],['plugin config hook failed','ERROR','plugin.config-error-observed'],['init failed','WARN','bootstrap.service-error-observed']];
-    const selected=['creating instance','fromDirectory','bootstrapping','reloading instance','disposing instance'];
+    const known=[['cli starting','INFO','cli.start-observed'],['database schema bootstrap completed','INFO','database.bootstrap-observed'],['location services reloaded','INFO','location.reload-observed'],['failed to load plugin','WARN','plugin.load-error-observed'],['configured plugin watch failed','ERROR','plugin.watch-error-observed']];
+    const selected=['location services booted','location services evicted'];
     await writeFile(f.logFile,selected.map(m=>logLine(m,`directory=${JSON.stringify(f.selectedDirectory)} ${extras}`)).join('')+known.map(([m,l])=>logLine(m,extras,l)).join(''));
     const result=await capturedLog(f),log=result.engineLog;
-    assert.equal(result.schema,6);assertClosedLog(log);assert.equal(log.status,'available');
-    assert.deepEqual(log.events.slice(0,5),['instance.create-observed','project.resolve-observed','bootstrap.enter-observed','instance.reload-observed','instance.dispose-observed'].map(event=>({event,evidenceScope:'selected-directory'})));
-    assert.deepEqual(log.events.slice(5),known.map(([, ,event])=>({event,evidenceScope:'engine-run'})));
+    assert.equal(result.schema,7);assertClosedLog(log);assert.equal(log.status,'available');
+    assert.deepEqual(log.events.slice(0,2),['location.boot-observed','location.evict-observed'].map(event=>({event,evidenceScope:'selected-directory'})));
+    assert.deepEqual(log.events.slice(2),known.map(([, ,event])=>({event,evidenceScope:'engine-run'})));
     assert.equal(log.runCount,1);assert.equal(log.directoryCount,1);assert.equal(log.ambiguous,false);
     for(const sentinel of sentinels)assert.ok(!JSON.stringify(result).includes(sentinel),sentinel);
   });
@@ -352,20 +356,20 @@ test('engine records reject spoofed fields, duplicate keys, malformed, partial a
   await logFixture(async f=>{
     const dir=`directory=${JSON.stringify(f.selectedDirectory)}`;
     const records=[
-      logLine('bootstrapping',dir),
+      logLine('location services booted',dir),
       logLine('PRIVATE-UNKNOWN',`fake=${JSON.stringify('message=bootstrapping')} ${dir}`),
-      logLine('bootstrapping',dir,'ERROR'),
-      logLine('bootstrapping',dir+' message=bootstrapping'),
-      logLine('bootstrapping',dir+' level=INFO'),
-      logLine('bootstrapping',dir+' directory=PRIVATE-OTHER'),
-      logLine('bootstrapping',`directory=${JSON.stringify(path.join(f.root,'PRIVATE-OTHER'))}`),
-      logLine('bootstrapping',dir,'INFO',logLaunch-1),
-      logLine('bootstrapping',dir,'INFO',logLaunch+90001),
+      logLine('location services booted',dir,'ERROR'),
+      logLine('location services booted',dir+' message=bootstrapping'),
+      logLine('location services booted',dir+' level=INFO'),
+      logLine('location services booted',dir+' directory=PRIVATE-OTHER'),
+      logLine('location services booted',`directory=${JSON.stringify(path.join(f.root,'PRIVATE-OTHER'))}`),
+      logLine('location services booted',dir,'INFO',logLaunch-1),
+      logLine('location services booted',dir,'INFO',logLaunch+90001),
       'timestamp=PRIVATE-TIME level=INFO run=PRIVATE-RUN message=bootstrapping\n',
       'timestamp=2026-10-15T10:00:00.001Z level=INFO run=PRIVATE-RUN message="bad\\q"\n',
-      logLine('bootstrapping',dir+' bad="unterminated'),
+      logLine('location services booted',dir+' bad="unterminated'),
       'x'.repeat(16385)+'\n',
-      logLine('bootstrapping',dir).trimEnd(),
+      logLine('location services booted',dir).trimEnd(),
     ];
     await writeFile(f.logFile,records.join(''));
     const {engineLog:log}=await capturedLog(f);assertClosedLog(log);
@@ -390,13 +394,13 @@ test('engine log guard has zero filesystem operations without authorized primary
 test('engine log reports missing, unreadable and unsafe files without replacing the primary error',async()=>{
   await logFixture(async f=>{
     assert.equal((await capturedLog(f)).engineLog.status,'missing');
-    await writeFile(f.logFile,logLine('loading'));
+    await writeFile(f.logFile,logLine('cli starting'));
     const denied={...fs,open:async()=>{throw Object.assign(new Error('PRIVATE-ACCESS'),{code:'EACCES'});}};
     assert.equal((await capturedLog(f,f.make({engineLogFs:denied}))).engineLog.status,'unreadable');
     await rm(f.logFile);await mkdir(f.logFile);
     assert.equal((await capturedLog(f)).engineLog.status,'unsafe');
     await rm(f.logFile,{recursive:true});
-    const outside=path.join(f.root,'PRIVATE-OUTSIDE');await writeFile(outside,logLine('loading'));
+    const outside=path.join(f.root,'PRIVATE-OUTSIDE');await writeFile(outside,logLine('cli starting'));
     await symlink(outside,f.logFile);
     assert.equal((await capturedLog(f)).engineLog.status,'unsafe');
     await rm(f.logFile);await rm(path.join(f.root,'profile'),{recursive:true});
@@ -409,7 +413,7 @@ test('engine log reports missing, unreadable and unsafe files without replacing 
 test('one prefix read bounds bytes, line and event retention and reports concurrent change',async()=>{
   await logFixture(async f=>{
     let reads=0,requested=0;
-    await writeFile(f.logFile,logLine('loading').repeat(6000));
+    await writeFile(f.logFile,logLine('cli starting').repeat(6000));
     const io={...fs,open:async(...args)=>{
       const handle=await fs.open(...args);
       return {stat:options=>handle.stat(options),close:()=>handle.close(),read:async(...readArgs)=>{
@@ -430,7 +434,7 @@ test('one prefix read bounds bytes, line and event retention and reports concurr
 });
 test('engine log distinguishes ambiguous runs and directories; invalid clock cannot confer evidence',async()=>{
   await logFixture(async f=>{
-    await writeFile(f.logFile,logLine('bootstrapping',`directory=${JSON.stringify(f.selectedDirectory)}`)+logLine('creating instance',`directory=${JSON.stringify(path.join(f.root,'cases','OTHER'))}`,'INFO',logLaunch+2,'OTHER-RUN')+logLine('all LSPs are disabled'));
+    await writeFile(f.logFile,logLine('location services booted',`directory=${JSON.stringify(f.selectedDirectory)}`)+logLine('location services evicted',`directory=${JSON.stringify(path.join(f.root,'cases','OTHER'))}`,'INFO',logLaunch+2,'OTHER-RUN')+logLine('database schema bootstrap completed'));
     const log=(await capturedLog(f)).engineLog;
     assert.equal(log.runCount,2);assert.equal(log.directoryCount,2);assert.equal(log.ambiguous,true);
     assert.deepEqual(log.events.map(e=>e.evidenceScope),['selected-directory','engine-run']);
@@ -441,14 +445,14 @@ test('engine log distinguishes ambiguous runs and directories; invalid clock can
 
 test('selected directory matching preserves Windows normalization and excludes neighboring roots',()=>{
   const context={selectedDirectory:'C:\\owned\\Case',platform:'win32',launchWallMs:logLaunch,deadlineWallMs:logLaunch+90000,captureWallMs:logLaunch+90001};
-  const log=projectEngineLog(Buffer.from(logLine('bootstrapping','directory="c:/OWNED/case/"')+logLine('bootstrapping','directory="c:/owned/case-other"')+logLine('bootstrapping','directory="C:relative"')),context);
+  const log=projectEngineLog(Buffer.from(logLine('location services booted','directory="c:/OWNED/case/"')+logLine('location services booted','directory="c:/owned/case-other"')+logLine('location services booted','directory="C:relative"')),context);
   assertClosedLog(log);assert.equal(log.events.length,1);assert.equal(log.otherDirectoryCount,1);assert.equal(log.unknownCount,1);
-  assert.deepEqual(log.events[0],{event:'bootstrap.enter-observed',evidenceScope:'selected-directory'});
+  assert.deepEqual(log.events[0],{event:'location.boot-observed',evidenceScope:'selected-directory'});
   assert.doesNotMatch(JSON.stringify(log),/owned|case-other|C:/);
 });
 test('read/open identity races and projector failures become finite status and retain primary failure',async()=>{
   await logFixture(async f=>{
-    await writeFile(f.logFile,logLine('loading'));
+    await writeFile(f.logFile,logLine('cli starting'));
     let reads=0;
     const io={...fs,open:async(...args)=>{
       const handle=await fs.open(...args);
@@ -465,9 +469,9 @@ test('read/open identity races and projector failures become finite status and r
 
 test('all reserved-key duplication and unsupported levels stay unrecognized, never inferred markers',()=>{
   const context={selectedDirectory:'/PRIVATE-ROOT',launchWallMs:logLaunch,deadlineWallMs:logLaunch+90000,captureWallMs:logLaunch+90001};
-  const lines=['timestamp=2026-10-15T10:00:00.001Z','level=INFO','run=PRIVATE-ALIAS','message=bootstrapping','directory=/PRIVATE-ROOT'].map(extra=>logLine('bootstrapping','directory=/PRIVATE-ROOT '+extra));
-  lines.push(logLine('bootstrapping','directory=/PRIVATE-ROOT','PRIVATE-LEVEL'));
-  lines.push(logLine('bootstrapping','directory=/PRIVATE-ROOT trailing=PRIVATE-END '));
+  const lines=['timestamp=2026-10-15T10:00:00.001Z','level=INFO','run=PRIVATE-ALIAS','message=bootstrapping','directory=/PRIVATE-ROOT'].map(extra=>logLine('location services booted','directory=/PRIVATE-ROOT '+extra));
+  lines.push(logLine('location services booted','directory=/PRIVATE-ROOT','PRIVATE-LEVEL'));
+  lines.push(logLine('location services booted','directory=/PRIVATE-ROOT trailing=PRIVATE-END '));
   lines.push(logLine('init','path=/PRIVATE-ROOT'));
   const log=projectEngineLog(Buffer.from(lines.join('')),context);
   assertClosedLog(log);assert.equal(log.events.length,0);assert.equal(log.malformedCount,7);assert.equal(log.unknownCount,1);
@@ -475,14 +479,14 @@ test('all reserved-key duplication and unsupported levels stay unrecognized, nev
 });
 test('root aliases and component replacement refuse log reads outside the exact owned file',async()=>{
   await logFixture(async f=>{
-    await writeFile(f.logFile,logLine('loading'));
+    await writeFile(f.logFile,logLine('cli starting'));
     const alias=f.root+'alias';let reads=0;
     const io={...fs,open:async(...args)=>{
       const handle=await fs.open(...args);
       await rm(f.logFile);await symlink(path.join(f.root,'PRIVATE-FOREIGN'),f.logFile);
       return {stat:options=>handle.stat(options),close:()=>handle.close(),read:async(...args)=>{reads++;return handle.read(...args);}};
     }};
-    await writeFile(path.join(f.root,'PRIVATE-FOREIGN'),logLine('loading'));
+    await writeFile(path.join(f.root,'PRIVATE-FOREIGN'),logLine('cli starting'));
     await symlink(f.root,alias,process.platform==='win32'?'junction':'dir');
     try{
       const aliasDiagnostic=f.make({ownedRoot:alias});
@@ -494,7 +498,7 @@ test('root aliases and component replacement refuse log reads outside the exact 
 });
 test('replacement after the single read discards parsed evidence and reports the actual read bytes',async()=>{
   await logFixture(async f=>{
-    const data=logLine('loading');await writeFile(f.logFile,data);
+    const data=logLine('cli starting');await writeFile(f.logFile,data);
     const io={...fs,open:async(...args)=>{
       const handle=await fs.open(...args);
       return {stat:options=>handle.stat(options),close:()=>handle.close(),read:async(...args)=>{
@@ -516,7 +520,7 @@ test('late root binding performs no filesystem operation and cannot replace the 
     assert.doesNotThrow(()=>d.bindOwnedRoot(f.root));
     assert.throws(()=>d.bindOwnedRoot(f.root+'other'),/root/);
     assert.throws(()=>f.make({ownedRoot:undefined,engineLogFs:io}).bindOwnedRoot(path.dirname(f.root)),/root/);
-    await writeFile(f.logFile,logLine('loading'));
+    await writeFile(f.logFile,logLine('cli starting'));
     const real=f.make({ownedRoot:undefined});real.bindOwnedRoot(f.root);
     assert.equal((await capturedLog(f,real)).engineLog.status,'available');
   });
@@ -559,7 +563,7 @@ test('primary recovery stage freezes before secondary diagnostics and cleanup',a
     assert.equal(diagnostics.failure(new Error('private-secondary')).recoveryStage,'snapshot-body');
     await diagnostics.write({error:primary});
     const result=JSON.parse(await readFile(outputFile,'utf8'));
-    assert.equal(result.schema,6);assert.equal(result.recoveryStage,'snapshot-body');
+    assert.equal(result.schema,7);assert.equal(result.recoveryStage,'snapshot-body');
     assert.doesNotMatch(JSON.stringify(result),/private/);
   }finally{await rm(root,{recursive:true,force:true});}
 });
@@ -634,8 +638,10 @@ test('API after-headers metadata failure cannot replace body result or rejection
 
 
 const promptContext={sessionId:'PRIVATE-SESSION',workspaceId:'PRIVATE-WORKSPACE',marker:'PRIVATE-MARKER'};
-const promptRequest=(id,url='/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async',body=JSON.stringify({parts:[{type:'text',text:'PRIVATE-MARKER'}]}),method='POST')=>({method:'Network.requestWillBeSent',params:{requestId:id,request:{method,url:url.startsWith('/')?'http://PRIVATE-HOST'+url:url,...(body===null?{}:{postData:body}),headers:{authorization:'PRIVATE-SECRET'}}}});
+const promptRequest=(id,url='/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt',body=JSON.stringify({text:'PRIVATE-MARKER'}),method='POST')=>({method:'Network.requestWillBeSent',params:{requestId:id,request:{method,url:url.startsWith('/')?'http://PRIVATE-HOST'+url:url,...(body===null?{}:{postData:body}),headers:{authorization:'PRIVATE-SECRET'}}}});
 const promptResponse=(id,status)=>({method:'Network.responseReceived',params:{requestId:id,response:{status,url:'PRIVATE-IGNORED',headers:{cookie:'PRIVATE-SECRET'}}}});
+// LAWOSS v2: a protected generation task is queued (`enqueue`) on the host session queue.
+const generationRequest=(id,url='/workspace/PRIVATE-WORKSPACE/sessions/PRIVATE-SESSION/queue',body=JSON.stringify({type:'enqueue',execution:{kind:'prompt',text:'PRIVATE-MARKER'}}),method='POST')=>promptRequest(id,url,body,method);
 const countKeys=['count','originalSuffix','queryPresent','sessionMatch','sessionMismatch','workspaceMatch','workspaceMismatch','workspaceUnknown','bodyKnown','bodyUnknown','bodyOversized','inlineMarker','jsonValid','jsonInvalid','jsonTextMarker','loadingFailed'];
 const statusKeys=['unknown','informational','success','redirect','clientError','serverError'];
 function assertPromptClosed(result){
@@ -647,10 +653,10 @@ function assertPromptClosed(result){
 }
 test('prompt classifier separates original suffix, scope, inline body and correlated response without disclosing operands',()=>{
   const events=[promptRequest('PRIVATE-ID'),promptResponse('PRIVATE-ID',204),promptResponse('PRIVATE-UNRELATED',500),
-    promptRequest('query','/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async?directory=PRIVATE-ROOT'),promptResponse('query',400),
-    promptRequest('wrong','/workspace/OTHER/opencode/session/OTHER/prompt_async',null),
-    promptRequest('direct','/session/PRIVATE-SESSION/prompt_async',JSON.stringify({parts:[{type:'file',text:'PRIVATE-MARKER'}]})),
-    promptRequest('bad','PRIVATE-BAD-URL'),promptRequest('suffix','/session/PRIVATE-SESSION/prompt_async/extra'),
+    promptRequest('query','/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt?directory=PRIVATE-ROOT'),promptResponse('query',400),
+    promptRequest('wrong','/workspace/OTHER/opencode/session/OTHER/prompt',null),
+    promptRequest('direct','/session/PRIVATE-SESSION/prompt',JSON.stringify({files:[{uri:'PRIVATE-MARKER'}]})),
+    promptRequest('bad','PRIVATE-BAD-URL'),promptRequest('suffix','/session/PRIVATE-SESSION/prompt/extra'),
     promptRequest('restore','/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION',null,'PATCH'),promptResponse('restore',503),
     {method:'Network.loadingFailed',params:{requestId:'direct',errorText:'PRIVATE-ERROR'}}];
   const result=summarizePromptEvents(events,promptContext);assertPromptClosed(result);
@@ -661,7 +667,7 @@ test('prompt classifier separates original suffix, scope, inline body and correl
   assert.equal(result.prompt.loadingFailed,1);assert.equal(result.restore.attempted,1);assert.equal(result.restore.responses.serverError,1);
 });
 test('missing, malformed and oversized bodies remain bounded unknown; JSON text marker differs from substring',()=>{
-  const result=summarizePromptEvents([promptRequest('missing',undefined,null),promptRequest('invalid',undefined,'PRIVATE-MARKER'),promptRequest('other',undefined,JSON.stringify({parts:[{type:'text',text:'other'}],private:'PRIVATE-MARKER'})),promptRequest('huge',undefined,'PRIVATE-MARKER'.repeat(10000))],promptContext);
+  const result=summarizePromptEvents([promptRequest('missing',undefined,null),promptRequest('invalid',undefined,'PRIVATE-MARKER'),promptRequest('other',undefined,JSON.stringify({text:'other',private:'PRIVATE-MARKER'})),promptRequest('huge',undefined,'PRIVATE-MARKER'.repeat(10000))],promptContext);
   assertPromptClosed(result);assert.equal(result.prompt.bodyUnknown,2);assert.equal(result.prompt.bodyOversized,1);assert.equal(result.prompt.bodyKnown,2);assert.equal(result.prompt.jsonInvalid,1);assert.equal(result.prompt.inlineMarker,2);assert.equal(result.prompt.jsonTextMarker,0);
 });
 test('prompt correlation and counters are capped, missing responses stay unknown, original event boundary is respected',()=>{
@@ -701,7 +707,7 @@ test('prompt role projections freeze before secondary events and reject arbitrar
     d.phase('recovery');d.recoveryStage('prompt-observe');const primary=new Error('PRIVATE-PRIMARY');d.failure(primary);
     events.push(promptResponse('recovered',500));d.promptClick('recovery',{markerInDraft:true});d.promptStart('PRIVATE-ROLE',events,0,promptContext);
     await d.write({error:primary});const result=JSON.parse(await readFile(outputFile,'utf8'));
-    assert.equal(result.schema,6);assert.deepEqual(Object.keys(result.promptObservations),['attachment','recovery']);
+    assert.equal(result.schema,7);assert.deepEqual(Object.keys(result.promptObservations),['attachment','recovery']);
     assert.equal(result.promptObservations.attachment.network.prompt.count,1);assert.equal(result.promptObservations.attachment.click.markerInDraft,true);assert.equal(result.promptObservations.attachment.click.editorCount,'many');
     assert.deepEqual(Object.keys(result.promptObservations.attachment.click),clickKeys);
     assert.equal(result.promptObservations.recovery.network.prompt.responses.unknown,1);assert.equal(result.promptObservations.recovery.click,null);
@@ -764,7 +770,7 @@ test('projection fault cannot replace the primary failure or reopen a frozen rol
 test('queue prompt observations retain marker and owner correlation at current dev public boundary',()=>{
   const context={sessionId:'private-session',workspaceId:'private-workspace',marker:'private-marker'};
   const events=[
-    {method:'Network.requestWillBeSent',params:{requestId:'private-request',request:{method:'POST',url:'http://localhost/workspace/private-workspace/sessions/private-session/queue',postData:JSON.stringify({type:'enqueue',execution:{kind:'prompt',parts:[{type:'text',text:'private-marker'}]}})}}},
+    {method:'Network.requestWillBeSent',params:{requestId:'private-request',request:{method:'POST',url:'http://localhost/workspace/private-workspace/sessions/private-session/queue',postData:JSON.stringify({type:'enqueue',execution:{kind:'prompt',text:'private-marker'}})}}},
     {method:'Network.responseReceived',params:{requestId:'private-request',response:{status:200}}},
     {method:'Network.loadingFinished',params:{requestId:'private-request'}},
   ];
@@ -781,39 +787,39 @@ test('critical generation receipts retain exact owned first submissions beyond n
     const outputFile=path.join(root,'safe.json');
     const d=createNativeDiagnostics({enabled:true,ci:true,mode:'synthetic',outputFile});
     const context={origin:'http://private-host',workspaceId:'PRIVATE-WORKSPACE',sessionId:'PRIVATE-SESSION'};
-    const events=[promptRequest('outside-boundary')];
+    const events=[generationRequest('outside-boundary')];
     const emit=event=>{events.push(event);d.observeNetworkEvent(event);};
-    const poll=n=>{for(let i=0;i<n;i++){emit(promptRequest('poll-'+i,'/workspace/PRIVATE-WORKSPACE/sessions',null,'GET'));emit(promptResponse('poll-'+i,200));}};
+    const poll=n=>{for(let i=0;i<n;i++){emit(generationRequest('poll-'+i,'/workspace/PRIVATE-WORKSPACE/sessions',null,'GET'));emit(promptResponse('poll-'+i,200));}};
     // Registration must replay an already emitted primary prompt, without
     // reading its payload or headers. The first request precedes many polls.
-    events.push(promptRequest('accepted'),promptResponse('accepted',204),{method:'Network.loadingFinished',params:{requestId:'accepted'}});
+    events.push(generationRequest('accepted'),promptResponse('accepted',204),{method:'Network.loadingFinished',params:{requestId:'accepted'}});
     poll(300);
     d.generationStart(1,events,1,context);
     d.generationStart(1,[],0,context);
     d.generationStart(2,events,events.length,context);
-    emit(promptRequest('wrong-origin','http://foreign-host/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async'));
-    emit(promptRequest('wrong-workspace','/workspace/OTHER/opencode/session/PRIVATE-SESSION/prompt_async'));
-    emit(promptRequest('wrong-session','/workspace/PRIVATE-WORKSPACE/opencode/session/OTHER/prompt_async'));
+    emit(generationRequest('wrong-origin','http://foreign-host/workspace/PRIVATE-WORKSPACE/sessions/PRIVATE-SESSION/queue'));
+    emit(generationRequest('wrong-workspace','/workspace/OTHER/sessions/PRIVATE-SESSION/queue'));
+    emit(generationRequest('wrong-session','/workspace/PRIVATE-WORKSPACE/sessions/OTHER/queue'));
     emit(promptResponse('wrong-origin',204));emit(promptResponse('wrong-workspace',204));emit(promptResponse('wrong-session',204));
-    const denied=promptRequest('denied','/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/message?directory=PRIVATE-PATH',null);
+    const denied=generationRequest('denied','/workspace/PRIVATE-WORKSPACE/sessions/PRIVATE-SESSION/queue?directory=PRIVATE-PATH',null);
     Object.defineProperties(denied.params.request,{postData:{get(){throw new Error('PRIVATE-BODY-MUST-NOT-BE-READ');}},headers:{get(){throw new Error('PRIVATE-HEADERS-MUST-NOT-BE-READ');}}});
     emit(denied);emit(promptResponse('denied',403));emit({method:'Network.loadingFinished',params:{requestId:'denied'}});
     d.generationStart(3,events,events.length,context);
     poll(300);
     d.generationStart(4,events,events.length,context);
-    emit(promptRequest('failed'));emit({method:'Network.loadingFailed',params:{requestId:'failed',errorText:'net::ERR_CONNECTION_RESET',private:'PRIVATE-FAILURE'}});
+    emit(generationRequest('failed'));emit({method:'Network.loadingFailed',params:{requestId:'failed',errorText:'net::ERR_CONNECTION_RESET',private:'PRIVATE-FAILURE'}});
     d.phase('generation',4);const primary=new Error('PRIVATE-PRIMARY');d.failure(primary);
-    emit(promptRequest('too-late'));emit(promptResponse('too-late',500));emit(promptResponse('failed',200));
+    emit(generationRequest('too-late'));emit(promptResponse('too-late',500));emit(promptResponse('failed',200));
     d.generationStart(5,events,0,context);
     await d.write({events,error:primary});
     const result=JSON.parse(await readFile(outputFile,'utf8'));
     assert.deepEqual(result.generationPrompts,[
-      {caseIndex:1,issued:true,route:'prompt_async',state:'finished',status:204,failure:null},
-      {caseIndex:2,issued:true,route:'message',state:'finished',status:403,failure:null},
+      {caseIndex:1,issued:true,route:'queue',state:'finished',status:204,failure:null},
+      {caseIndex:2,issued:true,route:'queue',state:'finished',status:403,failure:null},
       {caseIndex:3,issued:false,route:null,state:'unissued',status:null,failure:null},
-      {caseIndex:4,issued:true,route:'prompt_async',state:'failed',status:null,failure:'connection-reset'},
+      {caseIndex:4,issued:true,route:'queue',state:'failed',status:null,failure:'connection-reset'},
     ]);
-    assert.equal(result.network.requests.some(row=>row.endpoint==='prompt'&&row.status===204),false,'Rolling network history has evicted the accepted primary prompt');
+    assert.equal(result.network.requests.some(row=>row.endpoint==='queue'&&row.status===204),false,'Rolling network history has evicted the accepted primary prompt');
     assert.doesNotMatch(JSON.stringify(result),/PRIVATE|private-host|foreign-host|net::|postData|authorization/);
   } finally {await rm(root,{recursive:true,force:true});}
 });
@@ -824,7 +830,7 @@ test('critical generation receipt capacity is ten cases and pending/header state
     const outputFile=path.join(root,'safe.json'),d=createNativeDiagnostics({enabled:true,ci:true,mode:'synthetic',outputFile});
     const context={origin:'http://private-host',workspaceId:'PRIVATE-WORKSPACE',sessionId:'PRIVATE-SESSION'};
     for(let i=1;i<=12;i++)d.generationStart(i,[],0,context);
-    d.observeNetworkEvent(promptRequest('pending'));
+    d.observeNetworkEvent(generationRequest('pending'));
     await d.write();let result=JSON.parse(await readFile(outputFile,'utf8'));
     assert.equal(result.generationPrompts.length,10);assert.ok(result.generationPrompts.slice(0,9).every(row=>row.state==='unissued'));
     assert.equal(result.generationPrompts[9].state,'pending');assert.equal(result.generationPrompts[9].status,null);
@@ -873,8 +879,8 @@ test('provisioning failure before a session exists retains its exact owned respo
     const route='/workspace/PRIVATE-WORKSPACE/lawoss/documents/generation';
     f.bodies.set('PRIVATE-PROVISION',{body:JSON.stringify({code:'internal_error',message:'PRIVATE-CAUSE'}),base64Encoded:false});
     f.diagnostics.provisioningStart(2,f.events,f.events.length,f.context);
-    f.emit(promptRequest('PRIVATE-FOREIGN','/workspace/OTHER/lawoss/documents/generation'));
-    f.emit(promptRequest('PRIVATE-PROVISION',route));f.emit(promptResponse('PRIVATE-PROVISION',500));
+    f.emit(generationRequest('PRIVATE-FOREIGN','/workspace/OTHER/lawoss/documents/generation'));
+    f.emit(generationRequest('PRIVATE-PROVISION',route));f.emit(promptResponse('PRIVATE-PROVISION',500));
     await f.flush();assert.deepEqual(f.reads,[]);
     f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE-PROVISION'}});await f.flush();await f.flush();
     f.diagnostics.failure(new Error('PRIVATE-PRIMARY'));
@@ -894,10 +900,10 @@ test('provisioning failure before a session exists retains its exact owned respo
 test('provisioning diagnostics stay bounded, freeze on failure and never replace prompt receipts',async()=>{
   await generationResponseFixture(async f=>{
     for(let index=1;index<=12;index++)f.diagnostics.provisioningStart(index,f.events,f.events.length,f.context);
-    f.emit(promptRequest('PRIVATE-OK','/workspace/PRIVATE-WORKSPACE/lawoss/documents/generation'));
+    f.emit(generationRequest('PRIVATE-OK','/workspace/PRIVATE-WORKSPACE/lawoss/documents/generation'));
     f.emit(promptResponse('PRIVATE-OK',200));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE-OK'}});await f.flush();
     f.diagnostics.generationStart(10,f.events,f.events.length,f.context);
-    f.emit(promptRequest('PRIVATE-PROMPT'));f.emit(promptResponse('PRIVATE-PROMPT',204));await f.flush();
+    f.emit(generationRequest('PRIVATE-PROMPT'));f.emit(promptResponse('PRIVATE-PROMPT',204));await f.flush();
     const before=await f.receipt();
     assert.equal(before.provisioning.length,10);assert.equal(before.provisioning[9].status,200);
     assert.equal(before.generationPrompts[0].status,204);assert.deepEqual(f.reads,[]);
@@ -914,9 +920,9 @@ test('prompt startup cannot erase late provisioning completion or its failure di
     const route='/workspace/PRIVATE-WORKSPACE/lawoss/documents/generation';
     f.bodies.set('PRIVATE-PROVISION',{body:'{"code":"internal_error","message":"PRIVATE"}',base64Encoded:false});
     f.diagnostics.provisioningStart(1,f.events,f.events.length,f.context);
-    f.emit(promptRequest('PRIVATE-PROVISION',route));f.emit(promptResponse('PRIVATE-PROVISION',500));await f.flush();
+    f.emit(generationRequest('PRIVATE-PROVISION',route));f.emit(promptResponse('PRIVATE-PROVISION',500));await f.flush();
     f.diagnostics.generationStart(1,f.events,f.events.length,f.context);
-    f.emit(promptRequest('PRIVATE-PROMPT'));f.emit(promptResponse('PRIVATE-PROMPT',204));
+    f.emit(generationRequest('PRIVATE-PROMPT'));f.emit(promptResponse('PRIVATE-PROMPT',204));
     f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE-PROVISION'}});
     f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE-PROMPT'}});await f.flush();await f.flush();
     const result=await f.receipt();
@@ -936,7 +942,7 @@ test('owned completed generation5xx reads the actual CDP response once and retai
       const id='PRIVATE-'+index;
       f.bodies.set(id,{body:JSON.stringify(body),base64Encoded:false});
       f.diagnostics.generationStart(index,f.events,f.events.length,f.context);
-      f.emit(promptRequest(id));f.emit(promptResponse(id,500));await f.flush();
+      f.emit(generationRequest(id));f.emit(promptResponse(id,500));await f.flush();
       assert.equal(f.reads.length,index-1,'No body read before its actual completion');
       f.emit({method:'Network.loadingFinished',params:{requestId:id}});await f.flush();await f.flush();
       const result=await f.receipt(),row=result.generationPrompts.at(-1);
@@ -954,7 +960,7 @@ test('owned completed 503 retains only the verified unavailable envelope discrim
     const id='PRIVATE-UNAVAILABLE';
     f.bodies.set(id,{body:JSON.stringify({_tag:'ServiceUnavailableError',message:'PRIVATE-UNAVAILABLE-MESSAGE',service:'PRIVATE-SERVICE'}),base64Encoded:false});
     f.diagnostics.generationStart(1,f.events,f.events.length,f.context);
-    f.emit(promptRequest(id));f.emit(promptResponse(id,503));
+    f.emit(generationRequest(id));f.emit(promptResponse(id,503));
     f.emit({method:'Network.loadingFinished',params:{requestId:id}});await f.flush();await f.flush();
     const result=await f.receipt(),row=result.generationPrompts[0];
     assert.equal(row.status,503);assert.equal(row.state,'finished');
@@ -966,7 +972,7 @@ test('owned completed 503 retains only the verified unavailable envelope discrim
 
 test('frozen owning generation 500 retains only closed metadata from actual owned Node console formatting',async()=>{
   const {spawnSync}=await import('node:child_process');
-  const route='/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async';
+  const route='/workspace/PRIVATE-WORKSPACE/sessions/PRIVATE-SESSION/queue';
   const child=spawnSync(process.execPath,['-e',`
     const error=new Error('Too many protected engine requests.');
     error.stack+='\\n    at owned (file:///PRIVATE-ROOT/apps/server/dist/lawoss/protected-ai/vm-engine.js:167:55)';
@@ -976,7 +982,7 @@ test('frozen owning generation 500 retains only closed metadata from actual owne
   await generationResponseFixture(async f=>{
     f.bodies.set('PRIVATE-HOST',{body:'{}',base64Encoded:false});
     f.diagnostics.generationStart(1,f.events,f.events.length,f.context);
-    f.emit(promptRequest('PRIVATE-HOST'));f.emit(promptResponse('PRIVATE-HOST',500));
+    f.emit(generationRequest('PRIVATE-HOST'));f.emit(promptResponse('PRIVATE-HOST',500));
     f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE-HOST'}});await f.flush();await f.flush();
     const before=(await f.receipt()).generationPrompts;
     const primary=new Error('PRIVATE-PRIMARY');f.diagnostics.failure(primary);
@@ -1016,8 +1022,8 @@ test('host console projection has finite closed categories and allowlisted bound
     for(let i=0;i<cases.length;i++){
       const id='PRIVATE-'+i;f.bodies.set(id,{body:'{}',base64Encoded:false});
       f.diagnostics.generationStart(i+1,f.events,f.events.length,{...f.context,sessionId:'PRIVATE-'+i});
-      const route='/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-'+i+'/prompt_async';
-      f.emit(promptRequest(id,route));f.emit(promptResponse(id,500));f.emit({method:'Network.loadingFinished',params:{requestId:id}});await f.flush();await f.flush();
+      const route='/workspace/PRIVATE-WORKSPACE/sessions/PRIVATE-'+i+'/queue';
+      f.emit(generationRequest(id,route));f.emit(promptResponse(id,500));f.emit({method:'Network.loadingFinished',params:{requestId:id}});await f.flush();await f.flush();
       output+='[legalwork-server] Unhandled error: POST '+route+' '+cases[i][0]+'\n'+frames.join('\n')+'\n';
     }
     f.diagnostics.generationStart(11,f.events,f.events.length,f.context);
@@ -1038,13 +1044,13 @@ test('host console projection has finite closed categories and allowlisted bound
 test('host console capture ignores foreign owners and routes and remains unknown when ambiguous or outside its bounded tail',async()=>{
   await generationResponseFixture(async f=>{
     f.bodies.set('PRIVATE',{body:'{}',base64Encoded:false});
-    f.diagnostics.generationStart(1,f.events,f.events.length,f.context);f.emit(promptRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();await f.flush();
+    f.diagnostics.generationStart(1,f.events,f.events.length,f.context);f.emit(generationRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();await f.flush();
     f.diagnostics.failure(new Error('PRIVATE-PRIMARY'));
     let inspected=0;
     f.diagnostics.captureGenerationHostErrors([
       {label:'provider',output:()=>{throw new Error('Foreign owner inspected');}},
       {label:'electron',output:()=>{inspected++;throw new Error('PRIVATE-OUTPUT-FAILURE');}},
-      {label:'electron-relaunch',output:()=>{inspected++;return '[legalwork-server] Unhandled error: POST /workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async Error: Too many protected engine requests.\n'+'x'.repeat(256*1024);}},
+      {label:'electron-relaunch',output:()=>{inspected++;return '[legalwork-server] Unhandled error: POST /workspace/PRIVATE-WORKSPACE/sessions/PRIVATE-SESSION/queue Error: Too many protected engine requests.\n'+'x'.repeat(256*1024);}},
       {label:'electron',output:()=>{inspected++;return 'UNBOUNDED-THIRD-OWNER';}},
     ]);
     const result=await f.receipt();assert.equal(inspected,2);
@@ -1052,12 +1058,12 @@ test('host console capture ignores foreign owners and routes and remains unknown
     assert.doesNotMatch(JSON.stringify(result),/PRIVATE|UNBOUNDED|OUTPUT|xxxx/);
   });
   for(const text of [
-    '[legalwork-server] Unhandled error: GET /workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async Error: Too many protected engine requests.',
-    '[legalwork-server] Unhandled error: POST /workspace/FOREIGN/opencode/session/PRIVATE-SESSION/prompt_async Error: Too many protected engine requests.',
-    '[legalwork-server] Unhandled error: POST /workspace/PRIVATE-WORKSPACE/opencode/session/FOREIGN/prompt_async Error: Too many protected engine requests.',
-    Array(2).fill('[legalwork-server] Unhandled error: POST /workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async Error: Too many protected engine requests.').join('\n'),
+    '[legalwork-server] Unhandled error: GET /workspace/PRIVATE-WORKSPACE/sessions/PRIVATE-SESSION/queue Error: Too many protected engine requests.',
+    '[legalwork-server] Unhandled error: POST /workspace/FOREIGN/sessions/PRIVATE-SESSION/queue Error: Too many protected engine requests.',
+    '[legalwork-server] Unhandled error: POST /workspace/PRIVATE-WORKSPACE/sessions/FOREIGN/queue Error: Too many protected engine requests.',
+    Array(2).fill('[legalwork-server] Unhandled error: POST /workspace/PRIVATE-WORKSPACE/sessions/PRIVATE-SESSION/queue Error: Too many protected engine requests.').join('\n'),
   ])await generationResponseFixture(async f=>{
-    f.bodies.set('PRIVATE',{body:'{}',base64Encoded:false});f.diagnostics.generationStart(1,f.events,f.events.length,f.context);f.emit(promptRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();await f.flush();
+    f.bodies.set('PRIVATE',{body:'{}',base64Encoded:false});f.diagnostics.generationStart(1,f.events,f.events.length,f.context);f.emit(generationRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();await f.flush();
     f.diagnostics.failure(new Error('PRIVATE'));f.diagnostics.captureGenerationHostErrors([{label:'electron',output:()=>text}]);
     assert.deepEqual((await f.receipt()).generationHostErrors,[{caseIndex:1,category:'unknown',name:'Error',code:null,phase:null,frames:[]}]);
   });
@@ -1070,15 +1076,15 @@ test('host console capture performs no inspection before primary freeze, without
     f.diagnostics.failure(new Error('PRIVATE'));f.diagnostics.captureGenerationHostErrors(owners);assert.equal(inspected,0);
   });
   await generationResponseFixture(async f=>{
-    f.diagnostics.generationStart(1,f.events,f.events.length,f.context);f.emit(promptRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',204));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();
+    f.diagnostics.generationStart(1,f.events,f.events.length,f.context);f.emit(generationRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',204));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();
     f.diagnostics.failure(new Error('PRIVATE'));f.diagnostics.captureGenerationHostErrors(owners);assert.equal(inspected,0);
   });
   await generationResponseFixture(async f=>{
-    f.diagnostics.generationStart(1,f.events,f.events.length,f.context);f.emit(promptRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();
+    f.diagnostics.generationStart(1,f.events,f.events.length,f.context);f.emit(generationRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();
     f.diagnostics.failure(new Error('PRIVATE'));f.diagnostics.captureGenerationHostErrors(owners);assert.equal(inspected,0);
   },{enabled:false});
   await generationResponseFixture(async f=>{
-    f.bodies.set('PRIVATE',{body:'{}',base64Encoded:false});f.diagnostics.generationStart(1,f.events,f.events.length,f.context);f.emit(promptRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();await f.flush();
+    f.bodies.set('PRIVATE',{body:'{}',base64Encoded:false});f.diagnostics.generationStart(1,f.events,f.events.length,f.context);f.emit(generationRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();await f.flush();
     const primary=new TypeError('PRIVATE-PRIMARY'),failure=f.diagnostics.failure(primary);
     f.diagnostics.captureGenerationHostErrors(owners);const before=await f.receipt();
     f.diagnostics.captureGenerationHostErrors([{label:'electron',output:()=>{throw new Error('Must not re-inspect');}}]);
@@ -1105,7 +1111,7 @@ test('generation error bodies stay bounded and closed against malformed, hostile
       const index=offset+1,id='PRIVATE-'+index;
       f.bodies.set(id,{body,base64Encoded:false});
       f.diagnostics.generationStart(index,f.events,f.events.length,f.context);
-      f.emit(promptRequest(id));f.emit(promptResponse(id,503));f.emit({method:'Network.loadingFinished',params:{requestId:id}});
+      f.emit(generationRequest(id));f.emit(promptResponse(id,503));f.emit({method:'Network.loadingFinished',params:{requestId:id}});
       await f.flush();await f.flush();
       const result=await f.receipt();
       assert.deepEqual(result.generationPrompts.at(-1).responseError,{category,shape:'unknown',name:null,code:null});
@@ -1113,7 +1119,7 @@ test('generation error bodies stay bounded and closed against malformed, hostile
       assert.doesNotMatch(JSON.stringify(result),/PRIVATE|private-host|raw|secret|message|body/i);
     }
     f.diagnostics.generationStart(11,f.events,f.events.length,f.context);
-    f.emit(promptRequest('PRIVATE-EXCESS'));f.emit(promptResponse('PRIVATE-EXCESS',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE-EXCESS'}});await f.flush();
+    f.emit(generationRequest('PRIVATE-EXCESS'));f.emit(promptResponse('PRIVATE-EXCESS',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE-EXCESS'}});await f.flush();
     assert.equal(f.reads.length,10);assert.equal((await f.receipt()).generationPrompts.length,10);
   });
 });
@@ -1121,16 +1127,16 @@ test('generation error bodies stay bounded and closed against malformed, hostile
 test('generation response reader ignores foreign scope, success, cancellation and disabled diagnostics',async()=>{
   for(const enabled of [true,false])await generationResponseFixture(async f=>{
     f.diagnostics.generationStart(1,f.events,0,f.context);
-    for(const [id,url] of [['origin','http://foreign-host/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async'],['workspace','/workspace/OTHER/opencode/session/PRIVATE-SESSION/prompt_async'],['session','/workspace/PRIVATE-WORKSPACE/opencode/session/OTHER/prompt_async']]){
-      f.emit(promptRequest(id,url));f.emit(promptResponse(id,500));f.emit({method:'Network.loadingFinished',params:{requestId:id}});
+    for(const [id,url] of [['origin','http://foreign-host/workspace/PRIVATE-WORKSPACE/sessions/PRIVATE-SESSION/queue'],['workspace','/workspace/OTHER/sessions/PRIVATE-SESSION/queue'],['session','/workspace/PRIVATE-WORKSPACE/sessions/OTHER/queue']]){
+      f.emit(generationRequest(id,url));f.emit(promptResponse(id,500));f.emit({method:'Network.loadingFinished',params:{requestId:id}});
     }
-    f.emit(promptRequest('cancelled'));f.emit(promptResponse('cancelled',500));f.emit({method:'Network.loadingFailed',params:{requestId:'cancelled',canceled:true}});
+    f.emit(generationRequest('cancelled'));f.emit(promptResponse('cancelled',500));f.emit({method:'Network.loadingFailed',params:{requestId:'cancelled',canceled:true}});
     await f.flush();
     f.diagnostics.generationStart(2,f.events,f.events.length,f.context);
-    f.emit(promptRequest('accepted'));f.emit(promptResponse('accepted',204));f.emit({method:'Network.loadingFinished',params:{requestId:'accepted'}});await f.flush();
+    f.emit(generationRequest('accepted'));f.emit(promptResponse('accepted',204));f.emit({method:'Network.loadingFinished',params:{requestId:'accepted'}});await f.flush();
     if(!enabled){
       f.diagnostics.generationStart(3,f.events,f.events.length,f.context);
-      f.emit(promptRequest('disabled'));f.emit(promptResponse('disabled',500));f.emit({method:'Network.loadingFinished',params:{requestId:'disabled'}});await f.flush();
+      f.emit(generationRequest('disabled'));f.emit(promptResponse('disabled',500));f.emit({method:'Network.loadingFinished',params:{requestId:'disabled'}});await f.flush();
     }
     assert.deepEqual(f.reads,[]);
   },{enabled});
@@ -1140,16 +1146,16 @@ test('a pending generation body cannot change primary failure evidence and read 
   await generationResponseFixture(async f=>{
     const id='PRIVATE-HELD';f.held.set(id,null);f.bodies.set(id,{body:JSON.stringify({code:'internal_error',message:'PRIVATE-MESSAGE'}),base64Encoded:false});
     f.diagnostics.generationStart(1,[],0,f.context);
-    f.emit(promptRequest(id));f.emit(promptResponse(id,500));f.emit({method:'Network.loadingFinished',params:{requestId:id}});await f.flush();await f.flush();
+    f.emit(generationRequest(id));f.emit(promptResponse(id,500));f.emit({method:'Network.loadingFinished',params:{requestId:id}});await f.flush();await f.flush();
     assert.deepEqual(f.reads,[id]);
     const before=await f.receipt(),primary=new Error('PRIVATE-PRIMARY');f.diagnostics.failure(primary);
     f.held.get(id)();await f.flush();
-    f.diagnostics.generationStart(2,[],0,f.context);f.emit(promptRequest('late'));f.emit(promptResponse('late',500));f.emit({method:'Network.loadingFinished',params:{requestId:'late'}});await f.flush();
+    f.diagnostics.generationStart(2,[],0,f.context);f.emit(generationRequest('late'));f.emit(promptResponse('late',500));f.emit({method:'Network.loadingFinished',params:{requestId:'late'}});await f.flush();
     assert.deepEqual((await f.receipt()).generationPrompts,before.generationPrompts);assert.deepEqual(f.reads,[id]);
   });
   await generationResponseFixture(async f=>{
     f.diagnostics.generationStart(1,[],0,f.context);
-    f.emit(promptRequest('failed-read'));f.emit(promptResponse('failed-read',500));f.emit({method:'Network.loadingFinished',params:{requestId:'failed-read'}});await f.flush();await f.flush();
+    f.emit(generationRequest('failed-read'));f.emit(promptResponse('failed-read',500));f.emit({method:'Network.loadingFinished',params:{requestId:'failed-read'}});await f.flush();await f.flush();
     const value=await f.receipt();assert.deepEqual(value.generationPrompts[0].responseError,{category:'read-failed',shape:'unknown',name:null,code:null});
     assert.doesNotMatch(JSON.stringify(value),/PRIVATE|CDP|message|body/);
   },{readFailure:true});
@@ -1164,7 +1170,7 @@ test('generation error reader decodes only complete canonical bounded CDP base64
       [4,{body:'{}',base64Encoded:false,extra:'PRIVATE'},{category:'unknown',shape:'unknown',name:null,code:null}],
     ]){
       const id='PRIVATE-'+index;f.bodies.set(id,packet);f.diagnostics.generationStart(index,[],0,f.context);
-      f.emit(promptRequest(id));f.emit(promptResponse(id,502));f.emit({method:'Network.loadingFinished',params:{requestId:id}});await f.flush();await f.flush();
+      f.emit(generationRequest(id));f.emit(promptResponse(id,502));f.emit({method:'Network.loadingFinished',params:{requestId:id}});await f.flush();await f.flush();
       assert.deepEqual((await f.receipt()).generationPrompts.at(-1).responseError,expected);
     }
   });
@@ -1180,11 +1186,40 @@ test('generation receipts retain only bounded relative network timing, never abs
     ]){
       const id='PRIVATE-'+index;f.bodies.set(id,{body:JSON.stringify({code:'internal_error',message:'PRIVATE'}),base64Encoded:false});
       f.diagnostics.generationStart(index,[],0,f.context);
-      const request=promptRequest(id),response=promptResponse(id,500);request.params.timestamp=started;response.params.timestamp=headers;
+      const request=generationRequest(id),response=promptResponse(id,500);request.params.timestamp=started;response.params.timestamp=headers;
       f.emit(request);f.emit(response);f.emit({method:'Network.loadingFinished',params:{requestId:id,timestamp:finished}});await f.flush();await f.flush();
       const row=(await f.receipt()).generationPrompts.at(-1),{headersElapsedMs,completedElapsedMs}=row;
       assert.deepEqual({...('headersElapsedMs'in row?{headersElapsedMs}:{}),...('completedElapsedMs'in row?{completedElapsedMs}:{})},expected);
       assert.doesNotMatch(JSON.stringify(row),/123456|timestamp|PRIVATE/);
     }
   });
+});
+
+// #384: a Generate click that issues no provisioning POST leaves only a panel refusal.
+test('generation panel failure projection keeps closed alert categories, controls and binding phase only',async()=>{
+  const {observeGenerationPanel,summarizeGenerationPanel}=await import('./diagnostics.mjs');
+  const node=(text,extra={})=>({textContent:text,isConnected:true,disabled:false,getAttribute:()=>null,getBoundingClientRect:()=>({width:1,height:1}),...extra});
+  const alerts=[node('Source changed or preparation is pending. Refresh and prepare again.'),node('Model or engine is unavailable: PRIVATE-DETAIL. Check the AI connection.'),node('PRIVATE-UNKNOWN /Users/private')];
+  const buttons=[node('Generate through chat',{disabled:true}),node('Read source')];
+  const statuses=[node('Generation is running in the existing chat.')];
+  const panel={...node('panel'),querySelectorAll:selector=>selector==='[role="alert"]'?alerts:selector==='button'?buttons:selector==='[role="status"]'?statuses:[]};
+  const storage=JSON.stringify([['PRIVATE-KEY',{workspaceId:'ws_native_3',transport:'protected-documents-v1',phase:'accepted',sessionId:'PRIVATE-SESSION'}]]);
+  const context={document:{querySelectorAll:()=>[panel]},localStorage:{getItem:()=>storage}};
+  const snapshot=runInNewContext('('+observeGenerationPanel.toString()+')(expected)',{...context,expected:{workspaceId:'ws_native_3'}});
+  const result=summarizeGenerationPanel(snapshot);
+  assert.deepEqual(result.alerts,{sourcesChanged:1,preflightFailed:1,sendFailed:0,busy:0,toolModel:0,modelUnavailable:0,noModel:0,noSources:0,directory:0,other:1});
+  assert.deepEqual(result.controls.generate,{count:1,disabled:1});assert.equal(result.runActive,true);assert.equal(result.bindingPhase,'accepted');
+  assert.doesNotMatch(JSON.stringify(result),/PRIVATE|Users|Source changed/);
+  assert.deepEqual(summarizeGenerationPanel(null),{capture:'unavailable'});
+  assert.equal(summarizeGenerationPanel({bindingPhase:'PRIVATE',alerts:{other:1e9}}).bindingPhase,'unknown');
+  const root=await mkdtemp(path.join(tmpdir(),'native-generation-panel-'));
+  try{
+    const outputFile=path.join(root,'safe.json'),d=createNativeDiagnostics({enabled:true,ci:true,mode:'synthetic',outputFile});
+    d.phase('generation',3);d.generationPanel(snapshot);await d.write();
+    assert.equal(JSON.parse(await readFile(outputFile,'utf8')).generationPanel,undefined,'Only the frozen primary generation failure is projected');
+    d.failure(new Error('PRIVATE-PRIMARY'));d.generationPanel(snapshot);d.generationPanel({alerts:{busy:1}});await d.write({error:new Error('PRIVATE')});
+    const written=JSON.parse(await readFile(outputFile,'utf8'));
+    assert.equal(written.schema,7);assert.equal(written.generationPanel.alerts.sourcesChanged,1);assert.equal(written.generationPanel.alerts.busy,0);
+    assert.doesNotMatch(JSON.stringify(written),/PRIVATE/);
+  }finally{await rm(root,{recursive:true,force:true});}
 });

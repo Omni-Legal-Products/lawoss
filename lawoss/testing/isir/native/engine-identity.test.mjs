@@ -1,120 +1,123 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, readlink, realpath } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { nativeEngineCandidates, prepareNativeEngineFiles, verifyNativeEngineFiles, verifyNativeEngineRuntime, probeNativeEngineVersion } from "./engine-identity.mjs";
+import { opencodeReleaseTarget } from "../../../../packages/opencode-release/index.mjs";
+import { prepareNativeEngineFiles, printedEngineVersion, probeNativeEngineVersion, selectedEnginePaths, verifyNativeEngineFiles, verifyNativeEngineRuntime } from "./engine-identity.mjs";
 
+// LAWOSS v2: the selection and its artifact verifier come from packages/opencode-release
+// (generated/selection.json). These tests inject a synthetic selection with the same contract;
+// the real selected derivative is exercised by engine-runtime-smoke.mjs and the native gate.
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
+const VERSION = "2.1.4-legalwork.http-policy.3";
+const ARTIFACT = "a".repeat(64);
+const filename = process.platform === "win32" ? "opencode.exe" : "opencode";
+
 async function fixture(run) {
   const root = await mkdtemp(path.join(tmpdir(), "native-engine-identity-"));
-  const bundle = path.join(root, "bundle"); await mkdir(bundle);
-  try { await run(root, bundle); } finally { await rm(root, { recursive: true, force: true }); }
+  const resources = path.join(root, "resources"), profile = path.join(root, "profile");
+  await mkdir(profile);
+  try { await run({ root, resources, profile }); } finally { await rm(root, { recursive: true, force: true }); }
 }
-async function manifest(bundle, bytes, version = "1.18.29", name = "versions.json") {
-  await writeFile(path.join(bundle, name), JSON.stringify({ opencode: { version, sha256: hash(bytes) } }));
+/** Synthetic verifier: accepts only exact pinned bytes at a path of the selected artifact layout. */
+function syntheticEngine(bytes, { version = VERSION, kind = "derivative", provenance = "p".repeat(64) } = {}) {
+  const calls = { verify: [], stage: [] };
+  return {
+    calls,
+    selection: { kind, version, baseVersion: "2.1.4", artifactId: ARTIFACT },
+    async verify(binary, { target }) {
+      calls.verify.push({ binary, target });
+      const actual = await readFile(binary);
+      if (hash(actual) !== hash(bytes) || path.basename(path.dirname(binary)) !== target || path.basename(path.dirname(path.dirname(binary))) !== ARTIFACT) throw new Error("Engine path does not identify the selected installed artifact.");
+      return { path: binary, version, sha256: hash(actual), provenanceSha256: provenance };
+    },
+    async stage({ binary, directory, target }) {
+      calls.stage.push({ binary, directory, target });
+      await mkdir(directory, { recursive: true });
+      const staged = path.join(directory, filename);
+      await writeFile(staged, await readFile(binary));
+      return staged;
+    },
+  };
+}
+async function bundled(resources, bytes) {
+  const file = selectedEnginePaths({ resourcesDir: resources, profileDir: path.dirname(resources), artifactId: ARTIFACT, target: opencodeReleaseTarget() }).bundled;
+  await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, bytes);
+  return file;
 }
 
-test("prepared platform target wins over an older different generic alias and records actual bytes", () => fixture(async (_root, bundle) => {
-  const bytes = "synthetic prepared target", candidate = nativeEngineCandidates("darwin", "arm64")[0];
-  await writeFile(path.join(bundle, candidate), bytes); await writeFile(path.join(bundle, "opencode"), "older same-version alias bytes"); await manifest(bundle, bytes);
-  const prepared = await prepareNativeEngineFiles({ bundleDir: bundle, platform: "darwin", arch: "arm64" });
-  const receipt = await verifyNativeEngineFiles(prepared, path.join(bundle, candidate));
-  assert.equal(receipt.path, path.join(bundle, candidate)); assert.equal(receipt.hash, hash(bytes)); assert.equal(receipt.expectedHash, hash(bytes)); assert.equal(receipt.identitySource, "manifest");
-  await assert.rejects(verifyNativeEngineFiles(prepared, path.join(bundle, "opencode")), /selected bundle candidate/);
-  await prepared.cleanup(); assert.equal(await readFile(path.join(bundle, "opencode"), "utf8"), "older same-version alias bytes");
+test("selected engine paths mirror the runtime's bundled-then-installed resolution", () => {
+  const resourcesDir = path.resolve("resources"), profileDir = path.resolve("profile");
+  assert.deepEqual(selectedEnginePaths({ resourcesDir, profileDir, artifactId: ARTIFACT, target: "darwin-arm64", platform: "darwin" }), {
+    bundled: path.join(resourcesDir, "opencode-engine", ARTIFACT, "darwin-arm64", "opencode"),
+    installed: path.join(profileDir, "engines", ARTIFACT, "darwin-arm64", "opencode"),
+  });
+  assert.equal(path.basename(selectedEnginePaths({ resourcesDir, profileDir, artifactId: ARTIFACT, target: "windows-x64-baseline", platform: "win32" }).bundled), "opencode.exe");
+  for (const input of [{ artifactId: "1.18.29" }, { target: "../escape" }, { resourcesDir: "relative" }])
+    assert.throws(() => selectedEnginePaths({ resourcesDir, profileDir, artifactId: ARTIFACT, target: "darwin-arm64", ...input }));
+});
+
+test("printed engine version normalizes only the exact `opencode v` prefix", () => {
+  assert.equal(printedEngineVersion(`opencode v${VERSION}\n`), VERSION);
+  assert.equal(printedEngineVersion(`${VERSION}\n`), VERSION);
+  assert.equal(printedEngineVersion(`opencode ${VERSION}`), `opencode ${VERSION}`);
+  assert.equal(printedEngineVersion(undefined), "");
+});
+
+test("bundled selected artifact is verified by bytes, version and provenance before and after use", () => fixture(async ({ resources, profile }) => {
+  const bytes = "synthetic selected derivative", engine = syntheticEngine(bytes);
+  const file = await bundled(resources, bytes);
+  const prepared = await prepareNativeEngineFiles({ resourcesDir: resources, profileDir: profile, engine });
+  assert.equal(prepared.path, file); assert.equal(prepared.version, VERSION); assert.equal(prepared.identitySource, "bundled");
+  const receipt = await verifyNativeEngineFiles(prepared, file);
+  assert.equal(receipt.hash, hash(bytes)); assert.equal(receipt.provenanceSha256, "p".repeat(64)); assert.equal(receipt.artifactId, ARTIFACT);
+  assert.ok(engine.calls.verify.every(call => call.target === opencodeReleaseTarget()));
+  await assert.rejects(verifyNativeEngineFiles(prepared, path.join(path.dirname(file), "other")), /selected engine path/);
+  await writeFile(file, "replaced same-name bytes");
+  await assert.rejects(verifyNativeEngineFiles(prepared, file), /hash/);
+  await writeFile(file, bytes);
+  engine.verify = async binary => ({ path: binary, version: VERSION, sha256: hash(bytes), provenanceSha256: "q".repeat(64) });
+  await assert.rejects(verifyNativeEngineFiles(prepared, file), /provenance/);
+  await prepared.cleanup(); assert.equal(await readFile(file, "utf8"), bytes);
 }));
 
-for (const [platform, arch, target, canonical] of [
-  ["darwin", "arm64", "opencode-aarch64-apple-darwin", "opencode"],
-  ["darwin", "x64", "opencode-x86_64-apple-darwin", "opencode"],
-  ["linux", "x64", "opencode-x86_64-unknown-linux-gnu", "opencode"],
-  ["linux", "arm64", "opencode-aarch64-unknown-linux-gnu", "opencode"],
-  ["win32", "x64", "opencode-x86_64-pc-windows-msvc.exe", "opencode.exe"],
-  ["win32", "arm64", "opencode-aarch64-pc-windows-msvc.exe", "opencode.exe"],
-]) test(`real prepared target/canonical-only file policy ${platform}/${arch} without foreign execution`, () => fixture(async (_root, bundle) => {
-  assert.deepEqual(nativeEngineCandidates(platform, arch), [target, canonical]);
-  const bytes = `synthetic ${platform}/${arch} file bytes`; await manifest(bundle, bytes);
-  for (const name of [canonical, target]) {
-    await writeFile(path.join(bundle, name), bytes);
-    const prepared = await prepareNativeEngineFiles({ bundleDir: bundle, platform, arch });
-    assert.equal((await verifyNativeEngineFiles(prepared, path.join(bundle, name))).hash, hash(bytes));
-    await prepared.cleanup();
-  }
+test("wrong selection kind, unverified bytes and a different artifact version fail closed", () => fixture(async ({ resources, profile }) => {
+  await bundled(resources, "synthetic bytes");
+  await assert.rejects(prepareNativeEngineFiles({ resourcesDir: resources, profileDir: profile, engine: syntheticEngine("synthetic bytes", { kind: "official" }) }), /derivative/);
+  await assert.rejects(prepareNativeEngineFiles({ resourcesDir: resources, profileDir: profile, engine: syntheticEngine("other pinned bytes") }), /selected installed artifact/);
+  const stale = syntheticEngine("synthetic bytes"); stale.verify = async binary => ({ path: binary, version: "1.18.29", sha256: hash("synthetic bytes"), provenanceSha256: "p".repeat(64) });
+  await assert.rejects(prepareNativeEngineFiles({ resourcesDir: resources, profileDir: profile, engine: stale }), /version/);
+  const unverified = syntheticEngine("synthetic bytes"); unverified.verify = async () => undefined;
+  await assert.rejects(prepareNativeEngineFiles({ resourcesDir: resources, profileDir: profile, engine: unverified }), /not verified/);
 }));
 
-test("outside/arbitrary PATH and unsupported candidate cannot confer identity even with matching bytes", () => fixture(async (root, bundle) => {
-  const bytes = "synthetic correct bytes", candidate = nativeEngineCandidates()[0];
-  await writeFile(path.join(bundle, candidate), bytes); await manifest(bundle, bytes);
-  const prepared = await prepareNativeEngineFiles({ bundleDir: bundle });
-  const outside = path.join(root, "opencode"); await writeFile(outside, bytes);
-  await assert.rejects(verifyNativeEngineFiles(prepared, outside), /selected bundle candidate/);
-  const unsupported = path.join(bundle, "opencode-other-platform"); await writeFile(unsupported, bytes);
-  await assert.rejects(verifyNativeEngineFiles(prepared, unsupported), /selected bundle candidate/);
-  await assert.rejects(prepareNativeEngineFiles({ bundleDir: bundle, externalEngine: "opencode" }), /absolute/);
-  assert.throws(() => nativeEngineCandidates("freebsd", "x64"), /Unsupported/);
-  assert.throws(() => nativeEngineCandidates("linux", "riscv64"), /Unsupported/);
+test("missing bundled engine never borrows bytes; an explicit fixture is staged only into the owned profile", () => fixture(async ({ root, resources, profile }) => {
+  const bytes = "synthetic external derivative", external = path.join(root, "external", filename);
+  await mkdir(path.dirname(external)); await writeFile(external, bytes);
+  const engine = syntheticEngine(bytes);
+  await assert.rejects(prepareNativeEngineFiles({ resourcesDir: resources, profileDir: profile, engine }), /missing/);
+  await assert.rejects(prepareNativeEngineFiles({ resourcesDir: resources, profileDir: profile, externalEngine: "opencode", engine }), /absolute/);
+  const prepared = await prepareNativeEngineFiles({ resourcesDir: resources, profileDir: profile, externalEngine: external, engine });
+  const installed = selectedEnginePaths({ resourcesDir: resources, profileDir: profile, artifactId: ARTIFACT, target: opencodeReleaseTarget() }).installed;
+  assert.equal(prepared.path, installed); assert.equal(prepared.identitySource, "owned-staged-fixture");
+  assert.deepEqual(engine.calls.stage, [{ binary: external, directory: path.dirname(installed), target: opencodeReleaseTarget() }]);
+  await assert.rejects(lstat(path.join(resources, "opencode-engine")), { code: "ENOENT" }, "Application resources are never provisioned by the test");
+  await assert.rejects(prepareNativeEngineFiles({ resourcesDir: resources, profileDir: profile, externalEngine: external, engine }), /already holds/);
+  await prepared.cleanup();
+  await assert.rejects(lstat(path.dirname(installed)), { code: "ENOENT" });
+  assert.equal(await readFile(external, "utf8"), bytes);
 }));
 
-test("wrong prepared bytes, stale version and conflicting platform manifest fail closed", () => fixture(async (_root, bundle) => {
-  const candidate = nativeEngineCandidates()[0], target = path.join(bundle, candidate);
-  await writeFile(target, "wrong bytes"); await manifest(bundle, "correct bytes");
-  await assert.rejects(prepareNativeEngineFiles({ bundleDir: bundle }), /hash/);
-  await writeFile(target, "correct bytes"); await manifest(bundle, "correct bytes", "1.18.28");
-  await assert.rejects(prepareNativeEngineFiles({ bundleDir: bundle }), /version/);
-  await manifest(bundle, "correct bytes");
-  const targetManifest = `versions.json-${candidate.slice("opencode-".length)}`;
-  await manifest(bundle, "different target bytes", "1.18.29", targetManifest);
-  await assert.rejects(prepareNativeEngineFiles({ bundleDir: bundle }), /manifest|hash/);
-}));
-
-test("relaunch rechecks bytes and manifest and health before conferring identity", () => fixture(async (_root, bundle) => {
-  const target = path.join(bundle, nativeEngineCandidates()[0]), bytes = "initial correct bytes";
-  await writeFile(target, bytes); await manifest(bundle, bytes);
-  const prepared = await prepareNativeEngineFiles({ bundleDir: bundle });
-  assert.equal((await verifyNativeEngineFiles(prepared, target)).hash, hash(bytes));
-  await writeFile(target, "relaunch wrong same-version bytes");
-  await assert.rejects(verifyNativeEngineFiles(prepared, target), /hash/);
-  await writeFile(target, bytes); await manifest(bundle, "manifest changed during relaunch");
-  await assert.rejects(verifyNativeEngineFiles(prepared, target), /manifest|hash/);
-  await manifest(bundle, bytes);
-  await assert.rejects(verifyNativeEngineRuntime(prepared, target, { version: "1.18.28" }), /health/);
-  assert.throws(() => probeNativeEngineVersion(process.execPath), /version/); // Actual native executable, not a simulated process result.
-}));
-
-test("existing external symlink or unpinned existing candidates fail without mutation", () => fixture(async (root, bundle) => {
-  const external = path.join(root, "external-engine"); await writeFile(external, "synthetic external bytes");
-  const canonical = path.join(bundle, nativeEngineCandidates()[1]);
-  await symlink(external, canonical);
-  await assert.rejects(prepareNativeEngineFiles({ bundleDir: bundle, externalEngine: external }), /outside|manifest/);
-  assert.equal(await readlink(canonical), external);
-  await rm(canonical); await writeFile(canonical, "existing unpinned bytes");
-  await assert.rejects(prepareNativeEngineFiles({ bundleDir: bundle, externalEngine: external }), /manifest/);
-  assert.equal(await readFile(canonical, "utf8"), "existing unpinned bytes");
-}));
-
-test("explicit external fixture provisions only an absent owned bundle link and captured byte identity", () => fixture(async (root, bundle) => {
-  const external = path.join(root, "external-engine"), bytes = "synthetic explicitly provisioned bytes"; await writeFile(external, bytes);
-  const prepared = await prepareNativeEngineFiles({ bundleDir: bundle, externalEngine: external });
-  assert.equal(await readlink(prepared.path), external);
-  const receipt = await verifyNativeEngineFiles(prepared, prepared.path);
-  assert.equal(receipt.identitySource, "owned-provisioned-fixture"); assert.equal(receipt.realPath, await realpath(external)); assert.equal(receipt.hash, hash(bytes));
-  await assert.rejects(verifyNativeEngineFiles(prepared, external), /selected bundle candidate/);
-  await writeFile(external, "replaced source bytes"); await assert.rejects(verifyNativeEngineFiles(prepared, prepared.path), /hash/);
-  await writeFile(external, bytes); await prepared.cleanup();
-  await assert.rejects(readlink(prepared.path), { code: "ENOENT" }); assert.equal(await readFile(external, "utf8"), bytes);
-}));
-
-test("cleanup never deletes replacement links or regular files and missing prepared artifacts do not borrow external bytes", () => fixture(async (root, bundle) => {
-  const external = path.join(root, "external-engine"), other = path.join(root, "other-engine");
-  await writeFile(external, "fixture bytes"); await writeFile(other, "other bytes");
-  const prepared = await prepareNativeEngineFiles({ bundleDir: bundle, externalEngine: external });
-  await rm(prepared.path); await symlink(other, prepared.path); await prepared.cleanup();
-  assert.equal(await readlink(prepared.path), other);
-  await rm(prepared.path); await writeFile(prepared.path, "replacement regular file"); await prepared.cleanup();
-  assert.equal(await readFile(prepared.path, "utf8"), "replacement regular file");
-  await rm(prepared.path); await manifest(bundle, "fixture bytes");
-  await assert.rejects(prepareNativeEngineFiles({ bundleDir: bundle, externalEngine: external }), /missing/);
-  await assert.rejects(prepareNativeEngineFiles({ bundleDir: bundle }), /missing/);
+test("bundled engine wins over an explicit fixture and runtime health must report the selected version", () => fixture(async ({ root, resources, profile }) => {
+  const bytes = "synthetic selected derivative", engine = syntheticEngine(bytes), file = await bundled(resources, bytes);
+  const external = path.join(root, "external"); await writeFile(external, bytes);
+  const prepared = await prepareNativeEngineFiles({ resourcesDir: resources, profileDir: profile, externalEngine: external, engine });
+  assert.equal(prepared.path, file); assert.equal(engine.calls.stage.length, 0);
+  await assert.rejects(verifyNativeEngineRuntime(prepared, file, { version: "1.18.29" }), /api\/info version/);
+  await assert.rejects(verifyNativeEngineRuntime(prepared, file, null), /api\/info version/);
+  assert.throws(() => probeNativeEngineVersion(process.execPath, VERSION), /version/); // Actual native executable, not a simulated result.
+  assert.throws(() => probeNativeEngineVersion("opencode", VERSION), /absolute/);
+  assert.throws(() => probeNativeEngineVersion(process.execPath, ""), /Expected/);
 }));

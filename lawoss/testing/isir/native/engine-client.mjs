@@ -16,18 +16,19 @@ export function createNativeEngineClient(serverInfo, workspaceId, request = fetc
     headers.set('content-type', 'application/json');
     return request(url, { ...options, headers }, timeout);
   };
-  const engineRequest = (route, options = {}) => {
+  // The proxy prepends `/api`: `/info` reaches engine v2 `GET /api/info`.
+  const engineRequest = (route, options = {}, timeout = 30_000) => {
     assert.ok(route.startsWith('/') && !route.startsWith('//'), 'Native engine route must be relative');
-    return authenticatedRequest(`${baseUrl}${route}`, options);
+    return authenticatedRequest(`${baseUrl}${route}`, options, timeout);
   };
-  // Global health and enabled renderer actions do not await instance bootstrap.
-  // Finish the real cold instance before configuring and reloading its provider.
-  // Cold provisioning includes npm installs; the pinned engine's lock budget is 5m.
+  // LAWOSS v2: engine readiness is the instance-free `GET /api/info` (AGENTS.md, RAM 2 GB). A
+  // location-bound probe (v1 `/mcp`) would build the selected location with all of its MCP servers.
+  // The 5 min budget covers a cold engine process behind the owned workspace proxy.
   engineRequest.ready = async () => {
-    const response = await authenticatedRequest(`${baseUrl}/mcp`, { signal: AbortSignal.timeout(300_000) }, 300_000);
-    assert.equal(response.status, 200, 'Owned engine instance must be ready before native configuration');
+    const response = await authenticatedRequest(`${baseUrl}/info`, { signal: AbortSignal.timeout(300_000) }, 300_000);
+    assert.equal(response.status, 200, 'Owned engine must answer authenticated /api/info before native configuration');
     const body = await response.json();
-    assert.ok(body && typeof body === 'object' && !Array.isArray(body), 'Owned engine readiness requires a valid MCP status object');
+    assert.ok(body && typeof body === 'object' && !Array.isArray(body) && typeof body.version === 'string' && body.version, 'Owned engine readiness requires a valid /api/info object');
     return body;
   };
   // Match provider sign-in in the application: the server awaits rebuilding
