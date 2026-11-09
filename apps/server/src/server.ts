@@ -1358,7 +1358,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: LawossSe
           if (isRecord(payload)) {
             // LAWOSS: an engine session lists only its own project (and wikis it may open).
             const wikiIds = new Set(wikis.map((wiki) => wiki.workspaceId));
-            const visible = (id: string) => !hidden.has(id) && (!agentAccess || wikiIds.has(id) || agentMayList(agentAccess, url.pathname, id));
+            // LAWOSS: a location-level engine read (no chat) lists only the location's own workspace, no wikis.
+            const visible = (id: string) => !hidden.has(id) && (!agentAccess || (!agentAccess.location && wikiIds.has(id)) || agentMayList(agentAccess, url.pathname, id));
             const filtered: Record<string, unknown> = { ...payload };
             // LAWOSS: `/workspaces` repeats the list as `workspaces`; both are filtered.
             for (const field of [workspaceList.field, ...(url.pathname === "/workspaces" ? ["workspaces"] : [])]) {

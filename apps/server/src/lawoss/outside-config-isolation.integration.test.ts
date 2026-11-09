@@ -106,6 +106,28 @@ test.skipIf(!ready)("klient outside: príkaz, skill a konektor A len v lokáciá
     B: { commands: ["b-tajny"], skills: ["b-skill"], mcp: ["b-konektor"] },
     C: { commands: ["c-prikaz"], skills: [], mcp: [] },
   });
+  // Príkazy v engine (`/api/command`): plugin legalwork-commands je aktívny v každej lokácii (poverenie lokácie bez chatu)
+  // a príkaz klienta je len v jeho lokáciách, aj pre klienta outside.
+  const engine = async (directory: string, expected: string) => {
+    const query = new URLSearchParams({ "location[directory]": directory }), id = workspace(owner[directory]!).id;
+    let listed: string[] = [], status = "";
+    for (let attempt = 0; attempt < 80; attempt++) {
+      const plugins = z.object({ data: z.array(z.object({ id: z.string(), state: z.object({ status: z.string() }).passthrough() })) })
+        .parse(await call("GET", `/workspace/${id}/opencode/api/plugin?${query}`)).data;
+      status = plugins.find(plugin => plugin.id === "legalwork.commands")?.state.status ?? "missing";
+      listed = named.parse(await call("GET", `/workspace/${id}/opencode/api/command?${query}`)).data.map(item => item.name);
+      if (status === "failed" || listed.includes(expected)) break;
+      await Bun.sleep(250);
+    }
+    return { status, commands: listed.filter(name => /^[abc]-/.test(name)).sort() };
+  };
+  expect({ A: await engine(clientA, "a-tajny"), "A prípad": await engine(matterA, "a-tajny"), B: await engine(clientB, "b-tajny"), C: await engine(clientC, "c-prikaz") }).toEqual({
+    A: { status: "active", commands: ["a-tajny", "a-vlastny"] },
+    "A prípad": { status: "active", commands: ["a-tajny", "a-vlastny"] },
+    B: { status: "active", commands: ["b-tajny"] },
+    C: { status: "active", commands: ["c-prikaz"] },
+  });
+
   // C inside: jeho priečinok nesie vygenerovanú projektovú konfiguráciu, A ani B nie.
   expect(existsSync(join(clientC, ".opencode", "opencode.json"))).toBe(true);
 
@@ -114,6 +136,8 @@ test.skipIf(!ready)("klient outside: príkaz, skill a konektor A len v lokáciá
   for (const client of [clientA, clientB, clientC]) await call("POST", `/workspace/${workspace(client).id}/engine/reload`, {});
   expect(await commands(clientA)).toEqual(["a-novy", "a-tajny", "a-vlastny"]);
   expect(await commands(clientB)).toEqual(["b-tajny"]);
+  expect((await engine(clientA, "a-novy")).commands).toEqual(["a-novy", "a-tajny", "a-vlastny"]);
+  expect((await engine(clientB, "b-tajny")).commands).toEqual(["b-tajny"]);
   // Nový skill A po reloade (plugin si nastavenia klienta outside načíta znova).
   await mkdir(join(externalOpencodeConfigDir(server.config, workspace(clientA))!, "skills", "a-druhy"), { recursive: true });
   await writeFile(join(externalOpencodeConfigDir(server.config, workspace(clientA))!, "skills", "a-druhy", "SKILL.md"), skill("a-druhy", "Druhý skill A"));

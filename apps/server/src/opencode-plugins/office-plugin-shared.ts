@@ -12,7 +12,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import { realpath } from "node:fs/promises";
 import { z } from "zod";
 import { isPathWithin } from "../lawoss/path-within.js";
-import { ENGINE_CONNECTION_REFUSED } from "../lawoss/engine-agent-contract.js";
+import { ENGINE_CONNECTION_REFUSED, WIKI_AGENT_LOCATION_HEADER } from "../lawoss/engine-agent-contract.js";
 import { acquireWikiAgentSecret, wikiAgentSecret, wikiAgentSecretFailed } from "./wiki-agent-secret.js";
 
 // LAWOSS: finished before the plugin's factory runs, so its tools see the secret and MCP starts after it.
@@ -67,6 +67,18 @@ export async function workspaceToolHeaders(context?: OpenCodeContext): Promise<R
   };
 }
 
+/**
+ * LAWOSS: a location-level read before any chat exists (the native command plugin's `setup`). The server lets it
+ * find only this location's own workspace and read its command definitions (`wiki/agent-access.ts`).
+ */
+export async function locationToolHeaders(directory: string): Promise<Record<string, string>> {
+  if (wikiAgentSecretFailed()) throw new Error(ENGINE_CONNECTION_REFUSED);
+  const token = wikiAgentSecret();
+  if (!token) return {};
+  return { "x-legalwork-wiki-agent-token": token,
+    [WIKI_AGENT_LOCATION_HEADER]: encodeURIComponent(await realpath(directory).catch(() => resolve(directory))) };
+}
+
 /** The server's `message` from a JSON error body, bounded; empty when there is none. */
 function refusalMessage(text: string): string {
   try {
@@ -80,9 +92,10 @@ const workspaceListSchema = z.object({ items: z.array(z.object({ id: z.string(),
 // Not cached: the server lists only the chat's own workspace and applies a revoked
 // or downgraded chat at once.
 
-export async function listWorkspaces(context?: OpenCodeContext): Promise<Array<{ id: string; path: string }>> {
+export async function listWorkspaces(context?: OpenCodeContext, options: { location?: boolean } = {}): Promise<Array<{ id: string; path: string }>> {
   const url = serverUrl();
-  const headers = await workspaceToolHeaders(context);
+  // LAWOSS: `location` = the location-level credential for `context.directory`, without a chat.
+  const headers = options.location && context?.directory ? await locationToolHeaders(context.directory) : await workspaceToolHeaders(context);
   const response = await fetch(`${url}/workspaces`, {
     headers,
     signal: context?.abort ? AbortSignal.any([context.abort, AbortSignal.timeout(8_000)]) : AbortSignal.timeout(8_000),
@@ -93,9 +106,9 @@ export async function listWorkspaces(context?: OpenCodeContext): Promise<Array<{
   return items;
 }
 
-export async function resolveWorkspaceId(context: OpenCodeContext, options: { requireDirectory?: boolean } = {}): Promise<string> {
+export async function resolveWorkspaceId(context: OpenCodeContext, options: { requireDirectory?: boolean; location?: boolean } = {}): Promise<string> {
   const directory = context.directory?.trim() ?? "";
-  const items = await listWorkspaces(context);
+  const items = await listWorkspaces(context, { location: options.location });
   if (directory) {
     const match = [...items].sort((a, b) => b.path.length - a.path.length).find((item) => {
       if (!item.path) return false;

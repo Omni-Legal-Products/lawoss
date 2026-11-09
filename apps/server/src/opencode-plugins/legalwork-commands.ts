@@ -10,7 +10,7 @@ import { Schema } from "effect";
 import { randomUUID } from "node:crypto";
 import { nativeEvents } from "./native-events.js";
 import { expandCommandTemplate } from "./native-command-template.js";
-import { resolveWorkspaceId, serverUrl, workspaceToolHeaders } from "./office-plugin-shared.js";
+import { locationToolHeaders, resolveWorkspaceId, serverUrl, workspaceToolHeaders } from "./office-plugin-shared.js";
 
 const executionResult = Schema.Struct({ output: Schema.String, exitCode: Schema.Number, truncated: Schema.Boolean });
 export { commandSettingsRpc };
@@ -24,11 +24,12 @@ export const LegalWorkCommands = Plugin.define({
     const delegatedRoles = new Map<string, { dispose(): Promise<void> }>();
     const registrations: Array<{ dispose(): Promise<void> }> = [];
     const read = async () => {
+      // LAWOSS: no chat exists yet; the location-level credential reads only this location's definitions.
       const context = { directory: ctx.location.directory };
-      const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
+      const workspace = await resolveWorkspaceId(context, { requireDirectory: true, location: true });
       const url = new URL(serverUrl() + "/workspace/" + encodeURIComponent(workspace) + "/commands/definitions");
       url.searchParams.set("directory", context.directory);
-      const response = await fetch(url, { headers: await workspaceToolHeaders(context) });
+      const response = await fetch(url, { headers: await locationToolHeaders(context.directory) });
       if (!response.ok) throw new Error("Command definitions unavailable (" + response.status + "): " + await response.text());
       return Schema.decodeUnknownSync(commandDefinitionsSchema)(await response.json());
     };
