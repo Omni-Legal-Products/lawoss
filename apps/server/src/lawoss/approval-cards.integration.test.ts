@@ -2,42 +2,40 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { ApprovalService } from "../approvals.js";
 import { ApiError } from "../errors.js";
 import { explicitFileApprovals, managedPermissionRules } from "../agent-sandbox/engine-policy.js";
 import { AgentSandboxService, type AgentPermissionRule } from "../agent-sandbox/service.js";
-import { buildLegalworkRuntimeConfigObject } from "../legalwork-runtime-config.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, readRuntimeOpencodeConfigText } from "../runtime-opencode-config-store.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { applyFileOperations, LAWOSS_TRASH_FOLDER, planFileOperations } from "./file-operations.js";
 import { writeYoloMode } from "./yolo-mode.js";
-import { WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PATH } from "./engine-agent-contract.js";
+import { WIKI_AGENT_TICKET_PATH } from "./engine-agent-contract.js";
+import { startScriptedEngine, type EngineCard } from "./test-support/scripted-engine.js";
+import type { OpenCodeClient } from "@opencode/client";
 
 /**
  * Alfa 2 acceptance with the shipped engine and the production permission map on a CLEAN profile
  * (no tool rule saved, YOLO off, protected execution off), synthetic files only:
  * - managed shell `mv`: exactly one card; declined → file unchanged; a new request in the SAME chat
  *   shows a new card; approved → renamed;
- * - `lawoss_files` rename: exactly one engine card (`edit`, readable plan, no "always");
+ * - `lawoss_files` rename: exactly one engine card (`lawoss_file_change`, readable plan, no "always");
  *   rejected → unchanged; a new request in the same chat → new card; approved → renamed, truthful result;
  * - "always" on a native edit card in chat A (engine keeps it for every chat of the client) does not
  *   approve `lawoss_files` in chat B: exactly one own card; approved delete goes to the Trash folder;
  * - YOLO on → `lawoss_files` renames without any card.
+ * Engine v2 (2.1.4): production rules and built plugins through `test-support/scripted-engine.ts` (plugin tools offered
+ * directly, not through Code Mode); a card is an engine permission request (`action`, `resources`, `save`). The fixture
+ * derives the managed shell's rules from the engine's agent and configuration documents like the server
+ * (`agentRules` in server.ts).
  * Opt-in: needs the built server plugins and an engine binary.
  *   pnpm --filter legalwork-server build
  *   LAWOSS_APPROVAL_ENGINE=1 LEGALWORK_TEST_OPENCODE_BIN=/Applications/LAWOSS.app/Contents/Resources/sidecars/opencode \
  *     pnpm --filter legalwork-server exec bun test src/lawoss/approval-cards.integration.test.ts
  */
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-const agentRuleSchema = z.array(z.object({ name: z.string(), permission: z.array(z.object({ permission: z.string(), pattern: z.string(), action: z.enum(["allow", "ask", "deny"]) })) }));
-const askSchema = z.array(z.object({ id: z.string(), sessionID: z.string(), permission: z.string(), patterns: z.array(z.string()), always: z.array(z.string()).optional(),
-  metadata: z.record(z.string(), z.unknown()).optional() }));
-type EngineAsk = z.infer<typeof askSchema>[number];
-
-// LAWOSS v2: tento test hovorí s enginom cez cesty v1 (/agent, /config, mapy oprávnení); treba ho prepísať na engine 2.1.4.
-test.skip("a real engine: one card per change, a decline changes nothing, a new request asks again, YOLO asks nothing", async () => {
+test.skipIf(!binary || process.env.LAWOSS_APPROVAL_ENGINE !== "1")("a real engine: one card per change, a decline changes nothing, a new request asks again, YOLO asks nothing", async () => {
   if (!binary) return;
   const root = await realpath(await mkdtemp(join(tmpdir(), "lawoss-approval-engine-")));
   const matter = join(root, "C001-Synteticka"); await mkdir(matter);
@@ -57,7 +55,7 @@ test.skip("a real engine: one card per change, a decline changes nothing, a new 
   }));
   const service = new AgentSandboxService(config, approvals, { status: async () => ({ available: true }), prepare: async () => "fixture",
     run: async () => { throw new Error("The protected environment stays off in this test."); } });
-  let engineBase = "";
+  let engineClient: OpenCodeClient | undefined;
   let call: { tool: string; args: Record<string, unknown> } = { tool: "", args: {} };
   const toolResults: string[] = [];
   let advertised: unknown;
@@ -69,12 +67,14 @@ test.skip("a real engine: one card per change, a decline changes nothing, a new 
     try {
       if (path === "/workspace/matter/sandbox/execute") {
         const command = z.object({ command: z.string(), write: z.boolean(), agent: z.string(), sessionID: z.string() }).parse(await request.json());
-        // As the server derives them: the engine's agent rules under its current config.
-        const agents = agentRuleSchema.parse(await (await fetch(`${engineBase}/agent`)).json());
-        const engineConfig = z.object({ permission: z.unknown(), agent: z.record(z.string(), z.object({ permission: z.unknown() }).partial()).optional() })
-          .parse(await (await fetch(`${engineBase}/config`)).json());
-        const rules: AgentPermissionRule[] = managedPermissionRules(explicitFileApprovals(agents.find(agent => agent.name === command.agent)?.permission ?? [],
-          [] /* LAWOSS v2: the v1 /config permission map no longer exists */), []);
+        // As the server derives them (server.ts `agentRules`): the engine's agent rules and its configuration documents.
+        if (!engineClient) throw new Error("Engine not started");
+        const location = { directory: matter };
+        const agent = (await engineClient.agent.list({ location })).data.find(item => item.id === command.agent);
+        const configured = (await engineClient.config.get({ location })).flatMap(entry => entry.type === "document"
+          ? [...(entry.info.permissions ?? []), ...(entry.info.agents?.[command.agent]?.permissions ?? [])] : []);
+        const rules: AgentPermissionRule[] = managedPermissionRules(explicitFileApprovals((agent?.permissions ?? [])
+          .map(rule => ({ permission: rule.action === "shell" ? "bash" : rule.action, pattern: rule.resource, action: rule.effect })), configured), []);
         return Response.json(await service.run(workspace, { ...command, timeoutMs: 10000 }, { type: "host" }, request.signal, rules, [command.sessionID]));
       }
       if (path === "/workspace/matter/lawoss/files/plan") {
@@ -99,48 +99,19 @@ test.skip("a real engine: one card per change, a decline changes nothing, a new 
     return new Response(chunk({ role: "assistant", ...delta }, null) + chunk({}, invoke ? "tool_calls" : "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
   } });
 
-  const plugins = ["legalwork-sandbox", "lawoss-file-operations"].map(name => pathToFileURL(join(import.meta.dir, `../../dist/opencode-plugins/${name}.js`)).href);
   const engine = async (phase: string) => {
-    const production = await buildLegalworkRuntimeConfigObject(config, workspace.id);
-    const file = join(root, `config-${phase}.json`);
-    await writeFile(file, JSON.stringify({ enabled_providers: ["fixture"], model: "fixture/fixture", small_model: "fixture/fixture", share: "disabled", autoupdate: false,
-      provider: { fixture: { npm: "@ai-sdk/openai-compatible", name: "Fixture", options: { baseURL: fixture.url.origin + "/v1", apiKey: "fixture" }, models: { fixture: { name: "Fixture", limit: { context: 100000, output: 4000 } } } } },
-      plugin: plugins, permission: production.permission, agent: production.agent, experimental: production.experimental, lsp: false, formatter: false }));
-    const reservation = Bun.serve({ port: 0, fetch: () => new Response() }), port = reservation.port;
-    reservation.stop(true);
-    const child = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: matter, env: {
-      ...process.env, HOME: root, XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
-      OPENCODE_TEST_HOME: root, OPENCODE_CONFIG: file, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-      LEGALWORK_SERVER_URL: fixture.url.origin, [WIKI_AGENT_TICKET_ENV]: "synthetic-ticket",
-    }, stdout: "pipe", stderr: "pipe" });
-    const logs = new Response(child.stderr).text();
-    engineBase = `http://127.0.0.1:${port}`;
-    let ready = false;
-    for (let i = 0; i < 300 && !ready && child.exitCode === null; i++) {
-      try { ready = (await fetch(engineBase + "/global/health", { signal: AbortSignal.timeout(1000) })).ok; } catch { await Bun.sleep(100); }
-    }
-    if (!ready) { child.kill("SIGKILL"); throw new Error("Engine did not start: " + (child.exitCode !== null ? await logs : "timed out")); }
-    const newChat = async () => z.object({ id: z.string() }).parse(await (await fetch(engineBase + "/session", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json());
-    let session = await newChat();
-    /** One user turn in the current chat; every engine card is recorded and answered by `reply`. */
-    const turn = async (text: string, reply: (ask: EngineAsk) => "once" | "reject" | "always") => {
-      const cards: EngineAsk[] = [];
-      const accepted = await fetch(`${engineBase}/session/${session.id}/prompt_async`, { method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agent: "legalwork", model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text }] }) });
-      expect(accepted.ok).toBe(true);
-      for (let i = 0; i < 300; i++) {
-        for (const ask of askSchema.parse(await (await fetch(`${engineBase}/permission`)).json())) {
-          if (cards.some(card => card.id === ask.id)) continue;
-          cards.push(ask);
-          await fetch(`${engineBase}/permission/${ask.id}/reply`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reply: reply(ask) }) });
-        }
-        const status = z.record(z.string(), z.object({ type: z.string() })).parse(await (await fetch(`${engineBase}/session/status`)).json());
-        if (i > 5 && (status[session.id]?.type ?? "idle") === "idle") break;
-        await Bun.sleep(100);
-      }
-      return cards;
-    };
-    return { turn, switchChat: async () => { session = await newChat(); }, stop: async () => { child.kill("SIGKILL"); await child.exited; } };
+    const cleanups: (() => Promise<unknown> | unknown)[] = [];
+    try {
+      // A new engine per phase reads the current production rules (YOLO is part of them).
+      const started = await startScriptedEngine({ binary, config, workspaceId: workspace.id, home: join(root, `engine-${phase}`), cleanups,
+        plugins: ["legalwork-sandbox", "lawoss-file-operations"], pluginIds: ["legalwork.sandbox", "lawoss.file-operations"],
+        serverUrl: fixture.url.origin, modelUrl: fixture.url.origin + "/v1" });
+      engineClient = started.client;
+      let session = await started.chat(matter);
+      /** One user turn in the current chat; every engine card is recorded and answered by `reply`. */
+      const turn = (text: string, reply: (card: EngineCard) => "once" | "reject" | "always") => session.turn(text, reply);
+      return { turn, switchChat: async () => { session = await started.chat(matter); }, stop: async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); } };
+    } catch (error) { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); throw error; }
   };
 
   const evidence: Record<string, unknown> = {};
@@ -179,7 +150,7 @@ test.skip("a real engine: one card per change, a decline changes nothing, a new 
       const rejected = await files.turn("Premenuj zmluva.txt na 01_Zmluva.txt.", () => "reject");
       expect(rejected).toHaveLength(1);
       // Its own permission: an "always" on a native edit card (kept for every chat of the client) never covers it.
-      expect(rejected[0]).toMatchObject({ permission: "lawoss_file_change", patterns: ["zmluva.txt", "01_Zmluva.txt"], always: [] });
+      expect(rejected[0]).toMatchObject({ action: "lawoss_file_change", resources: ["zmluva.txt", "01_Zmluva.txt"], save: [] });
       expect(rejected[0].metadata?.lawossFiles).toEqual([{ operation: "move", kind: "file", from: "zmluva.txt", to: "01_Zmluva.txt" }]);
       expect(hostCards).toEqual([]);
       expect((await readdir(matter)).sort()).toEqual(["SYN-overenie.txt", "zmluva.txt"]);
@@ -187,13 +158,13 @@ test.skip("a real engine: one card per change, a decline changes nothing, a new 
 
       const approved = await files.turn("Skús to znova, schválim to.", () => "once");
       expect(approved).toHaveLength(1);
-      expect(approved[0].permission).toBe("lawoss_file_change");
+      expect(approved[0]?.action).toBe("lawoss_file_change");
       expect((await readdir(matter)).sort()).toEqual(["01_Zmluva.txt", "SYN-overenie.txt"]);
       expect(await readFile(join(matter, "01_Zmluva.txt"), "utf8")).toBe("SYN zmluva");
       const approvedResult = toolResults.at(-1) ?? "";
       expect(approvedResult).toContain('"status":"done"');
       expect(approvedResult).toContain('"complete":true');
-      evidence.files = { rejectedCards: rejected.map(card => ({ permission: card.permission, patterns: card.patterns, always: card.always, metadata: card.metadata })),
+      evidence.files = { rejectedCards: rejected.map(card => ({ action: card.action, resources: card.resources, save: card.save, metadata: card.metadata })),
         rejectedResult: rejectedResult.slice(0, 300), approvedCards: approved.length, approvedResult: approvedResult.slice(0, 300), files: (await readdir(matter)).sort() };
     } finally { await files.stop(); }
 
@@ -201,26 +172,26 @@ test.skip("a real engine: one card per change, a decline changes nothing, a new 
     await writeFile(join(matter, "dodatok.txt"), "SYN dodatok");
     const crossChat = await engine("cross-chat");
     try {
-      call = { tool: "write", args: { filePath: join(matter, "poznamka.md"), content: "SYN poznamka" } };
+      call = { tool: "write", args: { path: join(matter, "poznamka.md"), content: "SYN poznamka" } };
       const chatA = await crossChat.turn("Zapíš poznámku.", () => "always");
-      expect(chatA.map(card => ({ permission: card.permission, always: card.always }))).toEqual([{ permission: "edit", always: ["*"] }]);
+      expect(chatA.map(card => ({ action: card.action, save: card.save }))).toEqual([{ action: "edit", save: ["*"] }]);
       expect(await readFile(join(matter, "poznamka.md"), "utf8")).toBe("SYN poznamka");
       await crossChat.switchChat();
       call = { tool: "lawoss_files", args: { operations: [{ operation: "delete", path: "dodatok.txt" }] } };
       const chatB = await crossChat.turn("Zmaž dodatok.txt.", () => "reject");
       // Exactly one card, its own, and nothing moved.
-      expect(chatB.map(card => ({ permission: card.permission, always: card.always }))).toEqual([{ permission: "lawoss_file_change", always: [] }]);
+      expect(chatB.map(card => ({ action: card.action, save: card.save }))).toEqual([{ action: "lawoss_file_change", save: [] }]);
       expect(chatB[0]?.metadata?.lawossFiles).toEqual([{ operation: "delete", kind: "file", from: "dodatok.txt" }]);
       expect(await readFile(join(matter, "dodatok.txt"), "utf8")).toBe("SYN dodatok");
       // Approved in the same chat: recoverable, kept in the client's own Trash folder (no desktop host here).
       const approvedB = await crossChat.turn("Áno, zmaž ho.", () => "once");
-      expect(approvedB.map(card => card.permission)).toEqual(["lawoss_file_change"]);
+      expect(approvedB.map(card => card.action)).toEqual(["lawoss_file_change"]);
       const trashResult = toolResults.at(-1) ?? "";
       expect(trashResult).toContain(`"trash":"${LAWOSS_TRASH_FOLDER}/`);
       const [batch] = await readdir(join(matter, LAWOSS_TRASH_FOLDER));
       expect(await readFile(join(matter, LAWOSS_TRASH_FOLDER, batch!, "dodatok.txt"), "utf8")).toBe("SYN dodatok");
-      evidence.crossChat = { chatA: chatA.map(card => ({ permission: card.permission, always: card.always })),
-        chatB: chatB.map(card => ({ permission: card.permission, always: card.always, metadata: card.metadata })), approvedB: approvedB.length, trashResult: trashResult.slice(0, 300) };
+      evidence.crossChat = { chatA: chatA.map(card => ({ action: card.action, save: card.save })),
+        chatB: chatB.map(card => ({ action: card.action, save: card.save, metadata: card.metadata })), approvedB: approvedB.length, trashResult: trashResult.slice(0, 300) };
     } finally { await crossChat.stop(); }
 
     // 4. YOLO on: the same tool renames without any card.

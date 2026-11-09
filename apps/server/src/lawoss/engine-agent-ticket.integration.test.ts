@@ -1,13 +1,15 @@
-// LAWOSS: nástroje LAWOSS v klientovi B po práci v klientovi A, v tom istom behu enginu, bez reštartu
-// (voliteľné, LEGALWORK_TEST_OPENCODE_BIN = pribalený engine). Údaje sú syntetické; HOME/XDG enginu sú dočasné.
-//   LEGALWORK_TEST_OPENCODE_BIN=/Applications/LAWOSS.app/Contents/Resources/sidecars/opencode \
-//     pnpm --filter legalwork-server exec bun test src/lawoss/engine-agent-ticket.integration.test.ts
+// LAWOSS: nástroje LAWOSS v klientovi B po práci v klientovi A, v tom istom behu enginu v2, bez reštartu
+// (voliteľné, LEGALWORK_TEST_OPENCODE_BIN = engine 2.1.4, zostavené pluginy `pnpm --filter legalwork-server build`).
+// Engine dostáva len jednorazový lístok (engine-agent-contract.ts), nikdy token servera ani tajomstvo agenta.
+// Údaje sú syntetické; HOME/XDG enginu sú dočasné.
+//   LEGALWORK_TEST_OPENCODE_BIN=<engine 2.1.4> pnpm --filter legalwork-server exec bun test src/lawoss/engine-agent-ticket.integration.test.ts
 import { expect, test } from "bun:test";
-import { access, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { OpenCode } from "@opencode/client";
 import { z } from "zod";
+import { listEngineMessages } from "../engine-client.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer } from "../managed-opencode.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import { startServer } from "../server.js";
@@ -17,18 +19,16 @@ import { ENGINE_CONNECTION_REFUSED, WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PAT
 import { settleEngineAgentTicket } from "./engine-agent-ticket.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
 import { nativeRow } from "./test-support/native-config.js";
+import { builtPlugin, directToolsPlugin, fixtureModel, toolOutput } from "./test-support/scripted-engine.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-const toolPart = z.object({ type: z.literal("tool"), tool: z.string(), state: z.object({ status: z.string(), output: z.string().optional(), error: z.string().optional() }).passthrough() }).passthrough();
-const messages = z.array(z.object({ parts: z.array(z.object({ type: z.string() }).passthrough()) }));
 const queue = z.object({ entries: z.array(z.object({ status: z.string(), error: z.string().optional() }).passthrough()), completedIds: z.array(z.string()) }).passthrough();
-const PLUGINS = join(import.meta.dir, "..", "opencode-plugins");
 const engineTest = test.skipIf(!binary || process.platform === "win32"); // MCP na výpis prostredia je `/bin/sh`.
 
-async function harness(bin: string, pluginEntries: string[]) {
+async function harness(bin: string, pluginNames: string[]) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "lawoss-agent-ticket-")));
   const clientA = join(root, "prax", "Klient_A"), clientB = join(root, "prax", "Klient_B"), home = join(root, "engine"), dumps = join(root, "dumps");
-  for (const folder of [clientA, clientB, home, dumps]) await mkdir(folder, { recursive: true });
+  for (const folder of [clientA, clientB, home, dumps, join(home, "config-dir")]) await mkdir(folder, { recursive: true });
   await writeFile(join(clientB, "poznamka.md"), "SYNTETICKÝ OBSAH B");
   const env = { data: process.env.LEGALWORK_DATA_DIR, tokens: process.env.LEGALWORK_TOKEN_STORE, db: process.env.LEGALWORK_RUNTIME_DB };
   process.env.LEGALWORK_DATA_DIR = join(root, "data"); process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json"); process.env.LEGALWORK_RUNTIME_DB = join(root, "private", "runtime.sqlite");
@@ -61,31 +61,21 @@ async function harness(bin: string, pluginEntries: string[]) {
     if (url.pathname === WIKI_AGENT_TICKET_PATH) redemptions.push(response.status);
     return response;
   } });
-  const build = await Bun.build({ entrypoints: pluginEntries.map((name) => join(PLUGINS, `${name}.ts`)), outdir: join(root, "plugin"), target: "node", format: "esm" });
-  expect(build.success).toBe(true);
-  // Skúška klienta, ktorého engine dáva pluginom: musí fungovať aj po odstránení prihlásenia z prostredia.
-  const clientCheck = join(root, "plugin", "client-check.mjs");
-  await writeFile(clientCheck, `import { appendFileSync } from "node:fs";
-export const ClientCheck = async (input) => ({ "tool.execute.before": async () => {
-  const result = await input.client.config.get({ query: { directory: input.directory } });
-  appendFileSync(${JSON.stringify(join(dumps, "plugin-client.txt"))}, String(result.response?.status) + "\\n");
-} });
-`);
+  // Ako appka: pravidlá a model v súbore OPENCODE_CONFIG, povinné pluginy v OPENCODE_CONFIG_CONTENT, vlastný OPENCODE_CONFIG_DIR.
   const engineConfig = join(home, "opencode.json");
-  await writeFile(engineConfig, JSON.stringify({
-    enabled_providers: ["fixture"], model: "fixture/fixture", small_model: "fixture/fixture", share: "disabled", autoupdate: false, lsp: false, formatter: false,
-    provider: { fixture: { npm: "@ai-sdk/openai-compatible", name: "Fixture", options: { baseURL: model.url.origin + "/v1", apiKey: "fixture" }, models: { fixture: { name: "Fixture", limit: { context: 100000, output: 1000 } } } } },
-    plugin: [...build.outputs.map((output) => pathToFileURL(output.path).href), pathToFileURL(clientCheck).href], permission: { "*": "allow" },
-    mcp: { dump: { type: "local", command: ["/bin/sh", "-c", `env > "${dumps}/mcp-$(basename "$PWD").txt"`], enabled: true, timeout: 2000 } },
-  }));
+  await writeFile(engineConfig, JSON.stringify({ update: "disable", ...fixtureModel(model.url.origin + "/v1"), permissions: [{ action: "*", resource: "*", effect: "allow" }],
+    mcp: { servers: { dump: { type: "local", command: ["/bin/sh", "-c", `env > "${dumps}/mcp-$(basename "$PWD").txt"`], timeout: { startup: 2000 } } } } }));
+  const plugins = [...pluginNames.map(builtPlugin), await directToolsPlugin(home)];
 
   let ticket = "";
   const startEngine = async (presented?: string): Promise<ManagedOpencodeServer> => {
     ticket = issueWikiAgentTicket(config);
-    const engine = await createManagedOpencodeServer({ bin, cwd: home, inheritEnvironment: false, env: {
+    // Ako appka (embedded.ts): engine na `--stdio` (bez služby), heslo z prostredia si pri štarte odstráni sám.
+    const engine = await createManagedOpencodeServer({ bin, cwd: home, inheritEnvironment: false, parentLease: true, env: {
       PATH: process.env.PATH ?? "", HOME: join(home, "home"), OPENCODE_TEST_HOME: join(home, "home"),
       XDG_CONFIG_HOME: join(home, "config"), XDG_DATA_HOME: join(home, "data"), XDG_CACHE_HOME: join(home, "cache"), XDG_STATE_HOME: join(home, "state"),
-      OPENCODE_CONFIG: engineConfig, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
+      OPENCODE_DB: join(home, "engine.db"), OPENCODE_CONFIG: engineConfig, OPENCODE_CONFIG_DIR: join(home, "config-dir"),
+      OPENCODE_CONFIG_CONTENT: JSON.stringify({ warming: false, plugins }), OPENCODE_CONFIG_PROJECT_DISABLE: "1", OPENCODE_DISABLE_CLAUDE_CODE: "1",
       LEGALWORK_SERVER_URL: `http://127.0.0.1:${counter.port}`, [WIKI_AGENT_TICKET_ENV]: presented ?? ticket,
     } });
     for (const entry of config.workspaces) Object.assign(entry, { baseUrl: engine.url, opencodeUsername: engine.username, opencodePassword: engine.password, directory: entry.path });
@@ -96,18 +86,17 @@ export const ClientCheck = async (input) => ({ "tool.execute.before": async () =
     const response = await fetch(`${serverUrl}${path}`, { ...init, headers: { authorization: "Bearer client", "content-type": "application/json" }, signal: AbortSignal.timeout(120_000) });
     return { status: response.status, body: await response.json().catch(() => null) };
   };
-  const newSession = async (id: string, directory: string) => {
-    const created = await call(`/workspace/${id}/opencode/session?${new URLSearchParams({ directory })}`, { method: "POST", body: "{}" });
-    expect(created.status).toBe(200);
-    return z.object({ id: z.string() }).parse(created.body).id;
-  };
+  const app = (workspaceId: string) => OpenCode.make({ baseUrl: `${serverUrl}/workspace/${workspaceId}/opencode`, headers: { authorization: "Bearer client" } });
+  /** Nový chat cez proxy klienta ako v appke (priečinok v rozsahu požiadavky); server si chat zapamätá. */
+  const newSession = async (workspaceId: string, directory: string) =>
+    (await app(workspaceId).session.create({ location: { directory } }, { headers: { "x-opencode-directory": encodeURIComponent(directory) } })).id;
   /** Pošle správu cez front servera a vráti výsledky nástrojov tejto relácie podľa volania. */
-  const send = async (workspaceId: string, directory: string, session: string, key: string) => {
+  const send = async (workspaceId: string, session: string, key: string) => {
     const id = crypto.randomUUID();
     const text = `KROK:${key}`;
     const enqueued = await call(`/workspace/${workspaceId}/sessions/${session}/queue`, { method: "POST", body: JSON.stringify({ type: "enqueue", id,
       draft: { mode: "prompt", text, parts: [], attachments: [], editor: { mentions: {}, pasteParts: [] } },
-      execution: { kind: "prompt", agent: "build", model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text }] } }) });
+      execution: { kind: "prompt", text, agent: "build", model: { providerID: "fixture", id: "fixture" } } }) });
     expect(enqueued.status).toBe(200);
     let state = queue.parse((await call(`/workspace/${workspaceId}/sessions/${session}/queue`)).body);
     for (let attempt = 0; attempt < 1200 && !state.completedIds.includes(id) && !state.entries.some((entry) => entry.status === "failed"); attempt++) {
@@ -115,25 +104,26 @@ export const ClientCheck = async (input) => ({ "tool.execute.before": async () =
       state = queue.parse((await call(`/workspace/${workspaceId}/sessions/${session}/queue`)).body);
     }
     expect({ completed: state.completedIds.includes(id), entries: state.entries }).toEqual({ completed: true, entries: [] });
-    const read = await call(`/workspace/${workspaceId}/opencode/session/${session}/message?${new URLSearchParams({ directory })}`);
-    expect(read.status).toBe(200);
-    return messages.parse(read.body).flatMap((message) => message.parts).flatMap((part) => { const parsed = toolPart.safeParse(part); return parsed.success ? [parsed.data] : []; });
+    const client = app(workspaceId);
+    await client.session.wait({ sessionID: session }, { signal: AbortSignal.timeout(120_000) });
+    return (await listEngineMessages(client, session)).flatMap((message) => message.type === "assistant"
+      ? message.content.flatMap((item) => item.type === "tool" ? [{ name: item.name, status: item.state.status, output: toolOutput(item.state) }] : []) : []);
   };
   const asChat = (session: string, directory: string, workspaceId: string, token: string, path = "x.md") => fetch(`${serverUrl}/workspace/${workspaceId}/files/content?path=${path}`, { headers: {
     "x-legalwork-wiki-agent-token": token, "x-legalwork-wiki-agent-session": session, "x-legalwork-wiki-agent-directory": encodeURIComponent(directory) } });
   const replay = (presented: string) => fetch(`${serverUrl}${WIKI_AGENT_TICKET_PATH}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticket: presented, nonce: "another-nonce" }) });
-  /** Skutočný `lawoss_files`: musí prejsť cez server (plán aj zápis) a zanechať priečinok na disku. */
+  /** Skutočný `lawoss_files`: musí prejsť cez server (plán aj zápis) a zanechať priečinok na disku; shell vypíše prostredie. */
   const useTools = async (workspaceId: string, directory: string, folder: string, session?: string) => {
     steps.set(folder, [
       { name: "lawoss_files", arguments: { operations: [{ operation: "create_folder", path: folder }] } },
-      { name: "bash", arguments: { command: `env > "${dumps}/shell-${folder}.txt"`, description: "Prostredie" } },
+      { name: "shell", arguments: { command: `env > "${dumps}/shell-${folder}.txt"`, description: "Prostredie" } },
     ]);
     const chat = session ?? await newSession(workspaceId, directory);
-    const tools = await send(workspaceId, directory, chat, folder);
-    const files = tools.filter((tool) => tool.tool === "lawoss_files").at(-1);
-    expect({ folder, status: files?.state.status, error: files?.state.error }).toEqual({ folder, status: "completed", error: undefined });
+    const tools = await send(workspaceId, chat, folder);
+    const files = tools.filter((tool) => tool.name === "lawoss_files").at(-1);
+    expect({ folder, status: files?.status, output: files?.status === "completed" ? "" : files?.output }).toEqual({ folder, status: "completed", output: "" });
     await access(join(directory, folder));
-    expect(tools.filter((tool) => tool.tool === "bash").at(-1)?.state.status).toBe("completed");
+    expect(tools.filter((tool) => tool.name === "shell").at(-1)?.status).toBe("completed");
     return chat;
   };
   const close = async () => {
@@ -149,36 +139,42 @@ export const ClientCheck = async (input) => ({ "tool.execute.before": async () =
   return { root, config, clientA, clientB, dumps, steps, redemptions, startEngine, newSession, send, asChat, replay, useTools, close, spentTicket: () => ticket };
 }
 
-engineTest("chat v klientovi B má nástroje LAWOSS po klientovi A, po uvoľnení inštancie A aj po novom engine", async () => {
+engineTest("chat v klientovi B má nástroje LAWOSS po klientovi A, po uvoľnení lokácie A aj po novom engine", async () => {
   const h = await harness(binary ?? "", ["lawoss-file-operations"]);
   const { config, clientA, clientB, dumps, asChat } = h;
   let engine = await h.startEngine();
   try {
-    await settleEngineAgentTicket(config, engine, join(h.root, "probe"));
+    // Ako appka po štarte: lokácia otvoreného klienta si načíta pluginy (vyzdvihnú lístok), potom sa okno zavrie.
+    await settleEngineAgentTicket(config, engine, clientA);
     const auth = { authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` };
 
-    // A, potom B, potom uvoľnenie A (rozpočet MCP to robí bežne), potom znova A. Bez reštartu.
+    // A, potom B, potom uvoľnenie lokácie A (rozpočet MCP to robí bežne, server.ts disposeEngineDirectory), potom znova A. Bez reštartu.
     const chatA = await h.useTools("klient-a", clientA, "A1");
     const chatB = await h.useTools("klient-b", clientB, "B1");
-    const disposed = await fetch(`${engine.url}/instance/dispose?${new URLSearchParams({ directory: clientA })}`, { method: "POST", headers: auth });
+    const disposed = await fetch(`${engine.url}/api/debug/location?${new URLSearchParams({ "location[directory]": clientA })}`, { method: "DELETE", headers: auth });
     expect(disposed.ok).toBe(true);
     await h.useTools("klient-a", clientA, "A2", chatA);
     await h.useTools("klient-a", clientA, "A3");
     await h.useTools("klient-b", clientB, "B2", chatB);
 
-    // Prostredie detí enginu: bez tajomstva, lístka, prihlásenia a cesty ku konfigurácii. Engine prihlásenie vyžaduje ďalej.
+    // Prostredie detí enginu (MCP, shell): bez tajomstva, lístka, hesla enginu a cesty ku konfigurácii. Engine prihlásenie vyžaduje ďalej.
     const secret = await ensureWikiAgentToken(config);
-    for (const name of ["mcp-Klient_A.txt", "mcp-Klient_B.txt", "shell-A1.txt", "shell-B1.txt", "shell-A2.txt", "shell-A3.txt", "shell-B2.txt"]) {
+    const mcpDumps = (await readdir(dumps)).filter((name) => name.startsWith("mcp-")).sort();
+    expect(mcpDumps.length).toBeGreaterThan(0);
+    for (const name of [...mcpDumps, "shell-A1.txt", "shell-B1.txt", "shell-A2.txt", "shell-A3.txt", "shell-B2.txt"]) {
       const dump = await readFile(join(dumps, name), "utf8");
       expect({ name, hasPath: dump.includes("PATH="), secret: dump.includes(secret), ticket: dump.includes(WIKI_AGENT_TICKET_ENV), oldName: dump.includes("LEGALWORK_WIKI_AGENT_TOKEN"),
-        password: dump.includes("OPENCODE_SERVER_PASSWORD=") || dump.includes(engine.password), username: dump.includes("OPENCODE_SERVER_USERNAME="), config: dump.includes("OPENCODE_CONFIG=") })
+        password: dump.includes("OPENCODE_PASSWORD=") || dump.includes("OPENCODE_SERVER_PASSWORD=") || dump.includes(engine.password), username: dump.includes("OPENCODE_SERVER_USERNAME="), config: dump.includes("OPENCODE_CONFIG=") })
         .toEqual({ name, hasPath: true, secret: false, ticket: false, oldName: false, password: false, username: false, config: false });
     }
-    for (const name of ["shell-A1.txt", "shell-B2.txt"]) expect((await readFile(join(dumps, name), "utf8")).includes("OPENCODE_CONFIG_DIR=")).toBe(false);
-    expect((await fetch(`${engine.url}/path?${new URLSearchParams({ directory: clientA })}`)).status).toBe(401);
-    expect((await fetch(`${engine.url}/path?${new URLSearchParams({ directory: clientA })}`, { headers: { authorization: `Basic ${Buffer.from(`${engine.username}:wrong`).toString("base64")}` } })).status).toBe(401);
-    expect((await fetch(`${engine.url}/path?${new URLSearchParams({ directory: clientA })}`, { headers: auth })).status).toBe(200);
-    expect(new Set((await readFile(join(dumps, "plugin-client.txt"), "utf8")).trim().split("\n"))).toEqual(new Set(["200"]));
+    for (const name of ["shell-A1.txt", "shell-B2.txt"]) {
+      const dump = await readFile(join(dumps, name), "utf8");
+      expect({ name, configDir: dump.includes("OPENCODE_CONFIG_DIR="), content: dump.includes("OPENCODE_CONFIG_CONTENT="), db: dump.includes("OPENCODE_DB=") }).toEqual({ name, configDir: false, content: false, db: false });
+    }
+    // Engine v2 bez hesla neodpovie (instance-free /api/info).
+    expect((await fetch(`${engine.url}/api/info`)).status).toBe(401);
+    expect((await fetch(`${engine.url}/api/info`, { headers: { authorization: `Basic ${Buffer.from(`${engine.username}:wrong`).toString("base64")}` } })).status).toBe(401);
+    expect((await fetch(`${engine.url}/api/info`, { headers: auth })).status).toBe(200);
 
     // Lístok otvorí len jedno použitie: ako kľúč neplatí a opakovanie po uzavretí okna tajomstvo nezmení.
     const spent = h.spentTicket();
@@ -204,7 +200,7 @@ engineTest("chat v klientovi B má nástroje LAWOSS po klientovi A, po uvoľnen�
     // Nový engine dostane nový lístok a tajomstvo, staré prestanú platiť.
     await engine.close();
     engine = await h.startEngine();
-    await settleEngineAgentTicket(config, engine, join(h.root, "probe"));
+    await settleEngineAgentTicket(config, engine, clientB);
     await h.useTools("klient-b", clientB, "B4");
     await h.useTools("klient-a", clientA, "A4");
     const stale = await asChat(chatB, clientB, "klient-b", secret);
@@ -215,10 +211,10 @@ engineTest("chat v klientovi B má nástroje LAWOSS po klientovi A, po uvoľnen�
     await engine.close();
     engine = await h.startEngine("synthetic-invalid-ticket");
     h.steps.set("B5", [{ name: "lawoss_files", arguments: { operations: [{ operation: "create_folder", path: "B5" }] } }]);
-    const refused = (await h.send("klient-b", clientB, await h.newSession("klient-b", clientB), "B5")).filter((tool) => tool.tool === "lawoss_files").at(-1);
-    expect(refused?.state.status).toBe("error");
-    expect(refused?.state.error).toContain(ENGINE_CONNECTION_REFUSED);
-    expect(refused?.state.error).not.toContain("synthetic-invalid-ticket");
+    const refused = (await h.send("klient-b", await h.newSession("klient-b", clientB), "B5")).filter((tool) => tool.name === "lawoss_files").at(-1);
+    expect(refused?.status).toBe("error");
+    expect(refused?.output).toContain(ENGINE_CONNECTION_REFUSED);
+    expect(refused?.output).not.toContain("synthetic-invalid-ticket");
     expect(await access(join(clientB, "B5")).then(() => true, () => false)).toBe(false);
   } finally {
     await engine.close();
@@ -231,7 +227,7 @@ engineTest("dva balíky pluginov sa o lístok uchádzajú súbežne, sonda bež�
   const engine = await h.startEngine();
   try {
     // Ako embedded.ts: sonda sa nečaká a chaty A a B môžu prísť hneď.
-    const settled = settleEngineAgentTicket(h.config, engine, join(h.root, "probe"));
+    const settled = settleEngineAgentTicket(h.config, engine, h.clientA);
     await Promise.all([h.useTools("klient-a", h.clientA, "A1"), h.useTools("klient-b", h.clientB, "B1")]);
     await settled;
     expect(h.redemptions).toEqual([200]);
