@@ -246,21 +246,21 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     const kept = await Promise.all(items.map(keep));
     return items.filter((_, index) => kept[index]);
   }
-  async function listWorkspaceSessions(workspace: WorkspaceInfo, input: { roots?: boolean; start?: number; search?: string; limit?: number }) {
+  async function listWorkspaceSessions(workspace: WorkspaceInfo, input: { roots?: boolean; start?: number; search?: string; limit?: number }, signal?: AbortSignal) {
     const client = createEngineClient(config, workspace);
     const root = workspaceEngineLocation(workspace).directory;
     // LAWOSS: validate engine payloads before reading their location (malformed list → 502, not 500).
     const scoped = buildSessionList(await listEngineSessions(client, { directory: root,
       ...(input.roots ? { parentID: null } : {}), search: input.search,
       ...(input.start === undefined && !sessionOwnershipChecked(workspace) ? { limit: input.limit } : {}),
-    }));
+    }, { signal }));
     // LAWOSS: case chats live in subfolders of their client and a reconnected client keeps its
     // captured chats (lawoss/workspace-history.ts); both are owned by this workspace too. Engine v2
     // matches `directory` and `subpath` exactly, so the subfolders come from the whole list, filtered by
     // ownership (canonical containment, not a client nested in this one, #264).
     const owns = sessionOwnershipChecked(workspace) ? await workspaceChatOwnership(config, workspace) : null;
     const nested = owns
-      ? await filterAsync(buildSessionList(await listEngineSessions(client, { ...(input.roots ? { parentID: null } : {}), search: input.search })),
+      ? await filterAsync(buildSessionList(await listEngineSessions(client, { ...(input.roots ? { parentID: null } : {}), search: input.search }, { signal })),
         async session => session.location.directory !== root && await owns({ id: session.id, directory: session.location.directory }))
       : [];
     const sessions = [...new Map([...scoped, ...nested].map(session => [session.id, session])).values()]
@@ -327,7 +327,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       start: parseOptionalNonNegativeInteger(ctx.url.searchParams.get("start"), "start"),
       search: ctx.url.searchParams.get("search")?.trim() || undefined,
       limit: parseOptionalPositiveInteger(ctx.url.searchParams.get("limit"), "limit"),
-    });
+    }, ctx.request.signal);
     return jsonResponse({ items });
   });
 

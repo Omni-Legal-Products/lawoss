@@ -114,12 +114,13 @@ export async function getWorkspaceEngineSessionOrNull(client: OpenCodeClient, wo
 
 /** Native lists are paginated. An omitted application limit means all pages,
  * not the engine's first page. A supplied UI page size never caps model context. */
-export async function listEngineSessions(client: OpenCodeClient, input: SessionListInput = {}): Promise<SessionInfo[]> {
+export async function listEngineSessions(client: OpenCodeClient, input: SessionListInput = {}, options: { signal?: AbortSignal } = {}): Promise<SessionInfo[]> {
   const result: SessionInfo[] = [];
   const seen = new Set<string>();
   let cursor = input.cursor;
   do {
-    const page = await client.session.list({ ...(cursor ? { cursor } : input), ...(input.limit === undefined ? {} : { limit: input.limit - result.length }) });
+    // LAWOSS: a caller that leaves cancels every page read upstream too.
+    const page = await client.session.list({ ...(cursor ? { cursor } : input), ...(input.limit === undefined ? {} : { limit: input.limit - result.length }) }, options.signal ? { signal: options.signal } : undefined);
     result.push(...page.data);
     if (input.limit !== undefined && result.length >= input.limit) break;
     cursor = page.cursor.next ?? undefined;

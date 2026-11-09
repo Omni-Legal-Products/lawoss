@@ -1130,7 +1130,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: LawossSe
       const client = createWorkspaceOpencodeClient(config, workspace);
       const session = await client.session.get({ sessionID });
       if (!(await sandboxOwnsSession(workspace, session))) {
-        throw new ApiError(403, "sandbox_session", "The command session belongs to a different workspace.");
+        // LAWOSS: a chat of another client is indistinguishable from a missing one, as on every chat ownership route.
+        throw new ApiError(404, "session_not_found", "This chat does not belong to the project.");
       }
       await client.model.list({ location: session.location });
       const agents = (await client.agent.list({ location: session.location })).data;
