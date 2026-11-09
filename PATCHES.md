@@ -4,6 +4,7 @@
 
 | Súbor | Zmena |
 |---|---|
+| `apps/server/src/legalwork-runtime-config.test.ts` | LAWOSS spúšťa upstream test aj na Windows: kontrola práv `0o600` len mimo Windows; test Azure zatvorí aj presmerovanú databázu runtime (inak `EBUSY` pri upratovaní). |
 | `.github/workflows/ci-windows-portable.yml` | Pred serverovými testami LAWOSS `pnpm --filter legalwork-server build:plugins`: od v0.3.0 runtime konfigurácia číta zostavené balíky pluginov. |
 | `.github/workflows/ci-tests.yml` (joby `unit-tests`, `legalwork-tests`) | `NODE_OPTIONS=--max-old-space-size=6144`: `tsc` väčšieho servera LAWOSS na macOS runneri inak skončí s nedostatkom heapu (exit 134). |
 | `.github/workflows/ci-tests.yml` | Volania `ci-desktop-packaging.yml` dávajú `actions: read` (volaný job `opencode-engine` ho žiada) a neposielajú nedefinovaný vstup `engine-build-mode`; inak GitHub workflow nespustí (`startup_failure`). |

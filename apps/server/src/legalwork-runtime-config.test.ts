@@ -30,6 +30,7 @@ import {
   GLOBAL_PERSONALIZATION_ID,
   GLOBAL_PROVIDERS_ID,
   GLOBAL_TOOL_PERMISSIONS_ID,
+  closeRuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
@@ -215,7 +216,8 @@ test("unchanged managed settings preserve watched file identities while real edi
   await writeLegalworkRuntimeConfigFile(config, "ws_1");
   expect(await readFile(managedEngineSettingsFilePath(config), "utf8")).not.toBe(before[1]?.content);
   expect(await readFile(join(orgPolicyEngineDir(config), "runtime-config.revision"), "utf8")).not.toBe(before[4]?.content);
-  expect((await stat(managedEngineSettingsFilePath(config))).mode & 0o777).toBe(0o600);
+  // LAWOSS: POSIX mode bits only; Windows reports 0o666 for a private file (LAWOSS runs this file on Windows).
+  if (process.platform !== "win32") expect((await stat(managedEngineSettingsFilePath(config))).mode & 0o777).toBe(0o600);
 });
 
 test("protected engine configuration retains installed skill discovery", async () => {
@@ -397,6 +399,13 @@ describe("legalwork runtime config files", () => {
     const state = join(root, "isolated-state");
     await mkdir(state);
     process.env.LEGALWORK_RUNTIME_DB = join(state, "runtime.sqlite");
+    // LAWOSS: release the redirected database too, otherwise Windows cannot remove the fixture (EBUSY).
+    const redirected = runtimeDbPath(config);
+    cleanups.push(async () => {
+      await closeOrgPolicyRuntime(config, redirected);
+      await closeRuntimeOpencodeConfig(config, redirected);
+      expect(await runtimeDbHandles(redirected)).toBe(0);
+    });
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     const mandatory = await readConfigurationFile(mandatoryRuntimeConfigFilePath(config));
     const paths = mandatory.plugins?.flatMap(plugin => typeof plugin !== "string" && typeof plugin.options?.azureCatalogPath === "string" ? [plugin.options.azureCatalogPath] : []);
