@@ -90,6 +90,8 @@ if (!process.versions.electron) {
       meetingMonitor: { dispose: () => disposed.push("meeting") },
       powerSessions: { releaseAll: () => disposed.push("power") },
       uiControlServer: { stop: async () => disposed.push("control-server") },
+      // LAWOSS: before-quit also releases the Chevron7 signing helper.
+      chevron7Signing: { dispose: () => {} },
       disposeRuntimeBeforeQuit: async () => {
         context.runtimeDisposeInProgress = true;
         await delay(10);

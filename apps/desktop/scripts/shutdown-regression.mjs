@@ -149,6 +149,8 @@ if (!process.versions.electron) {
       appAudioTap: { stop: () => {} }, callOverlay: { destroy: () => {} }, systemDictation: { dispose: () => {} },
       dictationHud: { destroy: () => {} }, meetingMonitor: { dispose: () => {} }, appTray: { destroy: () => {} }, powerSessions: { releaseAll: () => {} },
       uiControlServer: { stop: async () => {} }, runtimeManager: { forceStopOwnedChildren() {} },
+      // LAWOSS: before-quit also releases the Chevron7 signing helper.
+      chevron7Signing: { dispose: () => {} },
       disposeRuntimeBeforeQuit: async () => {
         const saved = await item.state();
         assert.equal(saved.writes, 1); assert.deepEqual(saved.dirty, []);
