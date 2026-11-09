@@ -6,6 +6,11 @@ import path from "node:path";
 import { test } from "node:test";
 
 import { createWorkspaceStore } from "./workspace-store.mjs";
+import { useOfficialEngineSelection } from "../../../lawoss/testing/official-engine-selection.mjs";
+
+// LAWOSS v2: one test imports runtime.mjs only for its path helper; the engine
+// selector must not depend on build output this job does not prepare.
+test.after(await useOfficialEngineSelection());
 
 function workspaceIdForPath(workspacePath) {
   return `ws_${createHash("sha256").update(workspacePath).digest("hex").slice(0, 12)}`;
