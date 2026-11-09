@@ -6,6 +6,7 @@ import { listEngineMessages } from "../../engine-client.js";
 import { buildLegalworkRuntimeSettings } from "../../legalwork-runtime-config.js";
 import { runtimeStorageDir } from "../../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../../types.js";
+import { issueWikiAgentTicket } from "../../wiki/agent-access.js";
 import { WIKI_AGENT_TICKET_ENV } from "../engine-agent-contract.js";
 import { startRealEngineV2 } from "./fake-engine-v2.js";
 
@@ -35,6 +36,48 @@ export default Plugin.define({ id: "lawoss.test-direct-tools", async setup(ctx) 
   return async () => { await tools.dispose(); };
 } });
 `;
+
+/** Offers every tool directly to the scripted model (see the header). */
+export async function directToolsPlugin(home: string): Promise<string> {
+  const direct = join(home, "direct-tools");
+  await mkdir(direct, { recursive: true });
+  await writeFile(join(direct, "index.js"), DIRECT_TOOLS_PLUGIN);
+  return direct;
+}
+
+/** The scripted OpenAI-compatible model as the engine's only model. */
+export function fixtureModel(modelUrl: string) {
+  return { model: "fixture/fixture", providers: { fixture: { package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: modelUrl, apiKey: "fixture" },
+    models: { fixture: { limit: { context: 100000, output: 4000 }, capabilities: { tools: true } } } } } };
+}
+
+/**
+ * The shipped engine for a real LAWOSS server (`startServer`), as the app runs it: the server URL and a single-use
+ * ticket in the environment, never the server token. Every workspace and the server config then point at it.
+ */
+export async function startEngineForServer(input: {
+  binary: string;
+  config: ServerConfig;
+  serverPort: number;
+  home: string;
+  cleanups: (() => Promise<unknown> | unknown)[];
+  plugins: PluginSpec[];
+  modelUrl: string;
+  /** Native rules of the engine (default: everything allowed; the test says what asks). */
+  permissions?: { action: string; resource: string; effect: "allow" | "ask" | "deny" }[];
+}) {
+  const plugins = [...input.plugins.map((plugin) => typeof plugin === "string" ? builtPlugin(plugin) : { package: builtPlugin(plugin.name), options: plugin.options }), await directToolsPlugin(input.home)];
+  const content = { update: "disable", warming: false, plugins, ...fixtureModel(input.modelUrl), permissions: input.permissions ?? [{ action: "*", resource: "*", effect: "allow" }] };
+  const engine = await startRealEngineV2(input.binary, input.home, input.cleanups, {
+    OPENCODE_CONFIG_CONTENT: JSON.stringify(content), OPENCODE_CONFIG_PROJECT_DISABLE: "1",
+    LEGALWORK_SERVER_URL: `http://127.0.0.1:${input.serverPort}`, [WIKI_AGENT_TICKET_ENV]: issueWikiAgentTicket(input.config),
+  });
+  const credentials = { opencodeUsername: engine.username, opencodePassword: engine.password };
+  for (const workspace of input.config.workspaces) Object.assign(workspace, { baseUrl: engine.url, ...credentials });
+  Object.assign(input.config, { opencodeBaseUrl: engine.url, ...credentials });
+  const client = OpenCode.make({ baseUrl: engine.url, headers: { authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
+  return { engine, client };
+}
 
 export function builtPlugin(name: string): string {
   const directory = join(BUILT_PLUGINS, name);
@@ -73,9 +116,7 @@ export async function startScriptedEngine(input: {
   await mkdir(runtimeStorageDir(input.config), { recursive: true });
   const file = join(runtimeStorageDir(input.config), `engine-config-${input.workspaceId}.json`);
   await writeFile(file, JSON.stringify({ update: "disable", ...rules }));
-  const direct = join(input.home, "direct-tools");
-  await mkdir(direct, { recursive: true });
-  await writeFile(join(direct, "index.js"), DIRECT_TOOLS_PLUGIN);
+  const direct = await directToolsPlugin(input.home);
   const managed: PluginSpec[] = [];
   if (input.managedConfig) {
     const settingsPath = join(runtimeStorageDir(input.config), "engine-settings.json");
@@ -85,9 +126,7 @@ export async function startScriptedEngine(input: {
     managed.push({ name: "legalwork-managed-config", options: { settingsPath } });
   }
   const plugins = [...[...managed, ...input.plugins].map((plugin) => typeof plugin === "string" ? builtPlugin(plugin) : { package: builtPlugin(plugin.name), options: plugin.options }), direct];
-  const content = { update: "disable", warming: false, plugins, model: "fixture/fixture",
-    providers: { fixture: { package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: input.modelUrl, apiKey: "fixture" },
-      models: { fixture: { limit: { context: 100000, output: 4000 }, capabilities: { tools: true } } } } } };
+  const content = { update: "disable", warming: false, plugins, ...fixtureModel(input.modelUrl) };
   const engine = await startRealEngineV2(input.binary, input.home, input.cleanups, {
     OPENCODE_CONFIG: file, OPENCODE_CONFIG_CONTENT: JSON.stringify(content), OPENCODE_CONFIG_PROJECT_DISABLE: "1",
     LEGALWORK_SERVER_URL: input.serverUrl, [WIKI_AGENT_TICKET_ENV]: "synthetic-ticket",
