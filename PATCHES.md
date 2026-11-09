@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Opravy z #255 (2026-11-09)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/settings/pages/mcp-view.tsx` | Odinštalovanie skillu z detailu najprv otvorí `ConfirmModal` (upstream kľúče `skills.uninstall_*`), nie hneď natrvalo (A3). |
+
 ## Sync upstream v0.3.0: OpenCode 2.1.4 (2026-11-08, ADR 0016, rozhodnutie MČ 8. 11.)
 
 Upstream prešiel na engine OpenCode 2.1.4 ako derivát `2.1.4-legalwork.http-policy.3` zostavený zo zdrojov (`packages/opencode-release/build/recipe.json`), na klienta `@opencode/client` a na API pluginov v2 (`Plugin.define`). `constants.json` má `opencodeVersion` `v2.1.4` (schválená výnimka z červenej zóny, ADR 0016). Konflikty (184 súborov) sú vyriešené ako upstream v2 a znovu aplikované háky LAWOSS.

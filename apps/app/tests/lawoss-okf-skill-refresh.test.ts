@@ -33,7 +33,12 @@ function fixture(installed: Record<string, Installed>) {
       return { name: payload.name, path: "/", description: "", scope: "project" };
     },
     listSkillResources: async (_id, skill) => ({ items: [...(installed[skill]?.resources.keys() ?? [])].map((name) => ({ name, path: `/${name}`, size: 1, updatedAt: 0 })) }),
-    getSkillResource: async (_id, skill, name) => ({ item: { name, path: `/${name}`, size: 1, updatedAt: 0 }, content: installed[skill]?.resources.get(name) ?? "" }),
+    // Ako server: netextový zdroj (okf.js) sa v utf8 nedá čítať (415), v base64 áno.
+    getSkillResource: async (_id, skill, name, encoding = "utf8") => {
+      const content = installed[skill]?.resources.get(name) ?? "";
+      if (encoding !== "base64" && name.endsWith(".js")) throw new Error('415 {"code":"resource_not_text"}');
+      return { item: { name, path: `/${name}`, size: 1, updatedAt: 0 }, content: encoding === "base64" ? Buffer.from(content).toString("base64") : content };
+    },
     upsertSkillResource: async (_id, skill, payload) => {
       writes.push(`resource:${skill}/${payload.name}`);
       installed[skill]?.resources.set(payload.name, payload.content ?? "");
@@ -106,6 +111,12 @@ describe("OKF bundle refresh in an existing workspace", () => {
     await expect(refreshOkfSkills(f.client, "ws", [novy])).resolves.toEqual({ modified: [], written: [] });
     expect(f.writes).toEqual([`resource:${novy.name}/${novy.resource}`]);
     expect(f.installed[novy.name]?.resources.get(novy.resource)).toBe(novy.source);
+  });
+
+  test("an unchanged okf.js is read as base64 and not rewritten on every refresh (#255 E4)", async () => {
+    const f = fixture({ [novy.name]: current(novy) });
+    await expect(refreshOkfSkills(f.client, "ws", [novy])).resolves.toEqual({ modified: [], written: [] });
+    expect(f.writes).toEqual([]);
   });
 
   test("the server's managed resources block is not a customization (D1 2026-10-05)", async () => {

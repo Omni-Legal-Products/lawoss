@@ -102,7 +102,13 @@ export class LawossDocuments {
     const nestedClient = () => new ApiError(403, "document_nested_client", "This file belongs to another client whose folder lies inside this client's folder. Nothing was read. Work with it in that client's own chat.");
     if (inNestedClient(requested)) throw nestedClient();
     const linked = within(root, requested) ? null : await this.linkedSource(workspace, requested);
-    const absolute = linked ?? await realpath(requested);
+    // #255 E1: chýbajúci súbor v koreni klienta je 404 ako v pripojenom priečinku, nie 500.
+    const absolute = linked ?? await realpath(requested).catch((error: unknown) => {
+      if (error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
+        throw new ApiError(404, "document_missing", "Document was not found.");
+      }
+      throw error;
+    });
     if (!linked && !within(root, absolute)) throw new ApiError(403, "document_path", "Document is outside this workspace.");
     if (inNestedClient(absolute)) throw nestedClient();
     const info = await stat(absolute);

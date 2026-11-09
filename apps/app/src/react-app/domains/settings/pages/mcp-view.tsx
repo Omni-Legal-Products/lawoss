@@ -267,6 +267,8 @@ export function McpView(props: McpViewProps) {
   const [logoutTarget, setLogoutTarget] = useState<string | null>(null);
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
+  // 🟡 LAWOSS (#255 A3): odinštalovanie skillu z detailu je natrvalo, preto najprv potvrdenie.
+  const [skillUninstallTarget, setSkillUninstallTarget] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const [addMcpModalOpen, setAddMcpModalOpen] = useState(false);
   const [togglingMcp, setTogglingMcp] = useState<string | null>(null);
@@ -755,15 +757,27 @@ export function McpView(props: McpViewProps) {
             onReveal={detailSkill.path ? () => {
               void revealDesktopItemInDir(detailSkill.path);
             } : undefined}
-            onUninstall={props.uninstallSkill ? () => {
-              props.uninstallSkill?.(detailSkill.name);
-              setDetailSkill(null);
-            } : undefined}
+            onUninstall={props.uninstallSkill ? () => setSkillUninstallTarget(detailSkill.name) : undefined}
             onHide={() => setLegalWorkExtensionHidden(getSkillHiddenId(detailSkill), true)}
             onShow={() => setLegalWorkExtensionHidden(getSkillHiddenId(detailSkill), false)}
           />
         );
       })() : null}
+
+      <ConfirmModal
+        open={skillUninstallTarget !== null}
+        title={t("skills.uninstall_title")}
+        message={t("skills.uninstall_warning").replace("{name}", skillUninstallTarget ?? "")}
+        confirmLabel={t("skills.uninstall")}
+        cancelLabel={t("common.cancel")}
+        variant="danger"
+        onCancel={() => setSkillUninstallTarget(null)}
+        onConfirm={() => {
+          if (skillUninstallTarget) props.uninstallSkill?.(skillUninstallTarget);
+          setSkillUninstallTarget(null);
+          setDetailSkill(null);
+        }}
+      />
 
       {detailPlugin ? (() => {
         const hidden = isLegalWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`);

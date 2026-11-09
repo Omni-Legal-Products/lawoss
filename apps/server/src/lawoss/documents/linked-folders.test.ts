@@ -98,6 +98,14 @@ test("priečinok namiesto súboru vráti document_not_file bez záznamu; veľký
   expect(await service.list(client)).toEqual([]);
 }));
 
+// #255 E1: chýbajúci súbor v koreni klienta bol 500 „Unexpected server error“, v pripojenom priečinku 404.
+test("chýbajúci súbor v koreni klienta vráti 404 document_missing bez záznamu", () => fixture(async ({ service, client }) => {
+  for (const path of ["Neexistuje.pdf", join(client.path, "Neexistuje.pdf"), "Chyba/Neexistuje.pdf"]) {
+    expect({ path, ...await failure(service.prepare(client, [path])) }).toMatchObject({ path, code: "document_missing" });
+  }
+  expect(await service.list(client)).toEqual([]);
+}));
+
 // N-A3-1 (bezpečnostná kontrola bb025062): klient zaregistrovaný vnútri tohto klienta je cudzí klient aj pre dokumenty.
 test("dokument v klientovi zaregistrovanom vnútri tohto klienta sa odmietne bez čítania, aj cez odkaz; vlastný prejde", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "lawoss-documents-nested-")));
