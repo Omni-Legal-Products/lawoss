@@ -102,7 +102,7 @@ import { eigenweltHasPremiumModels } from "./eigenwelt-auth.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { repairRuntimeProviders } from "./runtime-provider-repair.js";
 import { externalOpencodeConfigDir, usesExternalWorkspaceAppFiles } from "./lawoss/workspace-app-files.js";
-import { OUTSIDE_CLIENTS_FILE, outsideSkillsDirectory, shareableConfiguration } from "./lawoss/outside-engine-config.js";
+import { OUTSIDE_CLIENTS_FILE, outsideSkillsDirectory, shareableConfiguration, withOutsideAgentSkeletons } from "./lawoss/outside-engine-config.js";
 import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
 import { LAWOSS_MEMORY_TOOL, fileChangeRules } from "./lawoss/tool-permission-defaults.js";
 import { lawossToolDenialRules, LAWOSS_LOAD_WIKI_TOOLS } from "./lawoss/hidden-upstream-tools.js";
@@ -542,8 +542,11 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     const settingsPath = managedEngineSettingsFilePath(config);
     const configurations = Object.values(workspaces).map(entry => runtimeEngineConfiguration(entry.configuration));
     // LAWOSS: an outside client's external folders never become shared (lawoss/outside-engine-config.ts).
-    const sharedConfiguration = commonManagedConfiguration(config.workspaces.flatMap(workspace => workspaces[workspace.id]
+    const commonConfiguration = commonManagedConfiguration(config.workspaces.flatMap(workspace => workspaces[workspace.id]
       ? [shareableConfiguration(runtimeEngineConfiguration(workspaces[workspace.id]!.configuration), externalOpencodeConfigDir(config, workspace))] : []));
+    // LAWOSS: agents of every client that differ per client get a skeleton, so outside clients keep them (lawoss/outside-engine-config.ts).
+    const sharedConfiguration = config.workspaces.some(workspace => usesExternalWorkspaceAppFiles(workspace))
+      ? Schema.decodeUnknownSync(Config.Info)(withOutsideAgentSkeletons(commonConfiguration, configurations), { onExcessProperty: "error" }) : commonConfiguration;
     await writeGeneratedConfigFile(settingsPath, JSON.stringify({ version: 2, workspaces, sharedConfiguration }));
     const mandatoryPlugins = [
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-project-admission"), config), options: { registryPath: nativeEngineProjectRegistryPath(config), protectedHostExecution: config.agentSandboxEnabled === true } },

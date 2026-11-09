@@ -56,6 +56,28 @@ export function shareableConfiguration(configuration: NativeRuntimeConfiguration
 
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
+/** Agent fields a declaration in the shared file may carry for every client (never permissions or `disabled`). */
+const SKELETON_FIELDS = ["description", "mode", "hidden", "system", "color", "steps"] as const;
+
+/**
+ * Agents every client declares, but not identically (e.g. the scheduled agents or the YOLO chat agent of a client with
+ * its own rules), are missing from the shared file, so an outside client (no project file) would lose them. Rozhodnutie
+ * MČ 9. 11. 2026: such agents are declared in the shared file with only the fields all clients share. The native fold
+ * applies the shared file after plugin transforms, so the skeleton never overrides a client's own values: inside clients
+ * get the full agent from their project file, outside clients from `lawoss-outside-config`. Permissions and `disabled`
+ * never go into the skeleton (they would follow the client's own rules and win, or remove its agent).
+ */
+export function withOutsideAgentSkeletons(shared: NativeRuntimeConfiguration, configurations: readonly NativeRuntimeConfiguration[]): NativeRuntimeConfiguration {
+  const first = configurations[0]?.agents ?? {};
+  const skeletons: Record<string, NonNullable<NativeRuntimeConfiguration["agents"]>[string]> = {};
+  for (const [id, agent] of Object.entries(first)) {
+    if (shared.agents?.[id] || !configurations.every((configuration) => configuration.agents?.[id] && !configuration.agents[id].disabled)) continue;
+    const shareable = SKELETON_FIELDS.filter((field) => agent[field] !== undefined && configurations.every((configuration) => same(configuration.agents?.[id]?.[field], agent[field])));
+    skeletons[id] = Object.fromEntries(shareable.map((field) => [field, agent[field]]));
+  }
+  return Object.keys(skeletons).length ? { ...shared, agents: { ...shared.agents, ...skeletons } } : shared;
+}
+
 export type OutsideDelivery = {
   /** MCP servers of this client the shared file lacks (the shared file carries `mcp` only when all clients agree). */
   mcp: [string, NonNullable<NonNullable<NativeRuntimeConfiguration["mcp"]>["servers"]>[string]][];
