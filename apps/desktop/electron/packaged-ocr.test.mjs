@@ -71,7 +71,8 @@ async function sidecarFixture(t, platform, arch) {
   await writeFile(path.join(engineDirectory, "artifact-fixture", engineTarget, `opencode${suffix}`), "verified engine fixture");
   const verified = [];
   for (const base of ["legalwork-orchestrator", "versions.json"]) {
-    const target = `${base}-${triple}${suffix}`;
+    // Upstream v0.3.9 (#358): Windows version manifests keep the .json name and never enter executable signing.
+    const target = base === "versions.json" ? `${base}-${triple}` : `${base}-${triple}${suffix}`;
     const alias = base === "versions.json" ? base : `${base}${suffix}`;
     assert.ok(filter.includes(target), `packaging config must include ${target}`);
     await writeFile(path.join(sidecars, target), `target contents: ${target}`);
@@ -131,7 +132,7 @@ for (const platform of ["darwin", "linux", "win32"]) for (const arch of ["arm64"
       for (const base of ["legalwork-orchestrator", "versions.json"]) {
         const alias = base === "versions.json" ? base : `${base}${fixture.suffix}`;
         assert.equal(await readFile(path.join(fixture.sidecars, alias), "utf8"),
-          `target contents: ${base}-${fixture.triple}${fixture.suffix}`);
+          `target contents: ${base}-${fixture.triple}${base === "versions.json" ? "" : fixture.suffix}`);
       }
       // Upstream v0.2.9 (#274) zrušil pomocnú appku Computer Use; afterPack už nič nepodpisuje.
       assert.equal(fixture.signed.length, 0);

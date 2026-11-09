@@ -76,6 +76,8 @@ test("the updater awaits consent and preserves the downloaded update on cancella
       ensureAutoUpdater: async () => ({ quitAndInstall: () => calls.push("install") }),
       beforeRestart: async () => { calls.push("consent"); return approved; },
       enableSquirrelDirectContentsWrite: async () => calls.push("prepare"),
+      // 🟡 LAWOSS updater: injectable install preparation and error formatting.
+      prepareUpdaterInstall: async () => calls.push("prepare"), formatUpdaterErrorReason: String,
     });
     const result = await install();
     assert.equal(result.ok, true);

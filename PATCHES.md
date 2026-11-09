@@ -32,6 +32,7 @@ Merge presného tagu `v0.3.9` (obsahuje v0.3.1 až v0.3.9) na základ v0.3.0 s O
 | Testy `apps/server/src/{task-attachments.e2e,browser-passwords-routes}.test.ts`, `opencode-plugins/{legalwork-browser-tools,legalwork-storage-tools}.test.ts` | Nové upstream testy na poverení chatu LAWOSS (bez serverového tokenu, kanonický priečinok, registrovaný chat), kontrola režimu len na čítanie pred trvalým znížením roly chatu. |
 | `scripts/ci/sandbox-matrix.test.mjs` | Pin QEMU LAWOSS overený voči upstream zoznamu `scripts/sandbox/qemu-windows.sha256` a skriptu `install-windows-qemu.sh` (#363). |
 | `lawoss/testing/isir/native/native-entry.test.mjs` | Fixture `before-quit` dostane upstream `shutdownApproved` a `shutdownGuard` (#369, bez neuložených dokumentov). |
+| `apps/desktop/electron/{packaged-ocr,shutdown-guard}.test.mjs` | Test LAWOSS afterPack: na Windows `versions.json-<triple>` bez `.exe` (#358). Upstream test súhlasu pred inštaláciou aktualizácie dostane injektovateľné `prepareUpdaterInstall` a `formatUpdaterErrorReason` updatera LAWOSS. |
 
 `sk.ts` a `cs.ts`: 174 nových kľúčov (190 s plurálmi). `opencodeVersion` ostáva v2.1.4. `apps/server/src/extensions/` a `legalwork-legalmemory-knowledge` sa nemenili.
 
