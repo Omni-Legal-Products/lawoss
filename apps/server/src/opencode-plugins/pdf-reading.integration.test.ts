@@ -40,6 +40,8 @@ test.skipIf(!binary)("released v2 native read preserves PDF delivery, selective 
   const originals = new Map<string, Uint8Array>();
   const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
+    // 🟡 LAWOSS: the engine holds a single-use ticket instead of the server token (engine-agent-contract.ts).
+    if (url.pathname === "/engine-agent/ticket") return Response.json({ secret: "synthetic-agent-secret" });
     if (url.pathname === "/workspaces") return Response.json({ items: [{ id: "fixture", path: directory }] });
     if (url.pathname.endsWith("/checkout")) return Response.json({ localPath: scenario.file, size: 1000, contentType: "application/pdf", version: "original-v1", writable: false });
     if (url.pathname === "/workspace/fixture/pdf/read") {
@@ -62,8 +64,8 @@ test.skipIf(!binary)("released v2 native read preserves PDF delivery, selective 
       ...(scenario.offset ? { offset: scenario.offset } : {}), ...(scenario.limit ? { limit: scenario.limit } : {}),
       ...(scenario.file.endsWith(".pdf") ? { offset: 0, ...(scenario.storage ? { max_chars: 80000 } : { limit: 80000 }) } : {}) } } : undefined, sequence++);
   } });
-  const previousUrl = process.env.LEGALWORK_SERVER_URL, previousToken = process.env.LEGALWORK_SERVER_TOKEN;
-  process.env.LEGALWORK_SERVER_URL = fixture.url.origin; process.env.LEGALWORK_SERVER_TOKEN = "synthetic-fixture";
+  const previousUrl = process.env.LEGALWORK_SERVER_URL, previousToken = process.env.LEGALWORK_WIKI_AGENT_TICKET;
+  process.env.LEGALWORK_SERVER_URL = fixture.url.origin; process.env.LEGALWORK_WIKI_AGENT_TICKET = "synthetic-ticket";
   let engine: Awaited<ReturnType<typeof nativeMcpEngine>> | undefined;
   try {
     engine = await nativeMcpEngine(async root => {
@@ -136,6 +138,6 @@ export default Plugin.define({id:'pdf-fixture',async setup(ctx){
   } finally {
     await engine?.close(); fixture.stop(true);
     if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl;
-    if (previousToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = previousToken;
+    if (previousToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TICKET; else process.env.LEGALWORK_WIKI_AGENT_TICKET = previousToken;
   }
 }, 120000);
