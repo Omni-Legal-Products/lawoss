@@ -64,7 +64,6 @@ on:
       - apps/server/src/lawoss-*
       - apps/server/src/server.ts
       - apps/server/src/routes/sessions.ts
-      - apps/server/src/engine-warmup-*
       - apps/server/src/reload-watcher.ts
       - apps/server/src/reload-watcher.test.ts
       - apps/server/src/routes/workspaces.ts
@@ -161,7 +160,6 @@ on:
       - apps/server/src/lawoss-*
       - apps/server/src/server.ts
       - apps/server/src/routes/sessions.ts
-      - apps/server/src/engine-warmup-*
       - apps/server/src/reload-watcher.ts
       - apps/server/src/reload-watcher.test.ts
       - apps/server/src/routes/workspaces.ts
@@ -269,8 +267,6 @@ jobs:
           ./src/eigenwelt-hub-installs-store.test.ts
           ./src/eigenwelt-refresh.test.ts
           ./src/eigenwelt-sync-events.test.ts
-          ./src/engine-warmup-gate.test.ts
-          ./src/engine-warmup-routes.e2e.test.ts
           ./src/lawoss-engine-mcp-budget.e2e.test.ts
           ./src/lawoss/engine-mcp-budget.test.ts
           ./src/isir-case-attachments.e2e.test.ts

@@ -119,7 +119,7 @@ The whole application must run and stay usable on a user's computer within **2 G
 
 - Indicative split: main 250 MB, renderers 600 MB, GPU 200 MB, engine 500 MB, MCP and Marketplace 250 MB (orchestrator and router 200 MB when they run).
 - Every new process, window, cache, queue, buffer, watcher or poll needs an upper bound and a release path. Stream files instead of reading them whole; bound concurrency instead of `Promise.all` over workspaces, files or plugins; start work lazily and stop it when idle.
-- The engine starts every MCP of an instance on its first MCP access (`/mcp`, `/command`, prompts). Touch MCP state only for an opened client through `apps/server/src/lawoss/engine-mcp-budget.ts`; never warm, reload or sync MCP of all workspaces at once. Use `/path` for instance readiness.
+- The engine starts every MCP of an instance on its first MCP access (`/mcp`, `/command`, prompts). Touch MCP state only for an opened client through `apps/server/src/lawoss/engine-mcp-budget.ts`; never warm, reload or sync MCP of all workspaces at once. Engine v2 has no `/api/path`: use the instance-free `GET /api/info` for engine readiness, because every location-bound request builds that location with all its MCP (`LOCATION_FREE` in `engine-mcp-budget.ts` lists the routes that do not).
 - Measure, do not estimate: report the physical footprint of the whole process tree (macOS `footprint`/`top` MEM, Windows private working set, Linux PSS), not summed RSS, with the synthetic dataset. A change that adds a process or a memory-heavy path states before/after numbers in its PR.
 - Kill child processes as a tree; an orphaned engine keeps every MCP alive after the app is gone.
 
@@ -357,6 +357,6 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 
 - Verify repeated Office development builds separately from cold builds. Keep the last bundle while serial fresh compiler processes bound retained build memory; coalesce changes during compilation, include configuration/shared-package inputs, and drain the owned compiler on shutdown without overriding NODE_OPTIONS.
 
-- Serialize ordinary session-list cold readiness underneath protected routing, scoped to the host config, workspace and current connection. Fetch each list freshly after readiness, retain HTTP cancellation, and keep owned confined reads, individual-session authority checks and long-lived streams outside ordinary initialization.
+- Ordinary session lists use the location-free `GET /api/session` underneath protected routing, scoped to the host config, workspace and current connection; engine v2 starts no cold location for them, so never send a location-bound readiness probe or wait for another directory's cold start before the list. Fetch each list freshly after readiness, retain HTTP cancellation, and keep owned confined reads, individual-session authority checks and long-lived streams outside ordinary initialization.
 
 - Source-extracted native lifecycle fixtures must supply the real presentation collaborators used by the production callback. Assert actual navigation and rendered locale alongside the original receipt/origin/strict-stop refusals so a swallowed setup error cannot masquerade as lifecycle behavior.
