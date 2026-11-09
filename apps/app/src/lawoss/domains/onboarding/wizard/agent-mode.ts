@@ -1,7 +1,7 @@
 /**
  * Režim agenta pre krok „Ako agent pracuje“ a súhrn „Pripravené“ (C1). Číta a zapisuje len existujúce
  * nastavenia cez existujúce API: YOLO (`/lawoss/yolo`, yolo-mode.tsx) a globálne oprávnenia nástrojov
- * (`getConfig`/`patchConfig`, rovnaké pomocné funkcie ako Nastavenia → Bezpečnosť). Predvolenia nemení:
+ * (`getConfig`/`patchConfig`, rovnaké pomocné funkcie ako Nastavenia → Oprávnenia nástrojov). Predvolenia nemení:
  * nenastavené `edit`/`bash` sa berú ako pýtanie (predvolenie servera z úlohy A1); zápis „ask“ nastane len
  * na výslovnú voľbu advokáta, keď je zmena súborov nastavená na „allow“.
  *
@@ -56,7 +56,7 @@ export function editsMode(model: ToolPermissionsModel): Exclude<EditsMode, "unkn
   return model.edit.action === "allow" || model.bash.action === "allow" ? "allow" : "ask";
 }
 
-/** Účinný režim zmien: vlastné pravidlá s firemnými navrch (rovnako ako Nastavenia → Bezpečnosť). */
+/** Účinný režim zmien: vlastné pravidlá s firemnými navrch (rovnako ako Nastavenia → Oprávnenia nástrojov). */
 export function effectiveEdits(permission: Record<string, unknown>, firm: FirmPermissions): Exclude<EditsMode, "unknown"> {
   return editsMode(parseToolPermissions(firm ? withFirmPermissions(permission, firm) : permission));
 }

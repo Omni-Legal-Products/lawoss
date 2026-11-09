@@ -225,6 +225,10 @@ jobs:
       # workspace bez install skriptov; balenie ani podpisovanie tu nebeží.
       - name: Install source test and typecheck dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
+      # Upstream v0.2.19: core-skills.ts importuje ignorovaný help-i18n.generated.ts,
+      # ktorý vzniká až generátorom. Testy appky aj servera ho importujú pred buildom.
+      - name: Generate core skills and help translations
+        run: pnpm docs:generate
       - name: OKF typecheck
         run: pnpm --filter @lawoss/okf typecheck
       - name: OKF and naming

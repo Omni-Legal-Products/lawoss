@@ -91,6 +91,19 @@ Upstream prešiel na engine OpenCode 2.1.4 ako derivát `2.1.4-legalwork.http-po
 | `apps/server/src/extensions/index.ts` | Len upstream oprava #296 (kontrola `personalConnections` a validácia payloadu), nič iné. `legalwork-legalmemory-knowledge` je upstream port na v2 bez zásahu LAWOSS. |
 
 Overené spustením: zostavený derivát `2.1.4-legalwork.http-policy.3` (darwin-arm64, linux-arm64, linux-x64-baseline), migrácia histórie v1 → v2 so syntetickou DB (`lawoss/engine-v2-history-migration.integration.test.ts`, voliteľný, potrebuje engine 1.18.29 aj 2.1.4). `sk.ts` a `cs.ts`: 282 nových kľúčov; `home.new_project_hint` ostáva (domov bez klienta zakladá klienta). Otvorené body sú v PR.
+## SK/CS príručka pre agenta (2026-11-08, MČ)
+
+Agent pri otázkach na appku (skill `legalwork-help`) číta príručku LAWOSS v slovenčine alebo češtine podľa jazyka otázky (inak podľa jurisdikcie kancelárie, predvolene slovensky; pre EN/DE slovenskú stránku s presnými názvami z tabuľky prekladov). Upstream EN príručka `docs/user-guide/*.md` ostáva v strome, ale nepribaľuje sa (Eigenwelt, platené plány, skryté plochy).
+
+| Súbor | Zmena |
+|---|---|
+| `lawoss/user-guide/{index.md,sk/*.md,cs/*.md}`, `lawoss/user-guide/screens.mjs` (nové) | Príručka LAWOSS (rovnaké stránky v `sk/` a `cs/`) a mapa trás a kariet nastavení na jej stránky; `null` = obrazovka skrytá v LAWOSS (`hidden: true` v `screens.json`). |
+| `scripts/help-docs.mjs` | `helpDocFiles()` pribalí `lawoss/user-guide` namiesto `docs/user-guide`; `generateHelpScreens` berie stránky z `lawoss/user-guide/screens.mjs` a overí ich v oboch jazykoch. Upstream mapy `routeGuides`/`settingGuides` ostávajú kvôli syncu nepoužité. |
+| `apps/server/resources/core-opencode/skills/legalwork-help/SKILL.md` | Text skillu LAWOSS: Od v0.3.9 aj upstream pokyny pre prihlásenia webov (`legalwork_browser_request_password`, `legalwork_browser_add_website` s kartou LAWOSS). výber jazyka, témy `references/{sk,cs}/…`, pojmy klient/prípad/chat, skryté obrazovky neopisovať. Najprv `legalwork_skill_load`, potom `legalwork_skill_read` (smoke test 8. 11.: po vstavanom `skill` čítanie dvakrát zlyhalo). |
+| `apps/server/src/legalwork-help.test.ts`, `scripts/gen-core-skills.test.mjs` | Testy balenia čítajú `lawoss/user-guide` (stránky v oboch jazykoch, `references/sk/integracie.md` namiesto `email.md`); test CRLF kopíruje `lawoss/user-guide`. |
+| `docs/user-guide/screens.json`, `apps/server/src/core-skills.ts` | Pregenerované. |
+| `apps/server/src/lawoss/user-guide.test.ts` (nový) | V pribalenom balíku len SK/CS stránky, rovnaké súbory v oboch jazykoch, bez zakázaných pojmov (Eigenwelt, platené plány, LegalWork cloud, záznamník, diktovanie, cloudový prepis, Slack, Telegram, router, Messaging, hostia, Pre-release, wiki, kalendár, plánované úlohy, dashboardy). |
+| `apps/server/src/lawoss/app-setting-names.ts` | Konektory sú v „Nastavenia → Integrácie“ (karta `sidebar.integrations`), nie „Rozšírenia“. |
 
 ## Počítadlo krokov onboardingu podľa zobrazených krokov (2026-11-08, MČ)
 
@@ -107,6 +120,7 @@ Overené spustením: zostavený derivát `2.1.4-legalwork.http-policy.3` (darwin
 | `apps/app/src/lawoss/feature-flags.ts` | `isCloudTranscriptionHidden()` = `true`. |
 | `apps/app/src/react-app/domains/recorder/recorder-store.ts` | Bootstrap záznamníka zahodí `cloud` (modely, regióny, modely poznámok), uložená voľba „cloud“ sa číta ako lokálna a `setTranscriptionSource("cloud")` sa odmietne. Všetky ponuky (`CloudModelList`, výber modelu, onboarding, nastavenia záznamníka) tak nemajú čo zobraziť. |
 | `apps/app/tests/lawoss-cloud-transcription-hidden.test.ts`, `apps/app/tests/onboarding-transcription-choice.test.tsx` | Nový test; upstream test voľby cloudu overuje, že voľba ostane lokálna. |
+| `apps/app/scripts/dictation-runtime.test.ts` | Upstream testy cloudového diktovania nastavia `isCloudTranscriptionHidden()` na `false` cez `mock.module`, aby ďalej overovali samotný mechanizmus cloudu. |
 
 ## Sync upstream v0.2.19 (2026-11-08, ADR 0016)
 
@@ -118,6 +132,9 @@ Pribalená používateľská príručka (`docs/user-guide`, skill `legalwork-hel
 | `apps/app/src/react-app/domains/views/view-renderer.tsx` | Upstream ukladanie a export prehľadov + LAWOSS lenivé načítanie OpenUI, preklady (`views.display_failed`, `views.limited_data`) a bez 15 s obnovy otvoreného prehľadu (`staleTime`/`gcTime`, #367). |
 | `apps/desktop/electron/main.mjs`, `apps/desktop/package.json`, `apps/server/package.json`, `package.json` | Lokalizovaný názov okna exportu pre podporu ostáva; upstream technický export, `dashboardFileImporter`, `gen-core-skills` v builde a nové testy popri LAWOSS. |
 | `AGENTS.md`, `README.md` | LAWOSS (upstream pravidlá príručky neprevzaté). |
+| `apps/desktop/scripts/check-packaged-security.mjs` | Predbežne prevzatá oprava z upstream v0.3.0: `core-skills.js` aj `help-i18n.generated.js` sa rozbalia a importujú cez `file:` URL. Import z `data:` URL nevyrieši relatívny import prekladov príručky (v0.2.19). |
+| `lawoss/engine-dependencies/package-runtime.mjs` (+ test, README), `.github/workflows/ci-desktop-packaging.yml` | Hostiteľský Node pre balenie runtime-tools je 24.22.1 ako upstream v0.2.x (`.nvmrc`, release a alfa workflowy); rovnako `engine-npm-config.yml` a stráž zmrazených jobov v `engine-empty-auth-probe.test.mjs`. So starým kontraktom 24.21.0 padali všetky joby „Package and launch“ na `RUNTIME_PACKAGE_FAILED` (`INVALID_NODE`). LAWOSS joby memory-budget a windows-engine-* majú tiež 24.22.1. |
+| `.github/workflows/ci-windows-portable.yml` | Krok `pnpm docs:generate` po inštalácii: testy importujú ignorovaný `apps/server/src/help-i18n.generated.ts`, ktorý vzniká až generátorom. |
 
 Overené: `meeting-monitor.mjs` má ďalej `detectionDefault` (LAWOSS `false`), akcie LAWOSS v `ci-tests.yml` ostávajú pripnuté na SHA. `sk.ts` a `cs.ts`: 61 nových kľúčov, 2 zrušené odstránené. `opencodeVersion` ostáva 1.18.29.
 
@@ -182,7 +199,7 @@ Krok 2 plného syncu na v0.3.9 (diktovanie, nahrávky pre agenta, zdieľané úl
 | `apps/app/src/react-app/domains/settings/pages/preferences-view.tsx`, `apps/app/src/react-app/shell/settings-route.tsx` | Upstream presunul „Skryť LegalWork“ do nastavení záznamníka, ktoré LAWOSS skrýva; voľba ostáva v Súkromí, kým je záznamník skrytý. |
 | `apps/app/src/react-app/shell/session-route.tsx` | Preskočenie onboardingu záznamníka platí aj pre nový krok `dictation`; späť sa ide na `office`. |
 | `apps/app/src/react-app/domains/session/surface/composer/composer-dictation.tsx` | Nové tlačidlo diktovania v composeri sa pri skrytom záznamníku nezobrazí (model reči by sa nedal nainštalovať). |
-| `apps/desktop/electron/audio/meeting-monitor.mjs`, `apps/desktop/electron/main.mjs` | Voľba `detectionDefault`; LAWOSS ju dáva `false`, takže rozpoznávanie stretnutí (sonda procesov a kariet prehliadača každé 3 s) nebeží, kým ho používateľ nezapne. Test v `meeting-monitor.test.mjs`. |
+| `apps/desktop/electron/audio/meeting-monitor.mjs`, `apps/desktop/electron/main.mjs` | Voľba `detectionDefault`; LAWOSS ju dáva `false`, takže rozpoznávanie stretnutí (sonda procesov a kariet prehliadača každé 3 s) nebeží, kým ho používateľ nezapne. Test v `meeting-monitor.test.mjs`. Typ voľby je aj v JSDoc konštruktora (`typecheck:electron`). |
 | `apps/app/src/react-app/domains/recorder/recorder-store.ts` | Bez `ensureDiarizationReady` pri štarte (MČ 5. 10.); jazyk HUD diktovania je len `en`/`de`, lebo hlavný proces iné texty nemá. |
 | `apps/server/src/legalwork-runtime-config.ts` | Upstream prompt plánovaného behu s nahrávkami + LAWOSS `withFileChangeRule`. |
 | `apps/app/src/react-app/domains/session/sync/{session-sync,usechat-adapter}.ts` | `scheduledTextMetadata(part)` spojené s LAWOSS `commentaryTag(part)`. |
@@ -353,6 +370,7 @@ Issue #367. Nový `scripts/memory-budget/run.mjs` spustí zabalenú appku s izol
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
 | `.github/workflows/ci-desktop-packaging.yml` | Samostatný job `memory-budget` („RAM budget 2 GB (macos-15)“, od 2026-11-08): závisí len od `sandbox-runtime`, postaví a zabalí appku pre macOS bez natívneho testu ISIR, potom cache datasetu, krok „Verify RAM budget (2 GB) with the packaged app“ (overenie SHA-256 datasetu, klon `lawoss-marketplace` s commitom snapshotu, meranie), `node --test scripts/memory-budget/memory.test.mjs` a upload `memory-budget.json`. Pôvodne bol krok v „Package and launch (macos-15)“ za nestabilným natívnym testom ISIR, ktorý ho pri zlyhaní preskočil (#378 sa tak zlúčil bez merania). Job je určený ako povinná kontrola rulesetu `dev`. Windows a Linux zatiaľ nie (Windows bez merania súkromnej pamäte stromu; Linux runner bez overenia). |
+| `.github/workflows/ci-desktop-packaging.yml` | Samostatný job `isir-native` („Native ISIR (<os>, nepovinné)“, od 2026-11-08, #384): rovnaká matica a príprava ako `package-smoke` (bez testu migrácie konfigurácie), potom diagnostický artefakt, krok „Native ISIR renderer, tools and application relaunch“ pre Linux aj Windows/macOS, sonda enginu po zlyhaní na Windows a upload diagnostiky. Z `package-smoke` sa tieto kroky odstránili, takže povinné „Package and launch“ overujú balenie, ASAR, poistky, izoláciu, natívne moduly a štart bez nestabilného ISIR. Job nie je v rulesete povinný, jeho zlyhanie je v PR vidno. Limity prípadov (240 s príprava, 90 s inferencia, 75 min dávka) sa nemenia. Zmrazené diagnostické joby (`if: false`) ostávajú na `needs: [package-smoke]`; pri ich obnovení treba závislosť presmerovať na `isir-native`. |
 
 ## MCP len pre otvoreného klienta, strop a uvoľnenie nečinných inštancií enginu (2026-11-05)
 

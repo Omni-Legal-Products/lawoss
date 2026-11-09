@@ -88,7 +88,7 @@ async function fixture(run) {
         desktopRoot: path.join(root, "desktop"), listLocalWorkspacePaths: async () => [selected],
         listLocalWorkspaceAppFiles: async () => [{ path: selected, appFiles: "outside" }],
         listLocalWorkspaces: async () => [], reconnectHostWorkspace: async () => null,
-        recorder: undefined, onSidecarExit: () => {}, getApprovalWindow: () => null,
+        recorder: undefined, onSidecarExit: () => {}, getApprovalWindow: () => null, modelDownloadFetch: undefined,
       });
       await run({ root, selected, configPath, manager, ownHttpServer: server => { externalServer = server; } });
       assert.equal(watcherLogs, 2, "Expected one watcher startup per real server generation");

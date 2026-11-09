@@ -438,7 +438,7 @@ describe("selected existing project startup", () => {
         try {
           const selected=path.join(root,"selected-project");
           if(kind==="file")await writeFile(selected,"Synthetic source bytes");
-          const manager=createRuntimeManager({app:{isPackaged:true,getPath:key=>key==="exe"?path.join(root,"app","Electron"):root},desktopRoot:path.join(root,"desktop"),listLocalWorkspacePaths:async()=>[],listLocalWorkspaceAppFiles:async()=>({}),listLocalWorkspaces:async()=>[],reconnectHostWorkspace:async()=>null,recorder:undefined,onSidecarExit:()=>{},getApprovalWindow:()=>null});
+          const manager=createRuntimeManager({app:{isPackaged:true,getPath:key=>key==="exe"?path.join(root,"app","Electron"):root},desktopRoot:path.join(root,"desktop"),listLocalWorkspacePaths:async()=>[],listLocalWorkspaceAppFiles:async()=>({}),listLocalWorkspaces:async()=>[],reconnectHostWorkspace:async()=>null,recorder:undefined,onSidecarExit:()=>{},getApprovalWindow:()=>null,modelDownloadFetch:undefined});
           const before=await manager.engineInfo();
           await assert.rejects(manager.engineStart(selected,{appFiles}),/Project folder is unavailable/);
           assert.deepEqual(await manager.engineInfo(),before,"Unavailable project must not disturb a runtime or its lifecycle");
@@ -465,7 +465,7 @@ for (const appFiles of ["inside","outside"]) it(`existing canonical aliases stil
  syncBuiltinESMExports();
  try {
   const target=path.join(root,"actual"),alias=path.join(root,"alias");await mkdir(target);await symlink(target,alias,process.platform==="win32"?"junction":"dir");
-  const manager=createRuntimeManager({app:{isPackaged:true,getPath:key=>key==="exe"?path.join(root,"app","Electron"):root},desktopRoot:path.join(root,"desktop"),listLocalWorkspacePaths:async()=>[],listLocalWorkspaceAppFiles:async()=>({}),listLocalWorkspaces:async()=>[],reconnectHostWorkspace:async()=>null,recorder:undefined,onSidecarExit:()=>{},getApprovalWindow:()=>null});
+  const manager=createRuntimeManager({app:{isPackaged:true,getPath:key=>key==="exe"?path.join(root,"app","Electron"):root},desktopRoot:path.join(root,"desktop"),listLocalWorkspacePaths:async()=>[],listLocalWorkspaceAppFiles:async()=>({}),listLocalWorkspaces:async()=>[],reconnectHostWorkspace:async()=>null,recorder:undefined,onSidecarExit:()=>{},getApprovalWindow:()=>null,modelDownloadFetch:undefined});
   // This Node fixture has no packaged Node binary. The real existing-root
   // precondition must pass, without pretending the Electron engine launched.
   await assert.rejects(manager.engineStart(alias,{appFiles,opencodeBinPath:ownedBinary}),error=>!String(error).includes("Project folder is unavailable"));

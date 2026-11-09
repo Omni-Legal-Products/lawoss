@@ -26,7 +26,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24.21.0
+          node-version: 24.22.1
       - id: config-pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
@@ -84,7 +84,7 @@ jobs:
           $env:npm_config_cache = $configCache
           $global:LASTEXITCODE = $null
           try { $configNodeVersion = @(& $configNode --version); $configNodeExit = $LASTEXITCODE } catch { throw 'TOOLS_INSTALL_FAILED' }
-          if ($configNodeExit -isnot [int] -or $configNodeExit -ne 0 -or $configNodeVersion.Count -ne 1 -or $configNodeVersion[0] -cne 'v24.21.0') { throw 'TOOLS_INSTALL_FAILED' }
+          if ($configNodeExit -isnot [int] -or $configNodeExit -ne 0 -or $configNodeVersion.Count -ne 1 -or $configNodeVersion[0] -cne 'v24.22.1') { throw 'TOOLS_INSTALL_FAILED' }
           $global:LASTEXITCODE = $null
           try { $configVersion = @(& $configNode $configPnpmCli --version); $configVersionExit = $LASTEXITCODE } catch { throw 'TOOLS_INSTALL_FAILED' }
           if ($configVersionExit -isnot [int] -or $configVersionExit -ne 0 -or $configVersion.Count -ne 1 -or $configVersion[0] -cne '11.4.0') { throw 'TOOLS_INSTALL_FAILED' }
