@@ -85,7 +85,7 @@ test('frozen diagnostic jobs cannot automatically renew while normal native pack
   assert.throws(()=>assertFrozenAdmissions(source.replace('    if: false','    if: true')));
   const added=source.slice(source.indexOf('  windows-engine-empty-auth-probe:\n'));
   assert.ok(added.includes('needs: [package-smoke]'));
-  assert.ok(added.includes('node-version: 24.21.0'));
+  assert.ok(added.includes('node-version: 24.22.1'));
   assert.ok(added.indexOf('node --test ')<added.indexOf('actions/download-artifact@'));
   assert.equal((added.match(/build:electron/g)??[]).length,1);
   assert.ok(!/electron-builder|engine-baseline-probe|engine-compile-monitor/.test(added));
