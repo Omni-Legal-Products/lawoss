@@ -18,6 +18,10 @@ const LOCATION = `location%5Bdirectory%5D=${encodeURIComponent(WORKSPACE)}`;
 const DOCUMENT_RPC = "lawoss.protected-documents";
 const MAX_RESPONSE = 16 * 1024 * 1024;
 const CHUNK = 32 * 1024;
+// Engine v2 answers location-bound routes with 503 after a fixed 5 s wait for
+// location plugin activation. Slow (emulated) guests retry only that response,
+// within this launcher-start bound that stays inside the host's 240 s budget.
+const INITIALIZATION_DEADLINE = Date.now() + 180_000;
 const tasks = new Map();
 const lifetime = new AbortController();
 // Node 24 can configure its GLOBAL http agent from NODE_USE_ENV_PROXY before
@@ -28,6 +32,10 @@ let server;
 let phase = "bundle";
 let healthState = "unobserved";
 let initializationState = "unobserved";
+// Closed diagnostics for the failing initialization request; never bodies or messages.
+let initializationRequest = "none";
+let initializationOutcome = "none";
+let activationRetries = 0;
 let checkpointing = false;
 // Defense in depth; private engine HTTP below uses direct node:http regardless.
 process.env.NO_PROXY = process.env.no_proxy = "127.0.0.1,localhost";
@@ -78,26 +86,73 @@ async function closePrivateResponse(response) {
   privateResponses.delete(response);
 }
 
-async function privateJson(port, path, authorization, signal, body) {
+class PluginActivationPending extends Error {}
+
+function noteInitialization(request, outcome) {
+  if (initializationOutcome !== "none") return;
+  initializationRequest = request; initializationOutcome = outcome;
+}
+
+// Only the engine's own typed plugin-activation 503 is retryable; the bounded body is
+// inspected structurally inside the guest and never published.
+async function pluginActivationPending(response) {
+  if (response.statusCode !== 503) return false;
+  const chunks = []; let size = 0;
+  for await (const chunk of response) { size += chunk.length; if (size > 8192) return false; chunks.push(chunk); }
+  try {
+    const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return isRecord(value) && value._tag === "ServiceUnavailableError" && value.service === "plugin";
+  } catch { return false; }
+}
+
+async function privateJson(port, path, authorization, signal, request, body) {
   const data = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
-  const response = await privateRequest(port, path, data ? "POST" : "GET", { authorization, ...(data ? { "content-type": "application/json", "content-length": String(data.length) } : {}) }, data, signal);
+  let response;
+  try { response = await privateRequest(port, path, data ? "POST" : "GET", { authorization, ...(data ? { "content-type": "application/json", "content-length": String(data.length) } : {}) }, data, signal); }
+  catch (error) { noteInitialization(request, "transport"); throw error; }
   const chunks = []; let size = 0;
   try {
     if (response.statusCode !== 200) {
+      if (await pluginActivationPending(response)) { noteInitialization(request, "plugin-activation"); throw new PluginActivationPending("Location plugins are still activating"); }
+      const status = response.statusCode ?? 0;
+      noteInitialization(request, status >= 400 && status < 500 ? "status-4xx" : status >= 500 && status < 600 ? "status-5xx" : "status-other");
       if (initializationState === "pending") initializationState = "http-refused";
       throw new Error("Private initialization request refused");
     }
     for await (const chunk of response) {
       size += chunk.length;
       if (size > MAX_RESPONSE) {
+        noteInitialization(request, "response-bound");
         if (initializationState === "pending") initializationState = "invalid-json";
         throw new Error("Private initialization response exceeds bound");
       }
       chunks.push(chunk);
     }
     try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); }
-    catch (error) { if (initializationState === "pending") initializationState = "invalid-json"; throw error; }
+    catch (error) { noteInitialization(request, "invalid-json"); if (initializationState === "pending") initializationState = "invalid-json"; throw error; }
   } finally { await closePrivateResponse(response); }
+}
+
+// The first location-bound read waits for plugin activation. Retry only its typed
+// activation 503 until the launcher deadline; every other refusal stays final.
+async function activatedModels(port, authorization, signal) {
+  while (true) {
+    const remaining = INITIALIZATION_DEADLINE - Date.now();
+    if (remaining <= 0) { initializationState = "timeout"; throw new Error("Protected plugin activation did not finish"); }
+    const expiry = AbortSignal.timeout(remaining);
+    initializationRequest = "none"; initializationOutcome = "none";
+    try { return await privateJson(port, `/api/model?${LOCATION}`, authorization, AbortSignal.any([signal, expiry]), "model"); }
+    catch (error) {
+      if (expiry.aborted && !signal.aborted) { initializationState = "timeout"; initializationRequest = "model"; initializationOutcome = "deadline"; throw error; }
+      if (!(error instanceof PluginActivationPending)) throw error;
+    }
+    activationRetries++;
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { signal.removeEventListener("abort", aborted); resolve(); }, 200);
+      const aborted = () => { clearTimeout(timer); reject(signal.reason); };
+      if (signal.aborted) aborted(); else signal.addEventListener("abort", aborted, { once: true });
+    });
+  }
 }
 
 function isRecord(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
@@ -111,12 +166,12 @@ async function initializeEngine(port, authorization, modelId) {
   try {
     // `GET /api/model` waits for the location's plugin activation; catalog reads
     // (agents, plugin RPC) do not and would otherwise race it.
-    const models = await privateJson(port, `/api/model?${LOCATION}`, authorization, signal);
+    const models = await activatedModels(port, authorization, signal);
     const [selected, agents, registry] = await Promise.all([
-      privateJson(port, `/api/model/default?${LOCATION}`, authorization, signal),
-      privateJson(port, `/api/agent?${LOCATION}`, authorization, signal),
+      privateJson(port, `/api/model/default?${LOCATION}`, authorization, signal, "model-default"),
+      privateJson(port, `/api/agent?${LOCATION}`, authorization, signal, "agent"),
       // The document plugin reports the engine's own tool registry after every transform.
-      privateJson(port, `/api/rpc/${DOCUMENT_RPC}/schema?${LOCATION}`, authorization, signal, { input: {} }),
+      privateJson(port, `/api/rpc/${DOCUMENT_RPC}/schema?${LOCATION}`, authorization, signal, "tool-schema", { input: {} }),
     ]);
     const fixed = (model) => isRecord(model) && model.id === modelId && model.providerID === "protected-documents" && model.enabled === true;
     const listed = isRecord(models) && Array.isArray(models.data) ? models.data : [];
@@ -352,7 +407,7 @@ async function start() {
   phase = "engine-initialization";
   await initializeEngine(port, authorization, model.id);
   phase = "publish-ready";
-  await capability("/rpc/ready", { version: 2 });
+  await capability("/rpc/ready", { version: 2, activationRetries: Math.min(activationRetries, 9999) });
   phase = "serve";
   while (!lifetime.signal.aborted) {
     const command = await capability("/rpc/next");
@@ -363,7 +418,8 @@ async function start() {
 }
 process.once("SIGTERM", () => lifetime.abort(new Error("Worker stopped")));
 process.once("SIGINT", () => lifetime.abort(new Error("Worker stopped")));
-try { await start(); } catch { console.error(`Protected engine failed at ${phase}`); console.error(`Protected engine health state ${healthState}`); console.error(`Protected engine initialization state ${initializationState}`); process.exitCode = 1; }
+try { await start(); } catch { console.error(`Protected engine failed at ${phase}`); console.error(`Protected engine health state ${healthState}`); console.error(`Protected engine initialization state ${initializationState}`);
+  console.error(`Protected engine initialization request ${initializationRequest} ${initializationOutcome}`); console.error(`Protected engine initialization activation-retries ${Math.min(activationRetries, 9999)}`); process.exitCode = 1; }
 finally {
   lifetime.abort(); for (const controller of tasks.values()) controller.abort();
   if (child && child.exitCode === null && child.signalCode === null) { child.kill("SIGKILL"); await once(child, "close").catch(() => {}); }
