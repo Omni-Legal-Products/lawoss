@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
-import { mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -18,7 +18,8 @@ const originalServerToken = process.env.LEGALWORK_SERVER_TOKEN;
 // office-plugin-shared asks the server for the chat's workspace on every call;
 // every test uses the same URL and workspace.
 const SERVER_URL = "http://127.0.0.1:9912";
-const WORKSPACE = { id: "ws-1", path: await mkdtemp(join(tmpdir(), "legalwork-task-tools-workspace-")) };
+// LAWOSS: the chat credential carries the canonical directory (macOS /var is /private/var).
+const WORKSPACE = { id: "ws-1", path: await realpath(await mkdtemp(join(tmpdir(), "legalwork-task-tools-workspace-"))) };
 const ATTACHMENT_BYTES = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0, 0xff]);
 /** Every server call is bound to the calling chat and its directory. */
 const CONTEXT = { directory: WORKSPACE.path, sessionID: "ses_test" };
@@ -553,13 +554,15 @@ describe("legalwork_task_download_attachment", () => {
     const target = await destination();
     const tools = await registeredTools();
     const result = JSON.parse(await tools.legalwork_task_download_attachment.execute(
-      { taskId: "task-1", attachmentId: "att-1", path: target.path }, { directory: WORKSPACE.path },
+      { taskId: "task-1", attachmentId: "att-1", path: target.path }, CONTEXT,
     ));
     expect(result).toEqual({ ok: true, taskId: "task-1", attachmentId: "att-1", local_path: target.path, bytes: ATTACHMENT_BYTES.byteLength });
     expect(new Uint8Array(await readFile(target.absolute))).toEqual(ATTACHMENT_BYTES);
     expect(taskRequests()).toHaveLength(1);
     expect(taskRequests()[0]?.url).toBe(`${SERVER_URL}/workspace/ws-1/tasks/task-1/attachments/att-1`);
-    expect(taskRequests()[0]?.headers.get("Authorization")).toBe("Bearer test-token");
+    // LAWOSS: the chat-bound credential, never a server-wide token.
+    expect(taskRequests()[0]?.headers.get("x-legalwork-wiki-agent-token")).toBe("test-agent-token");
+    expect(taskRequests()[0]?.headers.get("Authorization")).toBeNull();
     expect(await readdir(join(WORKSPACE.path, ".legalwork", "storage-downloads"))).toEqual([]);
   });
 
@@ -568,7 +571,7 @@ describe("legalwork_task_download_attachment", () => {
     await writeFile(target.absolute, "keep existing work");
     const tools = await registeredTools();
     const result = JSON.parse(await tools.legalwork_task_download_attachment.execute(
-      { taskId: "task-1", attachmentId: "att-1", path: target.path }, { directory: WORKSPACE.path },
+      { taskId: "task-1", attachmentId: "att-1", path: target.path }, CONTEXT,
     ));
     expect(result.ok).toBe(false);
     expect(await readFile(target.absolute, "utf8")).toBe("keep existing work");
@@ -604,7 +607,7 @@ describe("legalwork_task_download_attachment", () => {
       const target = await destination();
       downloadResponse = () => Response.json({ message: `File unavailable: ${status}` }, { status });
       const result = JSON.parse(await tools.legalwork_task_download_attachment.execute(
-        { taskId: "task-1", attachmentId: "att-1", path: target.path }, { directory: WORKSPACE.path },
+        { taskId: "task-1", attachmentId: "att-1", path: target.path }, CONTEXT,
       ));
       expect(result).toEqual({ ok: false, error: `File unavailable: ${status}` });
       await expect(stat(target.absolute)).rejects.toThrow();
@@ -618,7 +621,7 @@ describe("legalwork_task_download_attachment", () => {
     }));
     const tools = await registeredTools();
     const result = JSON.parse(await tools.legalwork_task_download_attachment.execute(
-      { taskId: "task-1", attachmentId: "att-1", path: target.path }, { directory: WORKSPACE.path },
+      { taskId: "task-1", attachmentId: "att-1", path: target.path }, CONTEXT,
     ));
     expect(result).toMatchObject({ ok: false, error: "download interrupted" });
     await expect(stat(target.absolute)).rejects.toThrow();
@@ -631,12 +634,13 @@ describe("legalwork_task_delete_attachment", () => {
     attachments.push({ ...TASK.attachments[0]!, id: "att-other" });
     const tools = await registeredTools();
     const result = JSON.parse(await tools.legalwork_task_delete_attachment.execute(
-      { taskId: "task-1", attachmentId: "att-1" }, { directory: WORKSPACE.path },
+      { taskId: "task-1", attachmentId: "att-1" }, CONTEXT,
     ));
     expect(result).toMatchObject({ ok: true, task: { id: "task-1", attachmentCount: 1 } });
     expect(attachments.map((file) => file.id)).toEqual(["att-other"]);
     expect(taskRequests().at(-1)?.method).toBe("DELETE");
-    expect(taskRequests().at(-1)?.headers.get("Authorization")).toBe("Bearer test-token");
+    expect(taskRequests().at(-1)?.headers.get("x-legalwork-wiki-agent-token")).toBe("test-agent-token");
+    expect(taskRequests().at(-1)?.headers.get("Authorization")).toBeNull();
     expect(taskRequests().at(-1)?.url).toBe(`${SERVER_URL}/workspace/ws-1/tasks/task-1/attachments/att-1`);
   });
 
@@ -647,7 +651,7 @@ describe("legalwork_task_delete_attachment", () => {
     ))).toMatchObject({ ok: false, error: "That attachment does not exist." });
     deleteStatus = 403;
     expect(JSON.parse(await tools.legalwork_task_delete_attachment.execute(
-      { taskId: "task-1", attachmentId: "att-1" }, { directory: WORKSPACE.path },
+      { taskId: "task-1", attachmentId: "att-1" }, CONTEXT,
     ))).toMatchObject({ ok: false, error: "Removal refused." });
     expect(attachments).toEqual(TASK.attachments);
   });

@@ -114,6 +114,8 @@ async function shutdownNavigationFixture(t,{publish=publishNativeQuitAcceptance,
     disposeRuntimeBeforeQuit:async()=>{disposed=true;events.push('leader-exit');child.exitCode=0;child.emit('exit',0);},uiControlServer:{stop:async()=>{}},
     // Upstream before-quit ohraničí upratovanie skutočným boundedShutdown; vynútené ukončenie by test zlyhalo.
     boundedShutdown,runtimeManager:{forceStopOwnedChildren(){throw new Error('bounded shutdown forced');}},
+    // Upstream v0.3.9 (#369): before-quit first asks the unsaved-changes guard; this synthetic window has no unsaved documents.
+    shutdownApproved:false,shutdownGuard:{confirm:async()=>true},
   });
   vm.runInContext(`${screenUrl}\n${screen}\n${before}`,context);
   const f=await fixture({env:{LAWOSS_ISIR_NATIVE_ROOT:root,LEGALWORK_ELECTRON_USERDATA:path.join(root,'profile'),LAWOSS_ISIR_NATIVE_QUIT_NONCE:nonce},quit:()=>productionApp.quit(),publisher:publish});

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -7,9 +7,12 @@ import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import pluginDefinition from "./opencode-plugins/legalwork-task-tools.js";
 import { nativePluginTools } from "./opencode-plugins/native-plugin-test-support.js";
+import { ensureWikiAgentToken, grantWikiAgentSession } from "./wiki/agent-access.js";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "./opencode-plugins/wiki-agent-secret.js";
 
 test("native task tools create, download, replace and remove attachments through the real server", async () => {
-  const root = await mkdtemp(join(tmpdir(), "legalwork-task-attachments-"));
+  // LAWOSS: the chat credential binds the canonical directory (macOS /var is /private/var).
+  const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-task-attachments-")));
   const directory = join(root, "project");
   await mkdir(directory);
   const previous = {
@@ -28,8 +31,12 @@ test("native task tools create, download, replace and remove attachments through
   };
   const server = await startServer(config);
   process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${server.port}`;
-  process.env.LEGALWORK_SERVER_TOKEN = config.token;
-  const plugin = await nativePluginTools(pluginDefinition, { directory });
+  // LAWOSS: the engine has no server token; tools use the chat-bound credential (wiki-agent-secret.ts).
+  delete process.env.LEGALWORK_SERVER_TOKEN;
+  const previousSecret = wikiAgentSecret();
+  adoptWikiAgentSecret(await ensureWikiAgentToken(config));
+  await grantWikiAgentSession(config, { sessionId: "attachment-chat", directory, scope: "owner" });
+  const plugin = await nativePluginTools(pluginDefinition, { directory, sessionID: "attachment-chat" });
   const resultSchema = z.object({ ok: z.literal(true), task: z.object({ id: z.string() }).passthrough() });
   const detailSchema = z.object({ task: z.object({ attachments: z.array(z.object({ id: z.string(), filename: z.string() })) }) });
   const details = async (taskId: string) => {
@@ -62,6 +69,7 @@ test("native task tools create, download, replace and remove attachments through
     expect(JSON.parse(await plugin.tool.legalwork_task_download_attachment.execute({ taskId, attachmentId: original.id, path: "removed.pdf" }))).toMatchObject({ ok: false, error: "That attachment does not exist." });
   } finally {
     await plugin.close();
+    adoptWikiAgentSecret(previousSecret);
     await server.stop();
     await rm(root, { recursive: true, force: true });
     for (const [key, value] of Object.entries(previous)) {

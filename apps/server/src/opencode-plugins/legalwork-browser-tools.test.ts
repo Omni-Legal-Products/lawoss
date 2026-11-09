@@ -43,7 +43,8 @@ const policy = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   }
   const websiteAdd = /^\/workspace\/project\/browser-connections\/([^/]+)\/websites$/.exec(path);
   if (websiteAdd && request.method === "POST") {
-    expect(request.headers.get("authorization")).toBe("Bearer fixture");
+    // LAWOSS: the chat-bound credential, never a server-wide token.
+    expect(request.headers.get("x-legalwork-wiki-agent-token")).toBe("fixture"); expect(request.headers.has("authorization")).toBe(false);
     expect(request.headers.get("x-legalwork-host-token")).toBeNull();
     if (rejectWebsiteAdd) return Response.json({ code: "insufficient_scope", message: "Only the connection owner can update saved login websites." }, { status: 403 });
     const body = z.object({ url: z.string(), name: z.string().optional(), loginUrl: z.string().optional() }).strict().parse(await request.json());

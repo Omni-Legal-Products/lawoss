@@ -13,6 +13,8 @@ export type QueueTransport = {
   idle: (workspaceId: string, sessionId: string) => Promise<boolean>;
   send: (workspaceId: string, sessionId: string, entry: QueueEntry) => Promise<void | { pause: boolean; reason?: "stop" | "error" } | { accepted: true }>;
   settled?: (workspaceId: string, sessionId: string, entry: QueueEntry) => Promise<{ pause: boolean; reason?: "stop" | "error" } | undefined>;
+  /** 🟡 LAWOSS: false when `confirmed` can never reconcile this chat (protected document chat); its uncertain entry stays removable. */
+  reconciles?: (workspaceId: string, sessionId: string) => boolean;
 };
 /** Only use before calling a delivery endpoint; later failures may have been accepted. */
 export class QueuePreparationError extends Error {}
@@ -205,7 +207,7 @@ export class SessionMessageQueue {
           if (entry.status === "uncertain" || (entry.edit && entry.edit.token !== action.token)) throw conflict();
           entry.edit = { token: action.token, expires: now + 120_000 };
         } else if (action.type === "remove") {
-          if (entry.edit || entry.status === "uncertain") throw conflict();
+          if (entry.edit || entry.status === "uncertain" && (this.transport.reconciles?.(workspaceId, sessionId) ?? true)) throw conflict();
           queue.entries = queue.entries.filter(item => item.id !== action.id);
           queue.completedIds = [...queue.completedIds, action.id].slice(-500);
         } else {

@@ -330,9 +330,10 @@ test("confines uploads and downloads to the task workspace, including symlink ta
 test("PDF reader cards use the checked-out filename and retain the remote file identity", async () => {
   await fixture(async ({ plugin, directory, calls }) => {
     plugin.runtime.models([{ providerID: "fixture", id: "pdf", capabilities: { input: ["text", "pdf"] } }]);
-    await plugin.runtime.hook("session", "model.request", { sessionID: "read-cloud-pdf", agent: "build", kind: "primary", model: { providerID: "fixture", id: "pdf" } });
+    // LAWOSS: the fixture server accepts only its registered chat (SESSION) with the chat-bound credential.
+    await plugin.runtime.hook("session", "model.request", { sessionID: SESSION, agent: "build", kind: "primary", model: { providerID: "fixture", id: "pdf" } });
     const path = "~lw~Zm9sZGVy~Matters/~lw~cHJvdmlkZXItZmlsZQ~Rechnung (Signatur).pdf";
-    const result = await plugin.tool.storage_read_file.executeResult({ connection_id: "one", path }, { directory, sessionID: "read-cloud-pdf" });
+    const result = await plugin.tool.storage_read_file.executeResult({ connection_id: "one", path }, { directory, sessionID: SESSION });
     const attachment = typeof result.content === "string" ? undefined : result.content?.find(part => part.type === "file");
     expect(attachment?.name).toBe("Rechnung (Signatur).pdf");
     expect(result.output).toMatchObject({ path, local_path: expect.stringContaining("/Rechnung (Signatur).pdf"), extraction: "pdf" });

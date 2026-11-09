@@ -116,11 +116,13 @@ test("session website additions require owner scope and return only connection m
     expect((await store.get(login.id)).password).toBe("private-fixture-password");
     await expect(add({ url: "https://evil.example", password: "replacement" })).rejects.toMatchObject({ code: "invalid_browser_password_website" });
     await expect(add({ url: "https://evil.example" }, "other-project")).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
+    // LAWOSS: lowering a chat role lowers the shared engine credential for good (monotone downgrade),
+    // so read-only mode is checked while the chat is still owner, before the downgrade.
+    config.readOnly = true;
+    await expect(add({ url: "https://research.example.net/another" })).rejects.toMatchObject({ code: "read_only" });
+    config.readOnly = false;
     await grantWikiAgentSession(config, { sessionId: "owner-chat", directory: root, scope: "collaborator" });
     await expect(add({ url: "https://evil.example", loginUrl: "https://evil.example" })).rejects.toMatchObject({ code: "forbidden" });
     expect(await store.list("https://evil.example")).toEqual([]);
-    await grantWikiAgentSession(config, { sessionId: "owner-chat", directory: root, scope: "owner" });
-    config.readOnly = true;
-    await expect(add({ url: "https://research.example.net/another" })).rejects.toMatchObject({ code: "read_only" });
   } finally { await rm(root, { recursive: true, force: true }); }
 });

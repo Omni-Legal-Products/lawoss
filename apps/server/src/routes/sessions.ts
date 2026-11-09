@@ -130,6 +130,8 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     ...nativeQueue,
     confirmed: async (workspaceId, sessionID, entry) =>
       protectedRuntimeForSession(config, workspaceId, sessionID) ? false : nativeQueue.confirmed?.(workspaceId, sessionID, entry) ?? false,
+    // Upstream v0.3.9 keeps an uncertain entry until `confirmed` reconciles it; a protected chat never does.
+    reconciles: (workspaceId, sessionID) => !protectedRuntimeForSession(config, workspaceId, sessionID),
     idle: async (workspaceId, sessionId) => {
       if (config.readOnly) return false;
       const protectedRuntime = protectedRuntimeForSession(config, workspaceId, sessionId);
