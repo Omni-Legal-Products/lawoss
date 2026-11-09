@@ -10,6 +10,7 @@ import { recoverSessionMcp } from "./workspace-mcp-recovery.js";
 import { ensureLegacySessionPermissions } from "./session-history-permissions.js";
 import { requireGovernedEngineDispatch } from "./lawoss/ai-governance-engine.js";
 import { workspaceOwnsChat } from "./lawoss/session-ownership.js";
+import { protectedEngineFetch } from "./lawoss/protected-ai/dispatch.js";
 
 // LAWOSS: the server config of each client this module made, for the chat ownership check below.
 const engineClientConfigs = new WeakMap<OpenCodeClient, ServerConfig>();
@@ -20,8 +21,11 @@ const engineClientConfigs = new WeakMap<OpenCodeClient, ServerConfig>();
 export function createEngineClient(config: ServerConfig, workspace: WorkspaceInfo): OpenCodeClient {
   const { baseUrl, authHeader } = resolveWorkspaceOpencodeConnection(config, workspace);
   if (!baseUrl) throw new ApiError(503, "opencode_unavailable", "The agent engine is not available for this project.");
+  // LAWOSS: a protected document chat of this client is answered by its own runtime, and its
+  // sessions, statuses and events join this client's lists and stream (lawoss/protected-ai/dispatch.ts).
+  // It is checked before the AI-boundaries gate and project readiness, as in the public proxy.
   const client: OpenCodeClient = OpenCode.make({ baseUrl, ...(authHeader ? { headers: { Authorization: authHeader } } : {}),
-    fetch: Object.assign(async (request: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    fetch: nativeErrors(protectedEngineFetch(config, workspace.id, Object.assign(async (request: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const url = new URL(typeof request === "string" ? request : request instanceof URL ? request.href : request.url);
       const method = (init?.method ?? (request instanceof Request ? request.method : "GET")).toUpperCase();
       // LAWOSS: AI hranice for every server-internal model route too (titles, schedules,
@@ -61,16 +65,24 @@ export function createEngineClient(config: ServerConfig, workspace: WorkspaceInf
         throw unavailable;
       }
       finally { releaseMcp?.(); }
-      if (response.ok) return response;
-      const status = response.status;
-      const text = await response.text();
-      let detail: unknown = text;
-      try { detail = JSON.parse(text); } catch { /* Keep non-JSON diagnostics. */ }
-      throw nativeResponseError(status, detail);
-    }, { preconnect: fetch.preconnect }),
+      return response;
+    }, { preconnect: fetch.preconnect }))),
   });
   engineClientConfigs.set(client, config);
   return client;
+}
+
+/** Every failed engine or protected-runtime response becomes the same typed native error. */
+function nativeErrors(fetcher: typeof fetch): typeof fetch {
+  return Object.assign(async (request: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const response = await fetcher(request, init);
+    if (response.ok) return response;
+    const status = response.status;
+    const text = await response.text();
+    let detail: unknown = text;
+    try { detail = JSON.parse(text); } catch { /* Keep non-JSON diagnostics. */ }
+    throw nativeResponseError(status, detail);
+  }, { preconnect: fetcher.preconnect });
 }
 
 export function workspaceEngineLocation(workspace: WorkspaceInfo): { directory: string } {

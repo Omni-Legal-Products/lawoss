@@ -55,7 +55,7 @@ const GUEST_PROVIDER = "protected-documents";
 const promptSchema = z.strictObject({ text: z.string().min(1).max(2 * 1024 * 1024), variant: z.literal("high").optional() });
 type GuestPrompt = z.infer<typeof promptSchema>;
 const messageRecordSchema = z.object({ id: z.string().regex(/^msg_[A-Za-z0-9]{1,128}$/), type: z.string() }).passthrough();
-const messagesEnvelope = z.object({ data: z.array(messageRecordSchema), cursor: z.object({ next: z.string().max(4096).optional() }).passthrough() }).passthrough();
+const messagesEnvelope = z.object({ data: z.array(messageRecordSchema), cursor: z.object({ next: z.string().max(4096).nullish() }).passthrough() }).passthrough();
 const activeEnvelope = z.object({ data: z.record(z.string(), z.unknown()) }).passthrough();
 /** The terminal receipt of one delivered queued turn, read from the guest's own history. */
 export type ProtectedTurnResult = { messageID: string; outcome: "succeeded" | "failed" | "interrupted"; assistant: Record<string, unknown> | null };

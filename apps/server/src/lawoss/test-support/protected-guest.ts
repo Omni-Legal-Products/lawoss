@@ -68,7 +68,8 @@ export function fakeProtectedGuest(options: {
       }
       if (path === `${session}/message` && request.method === "GET") {
         const ordered = url.searchParams.get("order") === "desc" ? [...history].reverse() : history;
-        return Response.json({ data: url.searchParams.has("cursor") ? [] : ordered, cursor: { next: "synthetic-end" } });
+        // One page: the continuation cursor reads an empty last page that ends the history, as in engine v2.
+        return Response.json(url.searchParams.has("cursor") ? { data: [], cursor: {} } : { data: ordered, cursor: { next: "synthetic-end" } });
       }
       if (path === `${session}/interrupt` && request.method === "POST") return Response.json({ interrupted: false });
       return new Response(null, { status: 204 });
