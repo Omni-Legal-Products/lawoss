@@ -1011,3 +1011,21 @@ test("punctuation shortcuts support Plus and still reject multiple non-modifier 
   assert.match(invalid.error, /Choose one key/);
   assert.equal(invalid.accelerator, "Control+Plus");
 });
+
+// LAWOSS (MČ 8. 11. 2026): the recorder is hidden, so main.mjs passes miniBarAvailable false and the
+// floating dictation and meeting bar stays off even when an older saved setting or a renderer asks for it.
+test("LAWOSS keeps the mini bar off when it is unavailable, despite saved or requested visibility", async t => {
+  const userDataDir = await tempDir();
+  t.after(() => rm(userDataDir, { recursive: true, force: true }));
+  await writeFile(path.join(userDataDir, "system-dictation.json"), JSON.stringify({ enabled: false, miniBarEnabled: true }));
+  const options = {
+    userDataDir, platform: "win32", globalShortcut: new FakeShortcuts(), clipboard: new FakeClipboard(),
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => true,
+    onToggle: () => {}, onCancel: () => {}, miniBarAvailable: false,
+  };
+  const service = new SystemDictationService(options);
+  t.after(() => service.dispose());
+  assert.equal(service.status().miniBarEnabled, false);
+  assert.equal((await service.initialize()).miniBarEnabled, false);
+  assert.equal((await service.setMiniBarEnabled(true)).miniBarEnabled, false);
+});

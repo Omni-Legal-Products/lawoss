@@ -912,6 +912,8 @@ async function healDictationMonitor(readiness) {
 }
 const systemDictation = new SystemDictationService({
   userDataDir: app.getPath("userData"),
+  // 🟡 LAWOSS: the recorder is hidden (MČ 8. 11. 2026), so the floating dictation and meeting bar never shows.
+  miniBarAvailable: false,
   platform: process.platform,
   globalShortcut,
   clipboard,

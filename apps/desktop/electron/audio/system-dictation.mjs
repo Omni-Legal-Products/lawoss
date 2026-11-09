@@ -115,6 +115,7 @@ export class SystemDictationService {
    *   onCancel: (reason?: "short-press") => void,
    *   onState?: (state: string, message: string, locale?: "en" | "de") => void,
    *   onStatus?: (status: import("@legalwork/types/audio").AudioSystemDictationStatus) => void,
+   *   miniBarAvailable?: boolean,
    * }} options
    */
   constructor(options) {
@@ -135,7 +136,9 @@ export class SystemDictationService {
     this.onStatus = options.onStatus ?? (() => {});
     /** @type {import("@legalwork/types/audio").AudioDictationAppearance} */
     this.appearance = "app";
-    this.miniBarEnabled = true;
+    // LAWOSS: main.mjs passes miniBarAvailable false while the recorder is hidden; the floating bar never shows.
+    this.miniBarAvailable = options.miniBarAvailable !== false;
+    this.miniBarEnabled = this.miniBarAvailable;
     this.enabled = false;
     this.registered = false;
     this.registeredAccelerator = null;
@@ -167,7 +170,7 @@ export class SystemDictationService {
     try {
       const parsed = JSON.parse(await readFile(this.settingsPath, "utf8"));
       this.enabled = parsed?.enabled === true;
-      this.miniBarEnabled = parsed?.miniBarEnabled !== false;
+      this.miniBarEnabled = this.miniBarAvailable && parsed?.miniBarEnabled !== false;
       if (["app", "white", "black"].includes(parsed?.appearance)) this.appearance = parsed.appearance;
       if (typeof parsed?.accelerator === "string" && parsed.accelerator.trim()) {
         this.accelerator = parsed.accelerator.trim();
@@ -248,7 +251,7 @@ export class SystemDictationService {
   async setMiniBarEnabled(enabled) {
     if (typeof enabled !== "boolean") throw new Error("Invalid mini bar visibility.");
     const previous = this.miniBarEnabled;
-    this.miniBarEnabled = enabled;
+    this.miniBarEnabled = this.miniBarAvailable && enabled;
     try {
       await this.persist();
     } catch (error) {
