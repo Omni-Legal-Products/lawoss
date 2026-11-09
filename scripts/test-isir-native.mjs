@@ -362,7 +362,8 @@ try {
     await until(async()=>{try{return sha256(await readFile(path.join(workspace.path,'Dokumenty',entry.documents[0].name)))===sha256(entry.documents[0].bytes)}catch{return false}},'actual picker copied bytes');
     if(endpointRefresh && index===0){
       const behavior=await cdp.evaluate(`(async()=>{const tests=await import('/__isir-fixtures/workspace-endpoint-stability.js');return tests.runNativeEndpointStabilityBehavior()})()`);
-      assert.equal(behavior.actualMountedHook,true);assert.equal(behavior.checks,28,'Every mounted routing/auth/root transition completed');
+      // LAWOSS v2: 12 local routing/auth/root transitions and 5 retired-remote checks (upstream v0.3.0).
+      assert.equal(behavior.actualMountedHook,true);assert.equal(behavior.checks,17,'Every mounted routing/auth/root transition completed');
       await writeFile(path.join(root,'endpoint-hook-behavior.json'),JSON.stringify(behavior,null,2),{mode:0o600});
       console.log(`Mounted native endpoint behavior: ${JSON.stringify(behavior)}`);
     }
