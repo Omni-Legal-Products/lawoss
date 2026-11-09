@@ -16,7 +16,7 @@ import { resolveServerConfig, type CliArgs } from "./config.js";
 import { resolveEngineExecutable, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
 import { startServer } from "./server.js";
 import { ensureWorkspaceFiles, ensureWorkspaceFilesForBootstrap } from "./workspace-init.js";
-import { externalOpencodeConfigDir, workspaceAppFilesRoot, usesExternalWorkspaceAppFiles } from "./lawoss/workspace-app-files.js";
+import { workspaceAppFilesRoot, usesExternalWorkspaceAppFiles } from "./lawoss/workspace-app-files.js";
 import { globalSkillsDir } from "./workspace-files.js";
 import { ensureBundledWorkflows } from "./bundled-workflows.js";
 import { retireSharedLegacyReview } from "./reviews/retire-legacy.js";
@@ -227,10 +227,10 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     ...(options.toolImageRasterRuntime ? { toolImageRasterRuntime: options.toolImageRasterRuntime } : {}), onListening: async (port) => {
     const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${port}`;
     if (!config.opencodeBaseUrl && options.manageOpencode) {
-      // One managed engine has one process-wide OPENCODE_CONFIG_DIR. Select the
-      // workspace requested by the embedding host, not merely the first
-      // persisted registry item, so a restart on workspace activation isolates
-      // its external config, commands and skills from another matter.
+      // LAWOSS: the workspace requested by the embedding host is the one opened
+      // first (its location answers the agent ticket probe). The engine's config
+      // root stays the neutral firm-policy folder for every client; an outside
+      // client's settings reach only its own locations (lawoss-outside-config.ts).
       const requestedDirectory = options.opencodeDirectory?.trim();
       const workspace = requestedDirectory
         ? config.workspaces.find((entry) => resolve(entry.path) === resolve(requestedDirectory)) ?? config.workspaces[0]
@@ -275,7 +275,6 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         const executablePath = await resolveEngineExecutable(options.opencodeBin?.trim() || process.env.LEGALWORK_OPENCODE_BIN?.trim() || "opencode", options.opencodeCwd || process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim() || engineHome, process.env);
         await expectedOpencodeVersion(executablePath, options.opencodeCandidateBuild);
         const service = { configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineHome, "state"), executablePath };
-        const externalConfigDir = externalOpencodeConfigDir(config, workspace);
         const dependencies = await prepareManagedOpencodeDependencies(config, options.opencodeSdkDirectory);
         if (dependencies.reason === "bundle-unavailable") console.warn("[legalwork-server] Prepare desktop resources to validate the released engine's bundled runtime declaration.");
         managed.lifecycle = await startManagedEngineLifecycle({ config, database, service, legacyMcpAuthPath: legacyMcpAuthPath(), create: async (mode, beforeSpawn) => {
@@ -296,13 +295,8 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
             LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config),
             OPENCODE_CONFIG: runtimeConfigPath,
             // App-owned discovery root; native guard hooks enforce firm policy.
-            // LAWOSS: v režime outside je jediný koreň konfigurácie enginu externý
-            // priečinok aktívneho spisu (príkazy, skills); projektová konfigurácia
-            // klienta sa nenačíta.
-            OPENCODE_CONFIG_DIR: externalConfigDir ?? orgPolicyEngineDir(config),
-            // Engine v2 reads the generated native project settings (engine-project.ts) as project config;
-            // only the LAWOSS outside mode, whose config lives in the external directory, turns it off.
-            OPENCODE_CONFIG_PROJECT_DISABLE: externalConfigDir ? "true" : "",
+            OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),
+            OPENCODE_CONFIG_PROJECT_DISABLE: "",
             OPENCODE_TEST_HOME: engineHome,
             XDG_CONFIG_HOME: join(engineHome, "config"),
             XDG_STATE_HOME: service.stateDirectory,

@@ -10,6 +10,8 @@
 export const LAWOSS_PLUGIN_NAMES = [
   "lawoss-okf-handoff",
   "lawoss-linked-folders",
+  // Nastavenia, skilly a inštrukcie klienta outside len jeho lokáciám (lawoss/outside-engine-config.ts).
+  "lawoss-outside-config",
   "lawoss-file-operations",
   "lawoss-memory-tools",
   "lawoss-view-tools",

@@ -5,6 +5,7 @@ import { buildLegalworkRuntimeSettings } from "../legalwork-runtime-config.js";
 import { encodeCommandDefinitions, resolveNativeCommandDefinitions } from "../native-command-definitions.js";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
+import { externalOpencodeConfigDir } from "../lawoss/workspace-app-files.js";
 
 export function registerNativeCommandDefinitionRoutes(options: {
   routes: Route[]; config: ServerConfig;
@@ -27,7 +28,9 @@ export function registerNativeCommandDefinitionRoutes(options: {
       client.config.get({ location }),
       buildLegalworkRuntimeSettings(options.config, workspace.id),
     ]);
-    const result = encodeCommandDefinitions(await resolveNativeCommandDefinitions(entries, managed.configuration.commands));
+    // LAWOSS: an outside client's commands live in its external .opencode folder, never in the engine's shared root.
+    const external = externalOpencodeConfigDir(options.config, workspace);
+    const result = encodeCommandDefinitions(await resolveNativeCommandDefinitions(external ? [{ type: "directory", path: external }, ...entries] : entries, managed.configuration.commands));
     const response = options.jsonResponse(result);
     response.headers.set("Cache-Control", "no-store");
     return response;

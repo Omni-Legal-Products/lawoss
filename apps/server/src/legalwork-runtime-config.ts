@@ -29,7 +29,7 @@ import { nativePluginIdentity } from "./native-project-plugins.js";
  */
 import { link, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { writeGeneratedConfigFile } from "./generated-config-file.js";
-import { existsSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { listGlobalSkills, listSkills } from "./skills.js";
 import { commonManagedConfiguration, managedConfigurationDiff } from "./managed-config-sources.js";
@@ -101,7 +101,8 @@ import {
 import { eigenweltHasPremiumModels } from "./eigenwelt-auth.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { repairRuntimeProviders } from "./runtime-provider-repair.js";
-import { externalOpencodeConfigDir } from "./lawoss/workspace-app-files.js";
+import { externalOpencodeConfigDir, usesExternalWorkspaceAppFiles } from "./lawoss/workspace-app-files.js";
+import { OUTSIDE_CLIENTS_FILE, outsideSkillsDirectory, shareableConfiguration } from "./lawoss/outside-engine-config.js";
 import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
 import { LAWOSS_MEMORY_TOOL, fileChangeRules } from "./lawoss/tool-permission-defaults.js";
 import { lawossToolDenialRules, LAWOSS_LOAD_WIKI_TOOLS } from "./lawoss/hidden-upstream-tools.js";
@@ -246,15 +247,9 @@ export async function buildLegalworkRuntimeSettings(
     ? config.workspaces.find((entry) => entry.id === workspaceId)
     : undefined;
   const externalConfigDir = config && workspace ? externalOpencodeConfigDir(config, workspace) : null;
-  const externalSkillsDir = externalConfigDir ? join(externalConfigDir, "skills") : null;
-  // LAWOSS: uložené a externé priečinky skills; v sandboxe idú do `skills.paths`, inak ako zoznam.
-  const lawossSkillDirs = [...new Set([...(runtimeConfig.skills ?? []), ...(externalSkillsDir ? [externalSkillsDir] : [])])];
-  // Outside mode disables OpenCode's project discovery so it cannot load
-  // client-local app config. Preserve the user's workspace instructions as an
-  // explicit, read-only runtime input instead.
-  const clientInstructions = externalConfigDir && workspace
-    ? [join(workspace.path, "AGENTS.md")].filter((file) => existsSync(file))
-    : [];
+  // LAWOSS: uložené a externé priečinky skills; v sandboxe idú do `skills.paths`, inak ako zoznam. Externý priečinok
+  // klienta outside dostanú len jeho lokácie (lawoss/outside-engine-config.ts), nikdy spoločný súbor.
+  const lawossSkillDirs = [...new Set([...(runtimeConfig.skills ?? []), ...(externalConfigDir ? [outsideSkillsDirectory(externalConfigDir)] : [])])];
   const personalization = config
     ? await readGlobalPersonalizationSettings(config)
     : null;
@@ -348,10 +343,7 @@ export async function buildLegalworkRuntimeSettings(
     experimental: { ...runtimeConfig.experimental, todo: true },
     // LAWOSS: uložené a externé priečinky skills (OKF) popri knižnici klienta.
     skills: [...new Set([...library.skills.map(skill => dirname(skill.path)), ...lawossSkillDirs])],
-    // LAWOSS: AGENTS.md klienta ako vstup len na čítanie, keď sú app files mimo jeho priečinka.
-    ...((runtimeConfig.instructions?.length || clientInstructions.length)
-      ? { instructions: [...new Set([...(runtimeConfig.instructions ?? []), ...clientInstructions])] }
-      : {}),
+    ...(runtimeConfig.instructions?.length ? { instructions: [...runtimeConfig.instructions] } : {}),
     providers: providerMap,
     default_agent: runtimeConfig.default_agent ?? "legalwork",
     agents: {
@@ -549,7 +541,9 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     }
     const settingsPath = managedEngineSettingsFilePath(config);
     const configurations = Object.values(workspaces).map(entry => runtimeEngineConfiguration(entry.configuration));
-    const sharedConfiguration = commonManagedConfiguration(configurations);
+    // LAWOSS: an outside client's external folders never become shared (lawoss/outside-engine-config.ts).
+    const sharedConfiguration = commonManagedConfiguration(config.workspaces.flatMap(workspace => workspaces[workspace.id]
+      ? [shareableConfiguration(runtimeEngineConfiguration(workspaces[workspace.id]!.configuration), externalOpencodeConfigDir(config, workspace))] : []));
     await writeGeneratedConfigFile(settingsPath, JSON.stringify({ version: 2, workspaces, sharedConfiguration }));
     const mandatoryPlugins = [
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-project-admission"), config), options: { registryPath: nativeEngineProjectRegistryPath(config), protectedHostExecution: config.agentSandboxEnabled === true } },
@@ -562,6 +556,9 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
       // LAWOSS: hooks run in setup order; the linked-folders decision must follow the managed folder permissions,
       // which otherwise raise its `allow` of a client's linked folder back to `ask` (lawoss-linked-folders.ts).
       await bundledPluginSpec(legalworkPluginPath("lawoss-linked-folders"), config),
+      // LAWOSS: settings of an outside client reach only its locations (no project file in its folder).
+      { package: await bundledPluginSpec(legalworkPluginPath("lawoss-outside-config"), config), options: { settingsPath,
+        outsidePath: join(engineStorageDir(config), OUTSIDE_CLIENTS_FILE), registryPath: nativeEngineProjectRegistryPath(config) } },
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-model-catalog"), config), options: { connectionProviders: await orgChatProviderTemplates(config) } },
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-commands"), config), options: { settingsPath } },
       await bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
@@ -575,6 +572,8 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
       if (!settings) continue;
       const configuration = managedConfigurationDiff(runtimeEngineConfiguration(settings.configuration), sharedConfiguration);
       const projectConfiguration = { ...configuration, plugins: (configuration.plugins ?? []).filter(plugin => typeof plugin !== "string" || !commonPlugins.has(plugin)) };
+      // LAWOSS: nothing is written into an outside client's folder; lawoss-outside-config delivers its settings.
+      if (usesExternalWorkspaceAppFiles(workspace)) continue;
       try { await writeNativeProjectProjection(config, workspace, projectConfiguration); }
       catch (error) {
         // A project conflict holds only that project's agent. Its authored files
@@ -598,6 +597,10 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     await writeGeneratedConfigFile(join(orgPolicyEngineDir(config), "runtime-config.revision"), createHash("sha256").update(content).digest("hex"));
     // LAWOSS: mapa pripojených priečinkov pre plugin lawoss-linked-folders.
     await writeLinkedFoldersMap(config);
+    // LAWOSS: klienti outside a ich externé priečinky pre plugin lawoss-outside-config.
+    await writeGeneratedConfigFile(join(engineStorageDir(config), OUTSIDE_CLIENTS_FILE), JSON.stringify({ version: 1,
+      clients: config.workspaces.flatMap(workspace => { const configDirectory = externalOpencodeConfigDir(config, workspace);
+        return configDirectory ? [{ id: workspace.id, directory: workspace.directory?.trim() || workspace.path, configDirectory }] : []; }) }));
   };
   const previous = fileWriteQueue.get(path) ?? Promise.resolve();
   const next = previous.then(job, job);

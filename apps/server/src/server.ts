@@ -123,6 +123,7 @@ import { globalOpencodeConfigDir, globalSkillsDir, opencodeConfigPath, legalwork
 import { ensureDir, exists, hashToken, shortId, tokensMatch } from "./utils.js";
 import { ensureWorkspaceFiles, ensureWorkspaceFilesForBootstrap, readRawOpencodeConfig } from "./workspace-init.js";
 import { requireProjectAppFilesInside, usesExternalWorkspaceAppFiles, workspaceAppFilesRoot } from "./lawoss/workspace-app-files.js";
+import { refreshOutsideEngineLocation } from "./lawoss/outside-engine-config.js";
 import { isPathWithin } from "./lawoss/path-within.js";
 import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
@@ -6007,6 +6008,8 @@ async function refreshManagedEngineLocation(config: ServerConfig, workspace: Wor
     await client.model.list({ location: { directory } });
     await refresh();
   }
+  // LAWOSS: an outside client has no watched project file (lawoss/outside-engine-config.ts).
+  await refreshOutsideEngineLocation(client, usesExternalWorkspaceAppFiles(workspace), directory);
 }
 async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo): Promise<void> {
   await refreshManagedEngineLocation(config, workspace);

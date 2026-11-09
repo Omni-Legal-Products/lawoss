@@ -1,11 +1,24 @@
 import { expect, test } from "bun:test";
-import { chmod, mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { startEmbeddedServer } from "./embedded.js";
 import { externalAppFilesRoot } from "./lawoss/workspace-app-files.js";
 import { initializesEngineMcp } from "./lawoss/engine-mcp-budget.js";
 import { verifiedTestEngine } from "./opencode-candidate.test-support.js";
+import { z } from "zod";
+import { orgPolicyEngineDir } from "./org-policy-engine.js";
+import { managedSettingsFileSchema } from "./managed-engine-settings.js";
+import { OUTSIDE_CLIENTS_FILE, parseOutsideClientsMap } from "./lawoss/outside-engine-config.js";
+
+/** Every entry under a client folder with its size and modification time. */
+async function snapshot(root: string) {
+  const entries = (await readdir(root, { recursive: true })).sort();
+  return Object.fromEntries(await Promise.all(entries.map(async (entry) => {
+    const info = await stat(join(root, entry));
+    return [entry, info.isDirectory() ? "dir" : `${info.size}:${info.mtimeMs}`];
+  })));
+}
 
 // Spravovaný engine beží od v0.2.9 v izolovanom režime (upstream #227): skills idú do `skills.paths`.
 const skillPaths = (skills: string[] | { paths?: string[] } | undefined): string[] => Array.isArray(skills) ? skills : skills?.paths ?? [];
@@ -76,8 +89,13 @@ test("embedded startup applies host outside policy before seeding an unconfigure
   }
 });
 
-test("managed engine receives the external OpenCode root for an outside workspace", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "legalwork-embedded-engine-app-files-"));
+// LAWOSS (MČ 9. 11. 2026, lawoss/outside-engine-config.ts): the engine's config root is the neutral firm-policy folder
+// (the native service uses it too) and project config stays on. An outside client's external skills reach only its own
+// locations through runtime-opencode-settings.json; the shared file carries no client's external folder, and nothing is
+// written into either client folder at startup or on restart.
+test("managed engine keeps the neutral config root and project config for outside workspaces and writes nothing into them", async () => {
+  // The engine sees canonical folders (macOS /var → /private/var); compare its requests with the same spelling.
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "legalwork-embedded-engine-app-files-")));
   const firstWorkspace = join(directory, "first-client");
   const workspace = join(directory, "client");
   const configPath = join(directory, "server.json");
@@ -97,6 +115,27 @@ test("managed engine receives the external OpenCode root for an outside workspac
   await writeFile(join(firstWorkspace, "original.txt"), "First client bytes\n", "utf8");
   await writeFile(join(workspace, "original.txt"), "Original client bytes\n", "utf8");
   await writeFile(join(workspace, "AGENTS.md"), "Client instructions stay readable.\n", "utf8");
+  const trees = async () => ({ first: await snapshot(firstWorkspace), client: await snapshot(workspace) });
+  const before = await trees();
+  const assertOutsideSettings = async (server: Awaited<ReturnType<typeof startEmbeddedServer>>) => {
+    const external = server.config.workspaces.map((entry) => ({ entry, skills: join(externalAppFilesRoot(server.config, entry), ".opencode", "skills") }));
+    const settings = managedSettingsFileSchema.parse(JSON.parse(await readFile(join(dirname(configPath), "runtime-opencode-settings.json"), "utf8")));
+    const runtimeConfig = z.object({ skills: z.union([z.array(z.string()), z.object({ paths: z.array(z.string()).optional() })]).optional(), instructions: z.array(z.string()).optional() }).passthrough()
+      .parse(JSON.parse(await readFile(join(dirname(configPath), "runtime-opencode-config.json"), "utf8")));
+    const shared = z.object({ skills: z.array(z.string()).optional() }).passthrough().parse(settings.sharedConfiguration);
+    for (const { entry, skills } of external) {
+      // Its own settings entry carries its external skills; the other client's does not.
+      expect(skillPaths(z.object({ skills: z.array(z.string()).optional() }).passthrough().parse(settings.workspaces[entry.id]?.configuration).skills)).toContain(skills);
+      for (const other of external.filter((item) => item.entry.id !== entry.id))
+        expect(skillPaths(z.object({ skills: z.array(z.string()).optional() }).passthrough().parse(settings.workspaces[other.entry.id]?.configuration).skills)).not.toContain(skills);
+      expect(skillPaths(runtimeConfig.skills)).not.toContain(skills);
+      expect(shared.skills ?? []).not.toContain(skills);
+    }
+    // The client's own AGENTS.md is read by the engine's project config, not injected for every location.
+    expect(runtimeConfig.instructions ?? []).not.toContain(join(workspace, "AGENTS.md"));
+    expect(parseOutsideClientsMap(JSON.parse(await readFile(join(dirname(configPath), OUTSIDE_CLIENTS_FILE), "utf8")))?.clients.map((client) => client.directory).sort())
+      .toEqual([firstWorkspace, workspace].sort());
+  };
   // LAWOSS v2: a verified synthetic engine 2.1.4 (opencode-candidate.test-support.ts): Basic auth, /api/info
   // with its version and PID, and a ticket redeemed when the location's plugins load (/api/model).
   const { bin, candidateBuild } = await verifiedTestEngine(engineDirectory, (version) => `#!${process.execPath}
@@ -141,14 +180,10 @@ process.on("SIGTERM", () => process.exit(0));
         { path: workspace, appFiles: "outside" },
       ],
     });
-    const activeWorkspace = server.config.workspaces.find((entry) => entry.path === workspace)!;
-    const expected = join(externalAppFilesRoot(server.config, activeWorkspace), ".opencode");
-    expect(JSON.parse(await readFile(envPath, "utf8"))).toEqual({ configDir: expected, disableProjectConfig: "true" });
-    const runtimeConfig = JSON.parse(await readFile(join(dirname(configPath), "runtime-opencode-config.json"), "utf8")) as { skills?: string[] | { paths?: string[] }; instructions?: string[] };
-    expect(skillPaths(runtimeConfig.skills)).toContain(join(expected, "skills"));
-    expect(runtimeConfig.instructions).toContain(join(workspace, "AGENTS.md"));
-    expect((await readdir(workspace)).sort()).toEqual(["AGENTS.md", "original.txt"]);
-    expect(await readdir(firstWorkspace)).toEqual(["original.txt"]);
+    const neutral = { configDir: orgPolicyEngineDir(server.config), disableProjectConfig: "" };
+    expect(JSON.parse(await readFile(envPath, "utf8"))).toEqual(neutral);
+    await assertOutsideSettings(server);
+    expect(await trees()).toEqual(before);
     await assertStartupLeavesMcpDormant(server, `${envPath}.requests`, workspace, firstWorkspace);
     await server.stop();
     server = await startEmbeddedServer({
@@ -161,11 +196,10 @@ process.on("SIGTERM", () => process.exit(0));
         { path: workspace, appFiles: "outside" },
       ],
     });
-    const firstEntry = server.config.workspaces.find((entry) => entry.path === firstWorkspace)!;
-    const firstExpected = join(externalAppFilesRoot(server.config, firstEntry), ".opencode");
-    expect(JSON.parse(await readFile(envPath, "utf8"))).toEqual({ configDir: firstExpected, disableProjectConfig: "true" });
-    const restartedRuntimeConfig = JSON.parse(await readFile(join(dirname(configPath), "runtime-opencode-config.json"), "utf8")) as { skills?: string[] | { paths?: string[] } };
-    expect(skillPaths(restartedRuntimeConfig.skills)).toContain(join(firstExpected, "skills"));
+    // Another opened client changes nothing: one neutral root, the same per-client settings.
+    expect(JSON.parse(await readFile(envPath, "utf8"))).toEqual({ configDir: orgPolicyEngineDir(server.config), disableProjectConfig: "" });
+    await assertOutsideSettings(server);
+    expect(await trees()).toEqual(before);
     await assertStartupLeavesMcpDormant(server, `${envPath}.requests`, firstWorkspace, workspace);
   } finally {
     await server?.stop();
