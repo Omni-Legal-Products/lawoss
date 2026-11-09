@@ -303,7 +303,7 @@ for (const development of [false, true]) test.skipIf(!nativeBinary || !legacyBin
         configPath: join(root, "state", "server.json"),
         // 🟡 LAWOSS: chat ownership checks the other registered clients (lawoss/session-ownership.ts).
         workspaces: [],
-      } as ServerConfig;
+      } as Partial<ServerConfig> as ServerConfig;
       const prepared = await prepareManagedOpencodeEngineDb(config);
       if (!prepared) throw new Error("No managed copy was prepared");
       expect(prepared.seededFrom).toBe(source);
