@@ -23,7 +23,7 @@ import type { ReviewEvidence } from "./evidence.js";
 import { ReviewRequests, ReviewRetryError, reviewModelError } from "./scheduler.js";
 import { builtinJevFallback } from "./builtin-fallback.js";
 import { enforceReviewDecisionThreshold } from "./decision-threshold.js";
-import { offeredModels } from "../lawoss/chatgpt-subscription.js";
+import { offeredModels, providerSource } from "../lawoss/chatgpt-subscription.js";
 import { REVIEW_WORKER_METADATA } from "./schema.js";
 import { REVIEW_AGENT } from "./agent.js";
 
@@ -68,8 +68,10 @@ export class ReviewExecutor {
         const location = { directory: workspace.directory?.trim() || workspace.path };
         await client.location.get({ location }, { signal });
         const models = await client.model.list({ location }, { signal });
-        const [providers, selected] = await Promise.all([client.provider.list({ location }, { signal }), client.model.default({ location }, { signal })]);
-        return { providers: providers.data, models: models.data, selected: selected.data };
+        const [providers, selected, integrations] = await Promise.all([client.provider.list({ location }, { signal }), client.model.default({ location }, { signal }),
+          // LAWOSS: the active connection tells a ChatGPT subscription from an API key; without it the full catalogue stays.
+          client.integration.list({ location }, { signal }).then(result => result.data, () => [])]);
+        return { providers: providers.data, models: models.data, selected: selected.data, integrations };
       })(),
       this.backends.subscribed?.(this.config) ?? Promise.resolve(false),
     ]);
@@ -82,7 +84,7 @@ export class ReviewExecutor {
     if (llm.status === "fulfilled") {
       for (const provider of llm.value.providers.filter(provider => provider.activation !== "disabled"))
         // LAWOSS: ChatGPT subscription offers only models its account accepts, Luna first.
-        for (const model of offeredModels({ id: provider.id, models: Object.fromEntries(llm.value.models.filter(model => model.providerID === provider.id).map(model => [model.id, model])) }).filter(isTextReviewModel)) {
+        for (const model of offeredModels({ id: provider.id, source: providerSource(provider, llm.value.integrations), models: Object.fromEntries(llm.value.models.filter(model => model.providerID === provider.id).map(model => [model.id, model])) }).filter(isTextReviewModel)) {
           models.push({ backend: "llm", providerId: provider.id, providerName: provider.name, model: model.id, name: model.name, contextTokens: model.limit.context });
           if (provider.id === llm.value.selected?.providerID && model.id === llm.value.selected.id) selectedLlm = { providerId: provider.id, model: model.id };
         }

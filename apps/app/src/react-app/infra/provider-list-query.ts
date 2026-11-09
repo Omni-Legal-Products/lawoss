@@ -5,7 +5,7 @@ import type { Client, ModelRef, ProviderListItem } from "../../app/types";
 import { dispatchNewProviders } from "../../app/lib/provider-events";
 import { filterProviderList } from "../../app/utils/providers";
 import { pickDefaultModel } from "../../lawoss/shell/default-model-pick";
-import { filterSubscriptionModels } from "../../lawoss/providers/subscription-models";
+import { filterSubscriptionModels, nativeConnectionSource } from "../../lawoss/providers/subscription-models";
 import type { ProviderListView } from "../../app/types";
 import { ensureNativeCatalogReady, invalidateNativeCatalogReady } from "../../app/lib/opencode-catalog-ready";
 import { createCoalescedRefresh } from "../shell/coalesced-refresh";
@@ -71,11 +71,9 @@ export async function fetchProviderList(input: {
     const integration = byIntegration.get(provider.integrationID ?? provider.id);
     return {
       id: provider.id, name: provider.name,
-      // LAWOSS: an OAuth sign-in (ChatGPT subscription) stays `custom`, as in OpenCode 1.x: the subscription
+      // LAWOSS: an active OAuth sign-in (ChatGPT subscription) stays `custom`, as in OpenCode 1.x: the subscription
       // filter and the free-model rule (zero catalogue price is not a public free endpoint) depend on it.
-      source: integration?.connections[0]?.type === "env" ? "env"
-        : integration?.connections.some(connection => connection.type === "credential" && connection.method === "oauth") ? "custom"
-        : integration?.connections.length ? "api" : "config",
+      source: nativeConnectionSource(integration),
       settings: provider.settings, integrationID: provider.integrationID, hasCustomEndpoint: display.legalwork?.hasCustomEndpoint,
       env: integration?.methods.flatMap(method => method.type === "env" ? method.names : []) ?? [],
       models: Object.fromEntries(models.data.filter(model => model.providerID === provider.id).map(model => [model.id, model])),

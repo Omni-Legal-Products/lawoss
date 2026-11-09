@@ -13,4 +13,6 @@ export const LAWOSS_PLUGIN_NAMES = [
   "lawoss-file-operations",
   "lawoss-memory-tools",
   "lawoss-view-tools",
+  // Prihlásenie Anthropic (Claude Pro/Max, Create an API Key) namiesto npm balíka v1 `opencode-anthropic-auth`.
+  "lawoss-anthropic-auth",
 ] as const;
