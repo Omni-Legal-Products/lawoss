@@ -21,7 +21,7 @@ const BEFORE_MERGE_HELPERS = ["lawoss-editor-approval", "lawoss-file-paths", "la
  * nahrádza ho pribalený port `lawoss-anthropic-auth`. */
 const NPM_PLUGIN = "opencode-anthropic-auth";
 /** Pluginy LAWOSS pridané pri porte na v2 (nemali vstup v builde pred mergom). */
-const V2_ENTRIES = ["lawoss-anthropic-auth"];
+const V2_ENTRIES = ["lawoss-anthropic-auth", "lawoss-outside-config"];
 const ENTRIES = [...BEFORE_MERGE_ENTRIES, ...V2_ENTRIES];
 
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -31,7 +31,7 @@ afterEach(async () => {
   if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previousDb;
 });
 
-test("každý plugin LAWOSS spred mergu ostáva vstupom buildu, port prihlásenia Anthropic pribudol", () => {
+test("každý plugin LAWOSS spred mergu ostáva vstupom buildu, port prihlásenia Anthropic a nastavenia klienta outside pribudli", () => {
   expect([...LAWOSS_PLUGIN_NAMES].map(String).sort()).toEqual([...ENTRIES].sort());
 });
 

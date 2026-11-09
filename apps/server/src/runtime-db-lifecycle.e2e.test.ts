@@ -218,22 +218,19 @@ test("freshness unsubscribe drains accepted writes and ignores another runtime's
   const { keepLegalworkRuntimeConfigFileFresh, writeLegalworkRuntimeConfigFile, legalworkRuntimeConfigFilePath } = await import("./legalwork-runtime-config.js");
   const { readFile } = await import("node:fs/promises");
   await writeLegalworkRuntimeConfigFile(f.config, "stable");
-  // Engine v2: a workspace's own settings are published in its native project projection.
-  const { engineProjectStatus } = await import("./engine-project.js");
-  const projectionPath = async () => {
-    const path = (await engineProjectStatus(f.config, f.config.workspaces[0]!)).projection.path;
-    if (!path) throw new Error("Missing native project projection");
-    return path;
-  };
-  const before = await readFile(await projectionPath(), "utf8");
+  // Engine v2: an outside workspace's own settings are published per location in the managed settings file
+  // (lawoss/outside-engine-config.ts); nothing is written into its folder.
+  const { managedEngineSettingsFilePath } = await import("./legalwork-runtime-config.js");
+  const published = async () => JSON.stringify(JSON.parse(await readFile(managedEngineSettingsFilePath(f.config), "utf8")).workspaces.stable);
+  const before = await published();
   const stop = keepLegalworkRuntimeConfigFileFresh(f.config, "stable");
   cleanups.push(async () => { await stop(); });
   await writeRuntimeOpencodeConfig(other.config, "stable", () => ({ permissions: [{ action: "edit", resource: "foreign/*", effect: "deny" }] }));
   await writeRuntimeOpencodeConfig(f.config, "stable", () => ({ permissions: [{ action: "edit", resource: "accepted/*", effect: "deny" }] }));
   await stop();
-  // Engine v2: a workspace's own settings are published in its native project projection.
   // The accepted local write was drained into a fresh publication before unsubscribe resolved.
-  expect(await readFile(await projectionPath(), "utf8")).not.toBe(before);
+  expect(await published()).not.toBe(before);
+  expect(await published()).toContain("accepted/*");
   expect(await access(legalworkRuntimeConfigFilePath(other.config)).then(() => true, () => false)).toBe(false);
   await server.stop(); await otherServer.stop();
 }, 20_000);
