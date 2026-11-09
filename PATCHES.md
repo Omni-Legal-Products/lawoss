@@ -1,5 +1,14 @@
 # LAWOSS downstream patches
 
+## Opravy po syncu v2 (2026-11-10)
+
+Rozhodnutia MČ 10. 11. 2026 (koordinačný záznam k ADR 0016).
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/bundled-workflows.ts`, `apps/server/src/embedded.ts`, `apps/server/src/cli.ts`, `apps/server/src/lawoss/hidden-bundled-workflows.ts` (nový, + test) | Anglické pribalené workflowy `workflow-assistant-due-diligence` a `workflow-firm-knowledge` sa neinštalujú (#255 A2). `ensureBundledWorkflows` dostal voliteľný zoznam mien; štart servera volá `ensureLawossBundledWorkflows`, ktorý nainštaluje ostatné a nezmenenú staršiu kópiu skrytých odstráni (upravenú ponechá). |
+| `apps/server/src/lawoss/claude-global-skills.ts`, `apps/desktop/electron/lawoss-skill-roots.mjs` (+ testy) | Okrem `~/.claude/skills` sa nečítajú ani `~/.agents/skills` a `~/.agent/skills` (#255 C). |
+
 ## CI po zlúčení dev do v2 (2026-11-09)
 
 | Súbor | Zmena |
