@@ -13,6 +13,8 @@ import { writeSandboxDefault, writeSessionSandbox, type NetworkMode } from "../a
 import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import { rawHttpOutputSchema } from "../agent-sandbox/raw-http-schema.js";
 import { buildNativePluginFixture } from "./native-plugin-build.test-support.js";
+import { grantWikiAgentSession, issueWikiAgentTicket } from "../wiki/agent-access.js";
+import { WIKI_AGENT_TICKET_ENV } from "../lawoss/engine-agent-contract.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 const marker = "private-response-must-not-enter-model-context:";
@@ -73,7 +75,7 @@ test.skipIf(!binary)("compiled Code Mode fetch obeys production session policy w
   let server: Awaited<ReturnType<typeof startServer>> | undefined, config: ServerConfig | undefined;
   let journal = "", removeMarker = "";
   let sandboxBundle: Buffer | undefined, observerBundle: Buffer | undefined;
-  const previous = { url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN, db: process.env.LEGALWORK_RUNTIME_DB, tokens: process.env.LEGALWORK_TOKEN_STORE };
+  const previous = { url: process.env.LEGALWORK_SERVER_URL, token: process.env[WIKI_AGENT_TICKET_ENV], db: process.env.LEGALWORK_RUNTIME_DB, tokens: process.env.LEGALWORK_TOKEN_STORE };
   const results: Array<{ id: string; sessionID: string; messages: unknown }> = [];
   let pluginCatalog: unknown;
   let formContentType: string | undefined;
@@ -90,7 +92,8 @@ test.skipIf(!binary)("compiled Code Mode fetch obeys production session policy w
       await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "*", resource: "*", effect: "allow" }, { action: "webfetch", resource: "*", effect: "allow" }] }));
       await writeSandboxDefault(config, { enabled: true, networkMode: "block" });
       server = await startServer(config);
-      process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${server.port}`; process.env.LEGALWORK_SERVER_TOKEN = config.token;
+      // 🟡 LAWOSS: the engine holds a single-use ticket instead of the server token (embedded.ts).
+      process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${server.port}`; process.env[WIKI_AGENT_TICKET_ENV] = issueWikiAgentTicket(config);
       await buildNativePluginFixture(resolve(import.meta.dir, "legalwork-sandbox.ts"), join(plugin, "index.js"));
       sandboxBundle = await readFile(join(plugin, "index.js"));
       const observerSource = join(root, "observer.ts");
@@ -113,6 +116,8 @@ test.skipIf(!binary)("compiled Code Mode fetch obeys production session policy w
     const run = async (id: string, mode: NetworkMode, code: string, during?: (session: TestSession) => Promise<void>) => {
       codes.set(id, code);
       const session = await client.session.create({ location: runningEngine.location, permissions: [{ action: "*", resource: "*", effect: "allow" }] });
+      // 🟡 LAWOSS: the prompt bypasses the server proxy, which registers the chat's credential (server.ts).
+      await grantWikiAgentSession(managedConfig, { sessionId: session.id, directory: runningEngine.location.directory, scope: "owner" });
       await writeSessionSandbox(managedConfig, "matter", session.id, { enabled: true, networkMode: mode });
       await client.session.prompt({ sessionID: session.id, text: `scenario-[${id}]` });
       if (during) await during(session);
@@ -221,7 +226,7 @@ test.skipIf(!binary)("compiled Code Mode fetch obeys production session policy w
       if (observerBundle) await writeFile(join(evidence, "observer-plugin.mjs"), observerBundle, { mode: 0o600 });
     }
     await server?.stop(); if (config) await closeRuntimeOpencodeConfig(config); await engine?.close(); provider.stop(true); target.stop(true);
-    for (const [key, value] of Object.entries({ LEGALWORK_SERVER_URL: previous.url, LEGALWORK_SERVER_TOKEN: previous.token, LEGALWORK_RUNTIME_DB: previous.db, LEGALWORK_TOKEN_STORE: previous.tokens })) {
+    for (const [key, value] of Object.entries({ LEGALWORK_SERVER_URL: previous.url, [WIKI_AGENT_TICKET_ENV]: previous.token, LEGALWORK_RUNTIME_DB: previous.db, LEGALWORK_TOKEN_STORE: previous.tokens })) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
   }

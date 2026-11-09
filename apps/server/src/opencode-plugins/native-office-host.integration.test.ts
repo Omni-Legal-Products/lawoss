@@ -18,7 +18,10 @@ test.skipIf(!binary)('native Office plugins atomically admit app context and pre
   let officeCalls = 0;
   const relay = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
       const url = new URL(request.url);
-      if (request.headers.get('authorization') !== `Bearer ${fakeToken}`)
+      // 🟡 LAWOSS: the engine redeems a single-use ticket for the agent secret instead of holding the server token.
+      if (url.pathname === '/engine-agent/ticket')
+        return Response.json({ secret: fakeToken });
+      if (request.headers.get('x-legalwork-wiki-agent-token') !== fakeToken)
         return new Response('Unauthorized', { status: 401 });
       if (url.pathname === '/workspaces')
         return Response.json({ items: [{ id: 'smoke', path: workspace }] });
@@ -47,7 +50,7 @@ test.skipIf(!binary)('native Office plugins atomically admit app context and pre
     plugins.push(outdir);
   }
   const password = randomBytes(32).toString('hex');
-  const env = { PATH: process.env.PATH, HOME: join(root, 'home'), USERPROFILE: join(root, 'home'), TMPDIR: join(root, 'tmp'), LANG: 'en_US.UTF-8', XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'), XDG_STATE_HOME: join(root, 'state'), OPENCODE_CONFIG_DIR: join(root, 'config'), OPENCODE_DB: join(root, 'data', 'engine.db'), OPENCODE_PASSWORD: password, OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_CLAUDE_CODE: '1', OPENCODE_CONFIG_PROJECT_DISABLE: '1', OPENCODE_CONFIG_CONTENT: JSON.stringify({ plugins, update: 'disable' }), LEGALWORK_SERVER_URL: `http://127.0.0.1:${relay.port}`, LEGALWORK_SERVER_TOKEN: fakeToken };
+  const env = { PATH: process.env.PATH, HOME: join(root, 'home'), USERPROFILE: join(root, 'home'), TMPDIR: join(root, 'tmp'), LANG: 'en_US.UTF-8', XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'), XDG_STATE_HOME: join(root, 'state'), OPENCODE_CONFIG_DIR: join(root, 'config'), OPENCODE_DB: join(root, 'data', 'engine.db'), OPENCODE_PASSWORD: password, OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_CLAUDE_CODE: '1', OPENCODE_CONFIG_PROJECT_DISABLE: '1', OPENCODE_CONFIG_CONTENT: JSON.stringify({ plugins, update: 'disable' }), LEGALWORK_SERVER_URL: `http://127.0.0.1:${relay.port}`, LEGALWORK_WIKI_AGENT_TICKET: 'synthetic-ticket' };
   async function start() {
     if (!binary)
       throw new Error('An isolated OpenCode binary is required');
