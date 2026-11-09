@@ -12,6 +12,8 @@ import { legalworkMandatoryRuntimeConfigContent, legalworkRuntimeConfigFilePath,
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_MCP_ID, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
+import { issueWikiAgentTicket } from "./wiki/agent-access.js";
+import { settleEngineAgentTicket } from "./lawoss/engine-agent-ticket.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 test.skipIf(!binary)("one native engine serves shared capabilities and isolated project settings, and loads native project automation without an approval prompt", async () => {
@@ -39,9 +41,13 @@ test.skipIf(!binary)("one native engine serves shared capabilities and isolated 
     await writeLegalworkRuntimeConfigFile(config,"a");
     for (const workspace of config.workspaces) expect(await engineProjectStatus(config,workspace)).toMatchObject({state:"ready",plugins:[]});
     expect(existsSync(join(a,"opencode.json"))).toBe(false); expect(existsSync(join(b,"opencode.json"))).toBe(false);
+    // 🟡 LAWOSS: the test reads two locations directly from the engine; the RAM budget (limit 1) would release one of them.
+    process.env.LAWOSS_ENGINE_MCP_INSTANCES = "0";
     server = await startServer(config);
-    engine = await createManagedOpencodeServer({bin:binary,cwd:root,timeoutMs:30000,env:{HOME:join(root,"home"),USERPROFILE:join(root,"home"),XDG_CONFIG_HOME:join(root,"engine-config"),XDG_DATA_HOME:join(root,"data"),XDG_STATE_HOME:join(root,"state"),XDG_CACHE_HOME:join(root,"cache"),OPENCODE_CONFIG_DIR:orgPolicyEngineDir(config),OPENCODE_CONFIG:legalworkRuntimeConfigFilePath(config),OPENCODE_CONFIG_CONTENT:await legalworkMandatoryRuntimeConfigContent(config),OPENCODE_DB:join(root,"engine.db"),OPENCODE_CONFIG_PROJECT_DISABLE:"",OPENCODE_DISABLE_CLAUDE_CODE:"1",OPENCODE_DISABLE_MODELS_FETCH:"1",LEGALWORK_SERVER_URL:`http://127.0.0.1:${server.port}`,LEGALWORK_SERVER_TOKEN:config.token}});
+    engine = await createManagedOpencodeServer({bin:binary,cwd:root,timeoutMs:30000,env:{HOME:join(root,"home"),USERPROFILE:join(root,"home"),XDG_CONFIG_HOME:join(root,"engine-config"),XDG_DATA_HOME:join(root,"data"),XDG_STATE_HOME:join(root,"state"),XDG_CACHE_HOME:join(root,"cache"),OPENCODE_CONFIG_DIR:orgPolicyEngineDir(config),OPENCODE_CONFIG:legalworkRuntimeConfigFilePath(config),OPENCODE_CONFIG_CONTENT:await legalworkMandatoryRuntimeConfigContent(config),OPENCODE_DB:join(root,"engine.db"),OPENCODE_CONFIG_PROJECT_DISABLE:"",OPENCODE_DISABLE_CLAUDE_CODE:"1",OPENCODE_DISABLE_MODELS_FETCH:"1",LEGALWORK_SERVER_URL:`http://127.0.0.1:${server.port}`,LEGALWORK_WIKI_AGENT_TICKET:issueWikiAgentTicket(config)}});
     config.opencodeBaseUrl=engine.url;config.opencodeUsername=engine.username;config.opencodePassword=engine.password;
+    // 🟡 LAWOSS: the engine holds a single-use ticket instead of the server token; settle it as embedded.ts does.
+    await settleEngineAgentTicket(config,engine,a);
     const client=OpenCode.make({baseUrl:engine.url,headers:{authorization:`Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}`}});
     const locationA={directory:a},locationB={directory:b};
     const modelsA=await client.model.list({location:locationA}),modelsB=await client.model.list({location:locationB});

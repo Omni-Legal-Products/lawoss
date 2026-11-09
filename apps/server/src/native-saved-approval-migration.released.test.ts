@@ -12,6 +12,7 @@ import { rememberNativeChatApproval, removeNativeProjectApproval } from "./nativ
 import { readManagedEngineSettings } from "./managed-engine-settings.js";
 import { managedEngineSettingsFilePath } from "./legalwork-runtime-config.js";
 import type { ServerConfig } from "./types.js";
+import { issueWikiAgentTicket } from "./wiki/agent-access.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 test.skipIf(!binary)("managed startup stops its actual service before preserving identifiable Saved grants and reconfirming unknown origins", async () => {
@@ -41,19 +42,22 @@ test.skipIf(!binary)("managed startup stops its actual service before preserving
   try {
     for (const workspace of config.workspaces) await writeRuntimeOpencodeConfig(config, workspace.id, () => ({ permissions: [{ action, resource: "*", effect: "ask" }] }));
     await writeLegalworkRuntimeConfigFile(config, "0");
+    // 🟡 LAWOSS: the test reads three locations directly from the engine; the RAM budget (limit 1) would release them.
+    process.env.LAWOSS_ENGINE_MCP_INSTANCES = "0";
     server = await startServer(config);
     const options = { bin: binary, cwd: home, timeoutMs: 30_000, env: {
-      LEGALWORK_SERVER_URL: `http://127.0.0.1:${server.port}`, LEGALWORK_SERVER_TOKEN: config.token,
+      LEGALWORK_SERVER_URL: `http://127.0.0.1:${server.port}`,
       HOME: home, USERPROFILE: home, OPENCODE_TEST_HOME: home, XDG_CONFIG_HOME: join(home, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: service.stateDirectory,
       OPENCODE_DB: database, OPENCODE_CONFIG: legalworkRuntimeConfigFilePath(config), OPENCODE_CONFIG_DIR: service.configDirectory, OPENCODE_CONFIG_PROJECT_DISABLE: "", OPENCODE_DISABLE_CLAUDE_CODE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1",
     } };
+    // 🟡 LAWOSS: no server token; like embedded.ts, each engine start gets its own single-use ticket.
     const create = async (mode: "service" | "recovery", beforeSpawn?: () => Promise<void>) => {
       expect(original?.running() ?? false).toBe(false);
       const published = await readManagedEngineSettings(managedEngineSettingsFilePath(config), folders[0]);
       expect(published.projectPermissionApprovals.some(item => item.action === action && item.resources.includes("known-record"))).toBe(true);
-      return createConfiguredManagedEngine(config, { ...options, beforeSpawn, ...(mode === "service" ? { service } : { parentLease: true }), env: { ...options.env, OPENCODE_CONFIG_CONTENT: await legalworkMandatoryRuntimeConfigContent(config) } });
+      return createConfiguredManagedEngine(config, { ...options, beforeSpawn, ...(mode === "service" ? { service } : { parentLease: true }), env: { ...options.env, LEGALWORK_WIKI_AGENT_TICKET: issueWikiAgentTicket(config), OPENCODE_CONFIG_CONTENT: await legalworkMandatoryRuntimeConfigContent(config) } });
     };
-    original = await createConfiguredManagedEngine(config, { ...options, service, env: { ...options.env, OPENCODE_CONFIG_CONTENT: await legalworkMandatoryRuntimeConfigContent(config) } });
+    original = await createConfiguredManagedEngine(config, { ...options, service, env: { ...options.env, LEGALWORK_WIKI_AGENT_TICKET: issueWikiAgentTicket(config), OPENCODE_CONFIG_CONTENT: await legalworkMandatoryRuntimeConfigContent(config) } });
     let client = await connect(original);
     const known = await client.session.create({ location: { directory: folders[0] }, agent: "legalwork", permissions: [{ action, resource: "chat-denied", effect: "deny" }] });
     const unknown = await client.session.create({ location: { directory: folders[2] }, agent: "legalwork" });
@@ -83,7 +87,7 @@ test.skipIf(!binary)("managed startup stops its actual service before preserving
     await removeNativeProjectApproval(config, config.workspaces[0], imported.id);
     await lifecycle.close(); lifecycle = undefined;
     // The next startup must not replay a completed import after revocation.
-    const restart = async (mode: "service" | "recovery", beforeSpawn?: () => Promise<void>) => createConfiguredManagedEngine(config, { ...options, beforeSpawn, ...(mode === "service" ? { service } : { parentLease: true }), env: { ...options.env, OPENCODE_CONFIG_CONTENT: await legalworkMandatoryRuntimeConfigContent(config) } });
+    const restart = async (mode: "service" | "recovery", beforeSpawn?: () => Promise<void>) => createConfiguredManagedEngine(config, { ...options, beforeSpawn, ...(mode === "service" ? { service } : { parentLease: true }), env: { ...options.env, LEGALWORK_WIKI_AGENT_TICKET: issueWikiAgentTicket(config), OPENCODE_CONFIG_CONTENT: await legalworkMandatoryRuntimeConfigContent(config) } });
     lifecycle = await startManagedEngineLifecycle({ config, database, service, create: restart }); client = await connect(lifecycle.engine);
     const revoked = await request(known.id, "known-record"); expect(revoked.effect).toBe("ask"); await client.permission.reply({ sessionID: known.id, requestID: revoked.id, decision: "reject" });
     expect((await request(known.id, "unknown-record")).effect).toBe("allow"); expect((await request(known.id, "chat-denied")).effect).toBe("deny");
