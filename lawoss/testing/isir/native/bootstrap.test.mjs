@@ -126,7 +126,9 @@ test('bootstrap uses the authenticated production host reload for the selected w
     if(first.error)throw first.error;
     assert.equal(first.ready,true,'Production scoped reload must reach engine readiness');
     assert.equal(finished,false,'Catalogue must await host readiness response');
-    assert.equal(received.some(r=>['/api/model','/api/provider'].includes(r.pathname)||r.pathname.includes('/connect/key')),false,'The definition reload precedes the location catalogue and key');
+    // LAWOSS v2: the host's MCP budget activates an admitted location with GET /api/model (engine 2.1.4
+    // otherwise serves empty catalogues), so only the provider catalogue and key must follow the reload.
+    assert.equal(received.some(r=>r.pathname==='/api/provider'||r.pathname.includes('/connect/key')),false,'The definition reload precedes the location catalogue and key');
     // LAWOSS v2: the host's settings GET projects the engine's resolved documents; what the host
     // persisted reaches the engine as the managed settings file it publishes before the refresh.
     assert.equal(published?.error,undefined);
@@ -137,7 +139,8 @@ test('bootstrap uses the authenticated production host reload for the selected w
     const result=await outcome;
     assert.equal(result.error,undefined);
     assert.deepEqual(result.value.connected,['isir-native']);
-    assert.deepEqual(received.map(r=>`${r.method} ${r.pathname}`),['POST /api/rpc/legalwork.managed-settings/refresh','GET /api/model','POST /api/integration/isir-native/connect/key','POST /api/rpc/legalwork.managed-settings/refresh','GET /api/provider']);
+    // LAWOSS v2: the first GET /api/model is the host's activation when the MCP budget admits the location.
+    assert.deepEqual(received.map(r=>`${r.method} ${r.pathname}`),['GET /api/model','POST /api/rpc/legalwork.managed-settings/refresh','GET /api/model','POST /api/integration/isir-native/connect/key','POST /api/rpc/legalwork.managed-settings/refresh','GET /api/provider']);
     assert.ok(received.every(r=>r.authorized));
     // LAWOSS v2: every request here is location-bound, including the credential connect.
     assert.ok(received.every(r=>r.directory===selected.path));
