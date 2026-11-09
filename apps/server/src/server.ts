@@ -7,7 +7,7 @@ import { registerProtectedDocumentProfileRoutes } from "./lawoss/protected-ai/pr
 import { registerProtectedDocumentRoutes } from "./lawoss/protected-ai/routes.js";
 import { endpointChangeConflicts, type LegacyProviderRow, mergeProviderConflicts, providerOverwriteConflicts } from "./lawoss/provider-overwrite.js";
 import { documentLinkedFolders, linkedFoldersMapRefresher, nestedClientRoots, requireLinkableExternalDirectory, requireLinkableFolders } from "./lawoss/linked-folders.js";
-import { protectedSessionResponse, registerProtectedRuntime } from "./lawoss/protected-ai/dispatch.js";
+import { protectedEngineFetch, protectedSessionResponse, registerProtectedRuntime } from "./lawoss/protected-ai/dispatch.js";
 import { retainWikiAgentRuntime } from "./wiki/agent-access.js";
 import { governedOcrTransport, requireGovernedEngineDispatch, requireAiBoundariesAdmission } from "./lawoss/ai-governance-engine.js";
 import { registerDeadlineRoutes } from "./lawoss/deadlines/routes.js";
@@ -1130,7 +1130,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: LawossSe
       const client = createWorkspaceOpencodeClient(config, workspace);
       const session = await client.session.get({ sessionID });
       if (!(await sandboxOwnsSession(workspace, session))) {
-        throw new ApiError(403, "sandbox_session", "The command session belongs to a different workspace.");
+        // LAWOSS: a chat of another client is indistinguishable from a missing one, as on every chat ownership route.
+        throw new ApiError(404, "session_not_found", "This chat does not belong to the project.");
       }
       await client.model.list({ location: session.location });
       const agents = (await client.agent.list({ location: session.location })).data;
@@ -1674,7 +1675,9 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
   if (connection.authHeader) headers.set("Authorization", connection.authHeader);
   assertManagedHistoryReadable(input.config, method, `/api${path}`);
   const perform = async () => {
-    const response = await fetch(target, { method, headers, body, signal: input.request.signal });
+    // LAWOSS: this client's protected document chats join its chat list (lawoss/protected-ai/dispatch.ts).
+    const engineFetch = method === "GET" && path === "/session" ? protectedEngineFetch(input.config, workspace.id, fetch) : fetch;
+    const response = await engineFetch(target, { method, headers, body, signal: input.request.signal });
   if (method === "GET" && path === "/session" && response.ok) {
     const result: unknown = await response.json();
     if (!isRecord(result) || !Array.isArray(result.data)) throw new ApiError(502, "opencode_invalid_response", "The engine returned an invalid chat list.");

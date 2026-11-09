@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { LegalworkServerError } from "../src/app/lib/legalwork-server";
-import { AiBoundariesRowView, saveAiBoundaries } from "../src/lawoss/domains/ai/boundaries";
+import { AiBoundariesRowView, repairDamagedAiBoundaries, saveAiBoundaries } from "../src/lawoss/domains/ai/boundaries";
 import { aiBoundariesRefusal } from "../src/lawoss/domains/ai/boundaries-refusal";
 import { publishAiBoundaries } from "../src/lawoss/domains/ai/boundaries-store";
 import { AiGuidance } from "../src/lawoss/domains/ai/guidance";
@@ -33,7 +33,37 @@ test("on, device-locked and damaged states are visible; only a device lock disab
   expect(invalid).toContain('data-lawoss-ai-boundaries="invalid"');
   expect(invalid).toContain('aria-checked="true"');
   expect(invalid).not.toContain('data-disabled=""');
-  expect(invalid).toContain("Uložené nastavenie je poškodené. Kým ho znova neuložíte, appka berie AI hranice ako zapnuté.");
+  expect(invalid).toContain("Uložené nastavenie je poškodené. Kým ho neopravíte, appka berie AI hranice ako zapnuté.");
+});
+
+test("a damaged setting offers a repair that asks for confirmation and keeps the boundaries on", () => {
+  const damaged = {enforced: true, locked: false, source: "invalid" as const};
+  const offered = renderToStaticMarkup(<AiBoundariesRowView locale="sk" boundaries={damaged} canWrite busy={false} failed={false} onChange={noop} onRepairConfirm={noop} />);
+  expect(offered).toContain('data-lawoss-ai-boundaries-repair="request"');
+  expect(offered).toContain("Opraviť nastavenie");
+  expect(offered).not.toContain("Nahradiť a nechať zapnuté");
+  const confirming = renderToStaticMarkup(<AiBoundariesRowView locale="sk" boundaries={damaged} canWrite busy={false} failed={false} onChange={noop} onRepairConfirm={noop} confirmingRepair />);
+  expect(confirming).toContain('data-lawoss-ai-boundaries-repair="confirm"');
+  expect(confirming).toContain("AI hranice budú zapnuté ako teraz");
+  expect(confirming).toContain("Nahradiť a nechať zapnuté");
+  // Readable states and a connection without the native host offer no repair.
+  for (const boundaries of [{enforced: true, locked: false, source: "user" as const}, {enforced: true, locked: true, source: "device" as const}])
+    expect(renderToStaticMarkup(<AiBoundariesRowView locale="sk" boundaries={boundaries} canWrite busy={false} failed={false} onChange={noop} onRepairConfirm={noop} />)).not.toContain("data-lawoss-ai-boundaries-repair");
+  expect(renderToStaticMarkup(<AiBoundariesRowView locale="sk" boundaries={damaged} canWrite={false} busy={false} failed={false} onChange={noop} onRepairConfirm={noop} />)).not.toContain("data-lawoss-ai-boundaries-repair");
+  expect(renderToStaticMarkup(<AiBoundariesRowView locale="en" boundaries={damaged} canWrite busy={false} failed={false} onChange={noop} onRepairConfirm={noop} repairFailed />)).toContain("The setting could not be repaired. AI boundaries stay on.");
+});
+
+test("the confirmed repair goes through the native host with both current credentials", async () => {
+  const received: Array<{method: string; path: string; hostToken: string | null; body: unknown}> = [];
+  const server = Bun.serve({hostname: "127.0.0.1", port: 0, async fetch(request) {
+    received.push({method: request.method, path: new URL(request.url).pathname, hostToken: request.headers.get("x-legalwork-host-token"), body: await request.json()});
+    return Response.json({guidanceVersion: "fixture", guidanceAck: null, protectedProcessing: "unsupported", blockers: [], capabilities: [], boundaries: {enforced: true, locked: false, source: "user"}});
+  }});
+  try {
+    const connection = {normalizedBaseUrl: server.url.origin, resolvedToken: "current-client", resolvedHostToken: "current-native-host", source: "desktop-runtime" as const, hostInfo: null};
+    expect(await repairDamagedAiBoundaries(connection)).toEqual({enforced: true, locked: false, source: "user"});
+    expect(received).toEqual([{method: "POST", path: "/lawoss/ai-governance/boundaries/repair", hostToken: "current-native-host", body: {confirmed: true}}]);
+  } finally {server.stop(true);}
 });
 
 test("a failed first load inside the desktop app says so instead of pointing to the desktop app", () => {

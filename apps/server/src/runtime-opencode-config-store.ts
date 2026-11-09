@@ -317,6 +317,7 @@ export async function runtimeConfigUpgradeNotices(config: ServerConfig, workspac
       if (item.code === "legacy_workspace_tool_permissions_inactive") return [{ code: item.code, fields: item.fields }];
       if (item.code === "retired_managed_browser_replaced") return [{ code: item.code, fields: item.fields }];
       if (item.code === "sandbox_settings_repaired") return [{ code: item.code, fields: item.fields }];
+      if (item.code === "ai_boundaries_repaired") return [{ code: item.code, fields: item.fields }];
       throw new Error("Invalid saved configuration upgrade notice.");
     });
   });
@@ -401,6 +402,26 @@ export async function writeSandboxRuntimeConfig(config: ServerConfig,
     return;
   }
   await writeRuntimeOpencodeConfig(config, workspaceId, update);
+  });
+}
+
+/** LAWOSS: an explicitly confirmed update of one app-owned row that also repairs it when the stored
+ * row can no longer be read. The unreadable original is backed up in the same transaction as its
+ * replacement, exactly like the reserved sandbox row above; a readable row is only updated. */
+export async function repairApplicationRuntimeConfig(config: ServerConfig, workspaceId: string,
+  updater: (current: RuntimeOpencodeConfig) => RuntimeOpencodeConfig, notice: RuntimeConfigUpgradeNotice): Promise<void> {
+  return withRuntimeDb(config, async () => {
+    const db = await runtimeDb(config);
+    const source = db.source(workspaceId);
+    try { readStoredConfig(db, workspaceId); }
+    catch {
+      if (!source) throw savedConfigError();
+      const next = normalizeRuntimeOpencodeConfig(updater(normalizeRuntimeOpencodeConfig({})));
+      db.upgrade({ workspaceId, sourceJson: source.configJson, sourceVersion: -1, configJson: JSON.stringify(next), noticesJson: JSON.stringify([notice]), updatedAt: Date.now() });
+      notifyRuntimeConfigWrite(config, workspaceId, true);
+      return;
+    }
+    await writeRuntimeOpencodeConfig(config, workspaceId, updater);
   });
 }
 

@@ -1,7 +1,7 @@
 import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import { protectedWorkspaceUploadParts } from "../domains/session/surface/composer/composer-draft";
 import { currentTemplateLocale } from "@/lawoss/i18n/template-locale";
-import { allDocumentGenerations, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, hasProtectedDocumentSession, reconcileDocumentGeneration, readDocumentGenerationSnapshot, isDocumentGenerationSnapshotCurrent, observeDocumentGeneration, subscribeDocumentGenerations, documentGenerationsRevision, submitBoundDocumentGeneration, PROTECTED_DOCUMENT_GENERATION_TRANSPORT } from "../domains/session/panel/document-generation-lifecycle";
+import { allDocumentGenerations, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, hasProtectedDocumentSession, reconcileDocumentGeneration, readDocumentGenerationSnapshot, isDocumentGenerationSnapshotCurrent, observeDocumentGeneration, subscribeDocumentGenerations, documentGenerationsRevision, submitBoundDocumentGeneration, sendProtectedDocumentTask, PROTECTED_DOCUMENT_GENERATION_TRANSPORT } from "../domains/session/panel/document-generation-lifecycle";
 import { ensureWorkspaceSessionSync, trackWorkspaceSessionSync } from "../domains/session/sync/session-sync";
 import { generationPrompt, selectDocumentGenerationProfile, type DocumentGenerationRequest, type DocumentGenerationCallback } from "../domains/session/panel/document-processing";
 import { documentExecutionDirectory, preflightDocumentGeneration } from "../domains/session/panel/native-document-preflight";
@@ -1580,6 +1580,8 @@ export function SessionRoute() {
   // aby natívne generovanie dokumentov poslalo prompt do vybranej veci cez rovnaký kód ako composer.
   const sendNativeDraft = useCallback(async (draft: ComposerDraft, sessionId: string, options: { waitForCompletion?: boolean; waitForFusion?: boolean; messageID?: string; queue?: Omit<QueueInput, "execution">; modelSelection?: { model: ModelRef; variant: string | null } } | undefined, scope: {
     opencode: NonNullable<typeof sessionOpencodeClient>; legalwork: LegalworkServerClient; directory: string; projectId: string; runtimeKey?: string; preflighted?: boolean; protectedDocument?: boolean;
+    /** LAWOSS: the owner server's workspace ID of a protected document chat (its queue). */
+    serverWorkspaceId?: string;
   }) => {
     const sendModel = options?.modelSelection?.model ?? local.prefs.defaultModel;
     const sendVariant = options?.modelSelection ? options.modelSelection.variant : modelVariantValue;
@@ -1620,9 +1622,10 @@ export function SessionRoute() {
     if (scope.protectedDocument) {
       // This session has an isolated engine and four host document capabilities.
       // Do not import composer plugins, ambient state, shell/commands or Fusion.
-      if (draft.mode !== "prompt" || draft.command || draft.attachments.length || options?.queue || !options?.messageID)
+      if (draft.mode !== "prompt" || draft.command || draft.attachments.length || options?.queue || !options?.messageID || !scope.serverWorkspaceId)
         throw new Error("This document session accepts only the selected document task.");
-      await sendSessionPrompt(scope.opencode, buildSessionPromptRequest({ sessionID: targetSessionId, parts: [{ type: "text", text }], model: sendModel, agent: "legalwork", ...variant, ...messageID }));
+      // LAWOSS: the protected runtime accepts the task only through this chat's message queue.
+      await sendProtectedDocumentTask({ client: scope.legalwork, workspaceId: scope.serverWorkspaceId, sessionId: targetSessionId, messageId: options.messageID, text, model: sendModel, variant: sendVariant });
       return;
     }
 
@@ -2143,7 +2146,7 @@ export function SessionRoute() {
           try {
             if (!generationModel) throw new Error(t("session_route.no_model"));
             await sendNativeDraft({ mode: "prompt", text, parts: [{ type: "text", text }], attachments: [] }, sessionId, {messageID, modelSelection: {model: generationModel, variant: generationVariant}},
-              { opencode: scopedClient, legalwork: endpoint.client, directory, projectId: workspace.id, preflighted: true, protectedDocument: true });
+              { opencode: scopedClient, legalwork: endpoint.client, directory, projectId: workspace.id, preflighted: true, protectedDocument: true, serverWorkspaceId: endpoint.workspaceId });
           } catch (cause) {
             throw Object.assign(new Error(t("documents.send_failed", { message: describeRouteError(cause) })), { sessionId });
           }

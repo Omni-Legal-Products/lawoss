@@ -7,12 +7,13 @@ import { addRoute, type Route } from "../routes/registry.js";
 import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
 import { readGovernedCapabilities } from "./ai-governance.js";
-import { GLOBAL_AI_GUIDANCE_ID, preservedAiBoundaries, readAiBoundaries, writeAiBoundaries } from "./ai-boundaries.js";
+import { GLOBAL_AI_GUIDANCE_ID, preservedAiBoundaries, readAiBoundaries, repairAiBoundaries, writeAiBoundaries } from "./ai-boundaries.js";
 
 export { GLOBAL_AI_GUIDANCE_ID };
 export async function readAiGovernanceView(config: ServerConfig, publicEngineAvailable = false): Promise<AiGovernanceView> {
   return {boundaries: await readAiBoundaries(config), publicContext: {available: publicEngineAvailable, targets: await listPublicAiTargets(config)}, guidanceVersion: AI_GUIDANCE_VERSION,
-    guidanceAck: (await readRuntimeOpencodeConfig(config, GLOBAL_AI_GUIDANCE_ID)).guidanceAck ?? null,
+    // A damaged row stays visible as `invalid` boundaries (enforced) with its repair; it never blocks this view.
+    guidanceAck: (await readRuntimeOpencodeConfig(config, GLOBAL_AI_GUIDANCE_ID).catch(() => null))?.guidanceAck ?? null,
     boundedDocuments: {state: "conditional", requiresApprovedMatterProfile: true, requiresNativeCaseReview: true, requiresFinalWireReview: true, approvalCreation: "unavailable"},
     protectedProcessing: "unsupported", blockers: ["enforced-policy-wire-unavailable", "engine-egress-unproven"],
     capabilities: await readGovernedCapabilities(config, {workspaceId: null, matterId: null, jurisdictions: []})};
@@ -41,6 +42,15 @@ export function registerAiGovernanceRoutes(options: {routes: Route[]; config: Se
     const parsed = z.strictObject({enforced: z.boolean()}).safeParse(await options.readJsonBodyLimited(ctx.request, 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_ai_boundaries", "Send only whether AI boundaries are enforced.");
     await writeAiBoundaries(config, parsed.data.enforced);
+    return jsonResponse(await readAiGovernanceView(config, Boolean(options.getPublicEngineBinary?.())));
+  });
+  // A damaged row cannot be changed by the switch. After the owner's confirmation it is replaced by
+  // enforced boundaries (the state the damage already applies); the original is kept as a backup.
+  addRoute(routes, "POST", "/lawoss/ai-governance/boundaries/repair", "host-token", async ctx => {
+    ensureWritable();
+    const parsed = z.strictObject({confirmed: z.literal(true)}).safeParse(await options.readJsonBodyLimited(ctx.request, 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_ai_boundaries_repair", "Confirm the repair of the damaged AI boundaries setting.");
+    await repairAiBoundaries(config);
     return jsonResponse(await readAiGovernanceView(config, Boolean(options.getPublicEngineBinary?.())));
   });
   addRoute(routes, "POST", "/lawoss/ai-governance/public-text", "host-token", async ctx => {

@@ -56,6 +56,8 @@ async function transportTest(run: (fixture: { base: string; calls: string[]; sta
     if (path.endsWith("/session") && request.method === "POST") { bodies.push(await request.text()); const count = calls.filter(call => call === "POST /workspace/remote-runtime/opencode/session").length; return Response.json({ id: count === 1 ? "created" : `created-${count}`, directory: "/registered/root/work" }); }
     if (request.method === "PATCH" && /\/session\/created(?:-\d+)?$/.test(path)) return Response.json({ id: "created" });
     // LAWOSS v2: the app dispatches prompts through the server's session queue route.
+    // LAWOSS: a protected document chat accepts its task only through its message queue.
+    if (path.endsWith("/queue") && request.method === "POST") { bodies.push(await request.json()); return state.failSend ? Response.json({ code: "billing", message: "billing unavailable" }, { status: 402 }) : Response.json({ workspaceId: "remote-runtime", sessionId: "created", revision: 1, paused: false, completedIds: [], entries: [] }); }
     if (path.endsWith("/dispatch") && request.method === "POST") { bodies.push(await request.json()); return state.failSend ? Response.json({ code: "billing", message: "billing unavailable" }, { status: 402 }) : Response.json({ accepted: true }); }
     return Response.json({ code: "unexpected", message: path }, { status: 500 });
   } });
@@ -151,7 +153,7 @@ test("explicit working directory is lexical scoped, Windows compatible and remot
 
 // Engine v2: preflight is a plain native `session.list({ directory })`; the 1.x registered-transport guard is gone.
 
-import { submitBoundDocumentGeneration, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, hasProtectedDocumentSession, observeDocumentGeneration, reconcileDocumentGeneration, readDocumentGenerationSnapshot, clearDocumentGenerationsForTest } from "../src/react-app/domains/session/panel/document-generation-lifecycle";
+import { submitBoundDocumentGeneration, sendProtectedDocumentTask, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, hasProtectedDocumentSession, observeDocumentGeneration, reconcileDocumentGeneration, readDocumentGenerationSnapshot, clearDocumentGenerationsForTest } from "../src/react-app/domains/session/panel/document-generation-lifecycle";
 import { useSessionActivityStore } from "../src/react-app/domains/session/status/session-activity-store";
 import { ensureWorkspaceSessionSync, __createWorkspaceSessionSyncForTest, __applySessionSyncEventForTest, __disposeWorkspaceSessionSyncForTest } from "../src/react-app/domains/session/sync/session-sync";
 
@@ -236,7 +238,7 @@ test("regenerated attachment IDs do not detach an accepted request from unchange
   expect(documentGenerationKey(metadata, "en", [{ ...root, hash: "b".repeat(64) }, child])).not.toBe(initial);
 });
 
-test("a failed legacy binding remains history while the protected transport provisions once and retries only its own VM session", async () => transportTest(async ({base, calls, state}) => {
+test("a failed legacy binding remains history while the protected transport provisions once and retries only its own VM session", async () => transportTest(async ({base, calls, state, bodies}) => {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   const saved = new Map<string, string>();
   Object.defineProperty(globalThis, "localStorage", {configurable: true, value: {getItem: (key: string) => saved.get(key) ?? null, setItem: (key: string, value: string) => saved.set(key, value), removeItem: (key: string) => saved.delete(key)}});
@@ -252,7 +254,8 @@ test("a failed legacy binding remains history while the protected transport prov
     expect(getDocumentGeneration(legacyKey)).toMatchObject({sessionId: "legacy-general-session", phase: "error"});
     expect(protectedKey).not.toBe(legacyKey);
     const options = {key: protectedKey, metadata: protectedMetadata, preflight: () => preflightDocumentGeneration(input), create: () => provision(input),
-      send: async (sessionID: string, messageID: string) => {await sendSessionPrompt(input.sdk, {sessionID, messageID, parts: [{type: "text", text: "Selected protected document task"}], model: input.model, agent: "legalwork", variant: "high"});}};
+      // The production protected send (session-route `sendNativeDraft`): the queue, never `/dispatch`.
+      send: async (sessionID: string, messageID: string) => {await sendProtectedDocumentTask({client: input.legalwork, workspaceId: input.workspaceId, sessionId: sessionID, messageId: messageID, text: "Selected protected document task", model: input.model, variant: "high"});}};
     state.failSend = true;
     await expect(submitBoundDocumentGeneration(options)).rejects.toThrow("billing");
     clearDocumentGenerationsForTest(true);
@@ -265,8 +268,17 @@ test("a failed legacy binding remains history while the protected transport prov
     expect(await submitBoundDocumentGeneration(options)).toBe("created");
     expect(getDocumentGeneration(legacyKey)).toMatchObject({sessionId: "legacy-general-session", phase: "error"});
     expect(calls.filter(call => call.endsWith("/lawoss/documents/generation"))).toHaveLength(1);
-    expect(calls.filter(call => call.endsWith("/dispatch"))).toHaveLength(2);
+    expect(calls.filter(call => call === "POST /workspace/remote-runtime/sessions/created/queue")).toHaveLength(2);
+    expect(calls.filter(call => call.endsWith("/dispatch"))).toHaveLength(0);
     expect(calls.some(call => call.includes("/session/legacy-general-session/"))).toBe(false);
+    // The queue entry identity is the engine message the binding correlates (`msg_<UUID hex>`).
+    const queued = bodies.at(-1) as {type: string; id: string; execution: Record<string, unknown>; draft: {text: string}};
+    expect(queued.type).toBe("enqueue");
+    expect(queued.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(getDocumentGeneration(protectedKey)?.messageId).toBe(`msg_${queued.id.replaceAll("-", "")}`);
+    expect(queued.execution).toEqual({kind: "prompt", text: "Selected protected document task", files: [], agents: [], skills: [],
+      metadata: {legalworkPrompt: {visibleText: "Selected protected document task", reminders: []}}, model: {providerID: "chosen", id: "selected", variant: "high"}, agent: "legalwork"});
+    expect(queued.draft.text).toBe("Selected protected document task");
   } finally {
     clearDocumentGenerationsForTest();
     useSessionActivityStore.getState().removeSession(metadata.projectId, "legacy-general-session"); useSessionActivityStore.getState().removeSession(metadata.projectId, "created");
