@@ -5,7 +5,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { LINKED_FOLDERS_MAP_FILE, NESTED_CLIENT_CARD_PREFIX, type LinkedFoldersMap } from "../lawoss/linked-folders-rules.js";
 import LinkedFolders from "./lawoss-linked-folders.js";
 import { lawossNativePlugin } from "./lawoss-native-test-support.js";
@@ -120,4 +120,12 @@ test("zamietnutá karta vnoreného klienta sa v tom istom chate znova neukáže"
   expect(again.message).toContain("already refused access to this folder");
   // Iný chat sa pýta znova.
   expect((await evaluate(parent, "read", [join(nested, "Zmluvy", "zmluva.txt")], { plugin: first.plugin, sessionID: "ses_2" })).effect).toBe("ask");
+});
+
+test("firma spravuje priečinky mimo projektu: karta vnoreného iného klienta platí ďalej", async () => {
+  const { parent, nested } = await fixture("both");
+  const map = JSON.parse(await Bun.file(join(dirname(process.env.OPENCODE_CONFIG!), LINKED_FOLDERS_MAP_FILE)).text());
+  await writeFile(join(dirname(process.env.OPENCODE_CONFIG!), LINKED_FOLDERS_MAP_FILE), JSON.stringify({ ...map, firmManaged: true }));
+  expect(await evaluate(parent, "read", ["Dcéra s.r.o./Zmluvy/zmluva.txt"]).then(({ effect, message }) => ({ effect, message }))).toEqual({ effect: "ask", message: `${NESTED_CLIENT_CARD_PREFIX}${nested}` });
+  expect((await evaluate(parent, "read", ["poznámky.md"])).effect).toBe("allow");
 });

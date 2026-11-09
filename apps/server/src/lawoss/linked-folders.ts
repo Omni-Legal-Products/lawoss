@@ -151,8 +151,13 @@ export async function clientCardFolder(root: string, practice: string | null): P
  */
 export async function buildLinkedFoldersMap(config: ServerConfig): Promise<LinkedFoldersMap> {
   const firm = await appliedOrgPolicy(config, "tools.permissions").catch(() => null);
-  if (firm?.value.external_directory !== undefined) return { version: 1, officeRoot: null, clients: [], firmManaged: true };
   const practice = await officeRoot(config);
+  // Priečinky mimo projektu určuje firma; korene a karty klientov plugin aj tak potrebuje pre vnorených klientov (#264).
+  if (firm?.value.external_directory !== undefined) {
+    const roots = await Promise.all((await clientWorkspaces(config)).map((workspace) => existingCanonical(workspace.path)));
+    const clients = await Promise.all(roots.filter((root): root is string => root !== null).map(async (root) => ({ root, folders: [], client: await clientCardFolder(root, practice) })));
+    return { version: 1, officeRoot: practice, clients, firmManaged: true };
+  }
   const clients = [];
   for (const workspace of await clientWorkspaces(config)) {
     const linked = await clientLinkedFolders(config, workspace);

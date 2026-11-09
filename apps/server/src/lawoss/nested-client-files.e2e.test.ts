@@ -97,3 +97,28 @@ test("vnorený priečinok bez karty pod kartou P je spis toho istého klienta: z
   expect((await post("p", "/files/content", { path: `${NESTED}/nove.md`, content: "Syntetický zápis\n" })).status).toBe(200);
   expect(await readFile(join(nested, "nove.md"), "utf8")).toBe("Syntetický zápis\n");
 });
+
+test("registrovaný kontajner praxe nie je klient: jeho zoznam aj čítanie klientov v ňom ostávajú", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "lawoss-nested-files-prax-")));
+  cleanups.push(() => removeTestDir(base));
+  const practice = join(base, "Prax"), client = join(practice, "Klienti", "Tatran");
+  await mkdir(client, { recursive: true });
+  await writeFile(join(client, "client.md"), "# SYN Tatran\n");
+  await writeFile(join(client, "zmluva.md"), "Syntetická zmluva\n");
+  process.env.LEGALWORK_DATA_DIR = join(base, "data"); process.env.LEGALWORK_TOKEN_STORE = join(base, "tokens.json");
+  process.env.LEGALWORK_RUNTIME_DB = join(base, "private", "runtime.sqlite");
+  // Profil onboardingu s koreňom praxe (ako `officeRoot` v `linked-folders.ts`).
+  await mkdir(join(base, "private", "lawoss-onboarding"), { recursive: true });
+  await writeFile(join(base, "private", "lawoss-onboarding", "profile.json"), JSON.stringify({ officeRoot: practice }));
+  const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(base, "server.json"), token: "client", hostToken: "host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [],
+    workspaces: [{ id: "prax", name: "Prax", preset: "starter", path: practice, workspaceType: "local" }, { id: "t", name: "Tatran", preset: "starter", path: client, workspaceType: "local" }],
+    authorizedRoots: [practice, client], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  const server = await startServer(config);
+  cleanups.push(() => server.stop());
+  const get = (path: string, query: Record<string, string>) => fetch(`http://127.0.0.1:${server.port}/workspace/prax${path}?${new URLSearchParams(query)}`, { headers: auth });
+  const list = await (await get("/files/list", { path: "Klienti" })).json();
+  expect(list.entries.map((entry: { name: string }) => entry.name)).toEqual(["Tatran"]);
+  const content = await get("/files/content", { path: "Klienti/Tatran/zmluva.md" });
+  expect(content.status).toBe(200);
+  expect((await content.json()).content).toBe("Syntetická zmluva\n");
+});

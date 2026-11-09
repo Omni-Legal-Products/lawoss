@@ -2,7 +2,7 @@
  * LAWOSS #264 (rozhodnutie MČ 23. 10. 2026): súborové trasy upstream `/workspace/:id/files/*` (čítanie, zoznam, katalóg,
  * zápis, kópia, import, presun) nesiahajú do priečinka iného klienta zaregistrovaného vnútri tohto klienta
  * (`foreignNestedClientRoots`, ako vlastníctvo chatov). Vnorený priečinok bez karty pod kartou nadradeného je spis toho
- * istého klienta a ostáva prístupný. V zozname a katalógu taký priečinok vypadne, priame čítanie či zápis odmietne 403.
+ * istého klienta a ostáva prístupný, rovnako registrovaný kontajner praxe (nie je klient). V zozname a katalógu taký priečinok vypadne, priame čítanie či zápis odmietne 403.
  *
  * Korene sa počítajú z registrovaných priečinkov a kariet klientov (I/O), preto sa na krátko pamätajú pre koreň klienta;
  * zmena zoznamu klientov pamäť hneď zahodí. Pamäť má najviac jednu položku na registrovaný priečinok.
@@ -10,7 +10,7 @@
 import { isAbsolute, join } from "node:path";
 import { ApiError } from "../errors.js";
 import type { ServerConfig } from "../types.js";
-import { foreignNestedClientRoots } from "./linked-folders.js";
+import { foreignNestedClientRoots, officeRoot } from "./linked-folders.js";
 import { canonicalPath } from "./linked-folders-rules.js";
 import { foldedPath, isPathWithin } from "./path-within.js";
 
@@ -26,7 +26,12 @@ export function nestedClientFileGuard(config: ServerConfig) {
     const key = config.workspaces.map((entry) => `${entry.id}\0${entry.path}\0${entry.preset ?? ""}`).join("\n");
     const cached = cache.get(root);
     if (cached && cached.key === key && Date.now() - cached.at < CACHE_MS) return cached.roots;
-    const roots = foreignNestedClientRoots(config, workspace).then((found) => found.map((root) => foldedPath(root)), () => []);
+    const roots = (async () => {
+      // Registrovaný kontajner praxe nie je klient (ako `separateNestedClients` v plugine): jeho súbory ostávajú celé.
+      const [practice, own] = await Promise.all([officeRoot(config), canonicalPath(workspace.path)]);
+      if (practice && isPathWithin(own, practice)) return [];
+      return (await foreignNestedClientRoots(config, workspace)).map((root) => foldedPath(root));
+    })().catch(() => []);
     for (const stale of cache.keys()) if (!config.workspaces.some((entry) => entry.path === stale)) cache.delete(stale);
     cache.set(root, { at: Date.now(), key, roots });
     return roots;
