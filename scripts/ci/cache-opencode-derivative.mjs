@@ -26,7 +26,10 @@ export async function reusableBaseProducer({ identity, helpers, baseSha, baseRef
     .filter(([name]) => name !== 'derivative.mjs').map(([name, hash]) => [`packages/opencode-release/${name}`, hash])),
     ...Object.fromEntries(Object.entries(helpers).map(([name, hash]) => [`scripts/ci/${name}`, hash])) };
   for (const [name, hash] of Object.entries(inputs)) {
-    if (createHash('sha256').update(await readBaseFile(name)).digest('hex') !== hash) return undefined;
+    // 🟡 LAWOSS: a base commit without this input (dev before engine v2) cannot seed the cache.
+    let bytes;
+    try { bytes = await readBaseFile(name); } catch { return undefined; }
+    if (createHash('sha256').update(bytes).digest('hex') !== hash) return undefined;
   }
   // Only the PR's exact trusted base commit can seed a new/evicted cache.
   // Another PR's cache or artifact cannot supply this fallback.

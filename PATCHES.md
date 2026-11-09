@@ -5,6 +5,7 @@
 | Súbor | Zmena |
 |---|---|
 | `.github/workflows/ci-tests.yml` | Volania `ci-desktop-packaging.yml` dávajú `actions: read` (volaný job `opencode-engine` ho žiada) a neposielajú nedefinovaný vstup `engine-build-mode`; inak GitHub workflow nespustí (`startup_failure`). |
+| `scripts/ci/cache-opencode-derivative.mjs` (+ test) | Base commit bez vstupu derivátu (`dev` pred enginom v2) nevyhodí chybu `git show`, ale nič neponúkne na opätovné použitie; inak padal job `opencode-engine / build`. |
 | `.github/workflows/ci-desktop-packaging.yml` (job `isir-native` z #385) | Závisí aj od `opencode-engine`, stiahne derivát (`opencode-derivative-ci`), pripraví ho cez `setup-opencode` (vývojový režim) a pri zostavení odovzdá `LEGALWORK_OPENCODE_ARCHIVES`, rovnako ako `package-smoke`. |
 
 ## Sync upstream v0.3.1 až v0.3.9 (2026-11-09, ADR 0016, rozhodnutia MČ 8. 11.)

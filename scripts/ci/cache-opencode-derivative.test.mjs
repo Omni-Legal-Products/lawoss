@@ -35,6 +35,8 @@ test('a cache miss reuses only an exact base producer with unchanged engine inpu
     baseSha: 'base-commit', baseRef: 'dev', readBaseFile: name => bytes[name], artifacts: [artifact] };
   assert.equal(await reusableBaseProducer(options), 123);
   assert.equal(await reusableBaseProducer({ ...options, readBaseFile: () => 'changed source or producer' }), undefined);
+  // LAWOSS: a base commit before engine v2 has no selection.json; `git show` fails and nothing is reused.
+  assert.equal(await reusableBaseProducer({ ...options, readBaseFile: () => { throw new Error('missing in base'); } }), undefined);
   for (const changed of [{ head_sha: 'other-commit' }, { head_branch: 'other-branch' }, { head_repository_id: 2 }]) {
     assert.equal(await reusableBaseProducer({ ...options, artifacts: [{ ...artifact, workflow_run: { ...artifact.workflow_run, ...changed } }] }), undefined);
   }
