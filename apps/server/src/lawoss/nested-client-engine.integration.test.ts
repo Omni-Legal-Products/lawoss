@@ -2,6 +2,7 @@
 // `pnpm --filter legalwork-server build:plugins`). Klient P má v sebe zaregistrovaného klienta N. Natívne nástroje enginu
 // (`read`, `glob`, `grep`, `write`) z chatu P do N engine nepýta `external_directory` (cesta je v priečinku chatu),
 // preto kartu s varovaním otvorí plugin `lawoss-linked-folders` v `permission.evaluate`, aj nad `allow` a aj v YOLO.
+// Hľadanie (`glob`, `grep`) z koreňa P kartu nemá; výsledky z N plugin vynechá v `tool.execute.after` (MČ 9. 11. 2026).
 // Pluginy sa načítajú ako v produkcii (`mandatoryPlugins`: `legalwork-managed-config`, potom `lawoss-linked-folders`).
 // Nástroje volá skúšobný plugin cez RPC (`tool.execute` s rovnakým vyhodnotením povolení ako pri modeli), karty číta
 // `permission.request.list` a odpovedá `permission.reply`. Bez modelu. Údaje sú syntetické.
@@ -11,6 +12,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OpenCode, type JsonValue } from "@opencode/client";
+import { z } from "zod";
 import { LINKED_FOLDERS_MAP_FILE, NESTED_CLIENT_CARD_PREFIX, type LinkedFoldersMap } from "./linked-folders-rules.js";
 import { startRealEngineV2 } from "./test-support/fake-engine-v2.js";
 
@@ -37,7 +39,7 @@ export default Plugin.define({ id: "lawoss.nested-client-probe", async setup(ctx
 } });
 `;
 
-test.skipIf(!ready)("natívne nástroje z chatu nadradeného klienta do vnoreného iného klienta: karta s varovaním aj v YOLO; spis a vlastné súbory bez karty", async () => {
+test.skipIf(!ready)("natívne nástroje z chatu nadradeného klienta do vnoreného iného klienta: karta s varovaním aj v YOLO, hľadanie z koreňa bez karty a bez výsledkov N; spis a vlastné súbory bez karty", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "lawoss-nested-engine-")));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const parent = join(root, "prax", "Klienti", "Tatran"), nested = join(parent, "Dcéra"), matter = join(parent, "Spisy", "Úhrada");
@@ -58,8 +60,24 @@ test.skipIf(!ready)("natívne nástroje z chatu nadradeného klienta do vnorené
   const settingsPath = join(runtime, "runtime-opencode-settings.json");
   await writeFile(settingsPath, JSON.stringify({ version: 2, workspaces: { p: workspace(parent), n: workspace(nested) }, sharedConfiguration: {} }));
   const engineConfig = join(runtime, "runtime-opencode-config.json");
+  // Skúšobný poskytovateľ (OpenAI Responses): prvá požiadavka ťahu zavolá nástroj, druhá prečíta jeho výsledok a skončí.
+  const script: { call?: { name: string; arguments: string; id: string }; output?: string } = {};
+  const relay = Bun.serve({ port: 0, async fetch(request) {
+    const body = z.object({ input: z.array(z.unknown()) }).passthrough().parse(await request.json());
+    const done = body.input.map((item) => z.object({ type: z.literal("function_call_output"), call_id: z.string(), output: z.unknown() }).safeParse(item))
+      .find((item) => item.success && item.data.call_id === script.call?.id);
+    const item = !done && script.call ? { type: "function_call", id: `fc_${script.call.id}`, call_id: script.call.id, name: script.call.name, arguments: script.call.arguments, status: "completed" }
+      : { type: "message", id: "msg_fixture", role: "assistant", content: [{ type: "output_text", text: "Hotovo" }], status: "completed" };
+    if (done?.success) script.output = typeof done.data.output === "string" ? done.data.output : JSON.stringify(done.data.output);
+    const response = { id: "resp_fixture", status: "completed", output: [item], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } };
+    const events = [{ type: "response.created", response: { ...response, status: "in_progress", output: [] } },
+      { type: "response.output_item.added", output_index: 0, item }, { type: "response.output_item.done", output_index: 0, item }, { type: "response.completed", response }];
+    return new Response(events.map((event) => "data: " + JSON.stringify(event) + "\n\n").join(""), { headers: { "content-type": "text/event-stream" } });
+  } });
+  cleanups.push(() => relay.stop(true));
   // Chatový agent LAWOSS (`CHAT_AGENT`): YOLO platí len preň.
-  await writeFile(engineConfig, JSON.stringify({ update: "disable", permissions, agents: { legalwork: { description: "LAWOSS chat agent", mode: "primary", permissions } } }));
+  await writeFile(engineConfig, JSON.stringify({ update: "disable", permissions, agents: { legalwork: { description: "LAWOSS chat agent", mode: "primary", permissions } },
+    providers: { fixture: { package: "@opencode/ai/providers/openai", settings: { baseURL: relay.url.origin + "/v1", apiKey: "fixture" }, models: { fixture: { capabilities: { tools: true } } } } } }));
   const mandatory = { update: "disable", warming: false, plugins: [{ package: join(plugins, "legalwork-managed-config"), options: { settingsPath } }, join(plugins, "lawoss-linked-folders"), probe] };
   const engine = await startRealEngineV2(binary ?? "", join(root, "engine"), cleanups, { OPENCODE_CONFIG: engineConfig, OPENCODE_CONFIG_CONTENT: JSON.stringify(mandatory) });
   const client = OpenCode.make({ baseUrl: engine.url, headers: { authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
@@ -89,6 +107,26 @@ test.skipIf(!ready)("natívne nástroje z chatu nadradeného klienta do vnorené
     throw new Error(`Tool ${tool} did not finish`);
   };
   const warning = { message: `${NESTED_CLIENT_CARD_PREFIX}${nested}` };
+  /** Ťah modelu v chate priečinka `directory`, ktorý zavolá nástroj; vráti karty a výsledok nástroja, ako ho dostal model. */
+  const modelSearch = async (directory: string, tool: string, input: Record<string, JsonValue>, reply: "reject" | "once" = "reject") => {
+    const location = { directory };
+    const session = await client.session.create({ location, agent: "legalwork", model: { providerID: "fixture", id: "fixture" } });
+    script.call = { name: tool, arguments: JSON.stringify(input), id: `call_${++calls}` };
+    script.output = undefined;
+    await client.session.prompt({ sessionID: session.id, text: "Nájdi súbory." });
+    const cards: { action: string; message?: string }[] = [];
+    // Výsledok zapíše skúšobný poskytovateľ počas čakania (mimo dosahu zúženia typu v tejto funkcii).
+    const received = (): string | undefined => script.output;
+    for (let attempt = 0; attempt < 500 && received() === undefined; attempt++) {
+      const asked = (await client.permission.request.list({ location })).data.find((item) => item.sessionID === session.id);
+      if (asked) { cards.push({ action: asked.action, message: asked.message }); await client.permission.reply({ sessionID: session.id, requestID: asked.id, decision: reply }); }
+      await Bun.sleep(20);
+    }
+    await client.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(10_000) });
+    const output = received();
+    if (output === undefined) throw new Error(`Model did not receive the ${tool} result`);
+    return { cards, output };
+  };
 
   // Oba majú kartu = oddelení klienti: čítanie, hľadanie aj zápis do N z chatu P dostanú kartu; zamietnutie nič nepustí.
   await writeMap("both");
@@ -101,15 +139,36 @@ test.skipIf(!ready)("natívne nástroje z chatu nadradeného klienta do vnorené
   const write = await run(parent, "write", { path: join(nested, "nový.txt"), content: "x" });
   expect(write.card).toEqual({ action: "edit", ...warning });
   expect(existsSync(join(nested, "nový.txt"))).toBe(false);
-  expect((await run(parent, "grep", { pattern: "syntetický" })).card).toEqual({ action: "grep", ...warning });
+  // Rozhodnutie MČ 9. 11. 2026: hľadanie z koreňa P kartu nemá a výsledky z N sa ticho vynechajú; cielené do N kartu má.
+  // Bez karty; to, čo z výsledku dostane model, overuje `modelSearch` nižšie (háčik `tool.execute.after` beží len v ťahu modelu).
+  expect((await run(parent, "grep", { pattern: "syntetický" })).card).toBeNull();
+  const grepModel = await modelSearch(parent, "grep", { pattern: "syntetický" });
+  expect(grepModel.cards).toEqual([]);
+  expect(grepModel.output).toContain("syntetický obsah nadradeného klienta");
+  expect(grepModel.output).not.toContain("vnoreného");
+  expect(grepModel.output).not.toContain("Dcéra");
+  expect((await run(parent, "grep", { pattern: "syntetický", path: nested })).card).toEqual({ action: "grep", ...warning });
+  expect((await run(parent, "glob", { pattern: "*.txt", path: join(nested, "Zmluvy") })).card).toEqual({ action: "glob", ...warning });
+  expect((await run(parent, "glob", { pattern: "Dcéra/**/*.txt" })).card).toEqual({ action: "glob", ...warning });
   // Po „Povoliť raz“ advokáta nástroj prebehne.
   const approved = await run(parent, "read", { path: nestedFile }, "once");
   expect(approved.card).toEqual({ action: "read", ...warning });
   expect(approved.result).toContain("syntetický obsah vnoreného klienta");
 
-  // Kartu nemá ani jeden = oddelení: glob z koreňa P siaha do N.
+  // Kartu nemá ani jeden = oddelení: glob z koreňa P bez karty a bez súborov N; po povolení cieleného hľadania áno.
   await writeMap("none");
-  expect((await run(parent, "glob", { pattern: "**/*.txt" })).card).toEqual({ action: "glob", ...warning });
+  expect((await run(parent, "glob", { pattern: "**/*.txt" })).card).toBeNull();
+  const globModel = await modelSearch(parent, "glob", { pattern: "**/*.txt" });
+  expect(globModel.cards).toEqual([]);
+  expect(globModel.output).toContain("poznámky.txt");
+  expect(globModel.output).not.toContain("Dcéra");
+  // Cielené hľadanie povolené advokátom model dostane celé.
+  const globModelTargeted = await modelSearch(parent, "glob", { pattern: "**/*.txt", path: nested }, "once");
+  expect(globModelTargeted.cards).toEqual([{ action: "glob", ...warning }]);
+  expect(globModelTargeted.output).toContain("zmluva.txt");
+  const globTargeted = await run(parent, "glob", { pattern: "**/*.txt", path: nested }, "once");
+  expect(globTargeted.card).toEqual({ action: "glob", ...warning });
+  expect(globTargeted.result).toContain("zmluva.txt");
   // Chat spisu P (priečinok N je mimo chatu, engine sa pýta `external_directory`): karta aj v YOLO.
   const fromMatter = await run(matter, "read", { path: nestedFile });
   expect(fromMatter.card).toEqual({ action: "external_directory", ...warning });
@@ -127,6 +186,10 @@ test.skipIf(!ready)("natívne nástroje z chatu nadradeného klienta do vnorené
   const sameClient = await run(parent, "read", { path: nestedFile });
   expect(sameClient.card).toBeNull();
   expect(sameClient.result).toContain("syntetický obsah vnoreného klienta");
+  // Prípad b: hľadanie z koreňa sa nefiltruje.
+  const sameGrep = await modelSearch(parent, "grep", { pattern: "syntetický" });
+  expect(sameGrep.cards).toEqual([]);
+  expect(sameGrep.output).toContain("syntetický obsah vnoreného klienta");
   expect((await run(matter, "read", { path: nestedFile })).card).toBeNull();
   expect(await readFile(nestedFile, "utf8")).toBe("syntetický obsah vnoreného klienta");
 }, 120_000);

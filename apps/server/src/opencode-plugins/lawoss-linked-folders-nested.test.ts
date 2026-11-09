@@ -1,12 +1,14 @@
 // LAWOSS #264 (rozhodnutie MČ 23. 10. a 31. 10. 2026): natívne nástroje enginu v chate nadradeného klienta do priečinka
 // vnoreného iného klienta. Engine sa na cestu v priečinku chatu `external_directory` nepýta; plugin `lawoss-linked-folders`
-// preto v háčiku `permission.evaluate` zdvihne `read`, `edit`, `glob`, `grep` a príkaz s cestou na kartu s varovaním,
-// aj nad `allow` a aj v YOLO. Vlastné súbory klienta a jeho spisy (vnorený bez karty) kartu nedostanú. Údaje sú syntetické.
+// preto v háčiku `permission.evaluate` zdvihne `read`, `edit`, cielené `glob`/`grep` a príkaz s cestou na kartu s varovaním,
+// aj nad `allow` a aj v YOLO. Hľadanie z koreňa nadradeného klienta kartu nemá, výsledky z vnoreného klienta sa vynechajú
+// (rozhodnutie MČ 9. 11. 2026). Vlastné súbory klienta a jeho spisy (vnorený bez karty) kartu nedostanú. Údaje sú syntetické.
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { LINKED_FOLDERS_MAP_FILE, NESTED_CLIENT_CARD_PREFIX, type LinkedFoldersMap } from "../lawoss/linked-folders-rules.js";
+import type { SearchResult } from "../lawoss/nested-search-filter.js";
 import LinkedFolders from "./lawoss-linked-folders.js";
 import { lawossNativePlugin } from "./lawoss-native-test-support.js";
 
@@ -47,7 +49,7 @@ async function evaluate(directory: string, action: string, resources: string[], 
 }
 
 for (const cards of ["both", "none", "nested"] as const) {
-  test(`chat nadradeného → vnorený iný klient (karty: ${cards}): read, edit, glob, grep a príkaz s cestou dostanú kartu, aj v YOLO`, async () => {
+  test(`chat nadradeného → vnorený iný klient (karty: ${cards}): read, edit, cielený glob/grep a príkaz s cestou dostanú kartu, aj v YOLO`, async () => {
     for (const yolo of [false, true]) {
       const { parent, nested } = await fixture(cards, yolo);
       const card = `${NESTED_CLIENT_CARD_PREFIX}${nested}`;
@@ -56,9 +58,9 @@ for (const cards of ["both", "none", "nested"] as const) {
         ["read", [join(nested, "Zmluvy", "zmluva.txt")]],
         ["read", ["Dcéra s.r.o."]],
         ["edit", ["Dcéra s.r.o./nový.txt"]],
+        // Cielené hľadanie (rozsah alebo doslovný začiatok vzoru vo vnorenom klientovi).
         ["glob", ["*.txt"], { root: "Dcéra s.r.o.", path: "Dcéra s.r.o." }],
-        ["glob", ["**/*.txt"], { root: "." }],
-        ["grep", ["zmluva"], { root: "." }],
+        ["glob", ["Dcéra s.r.o./**/*.txt"], { root: "." }],
         ["grep", ["zmluva"], { root: ".", path: "Dcéra s.r.o./Zmluvy" }],
         ["shell", [`cat "${join(nested, "Zmluvy", "zmluva.txt")}"`]],
         ["shell", [`ls "Dcéra s.r.o./Zmluvy"`]],
@@ -128,4 +130,50 @@ test("firma spravuje priečinky mimo projektu: karta vnoreného iného klienta p
   await writeFile(join(dirname(process.env.OPENCODE_CONFIG!), LINKED_FOLDERS_MAP_FILE), JSON.stringify({ ...map, firmManaged: true }));
   expect(await evaluate(parent, "read", ["Dcéra s.r.o./Zmluvy/zmluva.txt"]).then(({ effect, message }) => ({ effect, message }))).toEqual({ effect: "ask", message: `${NESTED_CLIENT_CARD_PREFIX}${nested}` });
   expect((await evaluate(parent, "read", ["poznámky.md"])).effect).toBe("allow");
+});
+
+/** Výsledok natívneho `glob`/`grep` enginu 2.1.4 (cesty v `output` relatívne k chatu, v `content` absolútne). */
+function searchResult(tool: "glob" | "grep", parent: string, paths: string[]) {
+  return tool === "glob"
+    ? { output: paths.map((path) => ({ path, type: "file" })), content: paths.map((path) => join(parent, path)).join("\n"), metadata: { count: paths.length, truncated: false } }
+    : { output: paths.map((path) => ({ entry: { path, type: "file" }, line: 1, offset: 0, text: "syntetický", submatches: [] })),
+      content: `Found ${paths.length} matches\n${paths.map((path) => `${join(parent, path)}:\n  Line 1: syntetický`).join("\n\n")}`, metadata: { matches: paths.length, truncated: false } };
+}
+
+async function after(directory: string, tool: "glob" | "grep", input: Record<string, unknown>, result: SearchResult) {
+  const plugin = await lawossNativePlugin(LinkedFolders, { directory });
+  plugin.runtime.move(directory);
+  const event = { sessionID: "ses_1", agent: "legalwork", messageID: "msg_1", id: "call_1", tool, input, status: "completed" as const, result };
+  await plugin.runtime.hook("tool", "execute.after", event);
+  return event.result;
+}
+
+for (const cards of ["both", "none", "nested"] as const) {
+  test(`hľadanie z koreňa nadradeného (karty: ${cards}): bez karty, výsledky z vnoreného iného klienta sa vynechajú`, async () => {
+    const { parent } = await fixture(cards, true);
+    for (const [action, resources] of [["glob", ["**/*.txt"]], ["grep", ["zmluva"]], ["glob", ["**/Zmluvy/*.txt"]]] as const)
+      expect((await evaluate(parent, action, [...resources], { metadata: { root: "." } })).effect).toBe("allow");
+    const paths = ["Dcéra s.r.o./Zmluvy/zmluva.txt", "poznámky.txt", "Spisy/Úhrada/podanie.txt"];
+    expect(await after(parent, "glob", { pattern: "**/*.txt" }, searchResult("glob", parent, paths))).toEqual(searchResult("glob", parent, paths.slice(1)));
+    expect(await after(parent, "grep", { pattern: "syntetický" }, searchResult("grep", parent, paths))).toEqual(searchResult("grep", parent, paths.slice(1)));
+    // Len výsledky z vnoreného: prázdny výsledok ako v engine.
+    expect(await after(parent, "glob", { pattern: "**/zmluva.txt" }, searchResult("glob", parent, paths.slice(0, 1)))).toEqual({ output: [], content: "No files found", metadata: { count: 0, truncated: false } });
+    expect(await after(parent, "grep", { pattern: "zmluva" }, searchResult("grep", parent, paths.slice(0, 1)))).toEqual({ output: [], content: "No matches found", metadata: { matches: 0, truncated: false } });
+    // Text pre model rozdelený na časti iným pluginom (pripomienky stavu appky): filtruje sa každá textová časť.
+    const parts = searchResult("grep", parent, paths);
+    const reminder = { type: "text" as const, text: "<system-reminder>stav</system-reminder>" };
+    const filtered = await after(parent, "grep", { pattern: "syntetický" }, { ...parts, content: [{ type: "text", text: parts.content }, reminder] });
+    expect(filtered.content).toEqual([{ type: "text", text: searchResult("grep", parent, paths.slice(1)).content }, reminder]);
+    // Cielené hľadanie povolené advokátom na karte sa nefiltruje.
+    const targeted = searchResult("glob", parent, paths.slice(0, 1));
+    expect(await after(parent, "glob", { pattern: "*.txt", path: "Dcéra s.r.o./Zmluvy" }, targeted)).toEqual(targeted);
+  });
+}
+
+test("hľadanie z koreňa: spis bez vlastnej karty (prípad b) a chat vnoreného klienta sa nefiltrujú", async () => {
+  const same = await fixture("parent");
+  const paths = ["Dcéra s.r.o./Zmluvy/zmluva.txt", "poznámky.txt"];
+  expect(await after(same.parent, "grep", { pattern: "syntetický" }, searchResult("grep", same.parent, paths))).toEqual(searchResult("grep", same.parent, paths));
+  const { nested } = await fixture("both");
+  expect(await after(nested, "glob", { pattern: "**/*.txt" }, searchResult("glob", nested, ["Zmluvy/zmluva.txt"]))).toEqual(searchResult("glob", nested, ["Zmluvy/zmluva.txt"]));
 });

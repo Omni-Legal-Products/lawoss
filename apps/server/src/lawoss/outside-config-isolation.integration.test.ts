@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { startEmbeddedServer } from "../embedded.js";
 import { externalOpencodeConfigDir } from "./workspace-app-files.js";
+import { hasProjectTaskBoundary } from "../scheduled-tasks/access.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 const plugins = join(import.meta.dir, "..", "..", "dist", "opencode-plugins");
@@ -106,6 +107,28 @@ test.skipIf(!ready)("klient outside: príkaz, skill a konektor A len v lokáciá
     B: { commands: ["b-tajny"], skills: ["b-skill"], mcp: ["b-konektor"] },
     C: { commands: ["c-prikaz"], skills: [], mcp: [] },
   });
+  // Príkazy v engine (`/api/command`): plugin legalwork-commands je aktívny v každej lokácii (poverenie lokácie bez chatu)
+  // a príkaz klienta je len v jeho lokáciách, aj pre klienta outside.
+  const engine = async (directory: string, expected: string) => {
+    const query = new URLSearchParams({ "location[directory]": directory }), id = workspace(owner[directory]!).id;
+    let listed: string[] = [], status = "";
+    for (let attempt = 0; attempt < 80; attempt++) {
+      const plugins = z.object({ data: z.array(z.object({ id: z.string(), state: z.object({ status: z.string() }).passthrough() })) })
+        .parse(await call("GET", `/workspace/${id}/opencode/api/plugin?${query}`)).data;
+      status = plugins.find(plugin => plugin.id === "legalwork.commands")?.state.status ?? "missing";
+      listed = named.parse(await call("GET", `/workspace/${id}/opencode/api/command?${query}`)).data.map(item => item.name);
+      if (status === "failed" || listed.includes(expected)) break;
+      await Bun.sleep(250);
+    }
+    return { status, commands: listed.filter(name => /^[abc]-/.test(name)).sort() };
+  };
+  expect({ A: await engine(clientA, "a-tajny"), "A prípad": await engine(matterA, "a-tajny"), B: await engine(clientB, "b-tajny"), C: await engine(clientC, "c-prikaz") }).toEqual({
+    A: { status: "active", commands: ["a-tajny", "a-vlastny"] },
+    "A prípad": { status: "active", commands: ["a-tajny", "a-vlastny"] },
+    B: { status: "active", commands: ["b-tajny"] },
+    C: { status: "active", commands: ["c-prikaz"] },
+  });
+
   // C inside: jeho priečinok nesie vygenerovanú projektovú konfiguráciu, A ani B nie.
   expect(existsSync(join(clientC, ".opencode", "opencode.json"))).toBe(true);
 
@@ -114,6 +137,8 @@ test.skipIf(!ready)("klient outside: príkaz, skill a konektor A len v lokáciá
   for (const client of [clientA, clientB, clientC]) await call("POST", `/workspace/${workspace(client).id}/engine/reload`, {});
   expect(await commands(clientA)).toEqual(["a-novy", "a-tajny", "a-vlastny"]);
   expect(await commands(clientB)).toEqual(["b-tajny"]);
+  expect((await engine(clientA, "a-novy")).commands).toEqual(["a-novy", "a-tajny", "a-vlastny"]);
+  expect((await engine(clientB, "b-tajny")).commands).toEqual(["b-tajny"]);
   // Nový skill A po reloade (plugin si nastavenia klienta outside načíta znova).
   await mkdir(join(externalOpencodeConfigDir(server.config, workspace(clientA))!, "skills", "a-druhy"), { recursive: true });
   await writeFile(join(externalOpencodeConfigDir(server.config, workspace(clientA))!, "skills", "a-druhy", "SKILL.md"), skill("a-druhy", "Druhý skill A"));
@@ -122,4 +147,43 @@ test.skipIf(!ready)("klient outside: príkaz, skill a konektor A len v lokáciá
   expect(await names("/api/skill", clientB, "b-skill")).toEqual(["b-skill"]);
 
   expect({ A: await tree(clientA), B: await tree(clientB) }).toEqual(before);
-}, 180_000);
+
+  // Rozhodnutie MČ 9. 11. 2026: klient outside s vlastným pravidlom (A zakáže `rm *`) a YOLO. Agenti plánovaných úloh
+  // a chatový agent `legalwork` sa potom u klientov líšia, spoločný súbor ich nesie len ako kostru. A (aj prípad A)
+  // ich má s vlastnými pravidlami, B (outside) a C (inside) so svojimi, bez pravidla A.
+  await call("PATCH", `/workspace/${workspace(clientA).id}/config`, { opencode: { permissions: [{ action: "shell", resource: "rm *", effect: "deny" }] } });
+  const yolo = await fetch(`${server.url}/lawoss/yolo`, { method: "PUT", headers: { "x-legalwork-host-token": "host-token", "content-type": "application/json" }, body: JSON.stringify({ enabled: true }) });
+  expect(yolo.status).toBe(200);
+  const agentSchema = z.object({ data: z.array(z.object({ id: z.string(), mode: z.string(), hidden: z.boolean(), system: z.string().optional(),
+    permissions: z.array(z.object({ action: z.string(), resource: z.string(), effect: z.string() })) }).passthrough()) });
+  const wanted = ["legalwork", "legalwork-scheduled-all", "legalwork-scheduled-project"];
+  const agents = async (directory: string, ownRule: boolean) => {
+    const query = new URLSearchParams({ "location[directory]": directory }), id = workspace(owner[directory]!).id;
+    let listed: z.infer<typeof agentSchema>["data"] = [];
+    for (let attempt = 0; attempt < 120; attempt++) {
+      listed = agentSchema.parse(await call("GET", `/workspace/${id}/opencode/api/agent?${query}`)).data.filter(agent => wanted.includes(agent.id));
+      const chat = listed.find(agent => agent.id === "legalwork");
+      const yoloOn = chat?.permissions.some(rule => rule.action === "shell" && rule.resource === "*" && rule.effect === "allow");
+      // Nové nastavenia prídu do enginu postupne (súbory, RPC pluginu, prečítanie konfigurácie); čaká sa na všetky.
+      if (listed.length === wanted.length && yoloOn && listed.every(agent => agent.permissions.some(rule => rule.resource === "rm *") === ownRule
+        && (agent.system ?? "").startsWith("You are LegalWork"))) break;
+      await Bun.sleep(250);
+    }
+    return Object.fromEntries(listed.sort((x, y) => x.id.localeCompare(y.id)).map(agent => {
+      const shell = agent.permissions.filter(rule => rule.action === "shell");
+      return [agent.id, { mode: agent.mode, hidden: agent.hidden, prompt: (agent.system ?? "").startsWith("You are LegalWork"),
+        // Posledné pravidlo pre `rm *` a pre ostatné príkazy (vyhráva posledná zhoda).
+        rm: shell.filter(rule => rule.resource === "rm *" || rule.resource === "*").at(-1)?.effect,
+        other: shell.filter(rule => rule.resource === "*").at(-1)?.effect,
+        // Plánovaný beh projektu sa spustí len s hranicou projektu (server.ts, `hasProjectTaskBoundary`).
+        ...(agent.id === "legalwork-scheduled-project" ? { boundary: hasProjectTaskBoundary({ id: agent.id, permissions: agent.permissions.map(rule => ({ ...rule, effect: z.enum(["allow", "deny", "ask"]).parse(rule.effect) })) }) } : {}) }];
+    }));
+  };
+  const expected = (own: boolean) => ({
+    legalwork: { mode: "primary", hidden: false, prompt: true, rm: own ? "deny" : "allow", other: "allow" },
+    "legalwork-scheduled-all": { mode: "primary", hidden: true, prompt: true, rm: own ? "deny" : "ask", other: "ask" },
+    "legalwork-scheduled-project": { mode: "primary", hidden: true, prompt: true, rm: own ? "deny" : "ask", other: "ask", boundary: true },
+  });
+  const observed = { A: await agents(clientA, true), "A prípad": await agents(matterA, true), B: await agents(clientB, false), C: await agents(clientC, false) };
+  expect(observed).toEqual({ A: expected(true), "A prípad": expected(true), B: expected(false), C: expected(false) });
+}, 240_000);

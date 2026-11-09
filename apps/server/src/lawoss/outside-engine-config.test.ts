@@ -3,7 +3,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { outsideDelivery, parseOutsideClientsMap, scanOutsideSkills, shareableConfiguration } from "./outside-engine-config.js";
+import { outsideDelivery, parseOutsideClientsMap, scanOutsideSkills, shareableConfiguration, withOutsideAgentSkeletons } from "./outside-engine-config.js";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
@@ -62,4 +62,17 @@ test("mapa klientov outside odmietne neznámy tvar", () => {
   expect(parseOutsideClientsMap({ version: 1, clients: [{ id: "a", directory: "/a", configDirectory: "/x" }] })?.clients).toHaveLength(1);
   expect(parseOutsideClientsMap({ version: 2, clients: [] })).toBeNull();
   expect(parseOutsideClientsMap({ version: 1, clients: [{ id: "a", directory: "/a" }] })).toBeNull();
+});
+
+test("kostra agenta, ktorého má každý klient inak: len spoločné polia, nikdy povolenia ani vypnutie", () => {
+  const rules = (effect: "allow" | "deny") => [{ action: "shell", resource: "rm *", effect }];
+  const a = { agents: { legalwork: { system: "Prompt", mode: "primary" as const, permissions: rules("deny") }, plan: { system: "A" }, iba: { system: "len A" }, vypnuty: { system: "X" } } };
+  const b = { agents: { legalwork: { system: "Prompt", mode: "primary" as const, permissions: rules("allow") }, plan: { system: "B" }, vypnuty: { system: "X", disabled: true } } };
+  const shared = { default_agent: "legalwork" };
+  expect(withOutsideAgentSkeletons(shared, [a, b])).toEqual({ default_agent: "legalwork", agents: { legalwork: { system: "Prompt", mode: "primary" }, plan: {} } });
+  // Spoločný agent ostane, ako je; bez rozdielov nič nepribudne.
+  expect(withOutsideAgentSkeletons({ agents: { legalwork: { system: "S" } } }, [a, b]).agents?.legalwork).toEqual({ system: "S" });
+  expect(withOutsideAgentSkeletons(shared, [{ agents: { iba: { system: "x" } } }, {}])).toBe(shared);
+  // Doručenie klientovi outside: plný agent sa líši od kostry, preto ho plugin dostane celý.
+  expect(outsideDelivery(a, withOutsideAgentSkeletons(shared, [a, b])).agents.map(([id]) => id)).toEqual(["legalwork", "plan", "iba", "vypnuty"]);
 });

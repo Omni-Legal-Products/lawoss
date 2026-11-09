@@ -22,7 +22,8 @@ import { Plugin } from "@opencode/plugin";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { allowedFolders, canonicalPath, CHAT_AGENT, commandMentionsFolder, expandScope, externalDirectoryAllowed, externalDirectoryOtherClient, LINKED_FOLDERS_MAP_FILE, NESTED_CLIENT_CARD_PREFIX, ownerOf, parseLinkedFoldersMap, patternDirectory, refusedEarlier, separateNestedClientOf, type LinkedFoldersMap } from "../lawoss/linked-folders-rules.js";
+import { allowedFolders, canonicalPath, CHAT_AGENT, commandMentionsFolder, expandScope, externalDirectoryAllowed, externalDirectoryOtherClient, LINKED_FOLDERS_MAP_FILE, NESTED_CLIENT_CARD_PREFIX, ownerOf, parseLinkedFoldersMap, patternDirectory, refusedEarlier, separateNestedClientOf, separateNestedClientRoots, targetedNestedClientOf, type LinkedFoldersMap } from "../lawoss/linked-folders-rules.js";
+import { withoutNestedClientResults, type SearchResult } from "../lawoss/nested-search-filter.js";
 import { isPathWithin } from "../lawoss/path-within.js";
 import { registerAppStateReminders } from "./native-app-state-reminders.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
@@ -105,14 +106,7 @@ async function nestedClientTarget(map: LinkedFoldersMap, directory: string, even
     const scope = isRecord(event.metadata) && typeof event.metadata.path === "string" ? event.metadata.path
       : isRecord(event.metadata) && typeof event.metadata.root === "string" ? event.metadata.root : ".";
     const root = await inChat(scope);
-    if (!root) return null;
-    // glob: vzor (aj `**`) voči rozsahu; grep: celý rozsah rekurzívne.
-    const targets = event.action === "glob" ? event.resources.map((pattern) => isAbsolute(pattern) ? pattern : join(root, pattern)) : [root];
-    for (const target of targets) {
-      const found = separateNestedClientOf(map, chat, target, event.action === "grep");
-      if (found) return found.root;
-    }
-    return null;
+    return root ? targetedSearch(map, chat, event.action, root, event.resources) : null;
   }
   if (SHELL_ACTIONS.has(event.action)) {
     const nested = map.clients.filter((client) => client !== owner && separateNestedClientOf(map, chat, client.root) === client);
@@ -120,6 +114,33 @@ async function nestedClientTarget(map: LinkedFoldersMap, directory: string, even
     return found?.root ?? null;
   }
   return null;
+}
+
+/**
+ * #264 (rozhodnutie MČ 9. 11. 2026): kartu dostane len hľadanie cielené do vnoreného iného klienta (rozsah alebo doslovný
+ * začiatok vzoru v jeho priečinku). Hľadanie z vyššieho priečinka kartu nemá; jeho výsledky z vnoreného klienta háčik
+ * `tool.execute.after` vynechá (`withoutNestedClientResults`).
+ */
+function targetedSearch(map: LinkedFoldersMap, chat: string, action: string, root: string, patterns: readonly string[]): string | null {
+  const targets = action === "glob" ? patterns.map((pattern) => isAbsolute(pattern) ? pattern : join(root, pattern)) : [root];
+  for (const target of targets) {
+    const found = targetedNestedClientOf(map, chat, target);
+    if (found) return found.root;
+  }
+  return null;
+}
+
+/** Výsledky `glob`/`grep` z priečinka chatu bez záznamov z vnoreného iného klienta; `null` = nechať, ako sú. */
+async function filteredSearchResult(map: LinkedFoldersMap, directory: string, tool: string, input: unknown, result: SearchResult): Promise<SearchResult | null> {
+  if (!SEARCH_ACTIONS.has(tool) || !isRecord(input)) return null;
+  const chat = await canonicalPath(directory);
+  const roots = separateNestedClientRoots(map, chat);
+  if (!roots.length) return null;
+  const scope = typeof input.path === "string" && input.path.trim() ? input.path : ".";
+  const root = await canonicalPath(isAbsolute(scope) ? scope : resolve(chat, scope));
+  // Cielené hľadanie: karta s varovaním ho už nechala na advokátovi.
+  if (targetedSearch(map, chat, tool, root, typeof input.pattern === "string" ? [input.pattern] : [])) return null;
+  return withoutNestedClientResults(tool, result, directory, chat, roots);
 }
 
 /** Spoločný záver viet pre agenta (N-A8-2): agent nikdy neradí povoliť priečinok iného klienta ani zmeniť nastavenia. */
@@ -234,6 +255,19 @@ export default Plugin.define({
         // Bez rozhodnutia ostane bežná otázka používateľovi.
       }
     });
+    // #264: hľadanie z priečinka nadradeného klienta vynechá výsledky z vnoreného iného klienta.
+    const searched = await ctx.tool.hook("execute.after", async (event) => {
+      if (event.status !== "completed" || !SEARCH_ACTIONS.has(event.tool)) return;
+      try {
+        const read = await readMap();
+        if (!read) return;
+        const session = await ctx.session.get({ sessionID: event.sessionID });
+        const filtered = await filteredSearchResult(read.map, session.location.directory, event.tool, event.input, event.result);
+        if (filtered) event.result = filtered;
+      } catch {
+        // Bez mapy alebo chatu ostane výsledok bez zmeny; cielený prístup stráži karta.
+      }
+    });
     const events = nativeEvents(ctx, (event) => {
       if (event.type === "permission.asked") {
         const key = cardKey(event.data.sessionID, event.data.resources);
@@ -252,6 +286,6 @@ export default Plugin.define({
       for (const target of card.targets) folders.add(target);
       bounded(refused, card.root, folders, REFUSED_LIMIT);
     });
-    return async () => { events(); reminders(); await Promise.all([context.dispose(), evaluate.dispose()]); };
+    return async () => { events(); reminders(); await Promise.all([context.dispose(), evaluate.dispose(), searched.dispose()]); };
   },
 });

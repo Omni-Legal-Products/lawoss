@@ -1,6 +1,8 @@
 /** LAWOSS: shared by the server and the engine's plugins; plugins are packaged outside the server's tree. */
 export const WIKI_AGENT_TICKET_ENV = "LEGALWORK_WIKI_AGENT_TICKET";
 export const WIKI_AGENT_TICKET_PATH = "/engine-agent/ticket";
+/** A plugin's location-level read without a chat (command definitions); see `wiki/agent-access.ts`. */
+export const WIKI_AGENT_LOCATION_HEADER = "x-legalwork-wiki-agent-location";
 
 /** The model relays this refusal to the lawyer. */
 export const ENGINE_CONNECTION_REFUSED = "This chat cannot use this client's files now: LAWOSS could not confirm its connection to its AI engine. Nothing was read or changed. Stop the task and tell the user in their language, without error codes or technical terms: quit LAWOSS completely, open it again and send the message again.";

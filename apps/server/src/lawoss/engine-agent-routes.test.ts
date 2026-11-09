@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { runtimeStorageDir } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
 import { authenticateWikiAgentRequest, CHAT_NOT_REGISTERED, ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
-import { WIKI_AGENT_TICKET_ENV } from "./engine-agent-contract.js";
+import { WIKI_AGENT_LOCATION_HEADER, WIKI_AGENT_TICKET_ENV } from "./engine-agent-contract.js";
 import { SERVER_CREDENTIAL_ENV, withoutServerCredentials } from "./engine-credentials.js";
 
 const roots: string[] = [];
@@ -129,4 +129,53 @@ test("a chat reads case memory only through its own client's route (lawoss_memor
   await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_b/lawoss/memory/write", { session: "chat_a", method: "POST", body: { sessionID: "chat_a" } }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
   await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_a/lawoss/memory/delete", { session: "chat_a", method: "POST", body: {} }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
   await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_a/lawoss/memory/read", { session: "chat_a" }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+});
+
+// LAWOSS: the native command plugin reads its definitions per engine location, before any chat exists.
+test("the location credential finds only its own workspace and reads only its command definitions", async () => {
+  const { config, a, b } = await fixture();
+  const token = await ensureWikiAgentToken(config);
+  const located = (path: string, location: string | null, method = "GET", extra: Record<string, string> = {}) => new Request(`http://127.0.0.1${path}`, {
+    method, headers: { "x-legalwork-wiki-agent-token": token, ...(location === null ? {} : { [WIKI_AGENT_LOCATION_HEADER]: encodeURIComponent(location) }), ...extra } });
+  const definitions = (workspace: string, directory: string) => `/workspace/${workspace}/commands/definitions?${new URLSearchParams({ directory })}`;
+  const own = await authenticateWikiAgentRequest(config, located(definitions("ws_a", a), a));
+  expect(own).toMatchObject({ location: true, workspaceId: "ws_a", directory: a, sessionId: "", allProjects: false, actor: { scope: "collaborator", clientId: "wiki-agent:location:ws_a" } });
+  // A case folder inside A is A's location.
+  const matter = join(a, "Spisy", "Úhrada"); await mkdir(matter, { recursive: true });
+  expect((await authenticateWikiAgentRequest(config, located(definitions("ws_a", matter), matter)))?.workspaceId).toBe("ws_a");
+  expect((await authenticateWikiAgentRequest(config, located("/workspaces", b)))?.workspaceId).toBe("ws_b");
+  // Another client's workspace or directory.
+  await expect(authenticateWikiAgentRequest(config, located(definitions("ws_b", b), a))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
+  await expect(authenticateWikiAgentRequest(config, located(definitions("ws_a", a), b))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
+  await expect(authenticateWikiAgentRequest(config, located(definitions("ws_a", matter), a))).rejects.toMatchObject({ code: "wiki_agent_directory_mismatch" });
+  await expect(authenticateWikiAgentRequest(config, located("/workspace/ws_a/commands/definitions", a))).rejects.toMatchObject({ code: "wiki_agent_directory_mismatch" });
+  // Nothing else: no other read, no write, no chat route.
+  for (const [path, method] of [["/workspace/ws_a/files/content?path=x", "GET"], ["/workspace/ws_a/skills", "GET"], ["/workspace/ws_a/sandbox/command", "POST"],
+    ["/workspace/ws_a/commands/definitions", "POST"], ["/workspaces/projects", "POST"], ["/workspace/ws_a/opencode/api/session", "GET"], ["/wikis", "GET"]] as const)
+    await expect(authenticateWikiAgentRequest(config, located(path, a, method))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+  // An unresolvable or relative location, or a folder outside every client.
+  await expect(authenticateWikiAgentRequest(config, located("/workspaces", join(a, "missing")))).rejects.toMatchObject({ code: "wiki_agent_directory_mismatch" });
+  await expect(authenticateWikiAgentRequest(config, located("/workspaces", "a"))).rejects.toMatchObject({ code: "wiki_agent_directory_mismatch" });
+  await expect(authenticateWikiAgentRequest(config, located("/workspaces", tmpdir()))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
+  // A chat header takes the chat path: an unregistered chat is refused even with a valid location.
+  await expect(authenticateWikiAgentRequest(config, located("/workspaces", a, "GET", { "x-legalwork-wiki-agent-session": "unregistered", "x-legalwork-wiki-agent-directory": encodeURIComponent(a) })))
+    .rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
+  // Without the secret the location claim is nothing.
+  const forged = new Request(`http://127.0.0.1${definitions("ws_a", a)}`, { headers: { "x-legalwork-wiki-agent-token": "forged", [WIKI_AGENT_LOCATION_HEADER]: encodeURIComponent(a) } });
+  await expect(authenticateWikiAgentRequest(config, forged)).rejects.toMatchObject({ code: "wiki_agent_unauthorized" });
+  expect(await authenticateWikiAgentRequest(config, new Request(`http://127.0.0.1${definitions("ws_a", a)}`, { headers: { [WIKI_AGENT_LOCATION_HEADER]: encodeURIComponent(a) } }))).toBeNull();
+  // A viewer chat lowers the process credential; the location read follows it.
+  await grantWikiAgentSession(config, { sessionId: "viewer", directory: a, scope: "viewer" });
+  expect((await authenticateWikiAgentRequest(config, located(definitions("ws_a", a), a)))?.actor.scope).toBe("viewer");
+});
+
+test("the location credential keeps the client boundary of the practice", async () => {
+  const { config, a } = await fixture();
+  const profile = join(runtimeStorageDir(config), "lawoss-onboarding");
+  await mkdir(profile, { recursive: true });
+  await writeFile(join(profile, "profile.json"), JSON.stringify({ officeRoot: a, clientRoot: join(a, "Klient") }));
+  await mkdir(join(a, "Klient"));
+  const token = await ensureWikiAgentToken(config);
+  const request = new Request(`http://127.0.0.1/workspaces`, { headers: { "x-legalwork-wiki-agent-token": token, [WIKI_AGENT_LOCATION_HEADER]: encodeURIComponent(a) } });
+  await expect(authenticateWikiAgentRequest(config, request)).rejects.toMatchObject({ code: "wiki_agent_client_workspace_required" });
 });

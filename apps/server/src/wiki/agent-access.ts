@@ -6,7 +6,7 @@ import { isAbsolute, relative, sep } from "node:path";
 import { z } from "zod";
 import type { Actor, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
-import { ENGINE_CONNECTION_REFUSED } from "../lawoss/engine-agent-contract.js";
+import { ENGINE_CONNECTION_REFUSED, WIKI_AGENT_LOCATION_HEADER } from "../lawoss/engine-agent-contract.js";
 import { reviewExecutionActor } from "../reviews/execution-actor.js";
 import { reviewWorkerClaims } from "../reviews/worker.js";
 
@@ -365,6 +365,8 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   originSessionId: string;
   generation: string;
   reviewWorker?: true;
+  /** LAWOSS: a location-level read without a chat (`locationAgentAccess`). */
+  location?: true;
   workspaceId: string | null;
   allProjects: boolean;
   scheduledProjects?: "all" | string[];
@@ -381,6 +383,10 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   if (engineWideRoute(request.method, pathname))
     return { directory: "", sessionId: "", originSessionId: "", generation: "", workspaceId: null, allProjects: false,
       actor: { type: "remote", clientId: "wiki-agent:engine", scope: "collaborator", tokenHash } };
+  // LAWOSS: a plugin's location-level read (no chat); a request naming a chat always takes the chat path below.
+  const location = request.headers.get(WIKI_AGENT_LOCATION_HEADER);
+  if (location !== null && request.headers.get("x-legalwork-wiki-agent-session") === null)
+    return locationAgentAccess(config, access, request.method, url, location, tokenHash);
   const tool = toolRoute(request.method, url);
   if (!narrowWikiPath(request.method, pathname) && !tool)
     throw new ApiError(403, "wiki_agent_endpoint_denied", "This agent credential is limited to this project's tools.");
@@ -442,6 +448,39 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   const scheduledProjects = origin.scheduledProjects === "all" ? (allProjects ? "all" : own ? [own.id] : []) : origin.scheduledProjects;
   return { directory, sessionId, originSessionId: origin.sessionId, generation: origin.generation, workspaceId: own?.id ?? null, allProjects, scheduledProjects,
     actor: { type: "remote", clientId: `wiki-agent:${sessionId}`, scope, tokenHash } };
+}
+
+/**
+ * LAWOSS: the engine's location-level credential. A plugin that loads per location, before any chat exists (the
+ * native command plugin reads its command definitions in `setup`), proves the agent secret and names the location.
+ * It may only find that location's own workspace and read its command definitions: no writes, no chat, no other
+ * client. The server resolves the location itself; the workspace and the `directory` of the read must match it.
+ */
+const LOCATION_DEFINITIONS = /^\/workspace\/([^/]+)\/commands\/definitions$/;
+
+async function locationAgentAccess(config: ServerConfig, access: RuntimeAccess, method: string, url: URL, claimed: string, tokenHash: string) {
+  const definitions = url.pathname.match(LOCATION_DEFINITIONS);
+  if (method !== "GET" || !(definitions || url.pathname === "/workspaces"))
+    throw new ApiError(403, "wiki_agent_endpoint_denied", "This agent credential is limited to this project's tools.");
+  let decoded: string | null = null;
+  try { decoded = claimed ? decodeURIComponent(claimed) : null; } catch { /* Invalid encoded claims fail closed. */ }
+  const directory = decoded && isAbsolute(decoded) ? await realpath(decoded).catch(() => null) : null;
+  if (!directory) throw new ApiError(403, "wiki_agent_directory_mismatch", "The request does not match this engine location.");
+  const own = await ownWorkspaceFor(config, directory);
+  if (!own) throw new ApiError(403, "wiki_agent_workspace_denied", "This engine location belongs to no LegalWork project.");
+  if (definitions) {
+    let workspaceId = "";
+    try { workspaceId = decodeURIComponent(definitions[1]!); } catch { /* Fails below. */ }
+    if (workspaceId !== own.id) throw new ApiError(403, "wiki_agent_workspace_denied", "Use project tools only in this location's own workspace.");
+    const requested = url.searchParams.getAll("directory");
+    if (requested.length !== 1 || await realpath(requested[0]!).catch(() => null) !== directory)
+      throw new ApiError(403, "wiki_agent_directory_mismatch", "The request does not match this engine location.");
+  }
+  await requireClientWorkspaceBoundary(config, await realpath(own.directory || own.path));
+  const rank = {viewer: 0, collaborator: 1, owner: 2};
+  const scope: TokenScope = access.credentialScope && rank[access.credentialScope] < rank.collaborator ? access.credentialScope : "collaborator";
+  return { directory, sessionId: "", originSessionId: "", generation: "", location: true as const, workspaceId: own.id, allProjects: false,
+    actor: { type: "remote" as const, clientId: `wiki-agent:location:${own.id}`, scope, tokenHash } };
 }
 
 /** Last listener shutdown revokes process credentials; a reused config starts a fresh generation. */

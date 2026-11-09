@@ -3,8 +3,8 @@
  *
  * Klient outside nemá v priečinku vygenerovaný `.opencode/opencode.json`. Tento plugin doplní jeho lokáciám (koreň
  * klienta aj prípady v ňom, nie vnorenému klientovi) to, čo by inak niesol projektový súbor: MCP servery, priečinky
- * skillov vrátane externého `.opencode/skills`, nastavené inštrukcie, deklarácie agentov, predvoleného agenta a
- * odmietnutých poskytovateľov. Povolenia rieši `legalwork-managed-config` (`managed-folder-permissions.ts`), príkazy
+ * skillov vrátane externého `.opencode/skills`, nastavené inštrukcie, pravidlá povolení klienta v každom agentovi,
+ * agentov (aj tých, ktoré spoločný súbor nesie len ako kostru), predvoleného agenta a odmietnutých poskytovateľov. Hranicu priečinkov a schválenia rieši `legalwork-managed-config` (`managed-folder-permissions.ts`), príkazy
  * `legalwork-commands` cez server. Iné lokácie (ostatní klienti, klienti inside) nedostanú nič. Transformácie sú
  * synchrónne nad stavom načítaným pri štarte lokácie a pri `refresh` (server ho volá po zápise konfigurácie).
  */
@@ -21,7 +21,19 @@ import { nativeEngineLocationApprovedSync } from "../native-engine-project-regis
 import { outsideConfigRpc, outsideDelivery, outsideSkillsDirectory, parseOutsideClientsMap, scanOutsideSkills, type OutsideClient, type OutsideDelivery } from "../lawoss/outside-engine-config.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
 
-type State = { client: OutsideClient; delivery: OutsideDelivery; skills: Skill.Info[]; instructions: string[] };
+type Rule = { action: string; resource: string; effect: "allow" | "deny" | "ask" };
+type State = { client: OutsideClient; delivery: OutsideDelivery; skills: Skill.Info[]; instructions: string[]; permissions: Rule[]; agents: string[] };
+
+/** Like the native agent fold: `~`/`$HOME` in folder rules is the engine home. */
+const engineHome = () => process.env.OPENCODE_TEST_HOME || homedir();
+const HOME_ACTIONS = new Set(["external_directory", "read", "edit"]);
+const expandRules = (rules: readonly Rule[]): Rule[] => rules.map((rule) => {
+  if (!HOME_ACTIONS.has(rule.action)) return { ...rule };
+  const home = engineHome(), resource = rule.resource;
+  if (resource === "~" || resource === "$HOME") return { ...rule, resource: home };
+  const rest = resource.startsWith("~/") ? resource.slice(2) : resource.startsWith("$HOME/") || resource.startsWith("$HOME\\") ? resource.slice(6) : undefined;
+  return rest === undefined ? { ...rule } : { ...rule, resource: join(home, rest) };
+});
 
 const canonical = (path: string) => realpath(path).catch(() => resolve(path));
 const within = (root: string, path: string) => {
@@ -54,14 +66,15 @@ export const LawossOutsideConfig = Plugin.define({
       const skills = new Map<string, Skill.Info>();
       // Like the native skill source: `~/` is the engine home, a relative path the location directory.
       const folders = [...delivery.skills, outsideSkillsDirectory(client.configDirectory)].map(directory => directory.startsWith("~/")
-        ? join(process.env.OPENCODE_TEST_HOME || homedir(), directory.slice(2)) : isAbsolute(directory) ? directory : resolve(ctx.location.directory, directory));
+        ? join(engineHome(), directory.slice(2)) : isAbsolute(directory) ? directory : resolve(ctx.location.directory, directory));
       for (const folder of new Set(folders)) for (const skill of await scanOutsideSkills(folder)) skills.set(skill.id, decodeSkill(skill));
       const instructions: string[] = [];
       for (const path of delivery.instructions) {
         const content = await readFile(path, "utf8").catch(() => undefined);
         if (content?.trim()) instructions.push(`Instructions from: ${path}\n${content}`);
       }
-      return { client, delivery, skills: [...skills.values()], instructions };
+      return { client, delivery, skills: [...skills.values()], instructions, permissions: expandRules(settings.configuration.permissions ?? []),
+        agents: Object.keys(settings.configuration.agents ?? {}) };
     };
     let state = await read();
     // The admission plugin removes every server of an unapproved location; do not add them back.
@@ -74,10 +87,16 @@ export const LawossOutsideConfig = Plugin.define({
       await ctx.skill.transform(editor => {
         for (const skill of state?.skills ?? []) { if (editor.get(skill.id)) editor.remove(skill.id); editor.add(skill); }
       }),
+      // The native fold of configured agents runs after plugin transforms (engine 2.1.4): here only the built-in agents
+      // exist, and `update` of a missing id creates it. Like the project file of an inside client, this client's own
+      // rules come first in every agent, then each agent's declaration; the shared file (identical values, skeletons
+      // without permissions, `withOutsideAgentSkeletons`) is applied afterwards by the engine.
       await ctx.agent.transform(editor => {
         if (!state) return;
+        const own = state.permissions;
+        for (const agent of editor.list()) editor.update(agent.id, value => { value.permissions.push(...own.map(rule => ({ ...rule }))); });
+        for (const id of state.agents) if (!editor.get(id)) editor.update(id, value => { value.permissions.push(...own.map(rule => ({ ...rule }))); });
         for (const [id, declared] of state.delivery.agents) {
-          if (!editor.get(id)) continue; // Native agents come from the shared file; a plugin cannot declare a new one.
           if (declared.disabled) { editor.remove(id); continue; }
           editor.update(id, agent => {
             if (declared.system !== undefined) agent.system = declared.system;
@@ -88,7 +107,8 @@ export const LawossOutsideConfig = Plugin.define({
             if (declared.color !== undefined) agent.color = declared.color;
             if (declared.model) agent.model = decodeModel({ providerID: declared.model.providerID, id: declared.model.model,
               ...(declared.model.variant ? { variant: declared.model.variant } : {}) });
-            if (declared.permissions) agent.permissions.push(...declared.permissions.map(rule => ({ ...rule })));
+            if (declared.request) { Object.assign(agent.request.headers, declared.request.headers ?? {}); Object.assign(agent.request.body, declared.request.body ?? {}); }
+            if (declared.permissions) agent.permissions.push(...expandRules(declared.permissions));
           });
         }
         if (state.delivery.defaultAgent && editor.get(state.delivery.defaultAgent)) editor.default(state.delivery.defaultAgent);
@@ -107,7 +127,7 @@ export const LawossOutsideConfig = Plugin.define({
         if (changed(value => value?.delivery.mcp)) await ctx.mcp.reload();
         if (changed(value => value?.skills)) await ctx.skill.reload();
         // Configured instruction files are read here; a chat sees the new text from its next turn.
-        if (changed(value => [value?.delivery.agents, value?.delivery.defaultAgent])) await ctx.agent.reload();
+        if (changed(value => [value?.delivery.agents, value?.delivery.defaultAgent, value?.permissions, value?.agents])) await ctx.agent.reload();
         if (changed(value => value?.delivery.providerPolicies)) { await ctx.provider.reload(); await ctx.model.reload(); }
         return { refreshed: true };
       } }),
