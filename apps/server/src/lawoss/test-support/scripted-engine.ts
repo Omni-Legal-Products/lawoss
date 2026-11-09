@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { OpenCode, type OpenCodeClient } from "@opencode/client";
 import { listEngineMessages } from "../../engine-client.js";
 import { buildLegalworkRuntimeSettings } from "../../legalwork-runtime-config.js";
@@ -24,7 +25,8 @@ import { startRealEngineV2 } from "./fake-engine-v2.js";
  *   never the server token (engine-agent-contract.ts); the fixture redeems it.
  * Synthetic data only; HOME/XDG and the engine database are temporary.
  */
-export const BUILT_PLUGINS = join(import.meta.dir, "..", "..", "..", "dist", "opencode-plugins");
+// Node and Bun: the packaged-import check loads this module under Node, where import.meta.dir is undefined.
+export const BUILT_PLUGINS = fileURLToPath(new URL("../../../dist/opencode-plugins", import.meta.url));
 
 export type EngineCard = { id: string; sessionID: string; action: string; resources: readonly string[]; save?: readonly string[]; metadata?: Record<string, unknown>; message?: string };
 export type EngineToolRun = { name: string; status: string; output: string };
