@@ -5,6 +5,7 @@ import { createServer } from "node:net";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { developmentEngineEnvironment } from "../packages/opencode-release/prepare.mjs";
+import { headlessWebViteEnv } from "./dev-headless-web-env.mjs";
 
 const cwd = process.cwd();
 const tmpDir = path.join(cwd, "tmp");
@@ -175,14 +176,15 @@ const ensureLegalworkServer = async () => {
 const legalworkUrl = `http://${clientHost}:${legalworkPort}`;
 const webUrl = `http://${clientHost}:${webPort}`;
 
-const viteEnv = {
-  ...process.env,
-  HOST: viteHost,
-  PORT: String(webPort),
-  VITE_LEGALWORK_URL: process.env.VITE_LEGALWORK_URL ?? legalworkUrl,
-  VITE_LEGALWORK_PORT: process.env.VITE_LEGALWORK_PORT ?? String(legalworkPort),
-  VITE_LEGALWORK_TOKEN: process.env.VITE_LEGALWORK_TOKEN ?? legalworkToken,
-};
+const viteEnv = headlessWebViteEnv({
+  env: process.env,
+  viteHost,
+  webPort,
+  legalworkUrl,
+  legalworkPort,
+  legalworkToken,
+  legalworkHostToken,
+});
 const headlessEnv = {
   ...process.env,
   LEGALWORK_WORKSPACE: workspace,
