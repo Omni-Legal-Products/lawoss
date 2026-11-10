@@ -31,7 +31,7 @@ import { ProjectNoteTile } from "./project-note-tile";
 import { useProjectFavoritesStore } from "./project-favorites-store";
 import { defaultProjectFields, useProjectDefaultsStore, withInitialProjectFields } from "./project-defaults-store";
 import { t } from "@/i18n";
-import { isProjectViewHidden } from "@/lawoss/feature-flags";
+import { isHiddenSettingsTab, isProjectViewHidden } from "@/lawoss/feature-flags";
 import { projectErrorMessage } from "./project-errors";
 import { ProjectShareButton, ProjectSyncNotice } from "./project-sync";
 import { deleteProjectNote } from "./delete-project-note";
@@ -63,6 +63,7 @@ export function ProjectHome(props: {
   const recordingActive = useRecorderStore((state) => Boolean(state.recording && state.recording.id !== state.dictationRecordingId));
   const recordingStarting = useRecorderStore((state) => state.starting || Boolean(state.importing) || Boolean(state.recording && state.recording.id === state.dictationRecordingId));
   const recordingFinalizing = useRecorderStore((state) => state.finalizing);
+  const recorderHidden = isHiddenSettingsTab("recorder");
   const recordLabel = t(recordingFinalizing ? "recorder.finishing" : recordingActive ? "recorder.stop_recording" : "recorder.record");
   const isFavorite = useProjectFavoritesStore((state) => state.favoriteIds.includes(workspaceId));
   const toggleFavorite = useProjectFavoritesStore((state) => state.toggleFavorite);
@@ -147,14 +148,15 @@ export function ProjectHome(props: {
             </div>
             <Button variant="ghost" className="h-10 gap-1.5 rounded-xl px-3 text-xs" onClick={() => setNoteOpen(true)}><StickyNote />{t("projects.add_note")}</Button>
             <Button variant="ghost" className="h-10 gap-1.5 rounded-xl px-3 text-xs" onClick={() => setTaskOpen(true)}><SquareCheck />{t("tasks.new_task")}</Button>
-            <Button variant="ghost" className="h-10 gap-1.5 rounded-xl px-3 text-xs" disabled={recordingStarting || recordingFinalizing} onClick={props.onStartRecording}>{recordingActive ? <Square className="text-red-9" fill="currentColor" /> : <Mic />}{recordLabel}</Button>
+            {/* 🟡 LAWOSS: záznamník je skrytý (MČ 8. 11. 2026), nahrávanie sa v hlavičke klienta neponúka. */}
+            {!recorderHidden && <Button variant="ghost" className="h-10 gap-1.5 rounded-xl px-3 text-xs" disabled={recordingStarting || recordingFinalizing} onClick={props.onStartRecording}>{recordingActive ? <Square className="text-red-9" fill="currentColor" /> : <Mic />}{recordLabel}</Button>}
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem disabled={sessionStarting || recordingFinalizing} onClick={() => { void newSession(recordingActive); }}><SquarePen strokeWidth={1.5} />{t("projects.new_chat")}</ContextMenuItem>
           <ContextMenuItem onClick={() => setNoteOpen(true)}><StickyNote />{t("projects.add_note")}</ContextMenuItem>
           <ContextMenuItem onClick={() => setTaskOpen(true)}><SquareCheck />{t("tasks.new_task")}</ContextMenuItem>
-          <ContextMenuItem disabled={recordingStarting || recordingFinalizing} onClick={props.onStartRecording}><Mic />{recordLabel}</ContextMenuItem>
+          {!recorderHidden && <ContextMenuItem disabled={recordingStarting || recordingFinalizing} onClick={props.onStartRecording}><Mic />{recordLabel}</ContextMenuItem>}
           <ContextMenuSeparator />
           <ContextMenuItem onClick={() => toggleFavorite(workspaceId)}><Pin />{favoriteLabel}</ContextMenuItem>
         </ContextMenuContent>
@@ -244,7 +246,7 @@ export function ProjectHome(props: {
         </ContextMenuContent>
         </ContextMenu>
 
-        <ProjectRecordings projectId={props.projectId} onStartRecording={props.onStartRecording} onOpenRecording={openRecording} onKeepRecordingOpen={recording => openRecordingTab(recording)} />
+        {!recorderHidden && <ProjectRecordings projectId={props.projectId} onStartRecording={props.onStartRecording} onOpenRecording={openRecording} onKeepRecordingOpen={recording => openRecordingTab(recording)} />}
       </div>
 
       {noteOpen ? <ProjectNoteDialog client={client} workspaceId={workspaceId} onClose={() => setNoteOpen(false)} onSaved={refreshNotes} /> : null}

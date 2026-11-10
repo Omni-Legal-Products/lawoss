@@ -133,4 +133,9 @@ describe("meno z karty klienta namiesto mena priečinka", () => {
     expect(page).toContain("const titleName = projectName !== props.selectedWorkspaceId ? projectName : workspaceName;");
     expect(page).toContain("props.projectPage ? `${titleName} · ${projectViewLabel(props.projectPage)}`");
   });
+  test("stránka Klienti ukazuje meno z karty ako bočný panel (strážca väzby)", () => {
+    // Test alfy 10. 11. 2026: zoznam ukazoval „C024-syn-tomas-svec-remesla“, panel „SYN Tomáš Švec remeslá“.
+    const page = readFileSync(join(import.meta.dir, "../src/react-app/domains/workspace/projects-page.tsx"), "utf8");
+    expect(page).toContain("const name = clientCardLabel(id, nativeName, group.workspace.path) ?? nativeName;");
+  });
 });
