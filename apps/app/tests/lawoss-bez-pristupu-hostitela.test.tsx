@@ -8,8 +8,8 @@ import { isConnectionProblem, isHostAccessDenied, retryUnlessHostAccessDenied } 
 import { liteStateText } from "../src/lawoss/lite/state-text";
 import { OKF_REFRESH_MS, practiceRootRefetchInterval } from "../src/lawoss/okf/read-model";
 
-// #338: webový klient (`pnpm dev:headless-web`) má len token spolupracovníka. Prehľad praxe je len pre hostiteľa,
-// preto Dnes ukazoval červené „Vaše prípady sa nepodarilo načítať — Invalid host token“ a dotazy sa opakovali.
+// #338: prehľad praxe je len pre hostiteľa. Bez jeho tokenu Dnes ukazoval červené
+// „Vaše prípady sa nepodarilo načítať — Invalid host token“ a dotazy sa opakovali.
 
 afterEach(() => { setLocale("en"); });
 
