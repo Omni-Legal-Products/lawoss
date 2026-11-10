@@ -1,5 +1,6 @@
 /**
- * LAWOSS: globálne skilly Claude (`~/.claude/skills`) appka nečíta (nález N-1, #255).
+ * LAWOSS: globálne skilly Claude (`~/.claude/skills`) ani iných agentov (`~/.agents/skills`, `~/.agent/skills`)
+ * appka nečíta (nález N-1, #255; `~/.agents` rozhodnutie MČ 10. 11. 2026).
  *
  * Skilly, ktoré má advokát v Claude Code alebo inom nástroji, sa nemajú miešať do LAWOSS: nezobrazia
  * sa v Nastaveniach a nedostane ich ani engine (`legalwork-runtime-config.ts` berie cesty z `listSkills`).
@@ -31,9 +32,12 @@ function homes(): string[] {
   return found.filter(Boolean);
 }
 
-/** Priečinok skillov, ktorý LAWOSS preskočí: globálne skilly Claude v domovskom priečinku. */
+/** Globálne priečinky skillov iných nástrojov v domovskom priečinku (Claude Code, agenti `.agents`/`.agent`). */
+export const IGNORED_GLOBAL_SKILL_DIRS: readonly (readonly [string, string])[] = [[".claude", "skills"], [".agents", "skills"], [".agent", "skills"]];
+
+/** Priečinok skillov, ktorý LAWOSS preskočí: globálne skilly Claude a iných agentov v domovskom priečinku. */
 export function isIgnoredSkillRoot(dir: string): boolean {
   if (LAWOSS_READ_CLAUDE_GLOBAL_SKILLS) return false;
   const target = comparable(dir);
-  return homes().some((home) => comparable(join(home, ".claude", "skills")) === target);
+  return homes().some((home) => IGNORED_GLOBAL_SKILL_DIRS.some((parts) => comparable(join(home, ...parts)) === target));
 }

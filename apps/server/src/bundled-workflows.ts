@@ -23,9 +23,10 @@ async function upgradeWikiLauncher(destination: string) {
 }
 
 /** Install complete defaults once; migrate only known unmodified defaults. */
-export async function ensureBundledWorkflows(root = globalSkillsDir()): Promise<void> {
+// 🟡 LAWOSS: `names` vyberie inštalované workflowy; skryté LAWOSS neinštaluje (lawoss/hidden-bundled-workflows.ts).
+export async function ensureBundledWorkflows(root = globalSkillsDir(), names: readonly string[] = BUNDLED_WORKFLOW_NAMES): Promise<void> {
   await mkdir(root, { recursive: true });
-  for (const name of BUNDLED_WORKFLOW_NAMES) {
+  for (const name of names) {
     const destination = join(root, name);
     if (await exists(destination)) {
       if (name === "workflow-firm-knowledge") await upgradeWikiLauncher(destination);

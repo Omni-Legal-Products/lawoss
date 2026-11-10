@@ -12,19 +12,22 @@ import { withoutClaudeGlobalSkills } from "./lawoss-skill-roots.mjs";
 
 const home = path.resolve("/Users/advokat");
 
-test("vynechá ~/.claude/skills, ostatné priečinky skillov a ich poradie ponechá", () => {
+test("vynechá ~/.claude/skills, ~/.agents/skills a ~/.agent/skills, ostatné priečinky skillov a ich poradie ponechá", () => {
   const roots = [
     path.join(home, "Klienti", "Horak", ".opencode", "skills"),
     path.join(home, "Klienti", "Horak", ".claude", "skills"),
+    path.join(home, "Klienti", "Horak", ".agents", "skills"),
     path.join(home, ".claude", "skills"),
     path.join(home, ".config", "opencode", "skills"),
     path.join(home, ".agents", "skills"),
+    path.join(home, ".agent", "skills"),
   ];
+  // Rozhodnutie MČ 10. 11. 2026: globálne skilly iných agentov sa nečítajú; priečinky vnútri klienta áno.
   assert.deepEqual(withoutClaudeGlobalSkills(roots, [home]), [
     path.join(home, "Klienti", "Horak", ".opencode", "skills"),
     path.join(home, "Klienti", "Horak", ".claude", "skills"),
+    path.join(home, "Klienti", "Horak", ".agents", "skills"),
     path.join(home, ".config", "opencode", "skills"),
-    path.join(home, ".agents", "skills"),
   ]);
 });
 
