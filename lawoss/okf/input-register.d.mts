@@ -6,6 +6,8 @@ export const PROFILE_FILE: string;
 export function nextInputId(intake: string | null): string;
 export function receivedStamp(now: Date): string;
 export function inputRow(id: string, received: string, original: string, source?: string): string;
+export const INSTRUCTION_INPUT_SOURCE: string;
+export function instructionInputRow(id: string, received: string, instruction: string, result: string): string;
 export function originalCell(relativePath: string): string;
 export function appendInputRow(intake: string | null, row: string, title: string): string;
 export function moveInputOriginal(intake: string, from: string, to: string, handedOver?: string): { content: string; id: string } | null;

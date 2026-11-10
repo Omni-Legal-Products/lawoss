@@ -19,9 +19,23 @@ prezeraj nástrojmi `glob` a `read`, nie `ls` v shelli. Mimo LAWOSS (alebo bez t
 čítal `--file`), `reason` dôvod, `if_revision` revízia z `lawoss_memory` `read` pri úprave existujúceho
 záznamu, `matter` ako pri čítaní. Nástroj pripraví ten istý náhľad ako `write` bez `--apply`, advokát
 uvidí jednu kartu so zapisovaným textom a súborom a až po schválení sa zapíše tým istým kódom. Ak
-kartu zamietne, nič sa nezapísalo; nezopakuj ju hneď. Nástroj zapisuje len záznam vrstvy L2 v spise;
+kartu zamietne, nič sa nezapísalo; nezopakuj ju hneď. Nástroj zapisuje len záznam vrstvy L2 v spise
+alebo, so `scope: "client"`, záznam L2 na úrovni klienta (`subject`, `screening`, `client_note`);
 L1/L3, mazanie a ostatné príkazy (`init`, `sync`, `retrofit`, `workspace-save`, `validate`, `aml`) idú
 cez CLI a jeho schválenie.
+
+**Poznámka pre celého klienta.** Čo platí pre klienta bez ohľadu na prípad (napr. „komunikovať len
+e-mailom, nie telefonicky“), zapíš `lawoss_memory_write` so `scope: "client"` ako záznam typu
+`client_note` (vrstva L2, ID `CN-001`, ďalšie voľné číslo podľa `read`). Uloží sa do `<klient>/memory/`
+a `read` ho vráti pri každom prípade klienta. Neodmietaj ju preto, že nepatrí do žiadneho prípadu,
+a nedávaj ju do L1 (pravidlo kancelárie): údaj o klientovi do pamäte kancelárie nepatrí.
+
+**Lehota, ktorú povie advokát.** Keď advokát v chate povie lehotu s dátumom („odpovedať do 25. novembra,
+zapíš mi tú lehotu“), zavolaj raz `lawoss_memory_deadline` (`date` ako `RRRR-MM-DD`, `what`, `instruction`
+= veta advokáta, `matter`). Nástroj sám zaeviduje pokyn vo `VSTUPY.md` prípadu a zapíše úlohu s lehotou
+v `deadlines` označenú `deadline_basis: lawyer_instruction` (bez `verified`); advokát schvaľuje jednu
+kartu a zapíšu sa oba súbory alebo žiadny. Pokyn vopred neeviduj sám a nevysvetľuj pravidlá namiesto
+zápisu. Dátum neodvodzuj: bez výslovného dátumu alebo pri nejasnom prípade sa opýtaj jednou vetou.
 
 V aplikácii LAWOSS je skill nainštalovaný do `.opencode/skills/okf-pamat/` aj s CLI
 `resources/okf-memory.js` (jeden súbor, bez závislostí). Všade, kde je nižšie
@@ -218,6 +232,7 @@ potom načítaj plné pravidlá, poučenia a obsah veci cez `read` podľa vstupn
 | čokoľvek, čo sa do typov vyššie nehodí | **vlastný typ** (napr. `hearing_note`) | L2 |
 | identifikácia klienta alebo protistrany (§ 8) | `subject` | L2, **u klienta** |
 | AML preverenie k dátumu | `screening` | L2, **u klienta** |
+| pracovná poznámka platná pre celého klienta (spôsob komunikácie, kontaktná osoba, fakturačný pokyn) | `client_note` (`CN-001`) | L2, **u klienta** |
 | pracovné pravidlo, preferencia kancelárie | `rule` | **L1** |
 | poučenie z chyby, čo nabudúce inak | `lesson` | **L1** |
 | judikát, ustanovenie, argumentačný vzor — len s `source` + `verified_via` + `verified_at`; navigačný nález (napr. komentárový korpus) sa najprv dooveruje v primárnom prameni | `authority` | **L3** |
@@ -325,7 +340,8 @@ Na ban-list (sekcia „Necitovať" v preambule) sa prameň dostane nastavením
 
 ## Zápis
 
-V LAWOSS zapíš záznam L2 nástrojom `lawoss_memory_write` (náhľad a schválenie sú jedna karta).
+V LAWOSS zapíš záznam L2 nástrojom `lawoss_memory_write` (náhľad a schválenie sú jedna karta);
+záznam pre celého klienta so `scope: "client"`, lehotu z pokynu advokáta nástrojom `lawoss_memory_deadline`.
 Príkazy nižšie platia mimo LAWOSS a pre L1, L3 a mazanie.
 
 ```bash
@@ -428,6 +444,10 @@ predchádzajúce overenie ako históriu a nové potvrdenie si nevymýšľaj. Sta
 záznamy bez týchto polí zostávajú čitateľné; ich lehoty sú nepotvrdené. Tieto
 polia evidujú tvrdenie o overení, neoverujú totožnosť človeka.
 
+Lehota z pokynu advokáta v chate (`deadline_basis: lawyer_instruction`, zapisuje ju `lawoss_memory_deadline`)
+je zapísaná, nie overená: prehľady ju ukazujú s poznámkou „podľa pokynu advokáta, neoverené z listiny“,
+kým ju advokát nepotvrdí overením vyššie. Značku sám neodstraňuj a `verified` si nevymýšľaj.
+
 ### Popis záznamu je háčik, nie zhrnutie
 
 `description` sa renderuje do `index.md` a preambuly ako navigačná pomôcka.
@@ -469,7 +489,7 @@ Potom prejdi kontrolný zoznam nižšie.
 | Úroveň | Čo tam žije |
 |---|---|
 | `<spis>/memory/` | obsah veci — `matter`, `decision`, `claim`, `evidence`, `task`, `question`, `requirement`, `instrument`, `relation`, vlastné typy |
-| `<klient>/memory/` | `subject` a `screening` — identifikácia sa robí raz na klienta |
+| `<klient>/memory/` | `subject` a `screening` — identifikácia sa robí raz na klienta; `client_note` — pracovná poznámka platná pre všetky prípady klienta |
 | `Office/memory/` | `rule`, `lesson` (L1) a `authority` (L3) |
 
 `readScope()` prečíta všetky tri naraz. **Prameň patrí kancelárii, nie spisu** —
@@ -511,6 +531,18 @@ nikdy kópia obsahu — inak destilát prestane byť lacný a začne amplifikova
 ## Komunikácia, aktualizácie a odovzdanie
 
 Pri vstupoch čítaj aj `KOMUNIKACNE-KANALY.md` veci a klienta, ak existuje. Je to evidencia rozsahu a výsledku kontroly, nie prístupové poverenie. Kanál v stave `error`, `partial` alebo `not_configured` neoznač za skontrolovaný; zachovaj posledný úspešný kurzor. Spolu s každým novým podkladom udržuj `VSTUPY.md` a odkazy na výsledné ID pamäte.
+
+**Upratanie nezaradeného.** Keď advokát chce zaradiť, čo je nezaradené, nezastav sa pri prázdnom
+`00_Na_zatriedenie/`. Prehľad klienta počíta nespracované vstupy: riadky `pending` vo `VSTUPY.md`
+klienta a každého jeho prípadu. Nájdi ich (`grep` na `pending` v súboroch `VSTUPY.md`, alebo `read`
+po prípadoch) a pozri priečinky na nezaradené klienta aj prípadov. Dokument, ktorý ešte leží
+v priečinku na nezaradené alebo mimo prípadu, navrhni presunúť (`lawoss_files`, jeden plán). Dokument,
+ktorý už leží v prípade a čaká len na vecnú kontrolu, nepresúvaj: povedz, koľko ich v ktorom prípade
+je, a ponúkni ich prejsť.
+
+**Reč k advokátovi.** Odpovedaj bežnou rečou: názvy prípadov a dokumentov, nie kódy (`M001`, `IN-003`),
+a bez interných slov (`L2`, brána, `VSTUPY.md`, typy záznamov, názvy nástrojov), kým sa na technický
+detail nespýta. Keď niečo nejde, povedz jednou vetou, čo môže urobiť ďalej.
 
 Pamäť dopĺňaj po ucelenom pracovnom kroku, nie až pri závere rozhovoru. Pred poslednou odpoveďou a plánovaným odovzdaním:
 

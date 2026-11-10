@@ -35,6 +35,7 @@ const FILE_CHANGING_TOOLS = new Set([
   "multiedit",
   "lawoss_files",
   "lawoss_memory_write",
+  "lawoss_memory_deadline",
   "inapp_markdown_create",
   "inapp_md_replace_text",
   "inapp_md_save",

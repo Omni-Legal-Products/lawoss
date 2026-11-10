@@ -21,6 +21,7 @@ const TOOL_LABELS: Record<string, Labels> = {
   // Čítanie pamäte prípadu: tie isté texty ako doteraz (N-A3-3).
   lawoss_memory: { active: "tool_activity.reading_project_content", done: "tool_run.summary.read" },
   lawoss_memory_write: { active: "lawoss.tool.memory_write", done: "lawoss.tool.memory_write_done" },
+  lawoss_memory_deadline: { active: "lawoss.tool.memory_deadline", done: "lawoss.tool.memory_deadline_done" },
   legalwork_project_remote_folders: { active: "lawoss.tool.linked_folders", done: "lawoss.tool.linked_folders_done" },
   // Pripojené priečinky klienta sú často lokálne: nie „cloudový súbor“.
   storage_read_file: { active: "lawoss.tool.file_read", done: "lawoss.tool.file_read_done" },
@@ -81,6 +82,7 @@ const TOOL_CATEGORIES: Record<string, LawossToolCategory> = {
   // Presun, kópia a Kôš nie je „prehľadávanie súborov“ (vzor `files`).
   lawoss_files: "edit",
   lawoss_memory_write: "write",
+  lawoss_memory_deadline: "write",
   lawoss_documents_prepare: "read",
   lawoss_documents_list: "read",
   lawoss_documents_read: "read",
