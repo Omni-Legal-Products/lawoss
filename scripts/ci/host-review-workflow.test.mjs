@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 // Command wiring only; the invoked real Electron smoke owns renderer/IPC proof.
 test('normal macOS test job runs the real host review gate without an optional or soft-failure path', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/ci-tests.yml', import.meta.url), 'utf8');
-  const job = workflow.split('\n  legalwork-tests:\n')[1]?.split('\n  orchestrator-tests:\n')[0];
+  const job = workflow.split('\n  legalwork-tests:\n')[1]?.split('\n  sandbox-engine:\n')[0];
   assert.ok(job, 'The normal PR test job must exist');
   const step = job.split(/^      - name: /m).find(block => /^Verify bounded native host context review in Electron\n/.test(block));
   assert.ok(step, 'The real host review command must be a normal CI step');
