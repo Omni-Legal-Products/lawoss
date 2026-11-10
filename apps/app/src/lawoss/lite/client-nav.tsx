@@ -242,7 +242,10 @@ function ClientNavRoot({ groups, selectedWorkspaceId, children }: { groups?: rea
   const rootTargets = useMemo(() => choices.filter((c) => c.folder !== undefined), [choices]);
   // Výber: všetci klienti (bez otvoreného projektu) alebo klienti koreňa kancelárie (otvorený koreň praxe).
   const [picking, setPicking] = useState<"all" | "root" | null>(null);
-  const pickerChoices = picking === "root" ? rootTargets : choices;
+  // Mená z kariet klientov ako v riadkoch panela: výber ukazoval mená priečinkov („C020-syn-stefan-tapak“).
+  const pickerChoices = useMemo(() => (picking === "root" ? rootTargets : choices)
+    .map((c) => ({ ...c, title: nav.rows.get(c.id)?.cardTitle ?? c.title }))
+    .sort((a, b) => a.title.localeCompare(b.title, "cs") || a.id.localeCompare(b.id)), [picking, rootTargets, choices, nav.rows]);
   const createRef = useRef<((workspaceId: string) => void) | null>(null);
   const start = useCallback((target: NewChatTarget, create: (workspaceId: string) => void) => {
     const failed = (failure: unknown) => {

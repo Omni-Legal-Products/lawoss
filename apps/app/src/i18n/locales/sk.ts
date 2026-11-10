@@ -3799,7 +3799,7 @@ export default {
   "home.start_chat": "Začať nový chat",
   "home.choose_project": "Zvoľte klienta",
   "home.new_project": "Nový klient",
-  "home.new_project_hint": "Nový klient sa pridá po odoslaní správy.",
+  "home.new_project_hint": "Najprv zvoľte klienta alebo pridajte nového.",
   "home.existing_project_hint": "Súbory sa skopírujú do priečinka tohto klienta.",
   "home.files": "Súbory",
   "home.add_files": "Pridať súbory",

@@ -8,9 +8,10 @@ import { Button } from "@/components/ui/button";
 import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
 import { viewPanelTab } from "./view-reference";
 import { viewProgramInput, viewToolOutcome, viewGenerationId, viewDraftTab, useViewGenerationStore } from "./view-generation";
+import { ChatInlineView } from "@/lawoss/chat/chat-view-inline"; // 🟡 LAWOSS: prehľad priamo v chate
 
 export function ViewToolCard({ part }: { part: DynamicToolUIPart }) {
-  const { legalworkClient, workspaceId, sessionId } = useMessageList();
+  const { legalworkClient, workspaceId, sessionId, readOnly } = useMessageList();
   const request = useRequestPanelTab();
   const outcome = useMemo(() => part.state === "output-available" ? viewToolOutcome(part.output) : null, [part.state, part.output]);
   const input = useMemo(() => viewProgramInput(part.input), [part.input]);
@@ -33,5 +34,5 @@ export function ViewToolCard({ part }: { part: DynamicToolUIPart }) {
       if (entry) request(viewDraftTab(generationId, entry), { besideChat: true });
     }
   };
-  return <div className="my-3 overflow-hidden rounded-xl border bg-card"><div className="flex flex-wrap items-center gap-3 p-4"><DashboardIcon className="size-4 text-muted-foreground" /><div className="min-w-0 flex-1 basis-36"><p className="truncate text-sm font-medium">{view?.title ?? generation?.title ?? input.title}</p><p className="text-xs text-muted-foreground">{failure ? t("views.preview_failed", { error: failure }) : pending ? t("views.creating_preview") : preview && !view ? t("views.preview_unsaved") : view?.mode === "dashboard" ? "queries" in view && Object.keys(view.queries).length ? t("views.live_dashboard") : t("views.dashboard") : view ? t("views.report_snapshot") : t("views.preview_missing")}</p></div>{legalworkClient && view && preview && <Button size="sm" variant="ghost" onClick={() => open(true)}>{t("views.original_preview")}</Button>}{legalworkClient && (view || preview || pending) ? <Button size="sm" variant="outline" onClick={() => open()}>{pending ? <Loader2 className="size-4 animate-spin" /> : null}{t("session.open")}<ArrowUpRight /></Button> : null}</div></div>;
+  return <div className="my-3 overflow-hidden rounded-xl border bg-card"><div className="flex flex-wrap items-center gap-3 p-4"><DashboardIcon className="size-4 text-muted-foreground" /><div className="min-w-0 flex-1 basis-36"><p className="truncate text-sm font-medium">{view?.title ?? generation?.title ?? input.title}</p><p className="text-xs text-muted-foreground">{failure ? t("views.preview_failed", { error: failure }) : pending ? t("views.creating_preview") : preview && !view ? t("views.preview_unsaved") : view?.mode === "dashboard" ? "queries" in view && Object.keys(view.queries).length ? t("views.live_dashboard") : t("views.dashboard") : view ? t("views.report_snapshot") : t("views.preview_missing")}</p></div>{legalworkClient && view && preview && <Button size="sm" variant="ghost" onClick={() => open(true)}>{t("views.original_preview")}</Button>}{legalworkClient && (view || preview || pending) ? <Button size="sm" variant="outline" onClick={() => open()}>{pending ? <Loader2 className="size-4 animate-spin" /> : null}{t("session.open")}<ArrowUpRight /></Button> : null}</div>{legalworkClient && !failure && !pending && (view || preview) ? <ChatInlineView client={legalworkClient} toolCallId={part.toolCallId} generationId={generationId} saved={view ? { owner: view.owner, viewId: view.id } : null} preview={preview} readOnly={readOnly} /> : null}</div>;
 }

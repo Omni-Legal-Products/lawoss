@@ -8,6 +8,7 @@ import { useProjectFiles } from "@/react-app/domains/workspace/project-file-cont
 import { copyMessageWithAttachments } from "@/react-app/domains/session/surface/composer/attachment-clipboard";
 import { ViewToolCard } from "@/react-app/domains/views/view-tool-card";
 import { useViewGenerations } from "@/react-app/domains/views/use-view-generations";
+import { ChatInlineViewBudget } from "@/lawoss/chat/chat-view-inline"; // 🟡 LAWOSS: prehľad priamo v chate
 import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
 import { AssistantFileCard, AssistantLinkedFileCards, AssistantSharedFileCard, AssistantTypingBubble } from "./assistant-chat-cards";
 import { assistantHandoffPresentation } from "./assistant-handoff-presentation";
@@ -1120,6 +1121,7 @@ export function MessageList({ showWelcome = true, eigenweltPlan = null, messages
   return (
     <UsageLimitRendererContext.Provider value={renderUsageLimit ?? null}>
     <EigenweltBudgetPlanContext.Provider value={eigenweltPlan}>
+    <ChatInlineViewBudget messages={messages}>
     <div className={cn("flex flex-col gap-2 @container/message-list")}>
       {showWelcome && messages.length === 0 && <SessionWelcome />}
 
@@ -1158,6 +1160,7 @@ export function MessageList({ showWelcome = true, eigenweltPlan = null, messages
       {retryStatus ? <RetryMessage status={retryStatus} /> : null}
       {error && !hasSessionErrorMessage ? <ErrorMessage error={aiBoundariesRefusal(error) ?? error} /> : null}
     </div>
+    </ChatInlineViewBudget>
     </EigenweltBudgetPlanContext.Provider>
     </UsageLimitRendererContext.Provider>
   )

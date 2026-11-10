@@ -3798,7 +3798,7 @@ export default {
   "home.start_chat": "Začněte nový chat",
   "home.choose_project": "Vyberte klienta",
   "home.new_project": "Nový klient",
-  "home.new_project_hint": "Po odeslání bude přidán nový klient.",
+  "home.new_project_hint": "Nejdřív vyberte klienta, nebo přidejte nového.",
   "home.existing_project_hint": "Soubory budou zkopírovány do složky tohoto klienta.",
   "home.files": "Soubory",
   "home.add_files": "Přidat soubory",
