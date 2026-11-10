@@ -5,6 +5,7 @@ import { z } from "zod";
 import { canonicalFilePath, withFileWriteLock } from "./file-write-lock.js";
 import { engineStorageDir } from "./engine-storage.js";
 import { openSqliteReadonly } from "./managed-opencode-db.js";
+import { readEngineDbWithRetry } from "./lawoss/engine-db-read-retry.js";
 import { importLegacySessionPermissionRules } from "./session-history-permissions.js";
 import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
@@ -51,7 +52,9 @@ async function finish(prepared: SavedNativeApprovalMigration) {
 
 
 type Snapshot = { columns: string[]; rows: Array<Record<string, unknown>>; projects: Array<Record<string, unknown>>; directories: Array<Record<string, unknown>> };
-async function snapshot(path: string): Promise<Snapshot> {
+// 🟡 LAWOSS: na Windows môže druhé otvorenie DB po zatvorení prvého dočasne zlyhať (SQLITE_IOERR_TRUNCATE); celé čítanie sa zopakuje.
+const snapshot = (path: string): Promise<Snapshot> => readEngineDbWithRetry(() => readSnapshot(path));
+async function readSnapshot(path: string): Promise<Snapshot> {
   const db = await openSqliteReadonly(path);
   try {
     const tables = new Set(db.all("SELECT name FROM sqlite_master WHERE type='table'").map(row => row.name));
