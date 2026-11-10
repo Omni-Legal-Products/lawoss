@@ -5,6 +5,9 @@
  * čitateľne (sloveso, pôvodná → nová, počty položiek, dôvod), nie surový JSON (P6, N-A3-6). Názvy prichádzajú
  * zo servera s viditeľne escapovanými riadiacimi znakmi.
  *
+ * Nový súbor (`create_file`, MČ 10. 11. 2026): „Nový súbor: cesta (veľkosť)“ a pod ním názov dokumentu a začiatok
+ * textu, ktorý server pripravil ako jeden riadok bez značiek. Advokát vidí, čo vznikne, bez kódu a príkazov.
+ *
  * Tlačidlo „Povoliť do konca konverzácie“: engine 1.18.29 si „always“ pamätá pre celý priečinok
  * klienta (všetky jeho chaty, do reštartu), nie pre konverzáciu. Preto sa neponúka pri natívnej
  * karte úprav (`edit`), pri `external_directory` (vlastné pripojené priečinky odobrí plugin bez karty,
@@ -19,14 +22,15 @@ import { browserLoginCard } from "./browser-login-card";
 import { memoryWriteCard } from "./memory-write-card";
 import { nestedClientCardFolder } from "./nested-client-card";
 
-type Operation = "move" | "copy" | "create_folder" | "delete";
-type PlannedChange = { operation: Operation; kind: "file" | "folder"; from?: string; to?: string; entries?: number; entriesCapped?: boolean; similar?: string[] };
+type Operation = "move" | "copy" | "create_folder" | "create_file" | "delete";
+type PlannedChange = { operation: Operation; kind: "file" | "folder"; from?: string; to?: string; entries?: number; entriesCapped?: boolean; similar?: string[];
+  size?: number; title?: string; preview?: string };
 
 /** Same bound as the server's folder survey (lawoss/file-operations.ts FOLDER_SURVEY_LIMIT). */
 const SURVEY_LIMIT = 1000;
 
 function isOperation(value: unknown): value is Operation {
-  return value === "move" || value === "copy" || value === "create_folder" || value === "delete";
+  return value === "move" || value === "copy" || value === "create_folder" || value === "create_file" || value === "delete";
 }
 
 function plannedChanges(metadata: Record<string, unknown>): PlannedChange[] | null {
@@ -39,9 +43,11 @@ function plannedChanges(metadata: Record<string, unknown>): PlannedChange[] | nu
     const from: unknown = Reflect.get(item, "from"), to: unknown = Reflect.get(item, "to");
     const entries: unknown = Reflect.get(item, "entries"), capped: unknown = Reflect.get(item, "entriesCapped"), listed: unknown = Reflect.get(item, "similar");
     if (!isOperation(operation) || (kind !== "file" && kind !== "folder")) return null;
+    const size: unknown = Reflect.get(item, "size"), title: unknown = Reflect.get(item, "title"), preview: unknown = Reflect.get(item, "preview");
     const similar = Array.isArray(listed) ? listed.filter((name): name is string => typeof name === "string") : [];
     changes.push({ operation, kind, ...(typeof from === "string" ? { from } : {}), ...(typeof to === "string" ? { to } : {}),
-      ...(typeof entries === "number" ? { entries } : {}), ...(capped === true ? { entriesCapped: true } : {}), ...(similar.length ? { similar } : {}) });
+      ...(typeof entries === "number" ? { entries } : {}), ...(capped === true ? { entriesCapped: true } : {}), ...(similar.length ? { similar } : {}),
+      ...(typeof size === "number" ? { size } : {}), ...(typeof title === "string" && title ? { title } : {}), ...(typeof preview === "string" && preview ? { preview } : {}) });
   }
   return changes;
 }
@@ -55,8 +61,23 @@ function trashLine(change: PlannedChange, path: string): string {
   return t("lawoss.files.line_trash_folder", { path, count: change.entries });
 }
 
+/** The size of a new file as a person reads it; under 1 kB in bytes. */
+export function readableSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} kB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** What a new file will hold: a Word document's title and the beginning of the text, as the server prepared them. */
+function contentLines(change: PlannedChange): string[] {
+  if (change.operation !== "create_file") return [];
+  return [...(change.title ? [t("lawoss.files.line_create_file_title", undefined, { title: change.title })] : []),
+    ...(change.preview ? [t("lawoss.files.line_create_file_preview", undefined, { text: change.preview })] : [])];
+}
+
 function line(change: PlannedChange): string {
   const from = change.from ?? "", to = change.to ?? "";
+  if (change.operation === "create_file") return t("lawoss.files.line_create_file", undefined, { path: to, size: readableSize(change.size ?? 0) });
   if (change.operation === "move") return `${from} → ${to}`;
   if (change.operation === "copy") return t("lawoss.files.line_copy", undefined, { from, to });
   if (change.operation === "create_folder") return t("lawoss.files.line_create_folder", undefined, { path: to });
@@ -82,6 +103,7 @@ function title(changes: PlannedChange[]): string {
   if (change.operation === "move") return t(renamed(change) ? "lawoss.files.title_rename" : "lawoss.files.title_move");
   if (change.operation === "copy") return t("lawoss.files.title_copy");
   if (change.operation === "create_folder") return t("lawoss.files.title_create_folder");
+  if (change.operation === "create_file") return t("lawoss.files.title_create_file");
   return t("lawoss.files.title_trash");
 }
 
@@ -118,12 +140,12 @@ export function fileOperationCard(metadata: Record<string, unknown>): { title: s
   if (!changes) return memoryWriteCard(metadata) ?? browserLoginCard(metadata);
   const reason = typeof metadata.description === "string" && metadata.description.trim() ? t("lawoss.files.reason", undefined, { text: metadata.description.trim() }) : null;
   return {
-    details: { reason, lines: changes.flatMap((change) => [detailLine(change), ...warnings(change)]) },
+    details: { reason, lines: changes.flatMap((change) => [detailLine(change), ...contentLines(change), ...warnings(change)]) },
     title: title(changes),
     message: t(changes.some((change) => change.operation === "delete") ? "lawoss.files.message_trash" : "lawoss.files.message"),
     permissionLabel: t("lawoss.files.permission_label"),
     scopeLabel: t("lawoss.files.scope"),
-    scopeValue: changes.flatMap((change) => [line(change), ...warnings(change)]).join("\n"),
+    scopeValue: changes.flatMap((change) => [line(change), ...contentLines(change), ...warnings(change)]).join("\n"),
   };
 }
 

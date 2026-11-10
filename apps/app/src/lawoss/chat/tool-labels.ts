@@ -51,12 +51,21 @@ const field = (input: unknown, key: string): string | undefined => input && type
 /** Prepis chatu (`ses_….md`) je predchádzajúci rozhovor, nie súbor s menom identifikátora. */
 const SESSION_FILE = /(?:^|[\\/])ses_[A-Za-z0-9]+\.md$/;
 
+/** Prehliadka alfy 10. 11. 2026: žiadosť, ktorá len vytvára dokument (`create_file`, prípadne s priečinkom), nie je „zmena súborov“. */
+const CREATE_LABELS: Labels = { active: "lawoss.tool.files_create", done: "lawoss.tool.files_create_done" };
+function createsDocument(input: unknown): boolean {
+  const operations: unknown = input && typeof input === "object" ? Reflect.get(input, "operations") : undefined;
+  if (!Array.isArray(operations) || operations.length === 0) return false;
+  const kinds = operations.map((item: unknown) => item && typeof item === "object" ? Reflect.get(item, "operation") : undefined);
+  return kinds.includes("create_file") && kinds.every((kind) => kind === "create_file" || kind === "create_folder");
+}
+
 function label(name: string, input: unknown, phase: keyof Labels): string | null {
   if (name === "read" && SESSION_FILE.test(field(input, "filePath") ?? "")) return t(phase === "active" ? "lawoss.tool.session_read" : "lawoss.tool.session_read_done");
   // Príkaz s popisom od agenta (popis je v nástroji povinný) ukáže popis ako bežný príkaz `bash`.
   const description = name === "legalwork_shell" ? field(input, "description") : undefined;
   if (description) return truncateText(description, phase === "active" ? 64 : 80);
-  const labels = TOOL_LABELS[name] ?? inappLabels(name);
+  const labels = (name === "lawoss_files" && createsDocument(input) ? CREATE_LABELS : undefined) ?? TOOL_LABELS[name] ?? inappLabels(name);
   if (labels) return t(labels[phase]);
   // Dopyt do verejného zdroja z LAWOSS Marketplace, nie „Čítanie súborov“ podľa `get` v mene nástroja.
   const source = marketplaceToolConnector(name)?.title;

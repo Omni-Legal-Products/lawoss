@@ -10,6 +10,9 @@ import type { ServerConfig } from "../types.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
 import { auditLogPath } from "../audit.js";
 import { fileOperationReport } from "../opencode-plugins/lawoss-file-operations-text.js";
+import { createHash } from "node:crypto";
+import { strFromU8, unzipSync } from "fflate";
+import { MAX_CREATE_FILE_BYTES } from "./file-create.js";
 import { applyFileOperations, confusableNames, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, moveAcrossVolumes, LAWOSS_TRASH_FOLDER, linkedFolderLabels, planFileOperations, systemTrashReliable, treeDigest, visibleName, type PlannedFileOperation } from "./file-operations.js";
 import { nativeRow } from "./test-support/native-config.js";
 
@@ -1058,4 +1061,215 @@ test("N-A8-1 (c): a listed file or folder sent to the Trash keeps its row, close
   expect(folder.results[0]).toMatchObject({ status: "done", trash: "system", input: { register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-003", trashed: true } });
   expect(await readFile(join(matter, "VSTUPY.md"), "utf8")).toBe(after.replace(listed, "| IN-003 | 2025-09-03T08:00:00+02:00 | ruční vložení (LAWOSS) | ./01_Podklady/IN-003/Podklady.pdf | processed | presunuté do Koša |"));
   expect((await readFile(join(matter, "VSTUPY.md"), "utf8")).split("\n").filter((line) => line.startsWith("| IN-"))).toHaveLength(2);
+});
+
+// --- create_file (MČ 10. 11. 2026): nový Word, Markdown alebo text jednou kartou, bez shellu ---
+
+const sha256 = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
+const demand = {
+  title: "Predžalobná výzva",
+  blocks: [
+    { type: "heading", level: 1, text: "Výzva na úhradu dlhu" },
+    { type: "paragraph", text: "Vážený pán Šťastný, vyzývame Vás na úhradu **1 250,00 EUR** do *7 dní*; platí A < B & C > D.", align: "justify" },
+    { type: "list", ordered: true, items: ["faktúra č. 2026/014", "faktúra č. 2026/019"] },
+    { type: "list", ordered: false, items: ["úrok z omeškania"] },
+    { type: "page_break" },
+    { type: "list", ordered: true, items: ["príloha: faktúry"] },
+    { type: "paragraph", text: "S úctou\nJUDr. Ľubica Žňavová" },
+  ],
+};
+
+test("create_file: a Markdown and a text file are planned with size, SHA-256 and a one-line preview, and written exactly as approved", async () => {
+  const { config, client, workspace } = await office();
+  const text = "# Poznámky k prípadu\r\n\r\nDlžník neuhradil **dve faktúry**.\r\nĎalší krok: výzva.\n";
+  const written = "# Poznámky k prípadu\n\nDlžník neuhradil **dve faktúry**.\nĎalší krok: výzva.\n";
+  const operations = [
+    { operation: "create_file", path: join(client, "Pripady", "M001", "Poznámky k prípadu.md"), format: "md", content: text },
+    { operation: "create_file", path: join(client, "zaznam.txt"), format: "txt", content: "\uFEFFZáznam z telefonátu\u202E s dlžníkom." },
+  ];
+  const plan = await planFileOperations(config, workspace, operations);
+  expect(plan.operations).toEqual([
+    { operation: "create_file", kind: "file", to: "Pripady/M001/Poznámky k prípadu.md", format: "md", size: Buffer.byteLength(written), sha256: sha256(written),
+      preview: "# Poznámky k prípadu Dlžník neuhradil **dve faktúry**. Ďalší krok: výzva." },
+    // A direction override in the text cannot reorder the card line: it is shown escaped. The byte-order mark is dropped.
+    { operation: "create_file", kind: "file", to: "zaznam.txt", format: "txt", size: Buffer.byteLength("Záznam z telefonátu\u202E s dlžníkom."), sha256: sha256("Záznam z telefonátu\u202E s dlžníkom."),
+      preview: "Záznam z telefonátu\\u202e s dlžníkom." },
+  ]);
+  expect(JSON.stringify(plan)).not.toContain(client);
+  const result = await applyFileOperations(config, workspace, operations, plan.operations, plan.revision, "ses_1", { type: "remote", clientId: "wiki-agent:ses_1" });
+  expect(result.complete).toBe(true);
+  expect(result.results).toEqual([
+    { ...plan.operations[0], status: "done", path: join(client, "Pripady", "M001", "Poznámky k prípadu.md") },
+    { ...plan.operations[1], status: "done", path: join(client, "zaznam.txt") },
+  ]);
+  expect(await readFile(join(client, "Pripady", "M001", "Poznámky k prípadu.md"), "utf8")).toBe(written);
+  expect(await readFile(join(client, "zaznam.txt"), "utf8")).toBe("Záznam z telefonátu\u202E s dlžníkom.");
+  // No temporary file is left next to the client's documents.
+  expect((await readdir(client)).filter((name) => name.includes("lawoss-novy"))).toEqual([]);
+  // The audit names the path, the size and the SHA-256, never the text.
+  const audit = await readFile(auditLogPath("ws_c001"), "utf8");
+  expect(audit).toContain(`lawoss_files: Created file Pripady/M001/Poznámky k prípadu.md (${Buffer.byteLength(written)} bytes, SHA-256 ${sha256(written)})`);
+  expect(audit).not.toContain("Dlžník neuhradil");
+  expect(audit).not.toContain("telefonátu");
+  // The agent is told to name the file, not to repeat it.
+  expect(fileOperationReport(result)[0]).toContain("Pripady/M001/Poznámky k prípadu.md: the new file was created.");
+});
+
+test("create_file: a Word document is built by the server, deterministically, and holds what the card says", async () => {
+  const { config, client, workspace } = await office();
+  const target = join(client, "Pripady", "M001", "Predžalobná výzva.docx");
+  const operations = [{ operation: "create_file", path: target, format: "docx", content: demand, language: "cs-CZ" }];
+  const plan = await planFileOperations(config, workspace, operations);
+  expect(plan.operations).toEqual([{ operation: "create_file", kind: "file", to: "Pripady/M001/Predžalobná výzva.docx", format: "docx", size: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    title: "Predžalobná výzva",
+    // Plain text: no emphasis markers, no markup, one line.
+    preview: "Výzva na úhradu dlhu Vážený pán Šťastný, vyzývame Vás na úhradu 1 250,00 EUR do 7 dní; platí A < B & C > D. faktúra č. 2026/014 faktúra č. 2026/019 úrok z omeškania príloha: faktúry S úctou JUDr. Ľubica Žňavová" }]);
+  // The same content gives the same bytes later too: the approval is bound to their hash, however long the user reads the card.
+  await new Promise((resolve) => setTimeout(resolve, 2100));
+  expect(await planFileOperations(config, workspace, operations)).toEqual(plan);
+  const result = await applyFileOperations(config, workspace, operations, plan.operations, plan.revision);
+  expect(result).toEqual({ complete: true, results: [{ ...plan.operations[0], status: "done", path: target }] });
+  const bytes = await readFile(target);
+  expect(bytes.byteLength).toBe(plan.operations[0]?.size ?? -1);
+  expect(sha256(bytes)).toBe(plan.operations[0]?.sha256 ?? "");
+
+  const parts = unzipSync(bytes);
+  const part = (name: string) => strFromU8(parts[name] ?? new Uint8Array());
+  expect(Object.keys(parts).sort()).toEqual(["[Content_Types].xml", "_rels/.rels", "docProps/core.xml", "word/_rels/document.xml.rels", "word/document.xml", "word/numbering.xml", "word/settings.xml", "word/styles.xml"]);
+  expect(part("[Content_Types].xml")).toContain('PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"');
+  expect(part("[Content_Types].xml")).toContain('PartName="/word/numbering.xml"');
+  expect(part("_rels/.rels")).toContain('Target="word/document.xml"');
+  const document = part("word/document.xml");
+  expect(document).toContain('<w:pStyle w:val="Title"/></w:pPr><w:r><w:t xml:space="preserve">Predžalobná výzva</w:t></w:r>');
+  expect(document).toContain('<w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t xml:space="preserve">Výzva na úhradu dlhu</w:t></w:r>');
+  // Bold and italic runs; the markers themselves are gone; spaces around the runs survive.
+  expect(document).toContain('<w:r><w:rPr><w:b/><w:bCs/></w:rPr><w:t xml:space="preserve">1 250,00 EUR</w:t></w:r><w:r><w:t xml:space="preserve"> do </w:t></w:r><w:r><w:rPr><w:i/><w:iCs/></w:rPr><w:t xml:space="preserve">7 dní</w:t></w:r>');
+  expect(document).not.toContain("**");
+  expect(document).toContain("Vážený pán Šťastný");
+  expect(document).toContain("A &lt; B &amp; C &gt; D.");
+  expect(document).toContain('<w:jc w:val="both"/>');
+  // Real Word numbering: the two ordered lists have their own definitions (each starts at 1), bullets share one.
+  expect(document).toContain('<w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr></w:pPr><w:r><w:t xml:space="preserve">faktúra č. 2026/014</w:t>');
+  expect(document).toContain('<w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t xml:space="preserve">úrok z omeškania</w:t>');
+  expect(document).toContain('<w:numId w:val="3"/></w:numPr></w:pPr><w:r><w:t xml:space="preserve">príloha: faktúry</w:t>');
+  expect(document).toContain('<w:br w:type="page"/>');
+  expect(document).toContain('<w:t xml:space="preserve">S úctou</w:t><w:br/><w:t xml:space="preserve">JUDr. Ľubica Žňavová</w:t>');
+  // A4, margins of 2.5 cm.
+  expect(document).toContain('<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1417" w:right="1417" w:bottom="1417" w:left="1417"');
+  const numbering = part("word/numbering.xml");
+  expect(numbering).toContain('<w:numFmt w:val="bullet"/>');
+  expect(numbering.match(/<w:numFmt w:val="decimal"\/>/g)).toHaveLength(2);
+  expect(numbering.indexOf("<w:num ")).toBeGreaterThan(numbering.lastIndexOf("</w:abstractNum>"));
+  expect(numbering).toContain('<w:num w:numId="3"><w:abstractNumId w:val="2"/></w:num>');
+  const styles = part("word/styles.xml");
+  expect(styles).toContain('<w:lang w:val="cs-CZ"');
+  expect(styles).toContain('w:ascii="Arial"');
+  expect(styles).toContain('<w:sz w:val="22"/>');
+  expect(styles).toContain('w:line="276" w:lineRule="auto"');
+  expect(styles).toContain('w:styleId="Heading3"');
+  expect(part("docProps/core.xml")).toContain("<dc:title>Predžalobná výzva</dc:title><dc:language>cs-CZ</dc:language>");
+  // Slovak is the default language; another language is another document.
+  const slovak = await planFileOperations(config, workspace, [{ operation: "create_file", path: join(client, "sk.docx"), format: "docx", content: demand }]);
+  expect(slovak.operations[0]?.sha256).not.toBe(plan.operations[0]?.sha256);
+}, 20_000);
+
+test("create_file never overwrites: an existing file is refused at plan, and one that appeared after the card at apply", async () => {
+  const { config, client, workspace } = await office();
+  const existing = [{ operation: "create_file", path: join(client, "poznamky.txt"), format: "txt", content: "iné" }];
+  await expect(planFileOperations(config, workspace, existing)).rejects.toMatchObject({ status: 409, code: "file_operation_target_exists" });
+  // Two new files with one name in the same request.
+  const twice = { operation: "create_file", path: join(client, "nove.md"), format: "md", content: "a" };
+  await expect(planFileOperations(config, workspace, [twice, twice])).rejects.toMatchObject({ code: "file_operation_target_exists" });
+
+  const operations = [{ operation: "create_file", path: join(client, "vyzva.md"), format: "md", content: "Výzva" }];
+  const plan = await planFileOperations(config, workspace, operations);
+  await writeFile(join(client, "vyzva.md"), "SYN medzitym");
+  await expect(applyFileOperations(config, workspace, operations, plan.operations, plan.revision)).rejects.toMatchObject({ code: "file_operation_target_exists" });
+  expect(await readFile(join(client, "vyzva.md"), "utf8")).toBe("SYN medzitym");
+
+  // The file appears in the window between the last check of the plan and the write itself: the step fails, nothing is replaced.
+  const late = [{ operation: "create_file", path: join(client, "neskoro.md"), format: "md", content: "Výzva" }];
+  const latePlan = await planFileOperations(config, workspace, late);
+  const link = spyOn(fsp, "link").mockImplementationOnce(async (from, to) => { await writeFile(to, "SYN v okne"); return fsp.copyFile(from, to, fsp.constants.COPYFILE_EXCL); });
+  try {
+    const result = await applyFileOperations(config, workspace, late, latePlan.operations, latePlan.revision);
+    expect(result.complete).toBe(false);
+    expect(result.results[0]).toMatchObject({ status: "failed", error: expect.stringContaining("already exists. This tool never overwrites.") });
+  } finally { link.mockRestore(); }
+  expect(await readFile(join(client, "neskoro.md"), "utf8")).toBe("SYN v okne");
+  expect((await readdir(client)).filter((name) => name.includes("lawoss-novy"))).toEqual([]);
+  // Different content than the approved one is a different plan.
+  const other = [{ operation: "create_file", path: join(client, "ine.md"), format: "md", content: "Schválený text" }];
+  const approved = await planFileOperations(config, workspace, other);
+  await expect(applyFileOperations(config, workspace, [{ ...other[0], content: "Iný text" }], approved.operations, approved.revision)).rejects.toMatchObject({ code: "file_operation_changed" });
+  await expect(access(join(client, "ine.md"))).rejects.toThrow();
+});
+
+test("create_file stays inside the client: outside paths, another client, app data, wrong formats and oversize content are refused with their own errors", async () => {
+  const { config, root, client, other, linked, workspace } = await office();
+  const create = (path: string, format = "md", content: unknown = "text") => planFileOperations(config, workspace, [{ operation: "create_file", path, format, content }]);
+  await expect(create(join(root, "mimo.md"))).rejects.toMatchObject({ status: 403, code: "file_operation_outside_client" });
+  await expect(create(join(client, "..", "..", "mimo.md"))).rejects.toMatchObject({ code: "file_operation_outside_client" });
+  await expect(create(join(other, "podvrh.md"))).rejects.toMatchObject({ code: "file_operation_outside_client" });
+  await expect(create(join(client, ".git", "config.txt"), "txt")).rejects.toMatchObject({ code: "file_operation_protected" });
+  // A linked folder of this client is allowed and labelled.
+  expect((await create(join(linked, "poznamka.md"))).operations[0]?.to).toBe("pripojeny-A/poznamka.md");
+  // A link out of the client is not followed.
+  await symlink(other, join(client, "odkaz"));
+  await expect(create(join(client, "odkaz", "podvrh.md"))).rejects.toMatchObject({ code: "file_operation_outside_client" });
+
+  await expect(create(join(client, "vyzva.docx"), "md")).rejects.toMatchObject({ status: 400, code: "file_operation_format_mismatch" });
+  await expect(create(join(client, "vyzva.md"), "docx", demand)).rejects.toMatchObject({ code: "file_operation_format_mismatch" });
+  await expect(create(join(client, "vyzva.pdf"), "docx", demand)).rejects.toMatchObject({ status: 400, code: "file_operation_unsupported_format" });
+  await expect(create(join(client, "skript.sh"), "txt")).rejects.toMatchObject({ code: "file_operation_unsupported_format" });
+  await expect(create(join(client, "bez-pripony"), "txt")).rejects.toMatchObject({ code: "file_operation_unsupported_format" });
+  // Raw XML or text is not a Word document; a structure is not a text file.
+  await expect(create(join(client, "vyzva.docx"), "docx", "<w:document/>")).rejects.toMatchObject({ status: 400, code: "file_operation_content" });
+  await expect(create(join(client, "vyzva.docx"), "docx", { blocks: [{ type: "table", rows: [] }] })).rejects.toMatchObject({ code: "file_operation_content" });
+  await expect(create(join(client, "vyzva.docx"), "docx", { blocks: [{ type: "heading", level: 4, text: "x" }] })).rejects.toMatchObject({ code: "file_operation_content" });
+  await expect(create(join(client, "vyzva.md"), "md", demand)).rejects.toMatchObject({ code: "file_operation_content" });
+
+  await expect(create(join(client, "velky.txt"), "txt", "á".repeat(MAX_CREATE_FILE_BYTES / 2 + 1))).rejects.toMatchObject({ status: 413, code: "file_operation_content_too_large" });
+  expect((await create(join(client, "akurat.txt"), "txt", "a".repeat(MAX_CREATE_FILE_BYTES))).operations[0]?.size).toBe(MAX_CREATE_FILE_BYTES);
+  await expect(create(join(client, "velky.docx"), "docx", { blocks: [{ type: "paragraph", text: "a".repeat(20_001) }] })).rejects.toMatchObject({ code: "file_operation_content_too_large" });
+  await expect(create(join(client, "velky.docx"), "docx", { blocks: Array.from({ length: 1001 }, () => ({ type: "page_break" })) })).rejects.toMatchObject({ code: "file_operation_content_too_large" });
+  // Three files of 1 MiB in one request are more than the request may write.
+  const big = (name: string) => ({ operation: "create_file", path: join(client, name), format: "txt", content: "a".repeat(MAX_CREATE_FILE_BYTES) });
+  await expect(planFileOperations(config, workspace, [big("1.txt"), big("2.txt"), big("3.txt")])).rejects.toMatchObject({ status: 413, code: "file_operation_content_too_large" });
+  // A refusal never echoes the content.
+  const secret = await create(join(client, "vyzva.docx"), "docx", { blocks: [{ type: "paragraph", text: 7, note: "SYN-TAJNE" }] }).catch((error: unknown) => error instanceof Error ? error.message : "");
+  expect(secret).toContain("blocks.0");
+  expect(secret).not.toContain("SYN-TAJNE");
+  expect(await readdir(client)).not.toContain("akurat.txt");
+});
+
+test("create_file needs its folder: it exists, or an earlier create_folder of the same request makes it; nothing is created silently", async () => {
+  const { config, client, workspace } = await office();
+  const file = { operation: "create_file", path: join(client, "Vystupy", "2026", "Predžalobná výzva.docx"), format: "docx", content: demand };
+  await expect(planFileOperations(config, workspace, [file])).rejects.toMatchObject({ status: 409, code: "file_operation_parent_missing" });
+  await expect(access(join(client, "Vystupy"))).rejects.toThrow();
+  // The folder after the file is too late.
+  const folder = { operation: "create_folder", path: join(client, "Vystupy", "2026") };
+  await expect(planFileOperations(config, workspace, [file, folder])).rejects.toMatchObject({ code: "file_operation_parent_missing" });
+  // A folder deleted earlier in the same request is not there any more.
+  await expect(planFileOperations(config, workspace, [{ operation: "delete", path: join(client, "Pripady", "M001") },
+    { operation: "create_file", path: join(client, "Pripady", "M001", "a.md"), format: "md", content: "a" }])).rejects.toMatchObject({ code: "file_operation_parent_missing" });
+
+  // One card: the folder, the document in it, and a note in the folder that create_folder makes on the way.
+  const note = { operation: "create_file", path: join(client, "Vystupy", "citaj.txt"), format: "txt", content: "Výstupy pre klienta." };
+  const operations = [folder, file, note];
+  const plan = await planFileOperations(config, workspace, operations);
+  expect(plan.operations.map(({ operation, kind, to }) => ({ operation, kind, to }))).toEqual([
+    { operation: "create_folder", kind: "folder", to: "Vystupy/2026" },
+    { operation: "create_file", kind: "file", to: "Vystupy/2026/Predžalobná výzva.docx" },
+    { operation: "create_file", kind: "file", to: "Vystupy/citaj.txt" },
+  ]);
+  const result = await applyFileOperations(config, workspace, operations, plan.operations, plan.revision);
+  expect(result.complete).toBe(true);
+  expect(result.results.map((item) => item.status)).toEqual(["done", "done", "done"]);
+  expect(sha256(await readFile(join(client, "Vystupy", "2026", "Predžalobná výzva.docx")))).toBe(plan.operations[1]?.sha256 ?? "");
+  expect(await readFile(join(client, "Vystupy", "citaj.txt"), "utf8")).toBe("Výstupy pre klienta.");
+  // A new file is not a filed input: no register is written.
+  expect(await readdir(client)).not.toContain("VSTUPY.md");
+  expect(result.results.every((item) => item.input === undefined)).toBe(true);
 });

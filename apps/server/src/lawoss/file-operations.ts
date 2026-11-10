@@ -1,6 +1,6 @@
 /**
- * LAWOSS: premenovanie, presun, kópia, nový priečinok a presun do Koša s jednou čitateľnou kartou
- * (alfa 2, MČ 22. 10. 2026).
+ * LAWOSS: premenovanie, presun, kópia, nový priečinok, nový súbor a presun do Koša s jednou čitateľnou kartou
+ * (alfa 2, MČ 22. 10. 2026; nový súbor `create_file`: MČ 10. 11. 2026, `file-create.ts`).
  *
  * Nástroj `lawoss_files` (plugin `lawoss-file-operations.ts`) sa najprv opýta servera na plán
  * (čitateľné „pôvodná → nová“ a revízia viazaná na kanonické cesty a identitu súborov), potom
@@ -18,12 +18,17 @@
  * kde leží (rozhodnutie koordinátora alfa 2, I3); na Windows mimo systémového disku vždy do
  * `.lawoss-kos/`, lebo Kôš sieťového disku položku zmaže natrvalo. Výsledok hlási skutočný stav disku.
  *
+ * Nový súbor (`create_file`: `.docx`, `.md`, `.txt`) vzniká z obsahu od agenta: karta ukáže cestu, veľkosť a krátky
+ * náhľad, schválenie je viazané na SHA-256 bajtov. Priečinok súboru musí existovať alebo byť skôr v tej istej
+ * žiadosti ako `create_folder`. Zápis ide do dočasného súboru vedľa cieľa a meno dostane pevným odkazom, ktorý
+ * zlyhá, ak cieľ medzitým vznikol. Do auditu ide len cesta, veľkosť a SHA-256, nikdy obsah.
+ *
  * Routy prijmú len poverenie chatu z enginu: jeho `tokenHash` sa porovná s tajomstvom runtime
  * (`wiki/agent-access.ts`), nie s hlavičkou, ktorú môže poslať ktokoľvek.
  */
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { cp, link, lstat, mkdir, readdir, readlink, rename, rm, unlink } from "node:fs/promises";
+import { cp, link, lstat, mkdir, readdir, readlink, rename, rm, unlink, writeFile } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, sep, type PlatformPath } from "node:path";
 import { z } from "zod";
@@ -35,6 +40,7 @@ import { authorizedFolders } from "../agent-sandbox/service.js";
 import { addRoute, type RequestContext, type Route } from "../routes/registry.js";
 import type { Actor, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ensureWikiAgentToken } from "../wiki/agent-access.js";
+import { createFileOperationSchema, FILE_ROUTE_BODY_BYTES, MAX_CREATE_PLAN_BYTES, prepareNewFile, type CreateFileFormat } from "./file-create.js";
 import { isSensitiveWorkspacePath, resolveWorkspaceFilePath } from "./filesystem-boundary.js";
 import { recordFiledInput, recordTrashedInput, type FiledInput, type RecordedInput } from "./file-operation-inputs.js";
 import { linkableFolders, nestedClientRoots } from "./linked-folders.js";
@@ -46,6 +52,7 @@ export const fileOperationSchema = z.discriminatedUnion("operation", [
   z.strictObject({ operation: z.literal("copy"), from: path, to: path }),
   z.strictObject({ operation: z.literal("create_folder"), path }),
   z.strictObject({ operation: z.literal("delete"), path }),
+  createFileOperationSchema,
 ]);
 export type FileOperation = z.infer<typeof fileOperationSchema>;
 export const MAX_FILE_OPERATIONS = 50;
@@ -66,6 +73,13 @@ export type PublicFileOperation = {
   entriesCapped?: true;
   /** N-A5-1: other items next to the one deleted or moved with a confusable name (the card warns). */
   similar?: string[];
+  /** create_file: what is written. The SHA-256 of the bytes binds the approval to the content. */
+  format?: CreateFileFormat;
+  size?: number;
+  sha256?: string;
+  /** create_file: one readable line of the text (and a Word document's title) for the card; never markup. */
+  preview?: string;
+  title?: string;
 };
 type Planned = PublicFileOperation & {
   source?: string;
@@ -86,6 +100,8 @@ export type FileOperationResult = PublicFileOperation & {
   input?: FiledInput;
   /** N-A7-6: the file was filed, but the input register could not be written. */
   inputError?: string;
+  /** create_file: the new file's full path, so the chat can offer it to open. */
+  path?: string;
 };
 export type FilePlan = { operations: PublicFileOperation[]; revision: string };
 
@@ -353,6 +369,10 @@ async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, inpu
     const contents = await survey(location);
     return { identity: `${stamp(info)}|${contents.fingerprint}`, entries: contents.entries, ...(contents.capped ? { entriesCapped: true as const } : {}) };
   };
+  // create_file: the folder is there, or an earlier step of this request makes it (also as a parent of a folder it creates).
+  const folderAfterPlan = async (location: string) => [...created].some(([path, kind]) => kind === "folder" && isPathWithin(location, path))
+    || ![...removed].some((gone) => isPathWithin(gone, location)) && ((await present(location))?.isDirectory() ?? false);
+  let newBytes = 0;
   const planned: Planned[] = [];
   for (const operation of operations) {
     if (operation.operation === "create_folder" || operation.operation === "delete") {
@@ -374,6 +394,24 @@ async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, inpu
         ...(similar.length ? { similar } : {}) });
       continue;
     }
+    if (operation.operation === "create_file") {
+      // Format, shape and size first: a refusal for the content does not depend on the disk.
+      const file = prepareNewFile(operation);
+      newBytes += file.size;
+      if (newBytes > MAX_CREATE_PLAN_BYTES)
+        throw new ApiError(413, "file_operation_content_too_large", "The new files of this request are larger than 2 MiB together. Nothing was changed. Create them in several requests.");
+      const target = await locate(roots, operation.path, nested, pending);
+      if (await exists(target.canonical)) throw new ApiError(409, "file_operation_target_exists", `${target.display} already exists. This tool never overwrites. Nothing was changed. ${NEW_NAME}`);
+      const folder = dirname(target.canonical);
+      if (!await folderAfterPlan(folder))
+        throw new ApiError(409, "file_operation_parent_missing", `The folder for ${target.display} does not exist. Nothing was changed. Put a create_folder operation for that folder before create_file in the same call.`);
+      created.set(target.canonical, "file");
+      const item: Planned = { operation: "create_file", kind: "file", to: target.display, format: operation.format, size: file.size, sha256: file.sha256,
+        preview: visibleName(file.preview), ...(file.title ? { title: visibleName(file.title) } : {}), target: target.canonical };
+      NEW_FILE_BYTES.set(item, file.bytes);
+      planned.push(item);
+      continue;
+    }
     const source = await locate(roots, operation.from, nested, pending), target = await locate(roots, operation.to, nested, pending);
     if (!await exists(source.canonical)) throw new ApiError(404, "file_operation_missing", `${source.display} does not exist. Nothing was changed.`);
     const caseOnly = operation.operation === "move" && !created.has(target.canonical) && await sameNode(source.canonical, target.canonical);
@@ -390,6 +428,9 @@ async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, inpu
   }
   return planned;
 }
+
+/** The bytes of a planned new file, kept out of the plan itself: the revision and the card carry only their size and SHA-256. */
+const NEW_FILE_BYTES = new WeakMap<Planned, Uint8Array>();
 
 /** What the card and the model see: readable paths, never the canonical ones of other folders. */
 function publicPlan(plan: Planned[]): PublicFileOperation[] {
@@ -555,8 +596,35 @@ async function dropOldName(item: Planned & { source: string; target: string }): 
   }
 }
 
+/**
+ * A new file never replaces anything, even a target that appeared after the plan: the bytes go to a temporary file in
+ * the same folder (created exclusively), which then gets the target name as a hard link, failing when the name exists.
+ * Without hard links (FAT, exFAT, some shares) the name is checked and the temporary file renamed. The folder is not
+ * created here: the plan required it or a `create_folder` step before this one.
+ */
+async function createFile(item: Planned, target: string): Promise<void> {
+  // Looked up by the planned item itself (not a copy of it): the bytes are not part of the plan.
+  const bytes = NEW_FILE_BYTES.get(item);
+  if (!bytes) throw new Error("Incomplete plan.");
+  if (await present(target)) throw targetExists(item);
+  const temporary = join(dirname(target), `.lawoss-novy-${randomUUID()}.tmp`);
+  try {
+    await writeFile(temporary, bytes, { flag: "wx", mode: 0o644 });
+    try { await link(temporary, target); }
+    catch (error) {
+      if (errorCode(error) === "EEXIST" || await present(target)) throw targetExists(item);
+      await rename(temporary, target);
+      return;
+    }
+  } finally {
+    // After a rename the temporary name is gone; otherwise it must not stay next to the client's documents.
+    await unlink(temporary).catch(() => undefined);
+  }
+}
+
 async function execute(config: ServerConfig, item: Planned, signal?: AbortSignal): Promise<Trashed | undefined> {
   if (item.operation === "create_folder" && item.target) { await mkdir(item.target, { recursive: true }); return undefined; }
+  if (item.operation === "create_file" && item.target) { await createFile(item, item.target); return undefined; }
   if (item.operation === "delete") return moveToTrash(config, item);
   const { source, target } = item;
   if (!source || !target) throw new Error("Incomplete plan.");
@@ -612,7 +680,8 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
         const trashed = await execute(config, item, signal);
         if (!await verified(item)) throw new Error("The change is not visible on disk.");
         const filed = await fileInput(item, roots, trashed);
-        results.push({ ...visible, status: "done", ...(trashed ? { trash: trashed.shown } : {}), ...filed.result });
+        results.push({ ...visible, status: "done", ...(trashed ? { trash: trashed.shown } : {}), ...filed.result,
+          ...(item.operation === "create_file" && item.target ? { path: item.target } : {}) });
         await audit(workspace, actor, item, filed.filed);
       } catch (error) {
         failed = true;
@@ -649,7 +718,9 @@ async function fileInput(item: Planned, roots: Root[], trashed: Trashed | undefi
 /** T6 (test 28. 10. 2026): an approved change and the register lines it wrote are in the server audit, like other file writes. */
 async function audit(workspace: WorkspaceInfo, actor: Actor, item: Planned, filed: RecordedInput | undefined): Promise<void> {
   const entry = (target: string, summary: string) => ({ id: randomUUID(), workspaceId: workspace.id, actor, action: "workspace.file.write", target, summary, timestamp: Date.now() });
-  const change = item.operation === "create_folder" ? `Created folder ${item.to}` : item.operation === "delete" ? `Moved ${item.from} to the Trash` : `${item.operation === "move" ? "Moved" : "Copied"} ${item.from} to ${item.to}`;
+  const change = item.operation === "create_folder" ? `Created folder ${item.to}`
+    // Never the content: the path, the size and the SHA-256 identify what was written.
+    : item.operation === "create_file" ? `Created file ${item.to} (${item.size ?? 0} bytes, SHA-256 ${item.sha256 ?? "unknown"})` : item.operation === "delete" ? `Moved ${item.from} to the Trash` : `${item.operation === "move" ? "Moved" : "Copied"} ${item.from} to ${item.to}`;
   // The change is done; a full audit disk must not report it as failed.
   await recordAudit(workspace.path, entry(item.target ?? item.source ?? workspace.path, `lawoss_files: ${change}`)).catch(() => undefined);
   if (!filed) return;
@@ -690,8 +761,8 @@ export function registerFileOperationRoutes(options: {
       // The approval is the engine card the chat's tool showed; other clients have their own file routes and approvals.
       if (!await engineAgent(config, ctx.actor)) throw new ApiError(403, "file_operation_agent_only", "Only a chat's file tool, after the user's approval, can use this route.");
       const workspace = await options.resolveWorkspace(config, ctx.params.id);
-      try { return jsonResponse(await action(workspace, await options.readJsonBodyLimited(ctx.request, 512 * 1024), ctx.actor ?? { type: "remote" }, ctx.request.signal)); }
-      catch (error) { if (error instanceof z.ZodError) throw new ApiError(400, "file_operation_input", `Send 1–${MAX_FILE_OPERATIONS} operations: move/copy {from, to}, create_folder/delete {path}.`); throw error; }
+      try { return jsonResponse(await action(workspace, await options.readJsonBodyLimited(ctx.request, FILE_ROUTE_BODY_BYTES), ctx.actor ?? { type: "remote" }, ctx.request.signal)); }
+      catch (error) { if (error instanceof z.ZodError) throw new ApiError(400, "file_operation_input", `Send 1–${MAX_FILE_OPERATIONS} operations: move/copy {from, to}, create_folder/delete {path}, create_file {path, format: docx|md|txt, content}.`); throw error; }
     });
   route("plan", async (workspace, body) => planFileOperations(config, workspace, body.operations));
   route("apply", async (workspace, body, actor, signal) => applyFileOperations(config, workspace, body.operations, body.approved, body.revision,

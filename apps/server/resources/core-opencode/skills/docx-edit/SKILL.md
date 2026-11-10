@@ -13,6 +13,14 @@ description: >-
 
 # Word (.docx) reading + editing
 
+For a **new Word document without a template** (a letter, a pre-action demand, a
+memo, a draft), call `lawoss_files` with a `create_file` operation, `format: "docx"`
+and the structured `document` (title and blocks); add `create_folder` before it in
+the same call when the folder is missing. The app builds the file and the user
+approves one card. Do not write it with shell commands, node or python scripts, and
+do not look for Word libraries. The template helpers below are only for reports
+filled from a supplied template; the editing backends are for existing documents.
+
 For a **due diligence report using the bundled Due Diligence template**, call
 `legalwork_review_report_prepare` with the saved review IDs and original evidence
 indexes. Read its bounded class files, write legal prose directly into the draft

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { strFromU8, unzipSync } from "fflate";
 import { z } from "zod";
 import { ApprovalService } from "../approvals.js";
 import { ApiError } from "../errors.js";
@@ -166,6 +167,35 @@ test.skipIf(!binary || process.env.LAWOSS_APPROVAL_ENGINE !== "1")("a real engin
       expect(approvedResult).toContain('"complete":true');
       evidence.files = { rejectedCards: rejected.map(card => ({ action: card.action, resources: card.resources, save: card.save, metadata: card.metadata })),
         rejectedResult: rejectedResult.slice(0, 300), approvedCards: approved.length, approvedResult: approvedResult.slice(0, 300), files: (await readdir(matter)).sort() };
+
+      // 2b. Prehliadka alfy 10. 11. 2026 (MČ): nový Word dokument s priečinkom je jedna karta s čitateľným náhľadom, žiadny príkaz.
+      call = { tool: "lawoss_files", args: { description: "Výzva pre dlžníka", operations: [
+        { operation: "create_folder", path: "Vystupy" },
+        { operation: "create_file", path: "Vystupy/Predžalobná výzva.docx", format: "docx", document: { title: "Predžalobná výzva", blocks: [
+          { type: "paragraph", text: "Vážený pán Šťastný, vyzývame Vás na úhradu **1 250,00 EUR**.", align: "justify" },
+          { type: "list", ordered: true, items: ["faktúra č. 2026/014"] }] } },
+      ] } };
+      const declinedFile = await files.turn("Priprav krátku predžalobnú výzvu pre dlžníka ako Word dokument.", () => "reject");
+      expect(declinedFile.map(card => ({ action: card.action, save: card.save }))).toEqual([{ action: "lawoss_file_change", save: [] }]);
+      expect(declinedFile[0]?.metadata?.lawossFiles).toEqual([
+        { operation: "create_folder", kind: "folder", to: "Vystupy" },
+        { operation: "create_file", kind: "file", to: "Vystupy/Predžalobná výzva.docx", format: "docx", size: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+          title: "Predžalobná výzva", preview: "Vážený pán Šťastný, vyzývame Vás na úhradu 1 250,00 EUR. faktúra č. 2026/014" },
+      ]);
+      expect(hostCards).toEqual([]);
+      expect(await readdir(matter)).not.toContain("Vystupy");
+      const createdCards = await files.turn("Vytvor ho, schválim to.", () => "once");
+      expect(createdCards.map(card => card.action)).toEqual(["lawoss_file_change"]);
+      expect(hostCards).toEqual([]);
+      const createdResult = toolResults.at(-1) ?? "";
+      expect(createdResult).toContain('"complete":true');
+      expect(createdResult).toContain(`"path":${JSON.stringify(join(matter, "Vystupy", "Predžalobná výzva.docx"))}`);
+      expect(createdResult).toContain("the new file was created");
+      const document = strFromU8(unzipSync(await readFile(join(matter, "Vystupy", "Predžalobná výzva.docx")))["word/document.xml"] ?? new Uint8Array());
+      expect(document).toContain("Vážený pán Šťastný");
+      expect(document).toContain('<w:b/><w:bCs/></w:rPr><w:t xml:space="preserve">1 250,00 EUR</w:t>');
+      await rm(join(matter, "Vystupy"), { recursive: true });
+      evidence.createFile = { declinedCards: declinedFile.map(card => ({ action: card.action, resources: card.resources, metadata: card.metadata })), createdResult: createdResult.slice(0, 500) };
     } finally { await files.stop(); }
 
     // 3. Review C2: "always" on a native edit card in chat A must not approve lawoss_files in chat B.
