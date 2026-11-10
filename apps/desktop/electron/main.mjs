@@ -87,6 +87,10 @@ import { canonicalTypedDirectory, pickedDirectories } from "./lawoss-picked-path
 import { lawossFolderState } from "./lawoss-folder-state.mjs";
 import { withoutClaudeGlobalSkills } from "./lawoss-skill-roots.mjs";
 import { applyRendererHeapLimit } from "./lawoss-memory-budget.mjs";
+import { ignoreClosedOutput } from "./lawoss-closed-output.mjs";
+
+// LAWOSS: skončený čitateľ stdout/stderr (EPIPE) nezhodí hlavný proces.
+ignoreClosedOutput();
 
 const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
 const openComputerUse = createOpenComputerUseIntegration({ getDataDir: () => app.getPath("userData") });
