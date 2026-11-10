@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { headlessWebViteEnv, isLoopbackClientUrl } from "../dev-headless-web-env.mjs";
+import { headlessWebViteEnv, isLoopbackClientUrl, isLoopbackListenHost } from "../dev-headless-web-env.mjs";
 
 const input = {
   env: {},
-  viteHost: "0.0.0.0",
+  viteHost: "127.0.0.1",
   webPort: 5173,
   legalworkPort: 8787,
   legalworkToken: "client-token",
@@ -37,4 +37,15 @@ test("an explicit host token in the environment is kept", () => {
     legalworkUrl: "http://127.0.0.1:8787",
   });
   assert.equal(env.VITE_LEGALWORK_HOST_TOKEN, "operator-host");
+});
+
+test("vite reachable from the network never bakes the host token, even for a loopback client URL", () => {
+  for (const viteHost of ["0.0.0.0", "::", "192.168.1.20"]) {
+    const env = headlessWebViteEnv({ ...input, viteHost, legalworkUrl: "http://127.0.0.1:8787" });
+    assert.equal(env.VITE_LEGALWORK_HOST_TOKEN, undefined, viteHost);
+    assert.equal(env.VITE_LEGALWORK_TOKEN, "client-token");
+  }
+  assert.equal(isLoopbackListenHost("localhost"), true);
+  assert.equal(isLoopbackListenHost("::1"), true);
+  assert.equal(isLoopbackListenHost("0.0.0.0"), false);
 });
