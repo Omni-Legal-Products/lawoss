@@ -396,7 +396,7 @@ async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, inpu
     }
     if (operation.operation === "create_file") {
       // Format, shape and size first: a refusal for the content does not depend on the disk.
-      const file = prepareNewFile(operation);
+      const file = prepareNewFile(operation, config.getUiLocale?.());
       newBytes += file.size;
       if (newBytes > MAX_CREATE_PLAN_BYTES)
         throw new ApiError(413, "file_operation_content_too_large", "The new files of this request are larger than 2 MiB together. Nothing was changed. Create them in several requests.");

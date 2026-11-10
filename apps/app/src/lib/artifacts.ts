@@ -7,7 +7,7 @@ import {
   isEditToolPart,
   isWriteToolPart,
 } from "@/lib/build-in-tools";
-import { createdFilesOf } from "@/lawoss/chat/file-changes";
+import { withCreatedFiles } from "@/lawoss/chat/file-changes";
 import { useOpenTargets } from "@/lib/target-provider";
 import { isCollectibleArtifactTarget, isOpenableFileTarget, type OpenTarget, type OpenTargetPreview } from "@/react-app/domains/session/artifacts/open-target";
 
@@ -281,10 +281,10 @@ function getArtifactPathsFromMessage(message: UIMessage) {
   }
 
   // 🟡 LAWOSS: files created by lawoss_files (create_file) become file chips too; their names keep their case.
-  return [...paths.flatMap((path) => {
+  return withCreatedFiles(paths.flatMap((path) => {
     const normalized = path?.trim().toLowerCase();
     return normalized ? [normalized] : [];
-  }), ...createdFilesOf(message.parts)];
+  }), message.parts);
 }
 
 function addArtifact(

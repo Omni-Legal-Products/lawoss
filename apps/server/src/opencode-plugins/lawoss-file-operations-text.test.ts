@@ -122,10 +122,13 @@ test("N-A8-1: rows that followed a folder are all named, and a row of an item in
 // Prehliadka alfy 10. 11. 2026 (rozhodnutie MČ): „priprav predžalobnú výzvu ako Word dokument“ skončilo kartami
 // „Spustiť príkaz v počítači?“ s mkdir, printf a node -e. Nový dokument ide cez create_file a jednu čitateľnú kartu.
 test("create_file: the fixed rule sends a new Word, Markdown or text file to lawoss_files, never to the shell; existing documents and templates keep their tools", async () => {
-  expect(CREATE_FILE_RULE).toContain("use lawoss_files with the create_file operation");
+  expect(CREATE_FILE_RULE).toContain("create it with lawoss_files and the create_file operation");
   expect(CREATE_FILE_RULE).toContain("put a create_folder operation before create_file in the same call");
-  expect(CREATE_FILE_RULE).toContain("Never create such a file with shell commands (mkdir, touch, echo, printf or cat with redirection, heredocs), with node or python scripts, or by probing for libraries");
-  expect(CREATE_FILE_RULE).toContain("this rule takes precedence over other instructions for creating a new document");
+  expect(CREATE_FILE_RULE).toContain("Do not write such a document with shell commands (mkdir, touch, echo, printf or cat with redirection, heredocs) or with a node or python script you write for it, and do not probe for libraries");
+  // One stated precedence, only for a document the agent authors from scratch: upstream text sends a new Markdown deliverable to inapp_markdown_create.
+  expect(CREATE_FILE_RULE).toContain("for a document you author from scratch, create_file is used instead of write and inapp_markdown_create");
+  // Skill CLIs and LAWOSS tools that write their own files (redlined copies, registers, memory) are not redirected.
+  expect(CREATE_FILE_RULE).toContain("files that a LAWOSS tool or a skill's own command writes as part of its documented workflow");
   expect(CREATE_FILE_RULE).toContain("to change an EXISTING document keep using the editing tools (inapp_docx_* in the app or word_* in Word");
   expect(CREATE_FILE_RULE).toContain("filled from a supplied template keeps its template workflow");
   const plugin = await lawossNativePlugin(FileOperations);

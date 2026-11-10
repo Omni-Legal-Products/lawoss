@@ -12,6 +12,7 @@ import { auditLogPath } from "../audit.js";
 import { fileOperationReport } from "../opencode-plugins/lawoss-file-operations-text.js";
 import { createHash } from "node:crypto";
 import { strFromU8, unzipSync } from "fflate";
+import { resolveWorkspaceArtifactTargets } from "../routes/files.js";
 import { MAX_CREATE_FILE_BYTES } from "./file-create.js";
 import { applyFileOperations, confusableNames, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, moveAcrossVolumes, LAWOSS_TRASH_FOLDER, linkedFolderLabels, planFileOperations, systemTrashReliable, treeDigest, visibleName, type PlannedFileOperation } from "./file-operations.js";
 import { nativeRow } from "./test-support/native-config.js";
@@ -593,6 +594,25 @@ test("only the chat's own tool credential reaches the routes; a spoofed client I
   const applied = await post("apply", { operations, approved, revision, sessionID: "ses_1" }, agent);
   expect(await applied.json()).toMatchObject({ complete: true, results: [{ status: "done", to: "x.txt" }] });
   expect(await readFile(join(client, "x.txt"), "utf8")).toBe("SYN poznamky");
+
+  // create_file over the same routes: a text of 700 KiB fits the request (the limit was 512 KiB), refusals keep their codes.
+  const text = "Výzva na úhradu dlhu.\n".repeat(32_000);
+  expect(Buffer.byteLength(text)).toBeGreaterThan(700 * 1024);
+  const create = [{ operation: "create_folder", path: join(client, "Vystupy") }, { operation: "create_file", path: join(client, "Vystupy", "výzva.txt"), format: "txt", content: text }];
+  const createPlan = await post("plan", { operations: create }, agent);
+  expect(createPlan.status).toBe(200);
+  const created: { operations: unknown[]; revision: string } = await createPlan.json();
+  expect(created.operations[1]).toMatchObject({ operation: "create_file", to: "Vystupy/výzva.txt", size: Buffer.byteLength(text) });
+  expect(JSON.stringify(created).length).toBeLessThan(2000);
+  const createApplied = await post("apply", { operations: create, approved: created.operations, revision: created.revision, sessionID: "ses_1" }, agent);
+  expect(await createApplied.json()).toMatchObject({ complete: true, results: [{ status: "done" }, { status: "done", path: join(client, "Vystupy", "výzva.txt") }] });
+  expect(await readFile(join(client, "Vystupy", "výzva.txt"), "utf8")).toBe(text);
+  const refusal = async (operation: Record<string, unknown>) => { const response = await post("plan", { operations: [operation] }, agent); return { status: response.status, code: (await response.json()).code }; };
+  expect(await refusal({ operation: "create_file", path: join(client, "a.docx"), format: "md", content: "x" })).toEqual({ status: 400, code: "file_operation_format_mismatch" });
+  expect(await refusal({ operation: "create_file", path: join(client, "Vystupy", "výzva.txt"), format: "txt", content: "x" })).toEqual({ status: 409, code: "file_operation_target_exists" });
+  expect(await refusal({ operation: "create_file", path: join(client, "Nie", "a.md"), format: "md", content: "x" })).toEqual({ status: 409, code: "file_operation_parent_missing" });
+  expect(await refusal({ operation: "create_file", path: join(client, "velky.txt"), format: "txt", content: "a".repeat(MAX_CREATE_FILE_BYTES + 1) })).toEqual({ status: 413, code: "file_operation_content_too_large" });
+  expect(await refusal({ operation: "create_file", path: join(client, "a.md") })).toEqual({ status: 400, code: "file_operation_input" });
 });
 
 test("an existing target name tells the agent to propose another name, at plan and at apply (P6, V10d)", async () => {
@@ -1111,6 +1131,9 @@ test("create_file: a Markdown and a text file are planned with size, SHA-256 and
   expect(audit).toContain(`lawoss_files: Created file Pripady/M001/Poznámky k prípadu.md (${Buffer.byteLength(written)} bytes, SHA-256 ${sha256(written)})`);
   expect(audit).not.toContain("Dlžník neuhradil");
   expect(audit).not.toContain("telefonátu");
+  // The chat offers the new file to open: the app sends the result's full path and the server confirms it inside the client.
+  expect(await resolveWorkspaceArtifactTargets(client, [{ kind: "file", value: join(client, "Pripady", "M001", "Poznámky k prípadu.md"), confidence: 95 }]))
+    .toMatchObject([{ kind: "file", value: "Pripady/M001/Poznámky k prípadu.md", name: "Poznámky k prípadu.md", exists: true }]);
   // The agent is told to name the file, not to repeat it.
   expect(fileOperationReport(result)[0]).toContain("Pripady/M001/Poznámky k prípadu.md: the new file was created.");
 });
@@ -1168,9 +1191,14 @@ test("create_file: a Word document is built by the server, deterministically, an
   expect(styles).toContain('w:line="276" w:lineRule="auto"');
   expect(styles).toContain('w:styleId="Heading3"');
   expect(part("docProps/core.xml")).toContain("<dc:title>Predžalobná výzva</dc:title><dc:language>cs-CZ</dc:language>");
-  // Slovak is the default language; another language is another document.
-  const slovak = await planFileOperations(config, workspace, [{ operation: "create_file", path: join(client, "sk.docx"), format: "docx", content: demand }]);
+  // Without a language: Slovak, or Czech when the app itself runs in Czech.
+  const unnamed = [{ operation: "create_file", path: join(client, "sk.docx"), format: "docx", content: demand }];
+  const slovak = await planFileOperations(config, workspace, unnamed);
   expect(slovak.operations[0]?.sha256).not.toBe(plan.operations[0]?.sha256);
+  config.getUiLocale = () => "cs";
+  expect((await planFileOperations(config, workspace, unnamed)).operations[0]?.sha256).toBe(plan.operations[0]?.sha256);
+  config.getUiLocale = () => "de";
+  expect(await planFileOperations(config, workspace, unnamed)).toEqual(slovak);
 }, 20_000);
 
 test("create_file never overwrites: an existing file is refused at plan, and one that appeared after the card at apply", async () => {

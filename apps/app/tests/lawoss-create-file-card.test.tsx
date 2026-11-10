@@ -9,10 +9,11 @@ import { parseDocx } from "@eigenpal/docx-editor-core/docx";
 import { toProseDoc } from "@eigenpal/docx-editor-core/prosemirror/conversion";
 import type { PendingPermission } from "../src/app/types";
 import { setLocale, t } from "../src/i18n";
-import { getArtifactsFromMessages } from "../src/lib/artifacts";
+import { canOpenArtifact, getArtifactsFromMessages } from "../src/lib/artifacts";
 import { createdFilesOf, fileChangesOf } from "../src/lawoss/chat/file-changes";
 import { lawossToolActivityLabel, lawossToolHistoryLabel } from "../src/lawoss/chat/tool-labels";
 import { fileOperationCard, mayDeleteFiles, readableSize } from "../src/lawoss/lite/file-operation-card";
+import { deriveOpenTargets, type OpenTarget } from "../src/react-app/domains/session/artifacts/open-target";
 import { PermissionApprovalPanel } from "../src/react-app/domains/session/chat/permission-approval-modal";
 import { buildDocx } from "../../server/src/lawoss/docx-writer";
 
@@ -88,8 +89,28 @@ describe("lawoss_files create_file", () => {
     // A declined card, another tool or a file that was not created adds nothing.
     expect(createdFilesOf([tool("output-denied"), tool("output-available", "legalwork_shell")])).toEqual([]);
     expect(fileChangesOf("lawoss_files", { operations: [] }, output)).toBe(2);
-    const message: UIMessage = { id: "msg_1", role: "assistant", parts: [tool("output-available"), { type: "text", text: "Dokument je pripravený." }] };
-    const artifacts = getArtifactsFromMessages([message]);
+    // The answer names the file as well: still one chip, the created file with its real name, and another file keeps its own.
+    const answer = "Dokument je pripravený: `Spisy/M001/Predžalobná výzva.docx`. Vychádza z prehlad.md.";
+    const message: UIMessage = { id: "msg_1", role: "assistant", parts: [tool("output-available"), { type: "text", text: answer }] };
+    // The app asks the server which mentioned files exist (`resolveArtifacts`): the created file is among the candidates by its
+    // full path, and the server answers with the path inside the client's folder.
+    const candidates = deriveOpenTargets([message]);
+    expect(candidates.filter((target) => target.reason === "created file").map((target) => target.value)).toEqual(["/Klienti/C001/Spisy/M001/Predžalobná výzva.docx"]);
+    const verified: OpenTarget[] = candidates.flatMap((target) => {
+      const value = target.value.replace(/^\/Klienti\/C001\//, "");
+      return value.toLowerCase().endsWith("výzva.docx") ? [{ ...target, id: `file:${value.toLowerCase()}`, value, exists: true }] : [];
+    });
+    // As the message list asks: only what this message names, no other verified files.
+    const all = getArtifactsFromMessages([message], verified, { includeTargetFallbacks: false });
+    expect(all.map((artifact) => artifact.name).sort()).toEqual(["Predžalobná výzva.docx", "prehlad.md"]);
+    const ascii = JSON.stringify({ complete: true, results: [{ operation: "create_file", kind: "file", to: "Vystupy/vyzva.docx", status: "done", path: "/Klienti/C001/Vystupy/vyzva.docx" }] });
+    const named: UIMessage = { id: "msg_2", role: "assistant", parts: [{ ...tool("output-available"), output: ascii }, { type: "text", text: "Hotovo, súbor Vystupy/vyzva.docx je v priečinku klienta." }] };
+    expect(getArtifactsFromMessages([named]).map((artifact) => artifact.path)).toEqual(["/Klienti/C001/Vystupy/vyzva.docx"]);
+    const artifacts = all.filter((artifact) => artifact.type === "document");
+    // Only a file the server confirmed is offered: the chip opens the document in the app's Word viewer.
+    expect(artifacts.every(canOpenArtifact)).toBe(true);
+    expect(artifacts[0]?.legacy_target).toMatchObject({ value: "Spisy/M001/Predžalobná výzva.docx", exists: true, preview: "word" });
+    expect(getArtifactsFromMessages([message]).filter((artifact) => artifact.type === "document").some(canOpenArtifact)).toBe(false);
     expect(artifacts.map((artifact) => ({ name: artifact.name, type: artifact.type, path: artifact.path, preview: artifact.legacy_target.preview })))
       .toEqual([{ name: "Predžalobná výzva.docx", type: "document", path: "/Klienti/C001/Spisy/M001/Predžalobná výzva.docx", preview: "word" }]);
   });

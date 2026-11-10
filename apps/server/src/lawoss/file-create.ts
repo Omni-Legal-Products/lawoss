@@ -112,7 +112,7 @@ function textBytes(raw: unknown, format: CreateFileFormat): { bytes: Uint8Array;
 }
 
 /** The bytes to write and what the card shows about them. Throws a typed `ApiError` for every refusal. */
-export function prepareNewFile(operation: CreateFileOperation): NewFile {
+export function prepareNewFile(operation: CreateFileOperation, uiLocale?: string): NewFile {
   checkFormat(operation);
   const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
   if (operation.format !== "docx") {
@@ -120,7 +120,8 @@ export function prepareNewFile(operation: CreateFileOperation): NewFile {
     return { bytes, size: bytes.byteLength, sha256: digest(bytes), preview: oneLine(text) };
   }
   const content = checkedDocx(operation.content);
-  const language: DocxLanguage = operation.language ?? "sk-SK";
+  // Without an explicit language: Czech when the app runs in Czech, otherwise Slovak.
+  const language: DocxLanguage = operation.language ?? (uiLocale?.toLowerCase().startsWith("cs") ? "cs-CZ" : "sk-SK");
   const bytes = buildDocx(content, language);
   const title = oneLine(plainText(content.title ?? ""), MAX_DOCX_TITLE_CHARS);
   const preview = oneLine(content.blocks.flatMap(docxText).map((text) => plainText(cleanText(text))).join(" "));

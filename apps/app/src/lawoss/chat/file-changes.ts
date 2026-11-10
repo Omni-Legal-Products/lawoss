@@ -54,6 +54,17 @@ export function createdFilesOf(parts: ReadonlyArray<{ type: string }>): string[]
   });
 }
 
+/**
+ * Cesty správy pre karty súborov spolu s novými súbormi. Agent nový súbor v odpovedi aj pomenuje (`Vystupy/vyzva.docx`):
+ * cesta z textu, ktorá je koncom cesty vytvoreného súboru, je ten istý súbor a druhú kartu nedostane.
+ */
+export function withCreatedFiles(paths: readonly string[], parts: ReadonlyArray<{ type: string }>): string[] {
+  const created = createdFilesOf(parts);
+  const plain = (path: string) => path.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+  const same = (path: string) => created.some((file) => plain(file) === plain(path) || plain(file).endsWith(`/${plain(path)}`));
+  return [...paths.filter((path) => !same(path)), ...created];
+}
+
 const toolName = (part: ToolPart) => part.type === "dynamic-tool" ? part.toolName : part.type.replace(/^tool-/, "");
 
 /**

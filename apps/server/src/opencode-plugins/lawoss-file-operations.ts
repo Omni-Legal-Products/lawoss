@@ -43,7 +43,7 @@ const operation = z.object({
   format: z.enum(["docx", "md", "txt"]).optional().describe("create_file: the kind of file; the same as the extension of path."),
   content: z.string().optional().describe("create_file with format md or txt: the whole text of the file (at most 1 MiB)."),
   document: document.optional().describe("create_file with format docx: the Word document as a title and blocks. Do not send XML, HTML or Markdown here."),
-  language: z.enum(["sk-SK", "cs-CZ"]).optional().describe("create_file with format docx: the language of the text, for spell-checking in Word (default sk-SK)."),
+  language: z.enum(["sk-SK", "cs-CZ"]).optional().describe("create_file with format docx: the language of the text, for spell-checking in Word (default: Czech when the app runs in Czech, otherwise Slovak)."),
 });
 const args = z.object({
   operations: z.array(operation).min(1).max(50).describe("Changes in order, 1–50. Paths are relative to the chat's folder (in a case chat, the case folder) or absolute inside this client's folder or its linked folders. A case or client folder may be written as its code alone (Spisy/M001/…): the tool uses the one folder starting with that code, and refuses if several match."),
