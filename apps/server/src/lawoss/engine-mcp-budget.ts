@@ -55,8 +55,12 @@ export type EngineMcpBudget = {
   readonly limit: number;
   /** Je adresár medzi aktívnymi (alebo je limit vypnutý)? */
   isActive(scope: EngineScope): boolean;
-  /** Pred požiadavkou, ktorá v engine spustí MCP. Vráti uvoľnenie „in-flight“. */
-  admit(scope: EngineScope): Promise<() => void>;
+  /**
+   * Pred požiadavkou, ktorá v engine spustí MCP. Vráti uvoľnenie „in-flight“. `awaitReady: false` pre požiadavku,
+   * ktorú posiela plugin počas aktivácie tej istej lokality (definície príkazov): na `initialize` nečaká, inak by
+   * aktivácia čakala na plugin a plugin na aktiváciu (engine po 5 s vráti 503 a plugin príkazov sa nenačíta).
+   */
+  admit(scope: EngineScope, options?: { awaitReady?: boolean }): Promise<() => void>;
   /** Explicitný reload priečinka: otvorí ho v rozpočte bez `initialize` (reload MCP obnoví sám). */
   adopt(scope: EngineScope): Promise<void>;
   /**
@@ -244,14 +248,15 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
     isActive(scope) {
       return options.limit === 0 || active.has(scopeKey(scope));
     },
-    async admit(scope) {
+    async admit(scope, admitOptions) {
       const key = scopeKey(scope);
+      const awaitReady = admitOptions?.awaitReady !== false;
       const existing = active.get(key);
       if (existing) {
         existing.inflight += 1;
         existing.lastUsed = now();
         existing.opened = ++openings;
-        await existing.ready.catch(() => undefined);
+        if (awaitReady) await existing.ready.catch(() => undefined);
         return release(existing);
       }
       return serialized(async () => {
@@ -274,7 +279,7 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
           options.log?.("Engine instance budget exceeded by busy instances", { "engine.active": active.size, "engine.limit": options.limit });
         }
         entry.ready = options.initialize ? options.initialize(scope).catch(() => undefined) : Promise.resolve();
-        await entry.ready;
+        if (awaitReady) await entry.ready;
         return release(entry);
       });
     },

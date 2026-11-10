@@ -195,7 +195,8 @@ export interface ServerConfig {
    * LAWOSS (RAM 2 GB, #367, ADR 0017): admission of an engine request into the MCP budget of its
    * location (lawoss/engine-mcp-budget.ts via server.ts). Returns the in-flight release. Host-only.
    */
-  lawossEngineMcpAdmission?: (request: { method: string; path: string; directory: string; sessionID?: string }) => Promise<() => void>;
+  /** `duringActivation`: požiadavka pluginu počas aktivácie lokality; rozpočet na jej aktiváciu nečaká (engine-mcp-budget.ts). */
+  lawossEngineMcpAdmission?: (request: { method: string; path: string; directory: string; sessionID?: string; duringActivation?: boolean }) => Promise<() => void>;
   observeManagedEngineResponse?: (request: { method: string; path: string; directory: string }, response: Response) => Promise<void>;
   opencodeBaseUrl?: string;
   opencodeDirectory?: string;
