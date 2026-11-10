@@ -252,6 +252,7 @@ import { discoverProviderModels } from "./provider-model-discovery.js";
 import { createCustomProviderModelRefresh, providerBaseURL, readModelRefreshSettings, readStoredProviderApiKey } from "./custom-provider-model-refresh.js";
 // LAWOSS: provider model refresh reads only the bundled catalog (no network).
 import { bundledProviderModelCatalog } from "./lawoss/bundled-provider-catalog.js";
+import { writeLogLine } from "./lawoss/safe-log-write.js";
 import { runtimeEngineConfiguration, upgradeRuntimeConfigRecord } from "./runtime-config-upgrade.js";
 import { backupRuntimeConfigSource } from "./runtime-config-source-backup.js";
 import { Config } from "@opencode/schema/config";
@@ -743,10 +744,10 @@ export function createServerLogger(config: ServerConfig): ServerLogger {
         attributes: merged,
         resource,
       };
-      process.stdout.write(`${JSON.stringify(record)}\n`);
+      writeLogLine(`${JSON.stringify(record)}\n`);
       return;
     }
-    process.stdout.write(`${message}\n`);
+    writeLogLine(`${message}\n`);
   };
 
   return { log: emit };
