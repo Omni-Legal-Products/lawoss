@@ -27,9 +27,9 @@ export function isConnectionProblem(error: unknown): boolean {
 }
 
 /**
- * #338: pripojenie bez prístupu hostiteľa (webový klient v `dev:headless-web` má len token spolupracovníka,
- * alebo neplatný token hostiteľa). Prehľad praxe je len pre hostiteľa; obrazovka to povie vetou a nedotazuje
- * sa dookola, odmietnutie sa o chvíľu nezmení. Rozhoduje stav a kód odpovede servera, nie text chyby.
+ * #338: pripojenie bez prístupu hostiteľa (chýbajúci alebo neplatný token hostiteľa; loopback
+ * `dev:headless-web` token hostiteľa posiela). Prehľad praxe je len pre hostiteľa; obrazovka to povie
+ * vetou a nedotazuje sa dookola, odmietnutie sa o chvíľu nezmení. Rozhoduje stav a kód odpovede servera, nie text chyby.
  */
 export function isHostAccessDenied(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;

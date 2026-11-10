@@ -1324,6 +1324,45 @@ export function writeLegalworkServerSettings(next: LegalworkServerSettings): Leg
   }
 }
 
+export function mergeLegalworkServerSettingsFromEnv(
+  current: LegalworkServerSettings,
+  env: { url?: string; port?: string; token?: string; hostToken?: string },
+): { next: LegalworkServerSettings; changed: boolean } {
+  const next: LegalworkServerSettings = { ...current };
+  let changed = false;
+  const envUrl = env.url?.trim() ?? "";
+  const envPort = env.port?.trim() ?? "";
+  const envToken = env.token?.trim() ?? "";
+  const envHostToken = env.hostToken?.trim() ?? "";
+
+  if (!current.urlOverride && envUrl) {
+    next.urlOverride = normalizeLegalworkServerUrl(envUrl) ?? undefined;
+    changed = true;
+  }
+
+  if (!current.portOverride && envPort) {
+    const parsed = Number(envPort);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      next.portOverride = parsed;
+      changed = true;
+    }
+  }
+
+  // Headless dev bakes the credentials of the running server. A token left in
+  // localStorage by an older process is rejected, so a present env value replaces it.
+  if (envToken && current.token !== envToken) {
+    next.token = envToken;
+    changed = true;
+  }
+
+  if (envHostToken && current.hostToken !== envHostToken) {
+    next.hostToken = envHostToken;
+    changed = true;
+  }
+
+  return { next, changed };
+}
+
 export function hydrateLegalworkServerSettingsFromEnv() {
   if (typeof window === "undefined") return;
 
@@ -1344,35 +1383,13 @@ export function hydrateLegalworkServerSettingsFromEnv() {
 
   try {
     const current = readLegalworkServerSettings();
-    const next: LegalworkServerSettings = { ...current };
-    let changed = false;
-
-    if (!current.urlOverride && envUrl) {
-      next.urlOverride = normalizeLegalworkServerUrl(envUrl) ?? undefined;
-      changed = true;
-    }
-
-    if (!current.portOverride && envPort) {
-      const parsed = Number(envPort);
-      if (Number.isFinite(parsed) && parsed > 0) {
-        next.portOverride = parsed;
-        changed = true;
-      }
-    }
-
-    if (!current.token && envToken) {
-      next.token = envToken;
-      changed = true;
-    }
-
-    if (!current.hostToken && envHostToken) {
-      next.hostToken = envHostToken;
-      changed = true;
-    }
-
-    if (changed) {
-      writeLegalworkServerSettings(next);
-    }
+    const { next, changed } = mergeLegalworkServerSettingsFromEnv(current, {
+      url: envUrl,
+      port: envPort,
+      token: envToken,
+      hostToken: envHostToken,
+    });
+    if (changed) writeLegalworkServerSettings(next);
   } catch {
     // ignore
   }
