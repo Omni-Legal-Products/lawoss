@@ -96,3 +96,23 @@ describe("buildToday - úkoly se zrušeným záznamem (Review Focus 3)", () => {
     expect(overview.totals.openTasks).toBe(1);
   });
 });
+
+// Rozhodnutie MČ 10. 11. 2026: lehota z pokynu advokáta v chate ide cez prehľad až na Dnes s poznámkou „neoverené z listiny“.
+describe("lehota z pokynu advokáta na Dnes", () => {
+  test("záznam s deadline_basis: lawyer_instruction nesie značku cez buildOverview aj buildToday a text ju ukáže", async () => {
+    const { parseRecord } = await import("../../../lawoss/okf-pamat/src/record.ts");
+    const { deadlineText } = await import("../src/lawoss/okf/view-rules");
+    const { setLocale, currentLocale } = await import("../src/i18n");
+    const text = `---\nokf: 1\nid: T-001\ntype: task\ntitle: Odpoveď protistrane\ndescription: Lehota podľa pokynu advokáta, neoverená z listiny.\nlayer: L2\njurisdiction: sk\nstatus: active\ncreated: 2026-11-10\nupdated: 2026-11-10\ndeadlines: ["2026-11-25 Odpoveď protistrane"]\nstate: pending\ndeadline_basis: lawyer_instruction\n---\n\n## Truth\n\nLehota 2026-11-25.\n\n## History\n\n- 2026-11-10 [request] — zapísané podľa pokynu\n`;
+    const plain = text.replace("deadline_basis: lawyer_instruction\n", "").replace("id: T-001", "id: T-002").replace("2026-11-25 Odpoveď", "2026-11-26 Vyjadrenie");
+    const input: MatterInput = { path: "Spisy/M001", records: [parseRecord(text), parseRecord(plain)] };
+    const today = buildToday({ ...buildOverview([input], "2026-11-20"), inputs: [input] }, "2026-11-20");
+    expect(today.deadlines.map((d) => ({ id: d.recordId, basis: d.basis, daysLeft: d.daysLeft }))).toEqual([
+      { id: "T-001", basis: "instruction", daysLeft: 5 }, { id: "T-002", basis: undefined, daysLeft: 6 }]);
+    const initial = currentLocale();
+    try {
+      setLocale("sk");
+      expect(today.deadlines.map((d) => deadlineText(d))).toEqual(["Odpoveď protistrane (podľa pokynu advokáta, neoverené z listiny)", "Vyjadrenie protistrane"]);
+    } finally { setLocale(initial); }
+  });
+});

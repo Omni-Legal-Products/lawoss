@@ -1,5 +1,5 @@
 import { readFile, realpath } from "node:fs/promises";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { ApiError } from "../errors.js";
 import { runtimeStorageDir } from "../runtime-opencode-config-store.js";
@@ -30,7 +30,11 @@ export async function requireClientWorkspaceBoundary(config: ServerConfig, works
   const parsed = scopeProfile.safeParse(raw);
   if (!parsed.success) throw new ApiError(403, "wiki_agent_client_scope_unknown", "The client scope cannot be verified. Manual work remains available.");
   const officeRoot = parsed.data.officeRoot ? await realpath(parsed.data.officeRoot).catch(() => null) : null;
-  const clientRoot = parsed.data.clientRoot ? await realpath(parsed.data.clientRoot).catch(() => null) : null;
+  // Prvý klient z onboardingu môže advokát presunúť alebo zmazať. Pri existujúcej praxi je to len starý ukazovateľ:
+  // kontrola kontajnera ho porovná lexikálne a ostatní klienti nástroje nestratia (test alfy 10. 11. 2026).
+  const clientRoot = parsed.data.clientRoot
+    ? await realpath(parsed.data.clientRoot).catch(() => (officeRoot ? resolve(parsed.data.clientRoot ?? "") : null))
+    : null;
   if ((parsed.data.officeRoot && !officeRoot) || (parsed.data.clientRoot && !clientRoot))
     throw new ApiError(403, "wiki_agent_client_scope_unknown", "The configured client or office folder is unavailable. Manual work remains available.");
   const insidePractice = officeRoot !== null && officeRoot !== workspaceRoot && contains(officeRoot, workspaceRoot);

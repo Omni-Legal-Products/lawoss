@@ -71,4 +71,5 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "803d68c6b9bc64ef8ed2cdd36cd2d7f897148678316817f32c5d3ea0969dad7b", // lawoss/skills/roztried-spis/SKILL.cs.md @ alfa2/b1 (přehled bez klonu, přesun přes lawoss_files po schválení)
   "16c3f1daff9050ef1d48c847cf8cc3267f05323a57879d709b29f1f0ce80a8a8", // lawoss/okf-pamat/SKILL.md @ fix/p3-citanie-bez-karty (čítanie cez lawoss_memory bez karty)
   "8204e24401305451119dc59a1995212808e3f418406de0b792f032e2a5637a06", // lawoss/okf-pamat/SKILL.md @ fix/zapis-pamate-jedna-karta (zápis cez lawoss_memory_write jednou kartou)
+  "1059b88ef1966d072b168386c10862d39950f4d4e44e62529ded6a98e61fa271", // lawoss/okf-pamat/SKILL.md @ fix/pamat-klienta-lehota (poznámka klienta, lehota z pokynu advokáta, upratanie nezaradeného)
 ]);

@@ -13,6 +13,7 @@
 // OpenCode 2 načíta `default` export (`Plugin.define`).
 import { Plugin } from "@opencode/plugin";
 import { z } from "zod";
+import { askOrDeclined } from "./lawoss-declined-card.js";
 import { chatFilePath, chatWorkspace } from "./lawoss-file-paths.js";
 import { CREATE_FILE_RULE, EXACT_NAME_RULE, FILE_REPORT_RULE, fileOperationToolText, MOVE_ACROSS_DRIVES_RULE } from "./lawoss-file-operations-text.js";
 import { listWorkspaces, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
@@ -108,7 +109,8 @@ function visiblePaths(plan: Plan): string[] {
 
 async function execute(input: z.output<typeof args>, context: OpenCodeContext): Promise<string> {
   if (!context.sessionID || !context.directory) throw new Error("File changes require a chat and its folder.");
-  if (!context.ask) throw new Error("File changes need the user's approval, but approval requests are unavailable.");
+  const ask = context.ask;
+  if (!ask) throw new Error("File changes need the user's approval, but approval requests are unavailable.");
   const directory = context.directory;
   const own = chatWorkspace(await listWorkspaces(context), directory);
   if (!own) throw new Error(`No LegalWork workspace matches the working directory ${directory}.`);
@@ -124,8 +126,10 @@ async function execute(input: z.output<typeof args>, context: OpenCodeContext): 
   });
   const workspace = own.id;
   const plan: Plan = z.object({ operations: z.array(z.unknown()), revision: z.string() }).parse(await post(context, workspace, "plan", { operations }));
-  await context.ask({ permission: PERMISSION, patterns: visiblePaths(plan), always: [],
-    metadata: { lawossFiles: plan.operations, ...(input.description ? { description: input.description } : {}) } });
+  // 🟡 LAWOSS: zamietnutá karta je výsledok, nie chyba (lawoss-declined-card.ts).
+  const declined = await askOrDeclined(() => ask({ permission: PERMISSION, patterns: visiblePaths(plan), always: [],
+    metadata: { lawossFiles: plan.operations, ...(input.description ? { description: input.description } : {}) } }), visiblePaths(plan).join(", "));
+  if (declined) return declined;
   const result = await post(context, workspace, "apply", { operations, approved: plan.operations, revision: plan.revision, sessionID: context.sessionID });
   return fileOperationToolText(result);
 }

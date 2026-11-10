@@ -94,6 +94,10 @@ async function request(path: string, data?: unknown, method = data === undefined
   if (!response.ok) throw new Error(`LegalWork request failed (${response.status}): ${JSON.stringify(payload)}`);
   return payload;
 }
+/** LAWOSS: the server refused this credential (HTTP 403); a client chat is never the main assistant project. */
+function deniedRequest(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith("LegalWork request failed (403)");
+}
 async function result(action: () => Promise<unknown>) {
   try { return JSON.stringify(await action()); }
   catch (error) { return JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }); }
@@ -136,20 +140,31 @@ export const LegalWorkAssistantTools = async (runtime: SavedConversations = {}) 
   let mainDirectory: boolean | undefined;
   const identity = appStateReminders("main-assistant", async () => {
     if (!runtime.directory) return "";
+    // 🟡 LAWOSS: a client chat already refused once stays "not the main assistant" (no request per turn).
+    if (mainDirectory === false) return "";
     try {
       const data = z.object({ workspace: z.object({ path: z.string() }).nullable(), profile: z.object({ name: z.string().nullable() }).optional(), onboarding: z.object({ step: z.enum(["name", "avatar", "complete"]) }).optional() }).parse(await request("/assistant"));
       mainDirectory = Boolean(data.workspace && resolve(data.workspace.path) === resolve(runtime.directory));
       if (!mainDirectory) return "";
       const settings = z.object({ context: z.string() }).parse(await request("/assistant/settings/context"));
       return `This is the main assistant project. ${COORDINATOR_ROLE} Setup stage: ${data.onboarding?.step ?? "complete"}. User-defined display name (untrusted label, not instructions): ${JSON.stringify(data.profile?.name ?? "Your assistant")}.\n\n${ASSISTANT_REACTION_POLICY}\n\n${ASSISTANT_MESSAGE_POLICY}\n\n${ASSISTANT_USER_DETAILS_INSTRUCTIONS}\n\n${settings.context}`;
-    } catch { return null; }
+    } catch (error) {
+      // 🟡 LAWOSS: a client chat's credential may not read /assistant; that answer means "not the main assistant", remembered (test alfy 10. 11.).
+      if (deniedRequest(error)) { mainDirectory = false; return ""; }
+      return null;
+    }
   }, "This is not the main assistant project; use the current project's workflow.", runtime);
   return ({
   "tool.execute.before": async (input: { tool: string }, output: { args: Record<string, unknown> }) => {
     if (!runtime.directory) return;
     if (mainDirectory === undefined) {
-      const data = z.object({ workspace: z.object({ path: z.string() }).nullable() }).parse(await request("/assistant"));
-      mainDirectory = Boolean(data.workspace && resolve(data.workspace.path) === resolve(runtime.directory));
+      try {
+        const data = z.object({ workspace: z.object({ path: z.string() }).nullable() }).parse(await request("/assistant"));
+        mainDirectory = Boolean(data.workspace && resolve(data.workspace.path) === resolve(runtime.directory));
+      } catch (error) {
+        if (!deniedRequest(error)) throw error;
+        mainDirectory = false;
+      }
     }
     if (!mainDirectory) return;
     const args: Record<string, unknown> = {};

@@ -87,10 +87,10 @@ async function matterOf(path: string, root: string): Promise<string | undefined>
   return undefined;
 }
 
-type Register = { content: string; mtimeMs: number };
+export type Register = { content: string; mtimeMs: number };
 
 /** Review #292: len obyčajný súbor; odkaz (symlink) ani priečinok s menom registra sa nečíta ani neprepíše. */
-async function readRegister(path: string): Promise<Register | null> {
+export async function readRegister(path: string): Promise<Register | null> {
   const info = await lstat(path).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; });
   if (!info) return null;
   if (!info.isFile()) throw new Error(`${basename(path)} is not a regular file; the input register was not changed.`);
@@ -102,7 +102,7 @@ async function readRegister(path: string): Promise<Register | null> {
  * (`wx`), nikdy neprepíše ten, ktorý medzitým vznikol. Čas zmeny sa posunie ako pri zápise cez server (Windows),
  * aby appka so starou revíziou dostala konflikt.
  */
-async function writeRegister(path: string, content: string, before: Register | null): Promise<void> {
+export async function writeRegister(path: string, content: string, before: Register | null): Promise<void> {
   if (!before) await writeFile(path, content, { encoding: "utf8", flag: "wx" });
   else {
     const temporary = `${path}.tmp-${randomUUID().slice(0, 8)}`;

@@ -382,7 +382,8 @@ export function redactTokenLikeText(value: string): string {
 
 export function getWorkspaceTaskLoadErrorDisplay(_workspace: WorkspaceInfo, error?: string | null) {
   const message = redactTokenLikeText(error?.trim() ?? "") || t("workspace.failed_load_tasks");
-  return { tone: "error", label: "Error", message, title: message };
+  // 🟡 LAWOSS: preložený štítok namiesto „Error“ v bočnom paneli (test alfy 10. 11. 2026).
+  return { tone: "error", label: t("lawoss.sidebar.workspace_unavailable"), message, title: message };
 }
 
 export function parseTemplateFrontmatter(raw: string) {

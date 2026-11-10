@@ -182,3 +182,52 @@ test("an ordinary bearer token cannot write, and a write without the card's toke
   await expect(writeMatterMemoryForChat(config, workspace, { ...body, record: office, apply: false }, none)).rejects.toMatchObject({ status: 422 });
   expect(await revision()).toMatch(/^[0-9a-f]{64}$/);
 });
+
+// Rozhodnutia MČ 10. 11. 2026 (prehliadka s vetami advokáta): poznámka pre celého klienta a lehota z pokynu advokáta,
+// každá jednou kartou cez skutočný server a nástroje pluginu.
+test("a client-level note and a deadline from the lawyer's instruction: one card each, declined writes nothing", async () => {
+  const { client, case1, agent, tools } = await setup();
+  await writeFile(join(client, "client.md"), "---\ntype: klient\n---\n");
+  await writeFile(join(case1, "matter.md"), "---\ntitle: Spor o úhradu dodávok\njurisdiction: sk\n---\n");
+  const listed = await files(client);
+  const reject = async () => { throw new Error("rejected"); };
+  const today = new Date(), day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const note = `---\nokf: 1\nid: CN-001\ntype: client_note\ntitle: Komunikácia s klientom\ndescription: SYN spôsob komunikácie\nlayer: L2\njurisdiction: sk\nstatus: active\ncreated: ${day}\nupdated: ${day}\n---\n\n## Truth\n\nKlient chce komunikovať len e-mailom, nie telefonicky.\n\n## History\n\n- ${day} — pokyn advokáta v chate\n`;
+
+  // A. "Poznač si, že tento klient chce komunikovať len e-mailom, nie telefonicky."
+  await expect(tools.lawoss_memory_write.execute({ matter: client, record: note, reason: "Pokyn advokáta v chate", scope: "client" }, { ...agent.context, ask: reject })).rejects.toThrow("rejected");
+  expect(await files(client)).toEqual(listed);
+  const cards: Card[] = [];
+  const ask = async (card: Card) => { cards.push(card); };
+  await tools.lawoss_memory_write.execute({ matter: client, record: note, reason: "Pokyn advokáta v chate", scope: "client" }, { ...agent.context, ask });
+  expect(cards).toHaveLength(1);
+  expect(cards[0]).toMatchObject({ permission: "lawoss_file_change", patterns: ["memory/CN-001-komunikacia-s-klientom.md"],
+    metadata: { lawossMemory: { scope: "client", type: "client_note", truth: "Klient chce komunikovať len e-mailom, nie telefonicky." } } });
+  expect(await readFile(join(client, "memory", "CN-001-komunikacia-s-klientom.md"), "utf8")).toContain("len e-mailom");
+  // The case chat reads the client's note with the case memory.
+  const read = JSON.parse(await tools.lawoss_memory.execute({ action: "read" }, { ...agent.context, ask: reject }));
+  expect(read).toMatchObject({ complete: true });
+  expect(read.text).toContain("Klient chce komunikovať len e-mailom, nie telefonicky.");
+  // L1 stays behind the lawyer's name: not written, also not with the client scope.
+  const rule = note.replace("id: CN-001", "id: R-001").replace("type: client_note", "type: rule").replace("layer: L2", "layer: L1");
+  await expect(tools.lawoss_memory_write.execute({ matter: client, record: rule, reason: "SYN", scope: "client" }, { ...agent.context, ask })).rejects.toThrow("422");
+  expect(cards).toHaveLength(1);
+
+  // B. "Pri spore o úhradu dodávok máme odpovedať protistrane do 25. novembra, zapíš mi tú lehotu."
+  const sentence = "Pri spore o úhradu dodávok máme odpovedať protistrane do 25. novembra, zapíš mi tú lehotu.";
+  const input = { date: "2026-11-25", what: "Odpoveď protistrane", instruction: sentence };
+  const before = await files(client);
+  await expect(tools.lawoss_memory_deadline.execute(input, { ...agent.context, ask: reject })).rejects.toThrow("rejected");
+  expect(await files(client)).toEqual(before);
+  const result = JSON.parse(await tools.lawoss_memory_deadline.execute(input, { ...agent.context, ask }));
+  expect(cards).toHaveLength(2);
+  expect(cards[1]).toMatchObject({ permission: "lawoss_file_change", patterns: ["Spisy/M001/memory/T-001-odpoved-protistrane.md", "Spisy/M001/VSTUPY.md"],
+    metadata: { lawossMemory: { deadline: { case: "Spor o úhradu dodávok", date: "2026-11-25", what: "Odpoveď protistrane", basis: "lawyer_instruction", register: "Spisy/M001/VSTUPY.md", inputId: "IN-001" } } } });
+  expect(result).toMatchObject({ written: true, result: { status: "written", id: "T-001", inputId: "IN-001" } });
+  expect(await readFile(join(case1, "VSTUPY.md"), "utf8")).toMatch(/\| IN-001 \| \S+ \| pokyn advokáta v chate \(LAWOSS\): „Pri spore .*“ \| — \| processed \| T-001 \|/);
+  const task = await readFile(join(case1, "memory", "T-001-odpoved-protistrane.md"), "utf8");
+  expect(task).toContain('deadlines: ["2026-11-25 Odpoveď protistrane"]');
+  expect(task).toContain("deadline_basis: lawyer_instruction");
+  expect(task).not.toContain("verified");
+  expect(await files(client)).toEqual([...before, "Spisy/M001/VSTUPY.md", "Spisy/M001/memory/T-001-odpoved-protistrane.md"].sort());
+});
