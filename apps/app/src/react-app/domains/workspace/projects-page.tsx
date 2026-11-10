@@ -18,6 +18,7 @@ import { workspaceLabel } from "../session/sidebar/utils";
 import { useProjectFavoritesStore } from "./project-favorites-store";
 import { useShellConfig, type ProjectNavKey } from "../../shell/shell-config";
 import { useClientProjectItem } from "@/lawoss/lite/client-nav";
+import { clientCardLabel } from "@/lawoss/lite/client-titles";
 import { SIDEBAR_ITEMS } from "../session/sidebar/sidebar-customization";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
@@ -134,7 +135,9 @@ function ProjectRow({ group, updated, ...props }: Props & { group: WorkspaceSess
   const [page, setPage] = useState(0);
   const favorites = useProjectFavoritesStore();
   const id = group.workspace.id;
-  const name = workspaceLabel(group.workspace);
+  // 🟡 LAWOSS: meno z karty klienta ako v bočnom paneli, nie meno priečinka (lawoss/lite/client-titles.ts).
+  const nativeName = workspaceLabel(group.workspace);
+  const name = clientCardLabel(id, nativeName, group.workspace.path) ?? nativeName;
   const pinned = favorites.favoriteIds.includes(id);
   const sessions = allProjectSessions([group]);
   const pages = Math.max(1, Math.ceil(sessions.length / PAGE_SIZE));

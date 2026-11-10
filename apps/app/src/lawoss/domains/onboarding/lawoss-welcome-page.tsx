@@ -167,8 +167,8 @@ const text: Record<Language, Record<string, string>> = {
     lawyer: "Vaše meno",
     jurisdiction: "Jurisdikcia",
     language: "Jazyk rozhrania",
-    new: "Vytvoriť novú",
-    existing: "Pripojiť existujúcu",
+    new: "Vytvoriť nového",
+    existing: "Pripojiť existujúceho",
     parent: "Nadradený priečinok",
     name: "Názov",
     aiText:
@@ -216,8 +216,8 @@ const text: Record<Language, Record<string, string>> = {
     lawyer: "Vaše jméno",
     jurisdiction: "Jurisdikce",
     language: "Jazyk rozhraní",
-    new: "Vytvořit novou",
-    existing: "Připojit existující",
+    new: "Vytvořit nového",
+    existing: "Připojit existujícího",
     parent: "Nadřazená složka",
     name: "Název",
     aiText:
@@ -462,6 +462,9 @@ const extraText: Record<Language, Record<string, string>> = {
 };
 /** Kľúče textov onboardingu (pre test terminológie). */
 export const welcomeTextKeys = (locale: Language): string[] => [...new Set([...Object.keys(text[locale]), ...Object.keys(extraText[locale])])];
+
+/** Predvolená oblasť nového prípadu; advokát ju môže prepísať. */
+export const DEFAULT_MATTER_AREA: Record<Language, string> = { en: "General", sk: "Všeobecné", cs: "Obecné", de: "Allgemein" };
 /** Texty krokov onboardingu v jazyku rozhrania. */
 export const welcomeText = (locale: Language) => (key: string): string =>
   key === "cancel"
@@ -1655,7 +1658,8 @@ export function Matter({
   onSubjectChange: (subjectRoot: string | null) => Promise<void>;
 }) {
   const [title, setTitle] = useState("");
-  const [area, setArea] = useState("General");
+  // Predvolená oblasť v jazyku rozhrania (test alfy 10. 11. 2026: slovenský formulár ponúkal „General“).
+  const [area, setArea] = useState(DEFAULT_MATTER_AREA[locale]);
   const [subject, setSubject] = useState("");
   const [kind, setKind] = useState<MatterKind>("contentious");
   const [documentLanguage, setDocumentLanguage] = useState<DocumentLanguage>(

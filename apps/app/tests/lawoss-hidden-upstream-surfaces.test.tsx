@@ -117,6 +117,10 @@ describe("spec 0017 S3: neprevzaté plochy LegalWork v0.2.9 sú skryté", () => 
     expect(read("react-app/domains/session/sidebar/app-sidebar.tsx")).toContain("hideCommercialSidebarItems(shellConfig.chatSectionOrder)");
     expect(read("react-app/domains/session/sidebar/app-sidebar.tsx")).toContain("hideCommercialSidebarItems(config.projectNavOrder)");
     expect(read("react-app/domains/workspace/projects-page.tsx")).toContain("hideCommercialSidebarItems(config.projectNavOrder)");
+    // Test alfy 10. 11. 2026: hlavička klienta ponúkala „Nahrávať“, hoci záznamník je skrytý.
+    const home = read("react-app/domains/workspace/project-home.tsx");
+    expect(home).toContain('const recorderHidden = isHiddenSettingsTab("recorder");');
+    expect(home.match(/!recorderHidden && </g)?.length).toBe(3);
     expect(read("react-app/domains/session/panel/side-panel.tsx")).toContain(".filter(view => !isProjectViewHidden(view))");
     const session = read("react-app/domains/session/chat/session-page.tsx");
     expect(session).toContain("onOpenWiki={props.wiki?.client && !isWikiHidden() ?");
