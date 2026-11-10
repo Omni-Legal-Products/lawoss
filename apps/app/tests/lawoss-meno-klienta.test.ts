@@ -136,6 +136,9 @@ describe("meno z karty klienta namiesto mena priečinka", () => {
   test("stránka Klienti ukazuje meno z karty ako bočný panel (strážca väzby)", () => {
     // Test alfy 10. 11. 2026: zoznam ukazoval „C024-syn-tomas-svec-remesla“, panel „SYN Tomáš Švec remeslá“.
     const page = readFileSync(join(import.meta.dir, "../src/react-app/domains/workspace/projects-page.tsx"), "utf8");
-    expect(page).toContain("const name = clientCardLabel(id, nativeName, group.workspace.path) ?? nativeName;");
+    // Rovnaký zdroj ako riadok panela (živý prehľad, zapamätané meno len ako záloha). Zostava 59f0da94 ukazovala
+    // mená priečinkov ďalej: panel na stránke Klienti nie je vykreslený a pri neúplnom prehľade sa meno nezapamätá.
+    expect(page).toContain("const clientLabel = useClientListLabel();");
+    expect(page).toContain("const name = props.clientLabel({ id, path: group.workspace.path }, nativeName);");
   });
 });
