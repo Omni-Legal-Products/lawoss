@@ -641,6 +641,8 @@ jobs:
       - name: Verify the shipped engine uses protected execution
         env:
           LEGALWORK_SANDBOX_INTEGRATION: '1'
+          # 🟡 LAWOSS: väčší server LAWOSS; tsc v builde servera na macOS runneri inak vyčerpá predvolený heap (exit 134), ako v unit-tests.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: |
           pnpm --filter legalwork-server build
           LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts --timeout 180000 apps/server/src/agent-sandbox/engine.integration.test.ts apps/server/src/opencode-plugins/legalwork-skill-resources.integration.test.ts
