@@ -11,6 +11,11 @@ const invalidPath = () => new ApiError(400, "invalid_path", "Path must remain in
 /** A configured directory that resolves outside the workspace is skipped, not fatal. */
 export const isOutsideWorkspacePath = (error: unknown): error is ApiError => error instanceof ApiError && error.code === "invalid_path";
 
+/** The registered root itself is gone (moved or deleted client folder). It stays registered for
+ * reconnect; a scan of its configuration directories then finds nothing instead of failing. */
+export const isMissingWorkspaceRoot = (error: unknown): boolean =>
+  error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR");
+
 /** Resolve existing links, including ancestors of a file that does not exist yet.
  * The registered root may itself be a Dropbox/volume alias. Callers use the
  * returned canonical path, then recheck after human approval before writing.

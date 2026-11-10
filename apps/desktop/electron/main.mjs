@@ -72,6 +72,7 @@ import { getApplicationsForFile } from "./file-applications.mjs";
 import { composeAppleMailDraft, composeOutlookDraft } from "./mail-draft.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { ensureLawossHomeWorkspace } from "./lawoss-home-workspace.mjs";
+import { pickBootFallbackWorkspace } from "./lawoss-boot-fallback.mjs";
 import { createRuntimeBootstrapGate } from "./runtime-bootstrap-gate.mjs";
 import { copyFilesIntoProject, resolveProjectFolder, dashboardFileImporter } from "./project-file-copy.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
@@ -1414,10 +1415,8 @@ async function bootRuntimeForSelectedWorkspace() {
       appFiles: workspace.appFiles,
     });
   } catch (error) {
-    const fallback = list.workspaces.find((entry) => {
-      const candidatePath = String(entry?.path ?? "").trim();
-      return entry?.workspaceType !== "remote" && candidatePath && candidatePath !== workspaceRoot;
-    });
+    // 🟡 LAWOSS: náhradný klient len s existujúcim priečinkom (lawoss-boot-fallback.mjs).
+    const fallback = pickBootFallbackWorkspace(list.workspaces, workspaceRoot);
     const fallbackRoot = String(fallback?.path ?? "").trim();
     if (!fallback || !fallbackRoot) throw error;
     console.warn("[runtime] selected workspace failed during boot; trying fallback workspace", {
