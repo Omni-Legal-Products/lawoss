@@ -20,6 +20,7 @@
  * The shared surface also renders a project's filtered list, either on its
  * Tasks page or embedded in Home. Project links do not duplicate task data.
  */
+import { MatterTasksNotice } from "@/lawoss/lite/matter-tasks-notice";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { projectViewTab } from "../session/panel/panel-tab-store";
 import { useRequestOpenTask, useRequestPanelTab } from "../session/panel/panel-tab-destination";
@@ -610,6 +611,8 @@ export function TasksPane(props: TasksPaneProps) {
         </header>}
 
         <div className={cn(props.embedded ? "flex min-h-36 flex-1 flex-col" : "min-h-0 flex-1 overflow-y-auto")}>
+          {/* 🟡 LAWOSS: úlohy zapísané v prípadoch sú na Prehľade klienta (lawoss/lite/matter-tasks-notice.tsx). */}
+          {!props.embedded && !inTrash && <MatterTasksNotice projectId={props.projectId} />}
           <TaskList
             tasks={visibleTasks}
             groups={groups}

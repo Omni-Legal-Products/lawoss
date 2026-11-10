@@ -6,7 +6,7 @@
  * Fakty riadkov počíta panel raz (`buildClientRows`); tu sa doplní len natívne meno a jazyk.
  */
 import { ChevronRight, MoreHorizontal } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
@@ -17,7 +17,7 @@ import { cardTitle, clientGroupOfProject, clientLabel, groupOfDirectory, matterO
 import { clientCardLabel } from "./client-titles";
 import type { ClientRowFacts } from "./client-row-data";
 import { rowDeadlineText, urgencyTextClass } from "./client-row-text";
-import { useClientNav, type PublishedClientNav } from "./client-nav";
+import { useClientNav, useClientNavData, usePublishedClientNav, type PublishedClientNav } from "./client-nav";
 import { LEHOTY_PATH } from "./links";
 
 type ProjectRef = { id: string; path?: string | null };
@@ -53,6 +53,18 @@ export function clientRowFrom(facts: ClientRowFacts | undefined, nativeLabel: st
 /** Test seam a natívne použitie: riadok projektu z dát panela. */
 export function clientProjectRow(nav: Pick<PublishedClientNav, "rows"> | null, project: ProjectRef, nativeLabel: string, locale: Language): ClientRow {
   return clientRowFrom(nav?.rows.get(project.id), nativeLabel, locale, clientCardLabel(project.id, nativeLabel, project.path));
+}
+
+/**
+ * Meno klienta pre zoznam mimo bočného panela (stránka Klienti). Panel tam nie je vykreslený a jeho zverejnené dáta
+ * sú prázdne, preto si zoznam číta prehľad sám (rovnaká cache dopytu ako panel a samostatný Prehľad klienta).
+ */
+export function useClientListLabel(): (project: ProjectRef, nativeLabel: string) => string {
+  const published = usePublishedClientNav();
+  const own = useClientNavData();
+  const locale = useLocale();
+  const rows = (published ?? own).rows;
+  return useCallback((project, nativeLabel) => clientProjectRow({ rows }, project, nativeLabel, locale).label, [rows, locale]);
 }
 
 export function useClientProjectRow(project: ProjectRef, nativeLabel: string): ClientRow {

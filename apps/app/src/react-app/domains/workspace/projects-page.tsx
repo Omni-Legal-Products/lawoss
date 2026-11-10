@@ -18,7 +18,7 @@ import { workspaceLabel } from "../session/sidebar/utils";
 import { useProjectFavoritesStore } from "./project-favorites-store";
 import { useShellConfig, type ProjectNavKey } from "../../shell/shell-config";
 import { useClientProjectItem } from "@/lawoss/lite/client-nav";
-import { clientCardLabel } from "@/lawoss/lite/client-titles";
+import { useClientListLabel } from "@/lawoss/lite/client-row-view";
 import { SIDEBAR_ITEMS } from "../session/sidebar/sidebar-customization";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
@@ -53,6 +53,8 @@ function Updated({ timestamp }: { timestamp: number }) {
 }
 
 export function ProjectsPage(props: Props) {
+  // 🟡 LAWOSS: mená klientov z kariet ako v bočnom paneli (lawoss/lite/client-row-view.tsx).
+  const clientLabel = useClientListLabel();
   const [page, setPage] = useState(0);
   const favoriteIds = useProjectFavoritesStore(state => state.favoriteIds);
   const filterState = useProjectFilterStore();
@@ -109,7 +111,7 @@ export function ProjectsPage(props: Props) {
         <Button variant="ghost" size="xs" className="hidden justify-self-end px-0 hover:bg-transparent @min-[620px]/project-page:inline-flex" onClick={() => { setDescending(!descending); setPage(0); }}>{t("sidebar.updated")}{descending ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />}</Button>
         <span aria-hidden />
       </div>
-      {groups.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE).map(({ group, updated }) => <ProjectRow key={group.workspace.id} {...props} group={group} updated={updated} />)}
+      {groups.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE).map(({ group, updated }) => <ProjectRow key={group.workspace.id} {...props} clientLabel={clientLabel} group={group} updated={updated} />)}
       {!groups.length && <div className="flex flex-col items-center gap-2 py-14 text-center text-sm text-muted-foreground" role="status">
         <p>{t(filtered ? metadataLoading ? "project_filters.loading" : "project_filters.no_matches" : "sidebar.no_projects")}</p>
         {filtered && !metadataLoading && <Button variant="outline" size="sm" onClick={() => { filterState.clear(); setPage(0); }}>{t("project_filters.clear")}</Button>}
@@ -127,7 +129,7 @@ function Pagination({ current, pages, onChange }: { current: number; pages: numb
   </div>;
 }
 
-function ProjectRow({ group, updated, ...props }: Props & { group: WorkspaceSessionGroup; updated: number }) {
+function ProjectRow({ group, updated, ...props }: Props & { group: WorkspaceSessionGroup; updated: number; clientLabel: ReturnType<typeof useClientListLabel> }) {
   const openPersonalisation = useProjectPersonalisation();
   const [expanded, setExpanded] = useState(false);
   const contentId = useId();
@@ -137,7 +139,7 @@ function ProjectRow({ group, updated, ...props }: Props & { group: WorkspaceSess
   const id = group.workspace.id;
   // 🟡 LAWOSS: meno z karty klienta ako v bočnom paneli, nie meno priečinka (lawoss/lite/client-titles.ts).
   const nativeName = workspaceLabel(group.workspace);
-  const name = clientCardLabel(id, nativeName, group.workspace.path) ?? nativeName;
+  const name = props.clientLabel({ id, path: group.workspace.path }, nativeName);
   const pinned = favorites.favoriteIds.includes(id);
   const sessions = allProjectSessions([group]);
   const pages = Math.max(1, Math.ceil(sessions.length / PAGE_SIZE));

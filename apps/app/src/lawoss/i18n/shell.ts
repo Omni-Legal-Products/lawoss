@@ -1,6 +1,8 @@
 export const shellEn = {
   // Upstream v0.3.0 replaced this with the Assistant hint; LAWOSS Home without a client creates one.
-  "home.new_project_hint": "A new client will be created when you send.",
+  "home.new_project_hint": "Choose a client or add a new one first.",
+  "lawoss.home.client_required": "Choose a client for this message, or add a new client. Your text stays here.",
+  "lawoss.home.client_required_add": "Add client",
   "lawoss.yolo.title": "YOLO Mode",
   "lawoss.yolo.description": "The agent works with files and commands on its own, without asking.",
   "lawoss.yolo.state_off": "Off. The agent asks before actions according to the rules below.",
@@ -665,6 +667,8 @@ export const shellEn = {
   "lawoss.lite.case_dates_title": "Dates from cases",
   "lawoss.lite.case_dates_note": "Task dates in the cases. These are not recorded deadlines; a deadline has to be recorded in the case separately.",
   "lawoss.lite.client_overview_tasks": "Open tasks from cases",
+  "lawoss.lite.tasks_in_matters": "Tasks recorded in cases: {count}. This list shows only tasks created in the app.",
+  "lawoss.lite.tasks_in_matters_open": "Open the client overview",
   "lawoss.lite.client_overview_tasks_hint": "From the case files, the same list as Today. App tasks are under Tasks.",
   "lawoss.lite.ov_s_next_date": "Next date",
   "lawoss.lite.ov_not_recorded_list": "Not recorded: {sections}",
@@ -753,7 +757,9 @@ export const shellEn = {
 type SlavicPluralKey = "lawoss.lite.due_in_days_few" | "lawoss.lite.due_in_days_many" | "lawoss.practice.clients_few" | "lawoss.practice.clients_many";
 
 export const shellCs = {
-  "home.new_project_hint": "Po odeslání bude přidán nový klient.",
+  "home.new_project_hint": "Nejdřív vyberte klienta, nebo přidejte nového.",
+  "lawoss.home.client_required": "Vyberte klienta, kterého se zpráva týká, nebo přidejte nového. Text tu zůstane.",
+  "lawoss.home.client_required_add": "Přidat klienta",
   "lawoss.yolo.title": "YOLO Mode",
   "lawoss.yolo.description": "Agent pracuje se soubory a příkazy sám, bez ptaní.",
   "lawoss.yolo.state_off": "Vypnuto. Agent se před akcemi ptá podle pravidel níže.",
@@ -1422,6 +1428,8 @@ export const shellCs = {
   "lawoss.lite.case_dates_title": "Termíny z případů",
   "lawoss.lite.case_dates_note": "Data úkolů v případech. Nejsou to evidované lhůty, lhůtu je třeba v případu zapsat zvlášť.",
   "lawoss.lite.client_overview_tasks": "Otevřené úkoly z případů",
+  "lawoss.lite.tasks_in_matters": "Úkoly zapsané v případech: {count}. Tento seznam ukazuje jen úkoly vytvořené v aplikaci.",
+  "lawoss.lite.tasks_in_matters_open": "Otevřít přehled klienta",
   "lawoss.lite.client_overview_tasks_hint": "Ze souborů případů, stejný seznam jako Dnes. Úkoly aplikace jsou v části Úkoly.",
   "lawoss.lite.ov_s_next_date": "Nejbližší termín",
   "lawoss.lite.ov_not_recorded_list": "Neevidováno: {sections}",
@@ -1507,7 +1515,9 @@ export const shellCs = {
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
-  "home.new_project_hint": "Nový klient sa pridá po odoslaní správy.",
+  "home.new_project_hint": "Najprv zvoľte klienta alebo pridajte nového.",
+  "lawoss.home.client_required": "Zvoľte klienta, ktorého sa správa týka, alebo pridajte nového. Text tu ostane.",
+  "lawoss.home.client_required_add": "Pridať klienta",
   "lawoss.yolo.title": "YOLO Mode",
   "lawoss.yolo.description": "Agent pracuje so súbormi a príkazmi sám, bez pýtania.",
   "lawoss.yolo.state_off": "Vypnuté. Agent sa pred úkonmi pýta podľa pravidiel nižšie.",
@@ -2176,6 +2186,8 @@ export const shellSk = {
   "lawoss.lite.case_dates_title": "Termíny z prípadov",
   "lawoss.lite.case_dates_note": "Dátumy úloh v prípadoch. Nie sú to evidované lehoty, lehotu treba v prípade zapísať zvlášť.",
   "lawoss.lite.client_overview_tasks": "Otvorené úlohy z prípadov",
+  "lawoss.lite.tasks_in_matters": "Úlohy zapísané v prípadoch: {count}. Tento zoznam ukazuje len úlohy vytvorené v aplikácii.",
+  "lawoss.lite.tasks_in_matters_open": "Otvoriť prehľad klienta",
   "lawoss.lite.client_overview_tasks_hint": "Zo súborov prípadov, rovnaký zoznam ako Dnes. Úlohy aplikácie sú v časti Úlohy.",
   "lawoss.lite.ov_s_next_date": "Najbližší termín",
   "lawoss.lite.ov_not_recorded_list": "Neevidované: {sections}",
@@ -2261,7 +2273,9 @@ export const shellSk = {
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
-  "home.new_project_hint": "Beim Senden wird ein neuer Mandant erstellt.",
+  "home.new_project_hint": "Wählen Sie zuerst einen Mandanten oder legen Sie einen neuen an.",
+  "lawoss.home.client_required": "Wählen Sie den Mandanten für diese Nachricht oder legen Sie einen neuen an. Ihr Text bleibt hier.",
+  "lawoss.home.client_required_add": "Mandanten hinzufügen",
   "lawoss.yolo.title": "YOLO Mode",
   "lawoss.yolo.description": "Der Agent arbeitet selbständig mit Dateien und Befehlen, ohne zu fragen.",
   "lawoss.yolo.state_off": "Aus. Der Agent fragt vor Aktionen nach den Regeln unten.",
@@ -2926,6 +2940,8 @@ export const shellDe = {
   "lawoss.lite.case_dates_title": "Termine aus Fällen",
   "lawoss.lite.case_dates_note": "Aufgabentermine in den Fällen. Das sind keine erfassten Fristen; eine Frist muss im Fall gesondert erfasst werden.",
   "lawoss.lite.client_overview_tasks": "Offene Aufgaben aus Fällen",
+  "lawoss.lite.tasks_in_matters": "In Fällen erfasste Aufgaben: {count}. Diese Liste zeigt nur in der App erstellte Aufgaben.",
+  "lawoss.lite.tasks_in_matters_open": "Mandantenübersicht öffnen",
   "lawoss.lite.client_overview_tasks_hint": "Aus den Falldateien, dieselbe Liste wie Heute. App-Aufgaben finden Sie unter Aufgaben.",
   "lawoss.lite.ov_s_next_date": "Nächster Termin",
   "lawoss.lite.ov_not_recorded_list": "Nicht erfasst: {sections}",

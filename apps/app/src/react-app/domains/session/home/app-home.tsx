@@ -68,7 +68,7 @@ export function AppHome(props: AppHomeProps) {
   });
   const project = props.workspaces.find((workspace) => workspace.id === props.projectId);
   const assistantName = props.assistantProfile?.name ?? t("assistant.title");
-  // 🟡 LAWOSS: Asistent je platená plocha Eigenwelt; bez vybraného klienta Domov založí nového klienta.
+  // 🟡 LAWOSS: Asistent je platená plocha Eigenwelt; bez vybraného klienta Domov žiada zvoliť alebo pridať klienta.
   const assistantHidden = isCommercialSurfaceHidden("assistant");
   const busy = props.disabled || sending || dictation.active;
   const canSend = !busy && Boolean(text.trim());
@@ -87,6 +87,9 @@ export function AppHome(props: AppHomeProps) {
   };
   const sendText = async (message: string) => {
     if (props.disabled || !message.trim() || sendingRef.current) return;
+    // 🟡 LAWOSS (MČ 10. 11. 2026): bez zvoleného klienta sa nič neodošle ani nezaloží. Predtým vznikol klient
+    // pomenovaný prvými slovami správy v ~/Documents/LegalWork/Projects, mimo priečinka Klienti praxe.
+    if (assistantHidden && !project) { setError({ kind: "client-required" }); return; }
     sendingRef.current = true;
     setSending(true);
     setDragging(false);
@@ -196,7 +199,7 @@ export function AppHome(props: AppHomeProps) {
               <span className="lw-home-project-hint">{project ? t("home.existing_project_hint") : assistantHidden ? t("home.new_project_hint") : t("home.assistant_hint", { name: assistantName })}</span>
             </div>
             <input ref={fileInput} className="sr-only" type="file" multiple tabIndex={-1} aria-label={t("home.add_files")} disabled={busy} onChange={(event) => { addAttachments(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
-            {error ? <p role="alert" className="lw-home-error">{sendErrorText(error)}{error.kind === "ai-boundaries" && props.onOpenAiSettings ? <>{" "}<Button variant="link" size="xs" onClick={props.onOpenAiSettings}>{t("lawoss.ai_boundaries.open_settings")}</Button></> : null}</p> : null}
+            {error ? <p role="alert" className="lw-home-error">{sendErrorText(error)}{error.kind === "ai-boundaries" && props.onOpenAiSettings ? <>{" "}<Button variant="link" size="xs" onClick={props.onOpenAiSettings}>{t("lawoss.ai_boundaries.open_settings")}</Button></> : null}{error.kind === "client-required" ? <>{" "}<Button variant="link" size="xs" onClick={props.onCreateProject}>{t("lawoss.home.client_required_add")}</Button></> : null}</p> : null}
           </form>
           <TaskSuggestionCards className="lw-home-suggestions" providerConnectedCount={props.providerConnectedCount} onConnect={props.onConnect} onSelect={(prompt) => { if (!busy) { setText(prompt); requestAnimationFrame(focusPrompt); } }} />
         </WelcomeSurface>
