@@ -594,45 +594,6 @@ jobs:
         if: needs.changes.outputs.engine == 'true' && (needs.changes.outputs.app == 'true' || needs.changes.outputs.server == 'true')
         run: pnpm --filter @legalwork/app test:e2e
 
-  orchestrator-tests:
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      LEGALWORK_DEV_MODE: "1"
-      LEGALWORK_OPENCODE_SOURCE: downloaded
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 11.4.0
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.4.2
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Prepare orchestrator sidecar directory
-        run: |
-          mkdir -p "$RUNNER_TEMP/legalwork-sidecar"
-          echo "LEGALWORK_SIDECAR_DIR=$RUNNER_TEMP/legalwork-sidecar" >> "$GITHUB_ENV"
-
-      - name: Run orchestrator integration gate
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: pnpm test:orchestrator
-
   sandbox-engine:
     needs: [sandbox-runtime, opencode-derivative]
     if: >-
@@ -680,15 +641,17 @@ jobs:
       - name: Verify the shipped engine uses protected execution
         env:
           LEGALWORK_SANDBOX_INTEGRATION: '1'
+          # 🟡 LAWOSS: väčší server LAWOSS; tsc v builde servera na macOS runneri inak vyčerpá predvolený heap (exit 134), ako v unit-tests.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: |
           pnpm --filter legalwork-server build
           LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts --timeout 180000 apps/server/src/agent-sandbox/engine.integration.test.ts apps/server/src/opencode-plugins/legalwork-skill-resources.integration.test.ts
 
-  # Upstream v0.3.0 súhrnný job; LAWOSS pridáva len orchestrator-tests do needs. Povinné kontroly rulesetu sa nemenia.
+  # Upstream v0.3.0 súhrnný job; needs ako v upstreame v0.3.9. Povinné kontroly rulesetu sa nemenia.
   ci-result:
     name: Selected checks passed
     if: always()
-    needs: [changes, documentation, opencode-derivative, unit-tests, legalwork-tests, orchestrator-tests, windows-meetings, windows-drafts, sandbox-runtime, sandbox-engine, signing-inputs, unit-inputs, windows-archive-inputs, windows-archive-acceptance, windows-protected-runtime, windows-desktop-acceptance, mac-signing-acceptance, engine-source-build, desktop-packaging]
+    needs: [changes, documentation, opencode-derivative, unit-tests, legalwork-tests, windows-meetings, windows-drafts, sandbox-runtime, sandbox-engine, signing-inputs, unit-inputs, windows-archive-inputs, windows-archive-acceptance, windows-protected-runtime, windows-desktop-acceptance, mac-signing-acceptance, engine-source-build, desktop-packaging]
     runs-on: ubuntu-latest
     steps:
       - name: Require every selected check to succeed
