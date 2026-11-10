@@ -44,6 +44,16 @@ describe("lawoss_files create_file", () => {
     expect(html).toContain("Nový súbor: Spisy/M001/Predžalobná výzva.docx (2 kB)");
     expect(html).toContain("Začiatok textu: Vážený pán Šťastný");
     expect(html).not.toContain("printf");
+    // Prehliadka alfy 10. 11. 2026 (snímka MČ): karta ukazovala „code: return await tools.lawoss_files(…)“ a v úzkom
+    // chate sa text lámal po slove pod tlačidlami. Surový vstup nástroja sa pri karte súborov nevykreslí a rozloženie
+    // sa riadi šírkou karty, nie okna.
+    const withInput: PendingPermission = { ...permission, toolInput: { status: "ready", value: { code: 'return await tools.lawoss_files({operations:[]})' } } };
+    const narrow = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, { permission: withInput, respondPermission: () => {} }));
+    expect(narrow).not.toContain("tools.lawoss_files");
+    expect(narrow).toContain("Nový súbor: Spisy/M001/Predžalobná výzva.docx (2 kB)");
+    expect(narrow).toContain("@container/permission-card");
+    expect(narrow).toContain("@min-[560px]/permission-card:flex-row");
+    expect(narrow).not.toContain("sm:flex-row sm:items-center");
   });
 
   test("a text file has no title line; a folder with its file is one batch card listing both", () => {

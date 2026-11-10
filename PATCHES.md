@@ -6,6 +6,7 @@ Rozhodnutia MČ 10. 11. 2026 (koordinačný záznam k ADR 0016).
 
 | Súbor | Zmena |
 |---|---|
+| `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | Prehliadka alfy 10. 11. (snímka MČ): karta schválenia v chate sa rozkladá podľa vlastnej šírky (`@container/permission-card`), nie podľa okna; v úzkom chate sa text lámal po slove pod tlačidlami. Karta zmien súborov neukazuje surový vstup nástroja („code: return await tools.lawoss_files(…)“) a jej čitateľné podrobnosti sú rozbalené. |
 | `apps/server/src/bundled-workflows.ts`, `apps/server/src/embedded.ts`, `apps/server/src/cli.ts`, `apps/server/src/lawoss/hidden-bundled-workflows.ts` (nový, + test) | Anglické pribalené workflowy `workflow-assistant-due-diligence` a `workflow-firm-knowledge` sa neinštalujú (#255 A2). `ensureBundledWorkflows` dostal voliteľný zoznam mien; štart servera volá `ensureLawossBundledWorkflows`, ktorý nainštaluje ostatné a nezmenenú staršiu kópiu skrytých odstráni (upravenú ponechá). |
 | `apps/server/src/lawoss/claude-global-skills.ts`, `apps/desktop/electron/lawoss-skill-roots.mjs` (+ testy) | Okrem `~/.claude/skills` sa nečítajú ani `~/.agents/skills` a `~/.agent/skills` (#255 C). |
 | `apps/app/src/react-app/domains/workspace/projects-page.tsx` | Prehliadka alfy 10. 11.: stránka Klienti ukazuje meno z karty klienta ako bočný panel, nie meno priečinka. Meno berie z prehľadu cez `useClientListLabel` (`lawoss/lite/client-row-view.tsx`), lebo panel na tejto stránke nie je vykreslený. |
