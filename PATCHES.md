@@ -6,6 +6,7 @@ Rozhodnutia MČ 10. 11. 2026 (koordinačný záznam k ADR 0016).
 
 | Súbor | Zmena |
 |---|---|
+| `apps/app/src/react-app/domains/session/artifacts/artifact-docx-editor.tsx`, `apps/app/src/lawoss/i18n/docx-editor-locales.ts` (nový), `apps/app/src/lawoss/i18n/docx-editor-labels.ts` (nový) | Test alfy 10. 11.: editor Word mal menu a panely po anglicky (@eigenpal/docx-editor-i18n 1.8.3 nemá sk ani cs). Editor dostane slovenský alebo český preklad (718 textov) podľa jazyka appky; tlačidlo uloženia ostáva LAWOSS. |
 | `apps/app/src/app/utils/index.ts` (`getWorkspaceTaskLoadErrorDisplay`) | Test alfy 10. 11.: nedostupný klient mal v bočnom paneli anglické „Error“; štítok je preložený (`lawoss.sidebar.workspace_unavailable`). |
 | `apps/server/src/opencode-plugins/legalwork-assistant-tools.ts` | Test alfy 10. 11.: v chate klienta sa plugin pri každom ťahu a nástroji pýtal na `/assistant` a dostal 403 (token chatu klienta), v logu stovky riadkov. Odpoveď 403 teraz znamená „nie je hlavný asistent“ a zapamätá sa. |
 | `apps/server/src/native-config-state.ts`, `apps/server/src/lawoss/windows-rename-retry.ts` (nový, + test) | Na Windows zlyhal atómový prepis značky natívnej konfigurácie s `EPERM`, keď cieľ práve držal iný proces (CI windows-11-arm, #396). `replaceMarker` volá `renameSyncWithRetry`, ktorý na Windows zopakuje `EPERM`/`EACCES`/`EBUSY` najviac 2 s; iné chyby a platformy sú bez zmeny. |

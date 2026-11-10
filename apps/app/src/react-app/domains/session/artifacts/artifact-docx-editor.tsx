@@ -6,7 +6,7 @@ import { acceptTemplateRevisions, templateRevisionIds } from "./docx-template-re
 import { normalizeDocxLineBreaks } from "./docx-line-breaks";
 import { isDocumentReadTool } from "./document-agent-read";
 /** @jsxImportSource react */
-import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import { DocxEditor, type DocxEditorRef, type EditorMode } from "@eigenpal/docx-editor-react";
 import { DocxReviewer } from "@eigenpal/docx-editor-agents";
@@ -31,7 +31,8 @@ import { useDocxReviewCard } from "./use-docx-review-card";
 import "./docx-editor-layout.css";
 import "./docx-editor-theme.css";
 import { useControlActions } from "../../../shell/control/control-provider";
-import { t } from "@/i18n";
+import { currentLocale, t } from "@/i18n";
+import { docxEditorLocale } from "@/lawoss/i18n/docx-editor-labels";
 import { createDocumentAutosave } from "./document-autosave";
 import { createDocumentExport } from "./document-export";
 import { checkDocumentTask, type DocumentTaskOptions } from "./document-task-queue";
@@ -100,14 +101,18 @@ let documentInstance = 0;
 // Name that action accurately; the panel Save button / Cmd+S persist to the workspace.
 // Read lazily: a module-scope t() would freeze the English label at import,
 // before initLocale() picks the language.
-const EDITOR_LABELS = {
-  toolbar: {
-    get save() {
-      return t("artifact.download_copy");
+// 🟡 LAWOSS: slovenský a český preklad editora (lawoss/i18n/docx-editor-labels.ts); vlastné tlačidlo uloženia ostáva.
+function editorLabels(language: string) {
+  const locale = docxEditorLocale(language);
+  return {
+    ...locale,
+    toolbar: {
+      ...locale?.toolbar,
+      save: t("artifact.download_copy"),
+      saveShortcut: "",
     },
-    saveShortcut: "",
-  },
-};
+  };
+}
 
 const REVIEW_TOOL_NAMES = new Set(["accept_changes", "reject_changes"]);
 const SDK_MUTATIONS = new Set(["suggest_change", "add_comment", "reply_comment", "resolve_comment", "apply_formatting", "set_paragraph_style", "insert_break"]);
@@ -217,6 +222,8 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
   const visible = useDocumentVisibility();
   const visibleRef = useRef(visible); visibleRef.current = visible;
   const colorMode = useThemeColorMode();
+  const language = currentLocale();
+  const labels = useMemo(() => editorLabels(language), [language]);
   const [documentBuffer] = useState(() => content.slice(0));
   const [documentId] = useState(() => `${Date.now()}:${++documentInstance}`);
   const [mode, setMode] = useState<EditorMode>("editing");
@@ -802,7 +809,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
           showOutlineButton
           showRuler={false}
           rulerUnit="cm"
-          i18n={EDITOR_LABELS}
+          i18n={labels}
           className="h-full"
           onEditorViewReady={(view) => {
             view.dom.inert = !visibleRef.current;
