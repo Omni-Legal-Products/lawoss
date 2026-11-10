@@ -140,6 +140,8 @@ export const LegalWorkAssistantTools = async (runtime: SavedConversations = {}) 
   let mainDirectory: boolean | undefined;
   const identity = appStateReminders("main-assistant", async () => {
     if (!runtime.directory) return "";
+    // 🟡 LAWOSS: a client chat already refused once stays "not the main assistant" (no request per turn).
+    if (mainDirectory === false) return "";
     try {
       const data = z.object({ workspace: z.object({ path: z.string() }).nullable(), profile: z.object({ name: z.string().nullable() }).optional(), onboarding: z.object({ step: z.enum(["name", "avatar", "complete"]) }).optional() }).parse(await request("/assistant"));
       mainDirectory = Boolean(data.workspace && resolve(data.workspace.path) === resolve(runtime.directory));
