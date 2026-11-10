@@ -18,7 +18,8 @@ import { startServer } from "./server.js";
 import { ensureWorkspaceFiles, ensureWorkspaceFilesForBootstrap } from "./workspace-init.js";
 import { workspaceAppFilesRoot, usesExternalWorkspaceAppFiles } from "./lawoss/workspace-app-files.js";
 import { globalSkillsDir } from "./workspace-files.js";
-import { ensureBundledWorkflows } from "./bundled-workflows.js";
+// 🟡 LAWOSS: anglické pribalené workflowy sa neinštalujú (MČ 10. 11. 2026, #255 A2).
+import { ensureLawossBundledWorkflows } from "./lawoss/hidden-bundled-workflows.js";
 import { retireSharedLegacyReview } from "./reviews/retire-legacy.js";
 import {
   keepLegalworkRuntimeConfigFileFresh,
@@ -185,7 +186,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
 
   if (!config.readOnly) {
     await retireSharedLegacyReview(globalSkillsDir());
-    await ensureBundledWorkflows();
+    await ensureLawossBundledWorkflows();
     for (const workspace of config.workspaces) {
       // A disconnected cloud project must not prevent the shared server from
       // starting. Its requests retry initialization and return the real error.

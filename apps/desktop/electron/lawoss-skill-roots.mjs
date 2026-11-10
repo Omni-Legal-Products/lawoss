@@ -1,5 +1,6 @@
 /**
- * LAWOSS: globálne skilly Claude (`~/.claude/skills`) desktop nečíta (nález N-1, #255).
+ * LAWOSS: globálne skilly Claude (`~/.claude/skills`) ani iných agentov (`~/.agents/skills`, `~/.agent/skills`)
+ * desktop nečíta (nález N-1, #255; `~/.agents` rozhodnutie MČ 10. 11. 2026).
  *
  * Skilly advokáta z Claude Code alebo iného nástroja sa nemajú miešať do LAWOSS. Platí pre globálne
  * korene aj pre prechod nadradených priečinkov klienta bez gitu, ktorý by na `~/.claude/skills` narazil.
@@ -24,9 +25,11 @@ function defaultHomes() {
   return homes.filter(Boolean);
 }
 
-/** Korene skillov bez `~/.claude/skills`; poradie ostatných sa zachová. */
+const IGNORED_GLOBAL_SKILL_DIRS = [[".claude", "skills"], [".agents", "skills"], [".agent", "skills"]];
+
+/** Korene skillov bez `~/.claude/skills`, `~/.agents/skills` a `~/.agent/skills`; poradie ostatných sa zachová. */
 export function withoutClaudeGlobalSkills(roots, homes = defaultHomes()) {
   if (LAWOSS_READ_CLAUDE_GLOBAL_SKILLS) return roots;
-  const claude = new Set(homes.map((home) => comparable(path.join(home, ".claude", "skills"))));
-  return roots.filter((root) => !claude.has(comparable(root)));
+  const ignored = new Set(homes.flatMap((home) => IGNORED_GLOBAL_SKILL_DIRS.map((parts) => comparable(path.join(home, ...parts)))));
+  return roots.filter((root) => !ignored.has(comparable(root)));
 }

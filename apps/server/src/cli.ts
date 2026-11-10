@@ -13,7 +13,8 @@ import { type ManagedOpencodeServer } from "./managed-opencode.js";
 import { createServerLogger, startServer } from "./server.js";
 import { ensureWorkspaceFilesForBootstrap } from "./workspace-init.js";
 import { globalSkillsDir } from "./workspace-files.js";
-import { ensureBundledWorkflows } from "./bundled-workflows.js";
+// 🟡 LAWOSS: anglické pribalené workflowy sa neinštalujú (MČ 10. 11. 2026, #255 A2).
+import { ensureLawossBundledWorkflows } from "./lawoss/hidden-bundled-workflows.js";
 import { retireSharedLegacyReview } from "./reviews/retire-legacy.js";
 import {
   keepLegalworkRuntimeConfigFileFresh,
@@ -64,7 +65,7 @@ await prepareConnectorStorage(config);
 
 if (!config.readOnly) {
   await retireSharedLegacyReview(globalSkillsDir());
-  await ensureBundledWorkflows();
+  await ensureLawossBundledWorkflows();
   for (const workspace of config.workspaces) {
     // LAWOSS: app files outside the client folder are never created inside it.
     await ensureWorkspaceFilesForBootstrap(workspace, { bundledCore: !managedEngine });
