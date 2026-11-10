@@ -21,7 +21,8 @@ export function registerNativeCommandDefinitionRoutes(options: {
     if (directories.length > 1) throw new ApiError(400, "ambiguous_location", "Specify one project directory.");
     const location = { directory: await assertNativeProxyDirectory(root, directories[0] ?? root) };
     await options.config.waitForManagedEngineEndpoint?.();
-    const client = createEngineClient(options.config, workspace);
+    // 🟡 LAWOSS: plugin príkazov volá túto trasu počas aktivácie lokality; rozpočet MCP na ňu preto nečaká.
+    const client = createEngineClient(options.config, workspace, { duringActivation: true });
     // Do not prime model.list here. The native command plugin calls this read
     // while model.list is activating plugins; waiting for it would deadlock.
     const [entries, managed] = await Promise.all([
