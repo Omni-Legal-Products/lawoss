@@ -51,17 +51,18 @@ test("every attempt of one redemption carries the same nonce; the next engine's 
   expect(JSON.parse(bodies[2] ?? "{}").nonce).not.toBe(JSON.parse(bodies[0] ?? "{}").nonce);
 });
 
-test("after the first plugin loads, the engine's login and config path are gone from its environment", async () => {
-  const env = { ...engineEnv(), OPENCODE_SERVER_USERNAME: "synthetic-user", OPENCODE_SERVER_PASSWORD: "synthetic-password", OPENCODE_CONFIG: "/synthetic/config.json", OPENCODE_CONFIG_DIR: "/synthetic/dir", PATH: "/bin" };
+test("after the first plugin loads, the engine's login, config sources and DB path are gone from its environment (MCP included)", async () => {
+  const env = { ...engineEnv(), OPENCODE_SERVER_USERNAME: "synthetic-user", OPENCODE_SERVER_PASSWORD: "synthetic-password", OPENCODE_CONFIG: "/synthetic/config.json",
+    OPENCODE_CONFIG_DIR: "/synthetic/dir", OPENCODE_CONFIG_CONTENT: "{}", OPENCODE_DB: "/synthetic/engine.db", OPENCODE_DISABLE_CLAUDE_CODE: "1", PATH: "/bin" };
   await acquireWikiAgentSecret(env, responding(() => Response.json({ secret: "synthetic-secret" })).send);
-  expect(Object.keys(env).sort()).toEqual(["LEGALWORK_SERVER_URL", "OPENCODE_CONFIG_DIR", "PATH"]);
+  expect(Object.keys(env).sort()).toEqual(["LEGALWORK_SERVER_URL", "OPENCODE_DISABLE_CLAUDE_CODE", "PATH"]);
   expect(engineConfigPath(env)).toBe("/synthetic/config.json");
 });
 
 test("without a ticket the environment is left alone", async () => {
-  const env = { OPENCODE_SERVER_PASSWORD: "synthetic-password", OPENCODE_CONFIG: "/synthetic/config.json" };
+  const env = { OPENCODE_SERVER_PASSWORD: "synthetic-password", OPENCODE_CONFIG: "/synthetic/config.json", OPENCODE_DB: "/synthetic/engine.db" };
   await acquireWikiAgentSecret(env, responding(() => Response.json({ secret: "x" })).send);
-  expect(Object.keys(env).sort()).toEqual(["OPENCODE_CONFIG", "OPENCODE_SERVER_PASSWORD"]);
+  expect(Object.keys(env).sort()).toEqual(["OPENCODE_CONFIG", "OPENCODE_DB", "OPENCODE_SERVER_PASSWORD"]);
   expect(engineConfigPath(env)).toBe("/synthetic/config.json");
 });
 

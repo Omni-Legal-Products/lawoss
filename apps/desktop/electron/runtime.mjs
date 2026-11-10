@@ -871,8 +871,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   // Can OpenCode create + write its dir under `parent` (…/opencode)? Probes by
   // creating the dir and round-tripping a marker file, so it catches both an
   // unwritable parent (mkdir EACCES) and a pre-existing but unwritable dir.
-  async function opencodeDirIsWritable(parent) {
-    const dir = path.join(parent, "opencode");
+  async function opencodeDirIsWritable(parent, name = "opencode") {
+    const dir = path.join(parent, name);
     const probe = path.join(dir, ".legalwork-write-probe");
     try {
       await mkdir(dir, { recursive: true });
@@ -899,11 +899,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       const home = app.getPath("home");
       const configParent = String(process.env.XDG_CONFIG_HOME ?? "").trim() || path.join(home, ".config");
       const dataParent = String(process.env.XDG_DATA_HOME ?? "").trim() || path.join(home, ".local", "share");
-      const [configOk, dataOk] = await Promise.all([
-        opencodeDirIsWritable(configParent),
-        opencodeDirIsWritable(dataParent),
-      ]);
-      if (configOk && dataOk) return null;
+      // 🟡 LAWOSS: engine má vlastný domov pod úložiskom servera (apps/server/src/lawoss/engine-home.ts);
+      // globálne ~/.config/opencode a ~/.local/share/opencode sa nezakladajú ani nesondujú.
+      if (await opencodeDirIsWritable(configParent, "legalwork")) return null;
 
       const root = path.join(userDataDir, "opencode-home");
       const overrideEnv = opencodeHomeEnvFromRoot(root);
