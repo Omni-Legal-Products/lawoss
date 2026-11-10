@@ -35,6 +35,7 @@ import { chatFilePath, chatWorkspace } from "./lawoss-file-paths.js";
 import { listWorkspaces, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 import { nativeTool } from "./native-tool.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
+import { askOrDeclined } from "./lawoss-declined-card.js";
 
 const args = z.object({
   action: z.enum(["preamble", "read"]).describe("preamble: rules, lessons and the do-not-cite list, at the start of work on a case. read: the full memory of the case with its client and office scope."),
@@ -70,7 +71,7 @@ const PERMISSION = "lawoss_file_change";
 const SYSTEM = [
   "Case memory: read it with lawoss_memory (action preamble before your first answer about a case, then action read) instead of running okf-memory preamble or read in the shell. It reads the same memory without an approval card.",
   "To write a case memory record, call lawoss_memory_write with the whole record and the reason instead of okf-memory write, node or draft files in the shell: the user sees one card with the text and the target file, and nothing is written if they decline. Never create draft files in the client's folder. If the user declines, do not retry now.",
-  "A note that applies to the whole client, not to one case (for example how the client wants to be contacted): call lawoss_memory_write with scope client and a record of type client_note, layer L2, with the id CN-001 or the next free CN number among the client's records (lawoss_memory read shows them). The card tells the user that the note applies to the whole client. Do not refuse such a note because it belongs to no case.",
+  "A note that applies to the whole client, not to one case (for example how the client wants to be contacted): call lawoss_memory_write with scope client and a record of type client_note, layer L2, with the id CN-001 or the next free CN number among the client's records (lawoss_memory read shows them). A note on a new topic is a new record with the next free CN number; change an existing note only when it is about the same topic. The card tells the user that the note applies to the whole client. Do not refuse such a note because it belongs to no case.",
   "A deadline the lawyer states with a date (for example: we must answer by 25 November, note that deadline): call lawoss_memory_deadline once with that date as YYYY-MM-DD, what it is for, the lawyer's sentence and the case folder. It registers the lawyer's instruction among the case's inputs and writes the deadline in one approval card, marked as given by the lawyer's instruction and not verified from a document, so do not register the instruction yourself first and do not explain the rules instead of writing. Use a year only when the lawyer's words or today's date make it certain. Never derive or compute a deadline: when the lawyer gave no explicit date, or it is unclear which case it belongs to, ask one short question.",
   "When the user asks to tidy up, sort or file what is unfiled: do not stop at an empty intake folder (00_Na_zatriedenie). The client's overview counts unprocessed inputs: rows with the state pending in the input register VSTUPY.md of the client's folder and of every case. Find them with grep for pending in files named VSTUPY.md (or lawoss_memory read case by case), and list the intake folders of the client and of each case with read. Documents that still lie in an intake folder or outside any case: propose where each belongs and move them with lawoss_files in one plan. Documents that already lie in a case and only wait to be reviewed: say how many there are in which case and offer to go through them.",
   "When the user asks what is due or what to do for a client (this week, soon, next): the app's task list holds only tasks created in the app, while deadlines and tasks of cases live in case memory. Call lawoss_memory read for every case folder of the client (each folder under Spisy/), then answer with the dated items in the asked period and the nearest later ones, each with its case name and whether the date was verified. If a case could not be read, say so instead of saying there is nothing.",
@@ -116,11 +117,13 @@ async function writeMemory(input: z.output<typeof writeArgs>, context: OpenCodeC
 
 /** The server's preview, one card with it, then the same request with `apply` and the preview's token. */
 async function previewThenWrite(context: OpenCodeContext, workspace: string, body: Record<string, unknown>): Promise<string> {
-  if (!context.ask) throw new Error("Writing case memory needs the user's approval, but approval requests are unavailable.");
+  const ask = context.ask;
+  if (!ask) throw new Error("Writing case memory needs the user's approval, but approval requests are unavailable.");
   const plan = preview.parse(JSON.parse(await post(context, workspace, "write", body)));
   const { approved, status: _status, ...card } = plan;
   const patterns = plan.deadline ? [plan.target, plan.deadline.register] : [plan.target];
-  await context.ask({ permission: PERMISSION, patterns, always: [], metadata: { lawossMemory: card } });
+  const declined = await askOrDeclined(() => ask({ permission: PERMISSION, patterns, always: [], metadata: { lawossMemory: card } }), plan.target);
+  if (declined) return declined;
   const written: unknown = JSON.parse(await post(context, workspace, "write", { ...body, apply: true, approved }));
   return JSON.stringify({ written: true, target: plan.target, result: written });
 }

@@ -83,7 +83,8 @@ export function memoryWriteCard(metadata: Record<string, unknown>): Card | null 
   return {
     title: t(write.client ? "lawoss.memory_write.client_title" : "lawoss.memory_write.title"),
     message: t(write.client ? "lawoss.memory_write.client_message" : "lawoss.memory_write.message"),
-    permissionLabel: t("lawoss.memory_write.permission_label"),
+    // Test alfy 10. 11.: karta poznámky ku klientovi písala „Pamäť prípadu“.
+    permissionLabel: t(write.client ? "lawoss.memory_write.client_permission_label" : "lawoss.memory_write.permission_label"),
     scopeLabel: t("lawoss.memory_write.scope"),
     scopeValue: [...whole, file, record, text, ...added].join("\n"),
     details: {
