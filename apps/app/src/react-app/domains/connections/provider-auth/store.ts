@@ -56,6 +56,7 @@ import { customProviderModelEntry, customProviderModelFromEntry } from "./custom
 import { localProviderTimeouts } from "@/lawoss/providers/local-timeouts";
 import { patchProviderConfirmingOverwrite } from "@/lawoss/providers/overwrite-confirm";
 import { orgPolicyAllows } from "../org-policy";
+import { connectKeyAfterConfig } from "@/lawoss/domains/settings/connect-key-after-config";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 
@@ -871,8 +872,11 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       // Keep the secret out of the config file: store it in the engine auth
       // store, where opencode injects it as the OpenAI-compatible bearer key.
       if (apiKey) {
-        await c.model.list({ location: authLocation() });
-        await c.integration.connect.key({ integrationID: providerId, key: apiKey, location: authLocation() });
+        // 🟡 LAWOSS: engine preberá novú konfiguráciu s oneskorením; kľúč sa uloží, keď poskytovateľa pozná.
+        await connectKeyAfterConfig(
+          () => c.model.list({ location: authLocation() }),
+          () => c.integration.connect.key({ integrationID: providerId, key: apiKey, location: authLocation() }),
+        );
       }
 
       options.markOpencodeConfigReloadRequired();

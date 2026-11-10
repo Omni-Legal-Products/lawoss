@@ -167,7 +167,8 @@ engineTest("chat v klientovi B má nástroje LAWOSS po klientovi A, po uvoľnen�
         password: dump.includes("OPENCODE_PASSWORD=") || dump.includes("OPENCODE_SERVER_PASSWORD=") || dump.includes(engine.password), username: dump.includes("OPENCODE_SERVER_USERNAME="), config: dump.includes("OPENCODE_CONFIG=") })
         .toEqual({ name, hasPath: true, secret: false, ticket: false, oldName: false, password: false, username: false, config: false });
     }
-    for (const name of ["shell-A1.txt", "shell-B2.txt"]) {
+    // Ani MCP (aj balíky z Marketplace) nedostanú cestu k DB enginu so všetkými chatmi ani konfiguráciu (MČ 10. 11. 2026).
+    for (const name of [...mcpDumps, "shell-A1.txt", "shell-B2.txt"]) {
       const dump = await readFile(join(dumps, name), "utf8");
       expect({ name, configDir: dump.includes("OPENCODE_CONFIG_DIR="), content: dump.includes("OPENCODE_CONFIG_CONTENT="), db: dump.includes("OPENCODE_DB=") }).toEqual({ name, configDir: false, content: false, db: false });
     }

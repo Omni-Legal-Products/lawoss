@@ -52,6 +52,21 @@ describe("globálne skilly Claude (~/.claude/skills) LAWOSS nečíta", () => {
     await expect(resolveSkillDir(workspace, "claude-code-only")).rejects.toMatchObject({ status: 404 });
   });
 
+  test("globálne skilly iných agentov (~/.agents/skills, ~/.agent/skills) sa nečítajú; priečinok v klientovi sa nefiltruje", async () => {
+    // Rozhodnutie MČ 10. 11. 2026 (#255 C).
+    await writeSkill(join(home, ".agents", "skills"), "agents-global");
+    await writeSkill(join(home, ".agent", "skills"), "agent-global");
+    const workspace = join(root, "klient-agents");
+    await mkdir(join(workspace, ".git"), { recursive: true });
+    expect(isIgnoredSkillRoot(join(home, ".agents", "skills"))).toBe(true);
+    expect(isIgnoredSkillRoot(join(home, ".agent", "skills"))).toBe(true);
+    expect(isIgnoredSkillRoot(join(workspace, ".agents", "skills"))).toBe(false);
+    const listed = await names(workspace);
+    expect(listed).not.toContain("global:agents-global");
+    expect(listed).not.toContain("global:agent-global");
+    expect(listed).toContain("global:slovlex-marketplace");
+  });
+
   test("izolovaný HOME: preskočí aj ~/.claude/skills skutočného používateľa (passwd), nie iné .claude/skills", () => {
     // `homedir()` je v teste dočasný priečinok ako pri `start.sh`; skutočný domov hlási `userInfo()`.
     const realHome = os.userInfo().homedir;
