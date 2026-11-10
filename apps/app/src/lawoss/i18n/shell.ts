@@ -1,6 +1,8 @@
 export const shellEn = {
   // Upstream v0.3.0 replaced this with the Assistant hint; LAWOSS Home without a client creates one.
-  "home.new_project_hint": "A new client will be created when you send.",
+  "home.new_project_hint": "Choose a client or add a new one first.",
+  "lawoss.home.client_required": "Choose a client for this message, or add a new client. Your text stays here.",
+  "lawoss.home.client_required_add": "Add client",
   "lawoss.yolo.title": "YOLO Mode",
   "lawoss.yolo.description": "The agent works with files and commands on its own, without asking.",
   "lawoss.yolo.state_off": "Off. The agent asks before actions according to the rules below.",
@@ -755,7 +757,9 @@ export const shellEn = {
 type SlavicPluralKey = "lawoss.lite.due_in_days_few" | "lawoss.lite.due_in_days_many" | "lawoss.practice.clients_few" | "lawoss.practice.clients_many";
 
 export const shellCs = {
-  "home.new_project_hint": "Po odeslání bude přidán nový klient.",
+  "home.new_project_hint": "Nejdřív vyberte klienta, nebo přidejte nového.",
+  "lawoss.home.client_required": "Vyberte klienta, kterého se zpráva týká, nebo přidejte nového. Text tu zůstane.",
+  "lawoss.home.client_required_add": "Přidat klienta",
   "lawoss.yolo.title": "YOLO Mode",
   "lawoss.yolo.description": "Agent pracuje se soubory a příkazy sám, bez ptaní.",
   "lawoss.yolo.state_off": "Vypnuto. Agent se před akcemi ptá podle pravidel níže.",
@@ -1511,7 +1515,9 @@ export const shellCs = {
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
-  "home.new_project_hint": "Nový klient sa pridá po odoslaní správy.",
+  "home.new_project_hint": "Najprv zvoľte klienta alebo pridajte nového.",
+  "lawoss.home.client_required": "Zvoľte klienta, ktorého sa správa týka, alebo pridajte nového. Text tu ostane.",
+  "lawoss.home.client_required_add": "Pridať klienta",
   "lawoss.yolo.title": "YOLO Mode",
   "lawoss.yolo.description": "Agent pracuje so súbormi a príkazmi sám, bez pýtania.",
   "lawoss.yolo.state_off": "Vypnuté. Agent sa pred úkonmi pýta podľa pravidiel nižšie.",
@@ -2267,7 +2273,9 @@ export const shellSk = {
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
-  "home.new_project_hint": "Beim Senden wird ein neuer Mandant erstellt.",
+  "home.new_project_hint": "Wählen Sie zuerst einen Mandanten oder legen Sie einen neuen an.",
+  "lawoss.home.client_required": "Wählen Sie den Mandanten für diese Nachricht oder legen Sie einen neuen an. Ihr Text bleibt hier.",
+  "lawoss.home.client_required_add": "Mandanten hinzufügen",
   "lawoss.yolo.title": "YOLO Mode",
   "lawoss.yolo.description": "Der Agent arbeitet selbständig mit Dateien und Befehlen, ohne zu fragen.",
   "lawoss.yolo.state_off": "Aus. Der Agent fragt vor Aktionen nach den Regeln unten.",

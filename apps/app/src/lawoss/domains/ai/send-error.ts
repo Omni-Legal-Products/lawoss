@@ -5,7 +5,8 @@ import { aiBoundariesRefusal } from "./boundaries-refusal";
  * A failed send stored as a kind, not as translated text: the sentence is
  * produced at render time, so it follows a language switch made afterwards.
  */
-export type SendError = { kind: "ai-boundaries" } | { kind: "failed" } | { kind: "message"; message: string };
+/** `client-required`: úvodný chat bez zvoleného klienta nič nezakladá (MČ 10. 11. 2026). */
+export type SendError = { kind: "ai-boundaries" } | { kind: "client-required" } | { kind: "failed" } | { kind: "message"; message: string };
 
 export function sendErrorFromThrown(thrown: unknown): SendError {
   if (aiBoundariesRefusal(thrown)) return { kind: "ai-boundaries" };
@@ -14,5 +15,6 @@ export function sendErrorFromThrown(thrown: unknown): SendError {
 
 export function sendErrorText(error: SendError, locale?: Language): string {
   if (error.kind === "ai-boundaries") return t("lawoss.ai_boundaries.chat_refused", locale);
+  if (error.kind === "client-required") return t("lawoss.home.client_required", locale);
   return error.kind === "message" ? error.message : t("home.send_failed", locale);
 }
