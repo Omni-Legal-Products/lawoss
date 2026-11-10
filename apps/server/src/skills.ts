@@ -7,7 +7,7 @@ import type { SkillItem } from "./types.js";
 import { parseFrontmatter, buildFrontmatter } from "./frontmatter.js";
 import { exists } from "./utils.js";
 import { validateDescription, validateSkillName } from "./validators.js";
-import { isOutsideWorkspacePath, resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
+import { isMissingWorkspaceRoot, isOutsideWorkspacePath, resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { isIgnoredSkillRoot } from "./lawoss/claude-global-skills.js";
 import { ApiError } from "./errors.js";
 import { globalSkillsDir, projectSkillsDir } from "./workspace-files.js";
@@ -126,6 +126,8 @@ export async function listSkillsInDir(dir: string, scope: "project" | "global", 
     try {
       readableDir = await resolveWorkspaceFilePath(workspaceRoot, dir);
     } catch (error) {
+      // LAWOSS: a missing client folder has no skills; it must not fail every client's engine settings.
+      if (isMissingWorkspaceRoot(error)) return [];
       if (!isOutsideWorkspacePath(error)) throw error;
       skipped?.push({ path: dir, reason: error.message });
       return [];
