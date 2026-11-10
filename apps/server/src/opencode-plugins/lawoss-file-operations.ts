@@ -1,5 +1,6 @@
 /**
- * LAWOSS: nástroj `lawoss_files` – premenovanie, presun, kópia, nový priečinok, presun do Koša (alfa 2, MČ 22. 10. 2026).
+ * LAWOSS: nástroj `lawoss_files` – premenovanie, presun, kópia, nový priečinok, nový súbor, presun do Koša
+ * (alfa 2, MČ 22. 10. 2026; nový súbor `create_file` MČ 10. 11. 2026: nový Word, Markdown alebo text bez shellu).
  *
  * Jedna požiadavka = jedna karta enginu s vlastným povolením `lawoss_file_change` a celým plánom
  * („pôvodná → nová“, „Do Koša: X“). Pravidlo odvodzuje `legalwork-runtime-config.ts` z `edit`
@@ -13,7 +14,7 @@
 import { Plugin } from "@opencode/plugin";
 import { z } from "zod";
 import { chatFilePath, chatWorkspace } from "./lawoss-file-paths.js";
-import { EXACT_NAME_RULE, FILE_REPORT_RULE, fileOperationToolText, MOVE_ACROSS_DRIVES_RULE } from "./lawoss-file-operations-text.js";
+import { CREATE_FILE_RULE, EXACT_NAME_RULE, FILE_REPORT_RULE, fileOperationToolText, MOVE_ACROSS_DRIVES_RULE } from "./lawoss-file-operations-text.js";
 import { listWorkspaces, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 import { hideEngineEnvFromShell } from "./wiki-agent-secret.js";
 import { nativeTool } from "./native-tool.js";
@@ -21,18 +22,35 @@ import { registerPrimaryContext } from "./native-review-worker.js";
 
 const pathArg = z.string().min(1).max(4096);
 // A flat object, not a union: every provider's tool schema accepts it (Gemini and OpenAI reject some anyOf shapes).
+// The same holds inside a Word document: one block object with optional fields, no union of block types.
+const block = z.object({
+  type: z.enum(["heading", "paragraph", "list", "page_break"]).describe("heading: level and text; paragraph: text and optionally align; list: ordered and items; page_break: nothing else."),
+  level: z.number().int().min(1).max(3).optional().describe("heading: 1, 2 or 3 (default 1)."),
+  text: z.string().optional().describe("heading/paragraph: the text. Only **bold** and *italic* are formatting; everything else is literal."),
+  align: z.enum(["left", "justify", "right", "center"]).optional().describe("paragraph: alignment (default left)."),
+  ordered: z.boolean().optional().describe("list: true for a numbered list, false for bullets (default false)."),
+  items: z.array(z.string()).optional().describe("list: the text of each item."),
+});
+const document = z.object({
+  title: z.string().max(300).optional().describe("The document's title, shown centred at the top."),
+  blocks: z.array(block).min(1).max(1000).describe("The document's content in order."),
+});
 const operation = z.object({
-  operation: z.enum(["move", "copy", "create_folder", "delete"]).describe("move renames or moves, also to another drive or linked folder (the original then goes to the Trash); copy keeps the original; delete moves a file or a folder with its contents to the Trash, where the user can restore it."),
+  operation: z.enum(["move", "copy", "create_folder", "create_file", "delete"]).describe("move renames or moves, also to another drive or linked folder (the original then goes to the Trash); copy keeps the original; create_file writes ONE new .docx, .md or .txt file from the content given here and never overwrites; delete moves a file or a folder with its contents to the Trash, where the user can restore it."),
   from: pathArg.optional().describe("move/copy: the existing file or folder."),
   to: pathArg.optional().describe("move/copy: the new path; it must not exist yet."),
-  path: pathArg.optional().describe("create_folder/delete: the folder to create or the file/folder to delete."),
+  path: pathArg.optional().describe("create_folder/delete: the folder to create or the file/folder to delete. create_file: the new file; it must not exist yet, its extension must match format, and its folder must exist or be created by a create_folder operation earlier in this call."),
+  format: z.enum(["docx", "md", "txt"]).optional().describe("create_file: the kind of file; the same as the extension of path."),
+  content: z.string().optional().describe("create_file with format md or txt: the whole text of the file (at most 1 MiB)."),
+  document: document.optional().describe("create_file with format docx: the Word document as a title and blocks. Do not send XML, HTML or Markdown here."),
+  language: z.enum(["sk-SK", "cs-CZ"]).optional().describe("create_file with format docx: the language of the text, for spell-checking in Word (default: Czech when the app runs in Czech, otherwise Slovak)."),
 });
 const args = z.object({
   operations: z.array(operation).min(1).max(50).describe("Changes in order, 1–50. Paths are relative to the chat's folder (in a case chat, the case folder) or absolute inside this client's folder or its linked folders. A case or client folder may be written as its code alone (Spisy/M001/…): the tool uses the one folder starting with that code, and refuses if several match."),
   description: z.string().max(300).optional().describe("Briefly say why, in the user's language."),
 });
 
-const SYSTEM = `To rename, move, copy or delete files and folders or to create folders, use lawoss_files instead of shell commands (mv, cp, rm, mkdir): the user sees one approval card listing the exact changes, and deleted items go to the Trash. Put a whole requested batch in one call. If the user declines the card, nothing changed; do not retry it now, but if the user later explicitly asks again, call lawoss_files again so they see a new card. Report only the changes the tool result lists as done. ${EXACT_NAME_RULE} ${MOVE_ACROSS_DRIVES_RULE} ${FILE_REPORT_RULE}`;
+const SYSTEM = `To rename, move, copy or delete files and folders, to create folders or to create a new document, use lawoss_files instead of shell commands (mv, cp, rm, mkdir, redirection): the user sees one approval card listing the exact changes, and deleted items go to the Trash. Put a whole requested batch in one call. If the user declines the card, nothing changed; do not retry it now, but if the user later explicitly asks again, call lawoss_files again so they see a new card. Report only the changes the tool result lists as done. ${CREATE_FILE_RULE} ${EXACT_NAME_RULE} ${MOVE_ACROSS_DRIVES_RULE} ${FILE_REPORT_RULE}`;
 
 type Plan = { operations: unknown[]; revision: string };
 /** The tool's own permission (not `edit`): see the file header. */
@@ -54,6 +72,34 @@ async function post(context: OpenCodeContext, workspace: string, route: "plan" |
   return JSON.parse(text);
 }
 
+type OperationInput = z.output<typeof operation>;
+type BlockInput = z.output<typeof block>;
+
+/** The server's exact block shape from the model's flat one; a missing required field is named, not guessed. */
+function serverBlock(item: BlockInput, index: number): Record<string, unknown> {
+  const missing = (field: string) => new Error(`create_file: block ${index + 1} (${item.type}) needs ${field}. Nothing was changed.`);
+  if (item.type === "page_break") return { type: "page_break" };
+  if (item.type === "list") {
+    if (!item.items?.length) throw missing("items");
+    return { type: "list", ordered: item.ordered ?? false, items: item.items };
+  }
+  if (item.text === undefined) throw missing("text");
+  if (item.type === "heading") return { type: "heading", level: item.level ?? 1, text: item.text };
+  return { type: "paragraph", text: item.text, ...(item.align ? { align: item.align } : {}) };
+}
+
+/** create_file as the server takes it: `content` is the text (md, txt) or the structured Word document (docx). */
+function newFile(item: OperationInput): Record<string, unknown> {
+  if (!item.format) throw new Error("create_file needs format: docx, md or txt, the same as the extension of path. Nothing was changed.");
+  if (item.format !== "docx") {
+    if (item.content === undefined) throw new Error(`create_file with format ${item.format} needs content: the text of the file. Nothing was changed.`);
+    return { operation: "create_file", format: item.format, content: item.content };
+  }
+  if (!item.document) throw new Error("create_file with format docx needs document: { title, blocks: [{ type: \"heading\" | \"paragraph\" | \"list\" | \"page_break\", … }] }. Nothing was changed.");
+  return { operation: "create_file", format: "docx", content: { ...(item.document.title ? { title: item.document.title } : {}), blocks: item.document.blocks.map(serverBlock) },
+    ...(item.language ? { language: item.language } : {}) };
+}
+
 function visiblePaths(plan: Plan): string[] {
   const paths = plan.operations.flatMap((item) => item && typeof item === "object"
     ? ["from", "to"].flatMap((key) => { const value: unknown = Reflect.get(item, key); return typeof value === "string" ? [value] : []; }) : []);
@@ -73,6 +119,7 @@ async function execute(input: z.output<typeof args>, context: OpenCodeContext): 
       return { operation: item.operation, from: absolute(item.from), to: absolute(item.to) };
     }
     if (!item.path) throw new Error(`${item.operation} needs path. Nothing was changed.`);
+    if (item.operation === "create_file") return { ...newFile(item), path: absolute(item.path) };
     return { operation: item.operation, path: absolute(item.path) };
   });
   const workspace = own.id;
@@ -91,7 +138,7 @@ export default Plugin.define({
     const tools = await ctx.tool.transform((editor) => {
       editor.add(nativeTool(ctx, {
         name: "lawoss_files",
-        description: `Rename, move, copy or delete files and folders, or create folders, in this client's folder and its linked folders. Shows the user one approval card with every change (no card when YOLO Mode is on). Deleting moves items to the Trash. Never overwrites: an existing target is refused. A declined card changes nothing. The result lists what was actually done. ${EXACT_NAME_RULE} ${MOVE_ACROSS_DRIVES_RULE}`,
+        description: `Rename, move, copy or delete files and folders, create folders, or create a new Word (.docx), Markdown (.md) or plain-text (.txt) file from content you give, in this client's folder and its linked folders. Shows the user one approval card with every change (no card when YOLO Mode is on). Deleting moves items to the Trash. Never overwrites: an existing target is refused. A declined card changes nothing. The result lists what was actually done. ${CREATE_FILE_RULE} ${EXACT_NAME_RULE} ${MOVE_ACROSS_DRIVES_RULE}`,
         schema: args,
         // The tool asks its own `lawoss_file_change` card with the whole plan; no second card for its name.
         permission: "domain",

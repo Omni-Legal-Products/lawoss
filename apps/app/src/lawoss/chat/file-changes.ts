@@ -34,6 +34,37 @@ export function fileChangesOf(toolName: string, input: unknown, output: unknown)
   return Array.isArray(operations) && operations.length > 0 ? operations.length : 1;
 }
 
+/**
+ * Nové súbory, ktoré hotové volanie `lawoss_files` vytvorilo (`create_file`, MČ 10. 11. 2026): plné cesty z výsledku
+ * servera (`path`). `lib/artifacts.ts` z nich robí otvárateľné karty súborov pod odpoveďou, ako pri zápise natívnym
+ * nástrojom; meno s diakritikou alebo medzerou by z textu odpovede nerozpoznal.
+ */
+export function createdFilesOf(parts: ReadonlyArray<{ type: string }>): string[] {
+  return parts.flatMap((part) => {
+    const name: unknown = Reflect.get(part, "toolName"), state: unknown = Reflect.get(part, "state");
+    if (part.type !== "dynamic-tool" || name !== BATCH_TOOL || state !== "output-available") return [];
+    const result = parsedOutput(Reflect.get(part, "output"));
+    const results: unknown = result && typeof result === "object" ? Reflect.get(result, "results") : undefined;
+    if (!Array.isArray(results)) return [];
+    return results.flatMap((entry: unknown) => {
+      if (!entry || typeof entry !== "object" || Reflect.get(entry, "operation") !== "create_file" || Reflect.get(entry, "status") !== "done") return [];
+      const path: unknown = Reflect.get(entry, "path");
+      return typeof path === "string" && path.trim() ? [path] : [];
+    });
+  });
+}
+
+/**
+ * Cesty správy pre karty súborov spolu s novými súbormi. Agent nový súbor v odpovedi aj pomenuje (`Vystupy/vyzva.docx`):
+ * cesta z textu, ktorá je koncom cesty vytvoreného súboru, je ten istý súbor a druhú kartu nedostane.
+ */
+export function withCreatedFiles(paths: readonly string[], parts: ReadonlyArray<{ type: string }>): string[] {
+  const created = createdFilesOf(parts);
+  const plain = (path: string) => path.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+  const same = (path: string) => created.some((file) => plain(file) === plain(path) || plain(file).endsWith(`/${plain(path)}`));
+  return [...paths.filter((path) => !same(path)), ...created];
+}
+
 const toolName = (part: ToolPart) => part.type === "dynamic-tool" ? part.toolName : part.type.replace(/^tool-/, "");
 
 /**

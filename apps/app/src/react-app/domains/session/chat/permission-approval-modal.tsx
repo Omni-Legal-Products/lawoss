@@ -449,13 +449,16 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
   const memoryWriteProposal = describeMemoryWrite(String(metadata.command ?? ""));
   const otherClient = useOtherClientFolderText(props.permission, props.chatDirectory); // LAWOSS (N-A7-14)
   const missingFolder = useMissingFolderText(props.permission); // LAWOSS (N-A7-14): cesta, ktorá neexistuje
-  const input = props.permission.toolInput;
+  // 🟡 LAWOSS: karta zmien súborov má čitateľné riadky (presentation.details); surový vstup nástroja
+  // („code: return await tools.lawoss_files(…)“) sa pri nej neukazuje (prehliadka alfy 10. 11. 2026).
+  const input = presentation.details ? undefined : props.permission.toolInput;
   const inputUnavailable = input && input.status !== "ready";
 
   return (
-    <div className="overflow-hidden border-b border-dls-border bg-transparent">
+    <div className="@container/permission-card overflow-hidden border-b border-dls-border bg-transparent">
         <InteractionSource session={props.permission.sourceSession} onOpenSession={props.onOpenSession} />
-        <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        {/* 🟡 LAWOSS: rozloženie podľa šírky karty, nie okna. V úzkom chate (rozdelené zobrazenie) sa text lámal po slove a tlačidlá ho prekrývali. */}
+        <div className="flex flex-col gap-3 px-4 py-3 @min-[560px]/permission-card:flex-row @min-[560px]/permission-card:items-center @min-[560px]/permission-card:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl border border-dls-border bg-dls-hover text-dls-secondary">
               <Icon size={16} strokeWidth={1.9} />
@@ -474,7 +477,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
             </div>
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+          <div className="flex flex-wrap items-center gap-2 @min-[560px]/permission-card:shrink-0 @min-[560px]/permission-card:justify-end">
             <Button
               type="button"
               variant="outline"
@@ -600,7 +603,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
 
           {projectInstructions ? <div className="mt-3"><ProjectInstructionsReview metadata={metadata} /></div> : null}
           {hasMetadata && !projectInstructions ? (
-            <details className="group mt-3 rounded-xl border border-dls-border bg-dls-surface px-3 py-2">
+            <details open={Boolean(presentation.details) || undefined} className="group mt-3 rounded-xl border border-dls-border bg-dls-surface px-3 py-2">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[12px] font-medium text-dls-text">
                 <span>{t("session.details_label")}</span>
                 <ChevronRight size={14} className="text-dls-secondary transition-transform group-open:rotate-90" />

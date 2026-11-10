@@ -22,6 +22,13 @@ export const MOVE_ACROSS_DRIVES_RULE = "A move to another drive or to a linked f
  */
 export const EXACT_NAME_RULE = "Use the exact file or folder name the user wrote, letter for letter, including case, accents and extension. Never replace it with a similar existing name (for example Podklady.pdf when the user wrote podklad.pdf). If no item has exactly that name, or several items have similar names, list the folder with read on its path (glob does not show empty folders) and ask the user which item they mean before calling lawoss_files. When the card or result names similar items next to the one changed, make sure it is the item the user meant.";
 
+/**
+ * Prehliadka alfy 10. 11. 2026 (rozhodnutie MČ): na „priprav krátku predžalobnú výzvu ako Word dokument“ agent
+ * spúšťal `mkdir -p`, `printf > súbor.md` a `node -e require.resolve('docx')`, lebo nemal čím nový súbor vytvoriť.
+ * Nový dokument v priečinku klienta ide cez `create_file`; úprava existujúceho dokumentu a šablóny ostávajú.
+ */
+export const CREATE_FILE_RULE = "When the user asks you to write a NEW document as a file in this client's folder or its linked folders, a Word (.docx), Markdown (.md) or plain-text (.txt) file such as a letter, a pre-action demand, a memo, notes or a draft, create it with lawoss_files and the create_file operation: give path, format and the content. For docx give document (an optional title and blocks: headings, paragraphs, lists, page breaks; inside text only **bold** and *italic*); the app builds the Word file itself, in A4 with Slovak or Czech as the document language. If the folder does not exist yet, put a create_folder operation before create_file in the same call. Do not write such a document with shell commands (mkdir, touch, echo, printf or cat with redirection, heredocs) or with a node or python script you write for it, and do not probe for libraries such as docx or python-docx; for a document you author from scratch, create_file is used instead of write and inapp_markdown_create. Everything else stays as it is: to change an EXISTING document keep using the editing tools (inapp_docx_* in the app or word_* in Word for Word documents, the edit tools for text and Markdown), since create_file never overwrites; a report or document filled from a supplied template keeps its template workflow; and files that a LAWOSS tool or a skill's own command writes as part of its documented workflow (for example redlined copies, registers, case memory, exports) are written by that tool or command. After create_file, tell the user the name and folder of the new file from the result; do not paste its whole content into the chat again unless asked.";
+
 type Row = { register: string; id: string };
 type Input = Row & { updated: boolean; trashed: boolean; handedOver?: Row; also?: Row[] };
 type Result = { operation: string; kind?: string; from?: string; to?: string; status: string; trash?: string; similar?: string[]; input?: Input; inputError?: string };
@@ -100,6 +107,12 @@ function sentence(value: Result): string | null {
   return null;
 }
 
+/** A new file: the agent names it to the user (the chat then offers it to open) instead of repeating its content. */
+function createdSentence(value: Result): string | null {
+  if (value.status !== "done" || value.operation !== "create_file" || !value.to) return null;
+  return `${value.to}: the new file was created. Tell the user its name and folder; they can open it from the chat. To change it now, use the editing tools, not create_file again.`;
+}
+
 /** Sentences for the user from the applied results; empty when nothing went to the Trash and everything was done. */
 export function fileOperationReport(raw: unknown): string[] {
   if (!raw || typeof raw !== "object") return [];
@@ -110,7 +123,7 @@ export function fileOperationReport(raw: unknown): string[] {
     const line = value ? sentence(value) : null;
     // N-A5-1: a similar name next to the changed item may be the one the user meant.
     const similar = value?.status === "done" && value.similar ? `${value.from ?? ""}: next to it are items with similar names (${value.similar.join(", ")}). Tell the user exactly which item was changed, so they can check it was the one they meant.` : null;
-    return [line, similar, value ? inputSentence(value) : null].filter((item): item is string => item !== null);
+    return [line, value ? createdSentence(value) : null, similar, value ? inputSentence(value) : null].filter((item): item is string => item !== null);
   });
   if (Reflect.get(raw, "complete") === false) lines.push("Not every change was made: tell the user only about the changes with status done, and say which ones were not made and why.");
   return lines;

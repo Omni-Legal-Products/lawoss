@@ -3,6 +3,7 @@ import { codeLanguage } from "./code-language";
 import { attachmentFilename } from "@/app/lib/attachment-filename";
 
 import { LEGALMEMORY_URI_PATTERN } from "@/components/markdown/legalmemory-ref";
+import { createdFilesOf } from "@/lawoss/chat/file-changes";
 
 type OpenTargetKind = "url" | "file";
 export type OpenTargetPreview = "view" | "browser" | "markdown" | "sheet" | "slides" | "word" | "image" | "audio" | "video" | "pdf" | "html" | "text" | "external";
@@ -459,6 +460,9 @@ export function deriveOpenTargets(messages: UIMessage[], options: DeriveOpenTarg
           scanText(targets, part.output, 90, "write tool output", { includeFiles: true });
         }
       }
+
+      // 🟡 LAWOSS: a file created by lawoss_files (create_file) is a file the chat offers to open.
+      addFileValues(targets, createdFilesOf([part]), 95, "created file");
 
       if (artifactMetadataTool) {
         addFileValues(
