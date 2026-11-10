@@ -1,6 +1,7 @@
 import { RuntimeDbInitializationError } from "./runtime-db-lifecycle.js";
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, fsyncSync, lstatSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, fsyncSync, lstatSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { renameSyncWithRetry } from "./lawoss/windows-rename-retry.js";
 import { chmod, lstat, mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
@@ -61,7 +62,8 @@ function replaceMarker(path: string, marker: Marker) {
     const file = openSync(temporary, "wx", 0o600);
     try { writeFileSync(file, JSON.stringify(marker) + "\n"); fsyncSync(file); }
     finally { closeSync(file); }
-    renameSync(temporary, path);
+    // 🟡 LAWOSS: na Windows môže iný proces krátko držať cieľ; rename sa zopakuje (windows-rename-retry.ts).
+    renameSyncWithRetry(temporary, path);
     syncMarkerDirectory(path);
   } finally { try { unlinkSync(temporary); } catch (error) { if (!absent(error)) throw error; } }
 }
