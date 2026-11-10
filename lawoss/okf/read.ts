@@ -148,10 +148,22 @@ export function recordDeadlines(r: OkfRecord): { date: string; raw: string; inva
 }
 
 
-/** `instruction`: lehota záznamu je z pokynu advokáta a tento zápis (`raw`) nikto ľudsky neoveril; inak `undefined`. */
+/** Calendar validity is required; Date.parse alone normalizes invalid dates such as February 30. */
+export function validVerificationTime(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))?$/.test(value)) return false;
+  const day = new Date(`${value.slice(0, 10)}T00:00:00Z`);
+  return !Number.isNaN(day.getTime()) && day.toISOString().slice(0, 10) === value.slice(0, 10) && !Number.isNaN(Date.parse(value));
+}
+
+/** Confirmation applies only to this date and the exact reviewed Truth. */
+export function deadlineConfirmed(record: OkfRecord, date: string): boolean {
+  return record.verified?.some((v) => v.type === "human" && typeof v.by === "string" && Boolean(v.by.trim()) && validVerificationTime(v.at) && v.at.slice(0, 10) >= record.updated.slice(0, 10) &&
+    v.deadline === date && v.truth === record.truth) ?? false;
+}
+
+/** `instruction`: lehota záznamu je z pokynu advokáta a tento zápis (`raw`) nemá platné ľudské potvrdenie; inak `undefined`. */
 export function deadlineBasis(r: OkfRecord, raw: string): DeadlineBasis | undefined {
-  if (r.extra?.deadline_basis !== "lawyer_instruction") return undefined;
-  return r.verified?.some((v) => v.type === "human" && v.deadline === raw) ? undefined : "instruction";
+  return r.extra?.deadline_basis === "lawyer_instruction" && !deadlineConfirmed(r, raw) ? "instruction" : undefined;
 }
 
 /** Text lehoty za dátumom („2026-10-09 Lehota na vyjadrenie" → „Lehota na vyjadrenie"); bez textu `undefined`. */

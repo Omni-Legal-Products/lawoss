@@ -12,7 +12,7 @@ import { isManagedDeadline, managedDeadlineTrusted, type DeadlineWorkflowEvidenc
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
 import { isRecordType, valueLabel, type KnownRecordType, type RecordType } from "../okf-pamat/src/schema.ts";
 import { pendingInputs } from "./inputs.ts";
-import { deadlineBasis, deadlineLabel, deadlineTier, type DeadlineBasis, isOpenTask, isRetired, recordDeadlines, taskDue, type MatterInput, type MatterOverview } from "./read.ts";
+import { deadlineBasis, deadlineConfirmed, deadlineLabel, deadlineTier, type DeadlineBasis, isOpenTask, isRetired, recordDeadlines, taskDue, validVerificationTime, type MatterInput, type MatterOverview } from "./read.ts";
 
 /** Odkiaľ údaj pochádza. Slovo, nie farba — stav musí byť čitateľný aj bez nej. */
 type Provenance = "overené" | "AI návrh" | "zapísané" | "overenie neurčené" | "strojovo overené";
@@ -126,13 +126,6 @@ const isFact = (t: RecordType): boolean => t !== "matter" && t !== "task";
 /** Fakt bez prameňa je nález validácie; pri týchto typoch prameň chýbať nesmie. */
 const NEEDS_SOURCE = new Set<RecordType>(["claim", "evidence", "decision"]);
 
-/** Calendar validity is required; Date.parse alone normalizes invalid dates such as February 30. */
-function validVerificationTime(value: unknown): value is string {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))?$/.test(value)) return false;
-  const day = new Date(`${value.slice(0, 10)}T00:00:00Z`);
-  return !Number.isNaN(day.getTime()) && day.toISOString().slice(0, 10) === value.slice(0, 10) && !Number.isNaN(Date.parse(value));
-}
-
 /** Legacy verification without actor type never implies human approval. */
 export function provenance(record: OkfRecord, evidence?: DeadlineWorkflowEvidence): Provenance {
   if (isManagedDeadline(record)) return managedDeadlineTrusted(record,evidence) ? "overené" : "overenie neurčené";
@@ -141,12 +134,6 @@ export function provenance(record: OkfRecord, evidence?: DeadlineWorkflowEvidenc
   if ((record.verified?.length ?? 0) > 0) return "overenie neurčené";
   if (record.extra && "generated" in record.extra) return "AI návrh";
   return "zapísané";
-}
-
-/** Confirmation applies only to this date and the exact reviewed Truth. */
-function deadlineConfirmed(record: OkfRecord, date: string): boolean {
-  return record.verified?.some((v) => v.type === "human" && typeof v.by === "string" && Boolean(v.by.trim()) && validVerificationTime(v.at) && v.at.slice(0, 10) >= record.updated.slice(0, 10) &&
-    v.deadline === date && v.truth === record.truth) ?? false;
 }
 
 const MEMORY_DIR = "memory";

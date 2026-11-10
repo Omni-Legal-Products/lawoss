@@ -41,9 +41,18 @@ test("lehota z pokynu advokáta: úloha s deadlines a značkou, čitatelia ju uk
   expect(cockpit?.deadlines.candidates).toMatchObject([{ date: "2026-11-25", confirmed: false, basis: "instruction", provenance: "zapísané" }]);
 
   // After the lawyer's own verification of this date the note goes away; the record's field stays as history.
-  const verified: OkfRecord = { ...record, verified: [{ type: "human", by: "JUDr. SYN", at: "2026-11-11T10:00:00Z", deadline: "2026-11-25 Odpoveď protistrane", truth: record.truth }] };
+  const approval = { type: "human" as const, by: "JUDr. SYN", at: "2026-11-11T10:00:00Z", deadline: "2026-11-25 Odpoveď protistrane", truth: record.truth };
+  const verified: OkfRecord = { ...record, verified: [approval] };
   const after = buildOverview([{ path: "Spisy/M001", records: [verified] }], "2026-11-10");
   expect(after.upcomingDeadlines[0]?.basis).toBeUndefined();
+  // The same rule as the cockpit's confirmation: a verification of an earlier Truth, or without a name, keeps the note.
+  for (const stale of [{ ...verified, truth: `${record.truth} Zmena.` }, { ...verified, verified: [{ ...approval, by: " " }] }, { ...verified, verified: [{ ...approval, deadline: "2026-11-26" }] }]) {
+    expect(buildOverview([{ path: "Spisy/M001", records: [stale] }], "2026-11-10").upcomingDeadlines[0]?.basis).toBe("instruction");
+    expect(buildCockpit({ matters: [], inputs: [{ path: "Spisy/M001", records: [stale] }], problems: [] }, "Spisy/M001", "2026-11-10")?.deadlines.confirmed ?? []).toHaveLength(0);
+  }
+  const confirmed = buildCockpit({ matters: after.matters, inputs: [{ path: "Spisy/M001", records: [verified] }], problems: [] }, "Spisy/M001", "2026-11-10");
+  expect(confirmed?.deadlines.confirmed).toMatchObject([{ date: "2026-11-25", confirmed: true }]);
+  expect(confirmed?.deadlines.confirmed[0]?.basis).toBeUndefined();
   // A record without the field is unchanged.
   expect(buildOverview([{ path: "Spisy/M001", records: [{ ...record, extra: {} }] }], "2026-11-10").upcomingDeadlines[0]?.basis).toBeUndefined();
 });
