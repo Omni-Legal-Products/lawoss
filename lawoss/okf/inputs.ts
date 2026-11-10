@@ -65,6 +65,17 @@ export function inputRow(id: string, received: string, original: string, source 
   return `| ${id} | ${received} | ${cellText(source)} | ${original} | pending | |`;
 }
 
+/** Zdroj riadku pre pokyn, ktorý advokát napísal v chate (rozhodnutie MČ 10. 11. 2026); za dvojbodkou jeho znenie. */
+export const INSTRUCTION_INPUT_SOURCE = "pokyn advokáta v chate (LAWOSS)";
+
+/**
+ * Riadok pre pokyn advokáta z chatu: nemá dokument (Originál „—“) a celý jeho obsah je v riadku, preto je hneď
+ * `processed` s ID záznamu pamäte, ktorý z neho vznikol v tom istom kroku. Nezvyšuje počet nespracovaných vstupov.
+ */
+export function instructionInputRow(id: string, received: string, instruction: string, result: string): string {
+  return `| ${id} | ${received} | ${cellText(`${INSTRUCTION_INPUT_SOURCE}: „${instruction}“`)} | — | processed | ${cellText(result)} |`;
+}
+
 /**
  * Bunka Originál pre cestu voči priečinku `VSTUPY.md`: obyčajná cesta, ako ju zapisuje appka; meno, ktoré by rozbilo
  * tabuľku alebo by sa čítalo ako odkaz, ide ako odkaz v Markdowne s percentovo kódovaným cieľom.

@@ -14,7 +14,12 @@ import { isIsoDate, isoDay } from "../okf-pamat/src/schema.ts";
 
 /** `invalid`: datum lhůty nemá tvar RRRR-MM-DD - UI ho ukáže k ověření, nikdy ho tiše nezahodí. */
 /** `file`: skutočný súbor záznamu - totožnosť zdieľaného záznamu (ID sa razia per spis, nie sú jedinečné). */
-type OverviewDeadline = { date: string; title: string; recordId: string; invalid?: true; file?: string; /** Pôvodný zápis lehoty: dve lehoty toho istého záznamu v jeden deň sú dve lehoty. */ raw?: string };
+/**
+ * Lehota z pokynu advokáta v chate, neoverená z listiny (rozhodnutie MČ 10. 11. 2026): záznam nesie
+ * `deadline_basis: lawyer_instruction` a tento dátum nemá ľudské overenie. Čitatelia ju ukážu s touto poznámkou.
+ */
+export type DeadlineBasis = "instruction";
+type OverviewDeadline = { date: string; title: string; recordId: string; invalid?: true; file?: string; /** Pôvodný zápis lehoty: dve lehoty toho istého záznamu v jeden deň sú dve lehoty. */ raw?: string; basis?: DeadlineBasis };
 /** `invalid`: termín úlohy nemá tvar RRRR-MM-DD - `due` ostáva pôvodný text a UI ho ukáže k overeniu. */
 type OverviewTask = { id: string; title: string; assignee?: string; due?: string; invalid?: true; file?: string };
 
@@ -143,6 +148,12 @@ export function recordDeadlines(r: OkfRecord): { date: string; raw: string; inva
 }
 
 
+/** `instruction`: lehota záznamu je z pokynu advokáta a tento zápis (`raw`) nikto ľudsky neoveril; inak `undefined`. */
+export function deadlineBasis(r: OkfRecord, raw: string): DeadlineBasis | undefined {
+  if (r.extra?.deadline_basis !== "lawyer_instruction") return undefined;
+  return r.verified?.some((v) => v.type === "human" && v.deadline === raw) ? undefined : "instruction";
+}
+
 /** Text lehoty za dátumom („2026-10-09 Lehota na vyjadrenie" → „Lehota na vyjadrenie"); bez textu `undefined`. */
 export function deadlineLabel(raw: string | undefined): string | undefined {
   const rest = /^\d{4}-\d{2}-\d{2}(?:T\S*)?(.*)$/s.exec(raw?.trim() ?? "")?.[1]?.replace(/^[\s:,;\u2013\u2014-]+/, "").trim();
@@ -179,7 +190,7 @@ function matterOverview(input: MatterInput): MatterOverview {
   let lastEvent: MatterOverview["lastEvent"];
   for (const r of input.records) {
     const file = input.recordFiles?.[r.id];
-    for (const d of (isManagedDeadline(r) && !managedDeadlineTrusted(r, input.deadlineWorkflowEvidence) ? [] : recordDeadlines(r))) deadlines.push({ date: d.date, ...(d.raw !== d.date ? { raw: d.raw } : {}), title: r.title, recordId: r.id, ...(d.invalid ? { invalid: d.invalid } : {}), ...(file ? { file } : {}) });
+    for (const d of (isManagedDeadline(r) && !managedDeadlineTrusted(r, input.deadlineWorkflowEvidence) ? [] : recordDeadlines(r))) deadlines.push({ date: d.date, ...(d.raw !== d.date ? { raw: d.raw } : {}), title: r.title, recordId: r.id, ...(d.invalid ? { invalid: d.invalid } : {}), ...(file ? { file } : {}), ...(deadlineBasis(r, d.raw) ? { basis: "instruction" as const } : {}) });
     for (const e of r.timeline) {
       if (!lastEvent || e.date > lastEvent.date) lastEvent = { date: e.date, text: e.text };
     }

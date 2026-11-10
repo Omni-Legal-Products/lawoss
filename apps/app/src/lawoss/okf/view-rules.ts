@@ -56,10 +56,12 @@ export function taskDueView(due: string | undefined, todayIso: string, locale: L
 export const inHorizon = (date: string, todayIso: string, invalid?: boolean): boolean =>
   Boolean(invalid) || !isCalendarDay(date) || date <= addDays(todayIso, HORIZON_DAYS);
 
-/** Text lehoty zo zápisu („2026-10-09 Lehota na vyjadrenie"), inak názov záznamu, inak jeho ID. */
-export function deadlineText(d: { title: string; raw?: string; label?: string; invalid?: true; recordId?: string }): string {
+/** Text lehoty zo zápisu („2026-10-09 Lehota na vyjadrenie"), inak názov záznamu, inak jeho ID; lehota z pokynu advokáta s poznámkou. */
+export function deadlineText(d: { title: string; raw?: string; label?: string; invalid?: true; recordId?: string; basis?: "instruction" }): string {
   const text = d.invalid ? undefined : d.label ?? deadlineLabel(d.raw);
-  return text?.trim() || d.title.trim() || d.recordId || "?";
+  const shown = text?.trim() || d.title.trim() || d.recordId || "?";
+  // MČ 10. 11. 2026: lehota z pokynu advokáta v chate nie je overená z listiny a každý pohľad to pri nej povie.
+  return d.basis === "instruction" ? `${shown} (${t("lawoss.lite.deadline_by_instruction")})` : shown;
 }
 
 /** Kľúč pre React a kotvu: tá istá lehota toho istého záznamu môže byť v jeden deň dvakrát. */

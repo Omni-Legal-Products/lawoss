@@ -6,7 +6,7 @@ import { z } from "zod";
 import { ApiError } from "../errors.js";
 import { closeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
-import { readMatterMemoryForChat } from "./matter-memory.js";
+import { readMatterMemoryForChat, writeMatterMemoryForChat } from "./matter-memory.js";
 import { WIKI_AGENT_TICKET_PATH } from "./engine-agent-contract.js";
 import { startScriptedEngine } from "./test-support/scripted-engine.js";
 
@@ -95,6 +95,14 @@ test.skipIf(!binary || process.env.LAWOSS_PAMAT_ENGINE !== "1")("a real engine: 
         return Response.json({ code: error instanceof ApiError ? error.code : "failed", message: error instanceof Error ? error.message : String(error) }, { status: error instanceof ApiError ? error.status : 500 });
       }
     }
+    // MČ 10. 11. 2026: lawoss_memory_write (scope client) and lawoss_memory_deadline go through the same server boundary.
+    if (path === "/workspace/client/lawoss/memory/write") {
+      try {
+        return Response.json(await writeMatterMemoryForChat(config, workspace, await request.json()));
+      } catch (error) {
+        return Response.json({ code: error instanceof ApiError ? error.code : "failed", message: error instanceof Error ? error.message : String(error) }, { status: error instanceof ApiError ? error.status : 500 });
+      }
+    }
     if (!path.endsWith("/chat/completions")) return Response.json({ code: "not_found" }, { status: 404 });
     const input = requestSchema.parse(await request.json());
     advertisedTools = (input.tools ?? []).map(tool => tool.function.name).sort();
@@ -152,6 +160,51 @@ test.skipIf(!binary || process.env.LAWOSS_PAMAT_ENGINE !== "1")("a real engine: 
     const system = [...systems].join("\n");
     expect(system).toContain("read it with lawoss_memory");
     expect(system).toContain("instead of ls");
+
+    // MČ 10. 11. 2026 (prehliadka s vetami advokáta): poznámka pre celého klienta a lehota z pokynu advokáta, každá
+    // jednou kartou skutočného enginu; zamietnutá karta nič nezapíše, schválená zapíše.
+    expect(advertisedTools).toEqual(expect.arrayContaining(["lawoss_memory_write", "lawoss_memory_deadline"]));
+    expect(system).toContain("call lawoss_memory_write with scope client");
+    expect(system).toContain("call lawoss_memory_deadline once");
+    expect(system).toContain("Speak to the lawyer in plain language.");
+    await writeFile(join(matter, "matter.md"), "---\ntitle: Spor o úhradu dodávok SYN\njurisdiction: sk\n---\n");
+    const now = new Date(), day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const note = record("CN-001", "client_note", "L2", "Komunikácia s klientom", "SYN spôsob komunikácie", "Klient chce komunikovať len e-mailom, nie telefonicky.").split(D).join(day);
+    const sentence = "Pri spore o úhradu dodávok máme odpovedať protistrane do 25. novembra, zapíš mi tú lehotu.";
+    const writes: ToolCall[] = [
+      { tool: "lawoss_memory_write", args: { record: note, reason: "Pokyn advokáta v chate", scope: "client" } },
+      { tool: "lawoss_memory_deadline", args: { date: "2026-11-25", what: "Odpoveď protistrane", instruction: sentence, matter: "Spisy/M001" } },
+    ];
+    const untouched = await tree(client);
+    // A declined card ends the turn (the engine's rejection), so each tool is declined in its own turn.
+    for (const call of writes) {
+      script = [call];
+      const declined = await session.turn("Poznač si to.");
+      expect(declined.map(card => card.action)).toEqual(["lawoss_file_change"]);
+      expect(await tree(client)).toEqual(untouched);
+    }
+    script = writes;
+    toolResults.length = 0;
+    const approved = await session.turn("Poznač si, že klient chce len e-mail, a zapíš lehotu do 25. novembra.", () => "once");
+    console.log(JSON.stringify({ writeCards: approved.map(card => ({ action: card.action, resources: card.resources, metadata: card.metadata })), writeResults: toolResults.map(result => result.slice(0, 300)) }));
+    expect(approved).toHaveLength(2);
+    expect(approved[0]).toMatchObject({ action: "lawoss_file_change", resources: ["memory/CN-001-komunikacia-s-klientom.md"],
+      metadata: { lawossMemory: { scope: "client", type: "client_note", truth: "Klient chce komunikovať len e-mailom, nie telefonicky." } } });
+    expect(approved[1]).toMatchObject({ action: "lawoss_file_change", resources: ["Spisy/M001/memory/T-001-odpoved-protistrane.md", "Spisy/M001/VSTUPY.md"],
+      metadata: { lawossMemory: { deadline: { case: "Spor o úhradu dodávok SYN", date: "2026-11-25", what: "Odpoveď protistrane", basis: "lawyer_instruction", register: "Spisy/M001/VSTUPY.md" } } } });
+    expect(toolResults).toHaveLength(2);
+    for (const result of toolResults) expect(result).toContain("written");
+    expect(await readFile(join(client, "memory", "CN-001-komunikacia-s-klientom.md"), "utf8")).toContain("len e-mailom");
+    const task = await readFile(join(matter, "memory", "T-001-odpoved-protistrane.md"), "utf8");
+    expect(task).toContain('deadlines: ["2026-11-25 Odpoveď protistrane"]');
+    expect(task).toContain("deadline_basis: lawyer_instruction");
+    expect(task).not.toContain("verified");
+    expect(await readFile(join(matter, "VSTUPY.md"), "utf8")).toMatch(/\| IN-001 \| \S+ \| pokyn advokáta v chate \(LAWOSS\): „Pri spore .*“ \| — \| processed \| T-001 \|/);
+    // The case reads the client's note and the deadline in one complete read.
+    const reread = await readMatterMemoryForChat(config, workspace, { action: "read", matter });
+    expect(reread.complete).toBe(true);
+    expect(reread.text).toContain("Klient chce komunikovať len e-mailom, nie telefonicky.");
+    expect(reread.text).toContain("2026-11-25 Odpoveď protistrane");
   } finally {
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
     fixture.stop(true);

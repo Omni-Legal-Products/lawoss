@@ -12,7 +12,7 @@ import { isManagedDeadline, managedDeadlineTrusted, type DeadlineWorkflowEvidenc
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
 import { isRecordType, valueLabel, type KnownRecordType, type RecordType } from "../okf-pamat/src/schema.ts";
 import { pendingInputs } from "./inputs.ts";
-import { deadlineLabel, deadlineTier, isOpenTask, isRetired, recordDeadlines, taskDue, type MatterInput, type MatterOverview } from "./read.ts";
+import { deadlineBasis, deadlineLabel, deadlineTier, type DeadlineBasis, isOpenTask, isRetired, recordDeadlines, taskDue, type MatterInput, type MatterOverview } from "./read.ts";
 
 /** Odkiaľ údaj pochádza. Slovo, nie farba — stav musí byť čitateľný aj bez nej. */
 type Provenance = "overené" | "AI návrh" | "zapísané" | "overenie neurčené" | "strojovo overené";
@@ -55,6 +55,8 @@ export type CockpitDeadline = {
   confirmed: boolean;
   /** Datum nemá tvar RRRR-MM-DD - ukázat k ověření. */
   invalid?: true;
+  /** Lehota z pokynu advokáta v chate, neoverená z listiny (`deadline_basis: lawyer_instruction`). */
+  basis?: DeadlineBasis;
 };
 export type AttentionRow = {
   id: string;
@@ -220,6 +222,7 @@ function deadlines(input: MatterInput, todayIso: string): CockpitDeadline[] {
         confirmed: isManagedDeadline(r) ? managedDeadlineTrusted(r, input.deadlineWorkflowEvidence) : deadlineConfirmed(r, raw),
       };
       if (invalid) item.invalid = invalid;
+      if (!item.confirmed && deadlineBasis(r, raw)) item.basis = "instruction";
       const label = invalid ? undefined : deadlineLabel(raw);
       if (label) item.label = label;
       const src = firstSource(r);
