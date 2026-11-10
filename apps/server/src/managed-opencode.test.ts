@@ -1,15 +1,42 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
+
+import { createConfiguredManagedEngine } from "./managed-engine-lifecycle.js";
+import type { ServerConfig } from "./types.js";
 
 import { createManagedOpencodeServer } from "./managed-opencode.js";
+import { verifiedTestEngine } from "./opencode-candidate.test-support.js";
+
+// Real process identity/readiness checks must not inherit another unit test's
+// mocked fetch, clock or interpreter lookup. Keep the complete executable
+// suite in one clean Bun child and surface every failed assertion/output.
+if (process.env.LEGALWORK_MANAGED_EXECUTABLE_FIXTURE !== "1") {
+  test("managed engine executable lifecycle and identity checks in an isolated process", async () => {
+    const child = Bun.spawn([process.execPath, "test", "--timeout", "25000", import.meta.filename], {
+      env: { ...process.env, LEGALWORK_MANAGED_EXECUTABLE_FIXTURE: "1" }, stdout: "pipe", stderr: "pipe",
+    });
+    const timeout = setTimeout(() => child.kill(), 55_000);
+    try {
+      const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      const output = stdout + stderr;
+      expect(code, output).toBe(0);
+      expect(output).toContain("15 pass");
+      expect(output).toContain("0 fail");
+    } finally {
+      clearTimeout(timeout);
+      if (child.exitCode === null) { child.kill(); await child.exited; }
+    }
+  }, 60_000);
+} else {
 
 // A stand-in for the opencode binary: it fails the first
 // FAKE_OPENCODE_FAIL_UNTIL starts with the same "database is locked" message a
 // not-yet-reaped predecessor produces, then comes up healthy. Invocation count
 // is tracked in a file so the test can assert how many attempts happened.
-const FAKE_OPENCODE = `#!/usr/bin/env node
+const FAKE_OPENCODE = (version: string) => `#!${process.execPath}
 const fs = require("node:fs");
 const http = require("node:http");
 const counter = process.env.FAKE_OPENCODE_COUNTER;
@@ -18,29 +45,34 @@ let n = 0;
 try { n = Number(fs.readFileSync(counter, "utf8")) || 0; } catch {}
 n += 1;
 fs.writeFileSync(counter, String(n));
-fs.writeFileSync(counter + ".skills", process.env.OPENCODE_DISABLE_EXTERNAL_SKILLS || "");
+fs.writeFileSync(counter + ".pid", String(process.pid));
 fs.writeFileSync(counter + ".fff", process.env.OPENCODE_DISABLE_FFF || "");
+fs.writeFileSync(counter + ".system-ca", process.env.NODE_USE_SYSTEM_CA || "");
 const portIdx = process.argv.indexOf("--port");
 const port = portIdx >= 0 ? process.argv[portIdx + 1] : "0";
 if (n <= failUntil) {
   process.stderr.write("Error: Unexpected error\\n\\ndatabase is locked\\n");
   process.exit(1);
 }
-process.stdout.write("opencode server listening on http://127.0.0.1:" + port + "\\n");
+const stdio = process.argv.includes("--stdio");
+process.stdout.write((stdio ? JSON.stringify({url:"http://127.0.0.1:"+port}) : "server listening on http://127.0.0.1:" + port) + "\\n");
+const migrationStarted = Date.now();
 setTimeout(() => http.createServer((request, response) => {
-  const expected = "Basic " + Buffer.from(process.env.OPENCODE_SERVER_USERNAME + ":" + process.env.OPENCODE_SERVER_PASSWORD).toString("base64");
-  if (request.headers.authorization !== expected) return response.writeHead(401).end();
-  if (request.url !== "/global/health") return response.writeHead(200).end("<html>UI</html>");
-  const mode = process.env.FAKE_OPENCODE_HEALTH || "valid";
-  response.on("close", () => fs.writeFileSync(counter + ".closed", "closed"));
-  if (mode === "exit") { response.writeHead(200); response.write('{"healthy":'); return setTimeout(() => process.exit(1), 30); }
-  if (mode === "idle") { response.writeHead(200); return response.write('{"healthy":'); }
-  if (mode === "unauthorized") return response.writeHead(401).end();
-  if (mode === "status") return response.writeHead(500).end('{"healthy":true,"version":"custom"}');
-  const bodies = { html: "<html>UI</html>", shape: "null", malformed: "{", false: '{"healthy":false,"version":"custom"}', version: '{"healthy":true,"version":" "}', oversized: JSON.stringify({healthy:true,version:"x".repeat(17000)}), truncated: '{"healthy":true' };
-  response.writeHead(200).end(bodies[mode] || JSON.stringify({healthy:true,version:"custom-build"}));
+  if (request.headers.authorization !== "Basic " + Buffer.from("opencode:" + process.env.OPENCODE_PASSWORD).toString("base64")) return response.writeHead(401).end();
+  if (request.url === "/api/experimental/migration/v1") {
+    response.setHeader("Content-Type", "application/json");
+    const status = process.env.FAKE_OPENCODE_MIGRATION_ERROR ? {status: "error", error: "legacy conversion failed"}
+      : Date.now() - migrationStarted < Number(process.env.FAKE_OPENCODE_MIGRATION_MS || "0")
+      ? {status: "running", progress: {label: "Chats", numerator: 1, denominator: 2}} : {status: "completed"};
+    return response.end(JSON.stringify(status));
+  }
+  if (request.url !== "/api/info") return response.writeHead(404).end();
+  if (process.env.FAKE_OPENCODE_BAD_INFO === "1") return response.writeHead(200).end("not an API response");
+  response.setHeader("Content-Type", "application/json");
+  response.end(JSON.stringify({ version: process.env.FAKE_OPENCODE_VERSION || ${JSON.stringify(version)}, pid: process.env.FAKE_OPENCODE_WRONG_PID ? process.pid + 1 : process.pid }));
 }).listen(Number(port), "127.0.0.1"), Number(process.env.FAKE_OPENCODE_LISTEN_DELAY_MS || "0"));
-process.on("SIGTERM", () => process.exit(0));
+process.on("SIGTERM", () => { fs.writeFileSync(counter + ".sigterm", "true"); process.exit(0); });
+if (stdio) { process.stdin.once("end", () => { fs.writeFileSync(counter + ".eof", "true"); process.exit(0); }); process.stdin.resume(); }
 setInterval(() => {}, 1 << 30);
 `;
 
@@ -51,26 +83,52 @@ afterEach(() => {
   dir = null;
 });
 
-function fakeBin(failUntil: number): { bin: string; counter: string } {
+async function fakeBin() {
   dir = mkdtempSync(join(tmpdir(), "managed-opencode-"));
-  const bin = join(dir, "fake-opencode");
-  const counter = join(dir, "counter");
-  writeFileSync(bin, FAKE_OPENCODE, "utf8");
-  chmodSync(bin, 0o755);
-  return { bin, counter };
+  return { ...await verifiedTestEngine(dir, FAKE_OPENCODE), counter: join(dir, "counter") };
 }
 
+test("the default engine resolves the effective child PATH once and spawns that verified absolute path", async () => {
+  const { bin, counter, candidateBuild } = await fakeBin();
+  const cwd = join(dir!, "workspace"); mkdirSync(cwd);
+  const server = await createManagedOpencodeServer({ cwd, candidateBuild,
+    env: { PATH: [dirname(bin), dirname(process.execPath)].join(delimiter), FAKE_OPENCODE_COUNTER: counter },
+  });
+  try { expect(server.execution.command).toBe(await realpath(bin)); expect(server.running()).toBe(true); }
+  finally { await server.close(); }
+});
+
+test("a corrupt first PATH executable is rejected without executing it or searching for a passing engine", async () => {
+  const { bin, counter, candidateBuild } = await fakeBin();
+  const first = join(dir!, "first"); mkdirSync(first);
+  const marker = join(dir!, "rejected-engine-ran"), rejected = join(first, process.platform === "win32" ? "opencode.exe" : "opencode");
+  writeFileSync(rejected, `#!${process.execPath}\nawait Bun.write(${JSON.stringify(marker)}, 'executed');\n`); chmodSync(rejected, 0o755);
+  await expect(createManagedOpencodeServer({ cwd: dir!, candidateBuild,
+    env: { PATH: [first, dirname(bin), dirname(process.execPath)].join(delimiter), FAKE_OPENCODE_COUNTER: counter },
+  })).rejects.toThrow(/requested engine path/);
+  expect(existsSync(marker)).toBe(false); expect(existsSync(counter)).toBe(false);
+});
+
+for (const relative of [false, true]) test(relative ? "an explicit relative engine path resolves against the intended child cwd" : "a relative PATH entry resolves against the intended child cwd", async () => {
+  const { bin, counter, candidateBuild } = await fakeBin();
+  const server = await createManagedOpencodeServer({ cwd: dir!, candidateBuild,
+    ...(relative ? { bin: process.platform === "win32" ? ".\\opencode" : "./opencode" } : {}),
+    env: { PATH: [relative ? dirname(process.execPath) : ".", dirname(process.execPath)].join(delimiter), FAKE_OPENCODE_COUNTER: counter },
+  });
+  try { expect(server.execution.command).toBe(await realpath(bin)); expect(server.running()).toBe(true); }
+  finally { await server.close(); }
+});
+
 test("retries the engine spawn while the DB is locked, then succeeds", async () => {
-  const { bin, counter } = fakeBin(2); // fail twice, succeed on the 3rd
+  const { bin, counter, candidateBuild } = await fakeBin(); // fail twice, succeed on the 3rd
   const server = await createManagedOpencodeServer({
-    bin,
+    bin, candidateBuild,
     cwd: dir!,
     env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_FAIL_UNTIL: "2" },
   });
   try {
     expect(server.url).toContain("http://127.0.0.1:");
     expect(server.running()).toBe(true);
-    expect(readFileSync(counter + ".skills", "utf8")).toBe("true");
     expect(Number(readFileSync(counter, "utf8"))).toBe(3); // 2 locked + 1 healthy
   } finally {
     await server.close();
@@ -79,30 +137,48 @@ test("retries the engine spawn while the DB is locked, then succeeds", async () 
 }, 20000);
 
 test("waits for the HTTP listener even when the child announces readiness early", async () => {
-  const { bin, counter } = fakeBin(0);
+  const { bin, counter, candidateBuild } = await fakeBin();
   const startedAt = Date.now();
   const server = await createManagedOpencodeServer({
-    bin,
+    bin, candidateBuild,
     cwd: dir!,
     env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_LISTEN_DELAY_MS: "300" },
   });
   try {
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(250);
+    expect(server.username).toBe("opencode");
+    expect((await fetch(`${server.url}/api/info`)).status).toBe(401);
+    expect(server.execution.env.find(entry => entry.name === "OPENCODE_PASSWORD")?.redacted).toBe(true);
     expect(server.running()).toBe(true);
   } finally {
     await server.close();
   }
 }, 20000);
 
+test("native stdin lease uses JSON readiness and normal Stop closes EOF without signalling a live process", async () => {
+  const { bin, counter, candidateBuild } = await fakeBin();
+  const server = await createManagedOpencodeServer({ bin, candidateBuild, cwd: dir!, parentLease: true, env: { FAKE_OPENCODE_COUNTER: counter } });
+  try {
+    expect(server.execution.args).toContain("--stdio");
+    expect(server.execution.args).not.toContain("--service");
+    expect((await fetch(`${server.url}/api/info`)).status).toBe(401);
+  } finally { await server.close(); }
+  expect(server.running()).toBe(false);
+  expect(readFileSync(counter + ".eof", "utf8")).toBe("true");
+  expect(existsSync(counter + ".sigterm")).toBe(false);
+});
+
 test("keeps FFF disabled in the child and execution details even if caller env enables it", async () => {
-  const { bin, counter } = fakeBin(0);
+  const { bin, counter, candidateBuild } = await fakeBin();
   const server = await createManagedOpencodeServer({
-    bin,
+    bin, candidateBuild,
     cwd: dir!,
-    env: { FAKE_OPENCODE_COUNTER: counter, OPENCODE_DISABLE_FFF: "false" },
+    env: { FAKE_OPENCODE_COUNTER: counter, OPENCODE_DISABLE_FFF: "false", NODE_USE_SYSTEM_CA: "0" },
   });
   try {
     expect(readFileSync(counter + ".fff", "utf8")).toBe("true");
+    expect(readFileSync(counter + ".system-ca", "utf8")).toBe("1");
+    expect(server.execution.env.find(entry => entry.name === "NODE_USE_SYSTEM_CA")).toEqual({ name: "NODE_USE_SYSTEM_CA", value: "1", redacted: false });
     expect(server.execution.env.find(entry => entry.name === "OPENCODE_DISABLE_FFF")).toEqual({
       name: "OPENCODE_DISABLE_FFF", value: "true", redacted: false,
     });
@@ -115,122 +191,101 @@ test("does NOT retry a non-lock start failure (fails fast)", async () => {
   // fail "forever" but with a lock message would retry; use a bin that exits
   // with a different error so the loop must give up on the first attempt.
   dir = mkdtempSync(join(tmpdir(), "managed-opencode-"));
-  const bin = join(dir, "fake-opencode");
   const counter = join(dir, "counter");
-  writeFileSync(
-    bin,
-    `#!/usr/bin/env node
+  const { bin, candidateBuild } = await verifiedTestEngine(dir, () => `#!${process.execPath}
 const fs = require("node:fs");
 const counter = process.env.FAKE_OPENCODE_COUNTER;
 let n = 0; try { n = Number(fs.readFileSync(counter, "utf8")) || 0; } catch {}
 fs.writeFileSync(counter, String(n + 1));
 process.stderr.write("Error: config parse failed\\n");
 process.exit(1);
-`,
-    "utf8",
-  );
-  chmodSync(bin, 0o755);
+`);
   await expect(
-    createManagedOpencodeServer({ bin, cwd: dir, env: { FAKE_OPENCODE_COUNTER: counter } }),
+    createManagedOpencodeServer({ bin, candidateBuild, cwd: dir, env: { FAKE_OPENCODE_COUNTER: counter } }),
   ).rejects.toThrow(/config parse failed/);
   expect(Number(readFileSync(counter, "utf8"))).toBe(1); // exactly one attempt
 }, 20000);
 
-// A descendant of the fake engine inherits its stderr. "wait-exit" writes the
-// lock message only after the engine has been reaped (kill(pid, 0) fails), so
-// it reaches the server after "exit"; "hold" keeps the pipe open and silent.
-function fakeWithDescendant(firstStart: "wait-exit" | "hold" | "lock-then-hold"): { bin: string; counter: string; pidFile: string } {
-  dir = mkdtempSync(join(tmpdir(), "managed-opencode-"));
-  const bin = join(dir, "fake-opencode");
-  const counter = join(dir, "counter");
-  const pidFile = join(dir, "descendant.pid");
-  const waitExit = 'const parent = Number(process.argv[1]); const poll = setInterval(() => { try { process.kill(parent, 0); } catch { clearInterval(poll); process.stderr.write("database is locked\\n"); } }, 5);';
-  const hold = "setTimeout(() => {}, 10000);";
-  writeFileSync(
-    bin,
-    `#!/usr/bin/env node
-const fs = require("node:fs");
-const counter = process.env.FAKE_OPENCODE_COUNTER;
-let n = 0; try { n = Number(fs.readFileSync(counter, "utf8")) || 0; } catch {}
-fs.writeFileSync(counter, String(n + 1));
-if (n === 0) {
-  const mode = ${JSON.stringify(firstStart)};
-  const descendant = require("node:child_process").spawn(process.execPath, ["-e", mode === "wait-exit" ? ${JSON.stringify(waitExit)} : ${JSON.stringify(hold)}, String(process.pid)], { stdio: ["ignore", "ignore", "inherit"] });
-  fs.writeFileSync(${JSON.stringify(pidFile)}, String(descendant.pid));
-  if (mode === "lock-then-hold") process.stderr.write("database is locked\\n");
-} else {
-  process.stderr.write("Error: config parse failed\\n");
-}
-process.exit(1);
-`,
-    "utf8",
-  );
-  chmodSync(bin, 0o755);
-  return { bin, counter, pidFile };
-}
+test("a successful HTTP status with a non-API body cannot mark the engine ready", async () => {
+  const { bin, counter, candidateBuild } = await fakeBin();
+  let published = false;
+  await expect(createManagedOpencodeServer({
+    bin, candidateBuild, cwd: dir!, timeoutMs: 2000, onAuthenticated: () => { published = true; },
+    env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_BAD_INFO: "1" },
+  })).rejects.toThrow(/HTTP listener/);
+  expect(published).toBe(false);
+  expect(() => process.kill(Number(readFileSync(counter + ".pid", "utf8")), 0)).toThrow();
+});
 
-async function killDescendant(pidFile: string): Promise<void> {
-  let pid: number;
-  try { pid = Number(readFileSync(pidFile, "utf8")); } catch { return; }
-  try { process.kill(pid, "SIGKILL"); } catch { return; }
-  const deadline = Date.now() + 2000;
-  while (Date.now() < deadline) {
-    try { process.kill(pid, 0); } catch { return; }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error(`descendant ${pid} survived SIGKILL`);
+test("a foreign reported version cannot replace the verified engine identity", async () => {
+  const { bin, counter, candidateBuild } = await fakeBin();
+  let published = false;
+  await expect(createManagedOpencodeServer({
+    // Reach the identity check even when starting the child is slow on CI.
+    bin, candidateBuild, cwd: dir!, timeoutMs: 5000, onAuthenticated: () => { published = true; },
+    env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_VERSION: "2.1.4-legalwork.mcp-ready.1", FAKE_OPENCODE_LISTEN_DELAY_MS: "650" },
+  })).rejects.toThrow(/spawned OpenCode .* process/);
+  expect(published).toBe(false);
+  expect(() => process.kill(Number(readFileSync(counter + ".pid", "utf8")), 0)).toThrow();
+}, 10000);
+
+test("matching version from another PID cannot mark the managed process ready", async () => {
+  const { bin, counter, candidateBuild } = await fakeBin();
+  let published = false;
+  await expect(createManagedOpencodeServer({
+    bin, candidateBuild, cwd: dir!, timeoutMs: 5000, onAuthenticated: () => { published = true; },
+    env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_WRONG_PID: "1", FAKE_OPENCODE_LISTEN_DELAY_MS: "650" },
+  })).rejects.toThrow(/spawned OpenCode .* process/);
+  expect(published).toBe(false);
+  expect(() => process.kill(Number(readFileSync(counter + ".pid", "utf8")), 0)).toThrow();
+}, 10000);
+
+function startupConfig(): ServerConfig {
+  return { host: "127.0.0.1", port: 0, token: "test", hostToken: "host", workspaces: [], authorizedRoots: [],
+    readOnly: true, approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], startedAt: Date.now(),
+    tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
 }
 
-test("a lock message that arrives after the engine exits still retries", async () => {
-  const { bin, counter, pidFile } = fakeWithDescendant("wait-exit");
-  try {
-    await expect(
-      createManagedOpencodeServer({ bin, cwd: dir!, env: { FAKE_OPENCODE_COUNTER: counter } }),
-    ).rejects.toThrow(/config parse failed/);
-    expect(Number(readFileSync(counter, "utf8"))).toBe(2);
-  } finally {
-    await killDescendant(pidFile);
-  }
-}, 20000);
-
-test("a descendant holding stderr open does not delay the exit failure", async () => {
-  const { bin, counter, pidFile } = fakeWithDescendant("hold");
-  const started = Date.now();
-  try {
-    // The held first start is reported as an exit (not a lock), so it is not retried.
-    await expect(
-      createManagedOpencodeServer({ bin, cwd: dir!, env: { FAKE_OPENCODE_COUNTER: counter } }),
-    ).rejects.toThrow(/exited with code 1/);
-    expect(Date.now() - started).toBeLessThan(5000);
-    expect(Number(readFileSync(counter, "utf8"))).toBe(1);
-  } finally {
-    await killDescendant(pidFile);
-  }
-}, 20000);
-
-test("a startup deadline after the exit still reports the captured lock and retries", async () => {
-  const { bin, counter, pidFile } = fakeWithDescendant("lock-then-hold");
-  try {
-    // The deadline falls inside the post-exit grace period of the held pipe.
-    await expect(
-      createManagedOpencodeServer({ bin, cwd: dir!, timeoutMs: 600, env: { FAKE_OPENCODE_COUNTER: counter } }),
-    ).rejects.toThrow(/config parse failed/);
-    expect(Number(readFileSync(counter, "utf8"))).toBe(2);
-  } finally {
-    await killDescendant(pidFile);
-  }
-}, 20000);
-
-for (const mode of ["html", "status", "unauthorized", "shape", "malformed", "false", "version", "oversized", "truncated", "idle", "exit"]) {
-  test(`rejects unhealthy HTTP response: ${mode}`, async () => {
-    const { bin, counter } = fakeBin(0);
-    const start = Date.now();
-    await expect(createManagedOpencodeServer({
-      bin, cwd: dir!, timeoutMs: 350,
-      env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_HEALTH: mode },
-    }).then(async (server) => { await server.close(); return server; })).rejects.toThrow(/Timeout waiting|exited before/);
-    expect(Date.now() - start).toBeLessThan(1500);
-    expect(Number(readFileSync(counter, "utf8"))).toBe(1);
-    if (mode === "idle") expect(readFileSync(counter + ".closed", "utf8")).toBe("closed");
+test("waits for history migration beyond the HTTP startup watchdog", async () => {
+  const { bin, counter, candidateBuild } = await fakeBin();
+  const config = startupConfig();
+  const statuses: string[] = [];
+  const startedAt = Date.now();
+  const server = await createConfiguredManagedEngine(config, {
+    bin, candidateBuild, cwd: dir!, timeoutMs: 2000,
+    env: { OPENCODE_DB: "", FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_MIGRATION_MS: "3000" },
+    onMigrationProgress: status => { statuses.push(status.status);
+      expect(config.managedEngineStarting).toBe(true);
+      expect(config.managedEngineStatus).toBe(status.status === "running" ? "migrating" : "starting"); },
   });
+  try {
+    expect(config.managedEngineStatus).toBe("ready");
+    expect(config.managedEngineStarting).toBe(false);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(3000);
+    expect(statuses).toContain("running");
+    expect(statuses.at(-1)).toBe("completed");
+  } finally { await server.close(); }
+});
+
+test("migration errors fail startup and reap the engine", async () => {
+  const { bin, counter, candidateBuild } = await fakeBin();
+  const config = startupConfig();
+  await expect(createConfiguredManagedEngine(config, { bin, candidateBuild, cwd: dir!,
+    env: { OPENCODE_DB: "", FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_MIGRATION_ERROR: "1" },
+  })).rejects.toThrow("chat history migration failed: legacy conversion failed");
+  expect(config.managedEngineStatus).toBe("error");
+  expect(config.managedEngineStarting).toBe(false);
+  expect(() => process.kill(Number(readFileSync(counter + ".pid", "utf8")), 0)).toThrow();
+});
+
+test("cancelling startup during migration reaps the engine", async () => {
+  const { bin, counter, candidateBuild } = await fakeBin();
+  const controller = new AbortController();
+  await expect(createManagedOpencodeServer({ bin, candidateBuild, cwd: dir!, signal: controller.signal,
+    env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_MIGRATION_MS: "60000" },
+    onMigrationProgress: status => { if (status.status === "running") controller.abort(new Error("Startup cancelled")); },
+  })).rejects.toThrow("Startup cancelled");
+  expect(() => process.kill(Number(readFileSync(counter + ".pid", "utf8")), 0)).toThrow();
+});
+
 }

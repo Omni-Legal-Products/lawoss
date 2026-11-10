@@ -13,6 +13,7 @@ import { runInNewContext } from "node:vm";
 import { AUDIO_MODEL_CATALOG, VAD_MODEL, findAudioModel } from "./audio/model-catalog.mjs";
 import { AudioModelManager } from "./audio/model-manager.mjs";
 import { RecorderService, assignSpeakers } from "./audio/recorder-service.mjs";
+import { RecorderRequestError, requestRecorderServer } from "./audio/recorder-server-request.mjs";
 import { DeferredCloudSpeakerPass } from "./audio/deferred-cloud-speakers.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -217,7 +218,7 @@ async function installFakeModel(service, modelId) {
   await fsp.writeFile(service.modelManager.vadModelPath(), "x");
 }
 
-test("cloud readiness opens no connection, cannot capture a local choice, and preserves connection errors", async t => {
+test("cloud readiness opens no connection, cannot capture a local choice, and keeps a failed connection recording until Stop", async t => {
   const userDataDir = await tempDir("lw-cloud-recorder-");
   let connections = 0;
   const service = new RecorderService({ userDataDir, resolveCloudConnection: async () => {
@@ -233,11 +234,12 @@ test("cloud readiness opens no connection, cannot capture a local choice, and pr
   assert.equal(connections, 0);
   const recording = await service.startRecording({ modelId, language: "de" });
   await new Promise(resolve => setImmediate(resolve));
+  assert.equal(service.activeRecordings.get(recording.id).meta.status, "recording");
   const saved = await service.stopRecording(recording.id);
   assert.equal(connections, 1);
   assert.equal(saved.transcriptionSource, "cloud");
   assert.equal(saved.status, "error");
-  assert.equal(saved.error, "Cloud unavailable");
+  assert.match(saved.error, /Live transcription was interrupted/);
   assert.equal(fs.existsSync(saved.audioPath), true);
 });
 
@@ -1091,7 +1093,34 @@ for (const modelId of ["whisper-tiny", "gemini-transcribe-live-eu"]) {
   });
 }
 
-test("a split input error drops both cloud sessions and retains both audio files", async t => {
+test("split input reconnection keeps capture active until both caption connections recover", async t => {
+  const userDataDir = await tempDir("lw-split-reconnect-");
+  const worker = new FakeWorker();
+  const service = new RecorderService({ userDataDir });
+  const events = [];
+  service.worker = worker;
+  worker.on("message", message => service.handleWorkerMessage(message));
+  service.workerReady = true;
+  service.loadedModel = { modelId: "gemini-transcribe-live-eu", language: "de" };
+  service.broadcast = event => events.push(event);
+  t.after(async () => { service.stopWorker(); await fsp.rm(userDataDir, { recursive: true, force: true }); });
+  const meta = await service.startRecording({ modelId: "gemini-transcribe-live-eu", sources: ["microphone", "system"], separateSources: true });
+  const microphone = `${meta.id}:microphone`;
+  const system = `${meta.id}:system`;
+  service.handleWorkerMessage({ type: "stream-reconnecting", streamId: microphone, error: "Network offline" });
+  service.handleWorkerMessage({ type: "stream-reconnecting", streamId: system, error: "Network offline" });
+  service.handleWorkerMessage({ type: "stream-reconnected", streamId: microphone });
+  assert.equal(events.at(-1).reconnecting, true, "the other input is still offline");
+  service.handleWorkerMessage({ type: "stream-reconnected", streamId: system });
+  assert.deepEqual(events.at(-1), { type: "recording-transcription-status", recordingId: meta.id, reconnecting: false });
+  assert.equal(service.activeRecordings.get(meta.id).meta.status, "recording");
+  assert.equal(worker.messages.some(message => message.type === "drop" || message.type === "finalize"), false);
+  const saved = await service.stopRecording(meta.id);
+  assert.equal(saved.status, "complete");
+  assert.match(saved.error, /Some speech may be missing/);
+});
+
+test("a split input terminal error drops both cloud sessions and retains both audio files", async t => {
   const userDataDir = await tempDir("lw-split-error-");
   const worker = new FakeWorker();
   worker.postMessage = message => { worker.messages.push(message); };
@@ -1423,6 +1452,47 @@ test("Smart Meeting Summary retries a failed run and rejects local or active rec
   service.loadedModel = { modelId: "whisper-tiny", language: "de" };
   const local = await record({ modelId: "whisper-tiny" });
   await assert.rejects(service.summarizeRecording(local, settings), /requires a cloud recording/);
+});
+
+test("summary retry reports a disconnected server and recovers without reopening capture", async t => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => { throw new TypeError("fetch failed"); });
+  const info = { running: true, baseUrl: "http://127.0.0.1:1234", clientToken: "fixture" };
+  const { service, record, settings } = await notesFixture(t, (input, signal) =>
+    requestRecorderServer(info, "/transcription/summary", input, signal));
+  const id = await record({ meetingNotes: { ...settings, enabled: false } });
+  const before = await service.updateSavedTranscript(id, saved => ({ ...saved, meta: { ...saved.meta,
+    status: "error", error: "Live transcription was interrupted.", speakerError: "fetch failed" } }));
+  await service.summarizeRecording(id, settings);
+  await service.summaryJobs.get(id)?.promise;
+  const failed = await service.getRecording(id);
+  assert.equal(failed.meta.summaryProcessing, false);
+  assert.match(failed.meta.summaryError, /disconnected.*Settings.*reconnect/);
+  assert.doesNotMatch(failed.meta.summaryError, /model.*settings/);
+  assert.equal(service.summaryJobs.has(id), false, "a failed job cannot block the next retry");
+
+  fetchMock.mock.mockImplementation(async () => Response.json({ summary: "Saved transcript summarized." }));
+  await service.summarizeRecording(id, settings);
+  await service.summaryJobs.get(id)?.promise;
+  const retried = await service.getRecording(id);
+  assert.equal(retried.meta.summary, "Saved transcript summarized.");
+  assert.equal(retried.meta.summaryError, undefined);
+  assert.equal(retried.meta.status, "error", "summarizing does not hide the original recording failure");
+  assert.deepEqual(retried.segments, before.segments);
+  assert.equal(service.activeRecordings.size, 0);
+  assert.equal(fetchMock.mock.callCount(), 2, "one request per explicit retry");
+});
+
+test("recorder requests distinguish connection loss, access denial and cloud failure without exposing response bodies", async t => {
+  const info = { running: true, baseUrl: "http://127.0.0.1:1234", clientToken: "fixture" };
+  await assert.rejects(requestRecorderServer({ ...info, running: false }, "/transcription/settings"), /disconnected/);
+  const request = t.mock.method(globalThis, "fetch", async () => new Response("private provider error", { status: 403 }));
+  await assert.rejects(requestRecorderServer(info, "/transcription/summary", {}), error =>
+    error instanceof RecorderRequestError && /access was denied/.test(error.message) && !error.message.includes("private"));
+  request.mock.mockImplementation(async () => new Response("private provider error", { status: 503 }));
+  await assert.rejects(requestRecorderServer(info, "/transcription/summary", {}), /cloud request failed.*Try again/);
+  request.mock.mockImplementation(async () => { throw new TypeError("fetch failed"); });
+  const aborted = AbortSignal.abort(new DOMException("Cancelled", "AbortError"));
+  await assert.rejects(requestRecorderServer(info, "/transcription/summary", {}, aborted), /Cancelled/);
 });
 
 test("deleting a recording cancels manually requested Smart Meeting Summary", async t => {

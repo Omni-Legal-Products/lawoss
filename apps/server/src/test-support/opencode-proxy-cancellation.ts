@@ -33,13 +33,19 @@ export async function verifyProxyCancellation(start: typeof startServer, scenari
   const arrived = deferred();
   const protocolErrors: string[] = [];
   const prompts: unknown[] = [];
+  // Engine v2 (/api/*): the proxy names the location in `location[directory]` and forwards
+  // the process-wide event stream without query, so the fixture names streams in arrival order.
+  let nextStream = "";
+  const sessionInfo = { id: "synthetic", projectID: "fixture", location: { directory: path }, cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, time: { created: 1, updated: 1 } };
   const upstream = createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", "http://fixture");
     if (request.headers.authorization !== "Basic Zml4dHVyZTpzZWNyZXQ=") protocolErrors.push("engine authentication");
-    if (decodeURIComponent(String(request.headers["x-opencode-directory"])) !== path) protocolErrors.push("current directory");
+    const location = url.searchParams.get("location[directory]");
+    if (location !== null && location !== path) protocolErrors.push("current directory");
     if (request.headers["x-legalwork-host-token"] || request.headers["x-legalwork-client-id"]) protocolErrors.push("client credential leak");
-    if (url.pathname === "/event") {
-      const id = url.searchParams.get("stream") ?? "";
+    if (url.pathname === "/api/event") {
+      const id = nextStream;
       streams.set(id, response);
       response.once("close", () => { closed.add(id); });
       if (id === "before") { arrived.resolve(); return; }
@@ -48,26 +54,30 @@ export async function verifyProxyCancellation(start: typeof startServer, scenari
       // Deliberately idle: disconnect must not wait for another chunk/read.
       return;
     }
-    if (scenario === "before metadata headers" && url.pathname === "/session/synthetic") {
+    if (scenario === "before metadata headers" && url.pathname === "/api/session/synthetic") {
       streams.set("metadata", response);
       response.once("close", () => closed.add("metadata"));
       arrived.resolve();
       return;
     }
-    if (url.pathname === "/session/synthetic") {
+    if (url.pathname === "/api/session/synthetic") {
       // The proxy checks that a session belongs to the workspace before forwarding.
-      response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ id: "synthetic", directory: path }));
+      response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ data: sessionInfo }));
       return;
     }
-    if (url.pathname === "/session/synthetic/abort") {
-      let body = "";
-      for await (const chunk of request) body += chunk;
-      prompts.push(JSON.parse(body));
-      response.writeHead(204).end();
+    if (url.pathname === "/api/rpc/legalwork.commands/cancel") {
+      response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ output: { cancelled: false } }));
       return;
     }
-    if (url.pathname === "/path") {
-      response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ directory: path }));
+    if (url.pathname === "/api/session/synthetic/interrupt") {
+      // Engine v2: the server interrupts natively (interruptEngineSession); no client body is forwarded.
+      for await (const chunk of request) void chunk;
+      prompts.push("interrupt");
+      response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ interrupted: true }));
+      return;
+    }
+    if (url.pathname === "/api/info") {
+      response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ version: "2.1.4-legalwork.http-policy.4", pid: process.pid }));
       return;
     }
     response.writeHead(404).end();
@@ -91,15 +101,16 @@ export async function verifyProxyCancellation(start: typeof startServer, scenari
     const denied = await fetch(`${selected}/event`);
     assert.equal(denied.status, 401); await denied.arrayBuffer();
     assert.equal(streams.size, 0, "unauthorized request must never reach engine");
-    const escape = await fetch(`${selected}/event?directory=${encodeURIComponent(root)}`, { headers });
-    assert.equal(escape.status, 400);
-    assert.equal((await escape.json()).code, "path_escape");
+    const escape = await fetch(`${selected}/event?location%5Bdirectory%5D=${encodeURIComponent(root)}`, { headers });
+    assert.equal(escape.status, 403);
+    assert.equal((await escape.json()).code, "workspace_location_mismatch");
     assert.equal(streams.size, 0, "out-of-workspace directory must never reach engine");
     const open = async (id: string) => {
       const controller = new AbortController(); controllers.push(controller);
-      const response = await fetch(`${selected}/event?stream=${id}`, { headers, signal: controller.signal });
+      nextStream = id;
+      const response = await fetch(`${selected}/event`, { headers, signal: controller.signal });
       assert.equal(response.status, 200);
-      assert.equal(response.headers.get("x-fixture"), "kept");
+      // Engine v2: the proxy projects native event frames; only the stream type is a contract here.
       assert.equal(response.headers.get("content-type"), "text/event-stream");
       const reader = response.body!.getReader(); readers.push(reader);
       assert.equal(new TextDecoder().decode((await reader.read()).value), 'data: {"type":"server.connected"}\n\n');
@@ -114,13 +125,15 @@ export async function verifyProxyCancellation(start: typeof startServer, scenari
       console.info(JSON.stringify({ scenario, upstreamOpened: streams.size, cancelledUpstreamClosed: firstClosed, survivorClosed: closed.has("survivor") }));
       assert.equal(firstClosed, true, "downstream abort must close its idle upstream SSE connection");
       assert.equal(closed.has("survivor"), false, "independent upstream stream must survive");
-      streams.get("survivor")!.write('data: {"type":"session.status"}\n\n');
-      assert.equal(new TextDecoder().decode((await survivor.reader.read()).value), 'data: {"type":"session.status"}\n\n');
+      // Engine v2: the server relays only events its project may see; unscoped server events are public.
+      streams.get("survivor")!.write('data: {"type":"server.heartbeat"}\n\n');
+      assert.equal(new TextDecoder().decode((await survivor.reader.read()).value), 'data: {"type":"server.heartbeat"}\n\n');
       streams.get("survivor")!.end();
       assert.equal((await survivor.reader.read()).done, true);
     } else if (scenario === "before headers" || scenario === "before metadata headers") {
       const controller = new AbortController(); controllers.push(controller);
-      const pending = fetch(`${selected}/${scenario === "before headers" ? "event?stream=before" : "session/synthetic/message"}`, { headers, signal: controller.signal });
+      nextStream = "before";
+      const pending = fetch(`${selected}/${scenario === "before headers" ? "event" : "session/synthetic/message"}`, { headers, signal: controller.signal });
       const outcome = pending.then(() => "response", () => "aborted");
       await arrived.promise;
       assert.deepEqual(protocolErrors, []);
@@ -129,13 +142,13 @@ export async function verifyProxyCancellation(start: typeof startServer, scenari
       assert.equal(await observed(() => closed.has(scenario === "before headers" ? "before" : "metadata")), true, "client abort before engine headers must close the upstream request");
     } else {
       const stream = await open("success");
-      streams.get("success")!.end('data: {"type":"session.idle"}\n\n');
-      assert.equal(new TextDecoder().decode((await stream.reader.read()).value), 'data: {"type":"session.idle"}\n\n');
+      streams.get("success")!.end('data: {"type":"server.heartbeat"}\n\n');
+      assert.equal(new TextDecoder().decode((await stream.reader.read()).value), 'data: {"type":"server.heartbeat"}\n\n');
       assert.equal((await stream.reader.read()).done, true);
       const prompt = { reason: "Synthetic accepted abort" };
-      const accepted = await fetch(`${selected}/session/synthetic/abort`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(prompt) });
-      assert.equal(accepted.status, 204); await accepted.arrayBuffer();
-      assert.deepEqual(prompts, [prompt]);
+      const accepted = await fetch(`${selected}/session/synthetic/interrupt`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(prompt) });
+      assert.equal(accepted.ok, true); await accepted.arrayBuffer();
+      assert.deepEqual(prompts, ["interrupt"]);
       const save = await fetch(`${base}/files/content`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ path: "result.txt", content: "Persisted synthetic output" }) });
       assert.equal(save.status, 200); await save.arrayBuffer();
       assert.equal(await readFile(join(path, "result.txt"), "utf8"), "Persisted synthetic output");
@@ -143,9 +156,9 @@ export async function verifyProxyCancellation(start: typeof startServer, scenari
       assert.equal(reread.status, 200);
       assert.equal((await reread.json()).content, "Persisted synthetic output");
     }
-    const health = await fetch(`${selected}/path`, { headers });
+    const health = await fetch(`${selected}/info`, { headers });
     assert.equal(health.status, 200);
-    assert.deepEqual(await health.json(), { directory: path });
+    assert.deepEqual(await health.json(), { version: "2.1.4-legalwork.http-policy.4", pid: process.pid });
     assert.deepEqual(protocolErrors, []);
   } finally {
     for (const controller of controllers) controller.abort();

@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
-import type { ProviderConfig } from "@opencode-ai/sdk/v2/client";
-import { parseProviderModelCatalog } from "../provider-model-catalog.js";
+import { parseProviderModelCatalog, type CatalogModel } from "../provider-model-catalog.js";
 import { bundledModelsCatalogPath } from "./engine-network.js";
 
 /**
@@ -12,7 +11,7 @@ import { bundledModelsCatalogPath } from "./engine-network.js";
 export async function bundledProviderModelCatalog(
   providerId: string,
   catalogPath: string | null = bundledModelsCatalogPath(),
-): Promise<NonNullable<ProviderConfig["models"]>> {
+): Promise<Record<string, CatalogModel>> {
   if (!catalogPath) throw new Error("The bundled model catalog is missing from this installation.");
   const data: unknown = JSON.parse(await readFile(catalogPath, "utf8"));
   return parseProviderModelCatalog(data, providerId);

@@ -30,6 +30,7 @@ import {
   QUICK_TOGGLE_TOOLS,
   quickToggleChecked,
   readPermissionRecord,
+  nativeToolPermissionUpdates,
   serializeToolPermissionsPatch,
   withFirmPermissions,
   type ManagedPermissionTool,
@@ -283,7 +284,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
     dispatch({ type: "saveStart", status: t("tool_permissions.saving") });
     try {
       await legalworkClient.patchConfig(legalworkWorkspaceId, {
-        opencode: { permission: patch },
+        legalwork: { toolPermissionRules: nativeToolPermissionUpdates(nextModel, state.loadedPermission) },
       });
       dispatch({
         type: "saveSuccess",

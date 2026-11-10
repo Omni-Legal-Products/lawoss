@@ -12,6 +12,7 @@ import { writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js"
 import type { ServerConfig } from "../types.js";
 import { EIGENWELT_ACCOUNT_ENV, eigenweltAccountEnabled } from "./commercial-services.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
+import { engineSettings, nativeRow } from "./test-support/native-config.js";
 
 const preloaded = process.env[EIGENWELT_ACCOUNT_ENV];
 const previousDb = process.env.LEGALWORK_RUNTIME_DB;
@@ -64,8 +65,7 @@ async function leftoverSignedInState(): Promise<ServerConfig> {
   });
   // Starý blok poskytovateľa uložený v spise (cesta „Vložiť API kľúč“).
   await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({
-    ...current,
-    provider: { eigenwelt: { npm: "@ai-sdk/openai-compatible", name: "Eigenwelt", options: { baseURL: "https://paid.gateway.test/v1" }, models: { a: { name: "A" } } } },
+    ...current, ...nativeRow({ provider: { eigenwelt: { npm: "@ai-sdk/openai-compatible", name: "Eigenwelt", options: { baseURL: "https://paid.gateway.test/v1" }, models: { a: { name: "A" } } } } }),
   }));
   delete process.env[EIGENWELT_ACCOUNT_ENV];
   globalThis.fetch = (async (input: unknown) => {
@@ -100,13 +100,10 @@ describe("LAWOSS: účet Eigenwelt je vypnutý", () => {
 
   test("engine nedostane poskytovateľa Eigenwelt ani zo starej konfigurácie spisu", async () => {
     const config = await leftoverSignedInState();
-    await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    const engineConfig = JSON.parse(await readFile(legalworkRuntimeConfigFilePath(config), "utf8")) as {
-      disabled_providers?: string[];
-      provider?: Record<string, unknown>;
-    };
-    expect(engineConfig.disabled_providers).toContain("eigenwelt");
-    expect(JSON.stringify(engineConfig.provider ?? {})).not.toContain("sk-firm-key");
+    // Engine v2: a disabled provider is a native `provider.use` denial.
+    const engineConfig = await engineSettings(config, "ws_1");
+    expect(engineConfig.policies).toContainEqual({ action: "provider.use", resource: "eigenwelt", effect: "deny" });
+    expect(JSON.stringify(engineConfig.providers ?? {})).not.toContain("sk-firm-key");
     expect(requests).toEqual([]);
   });
 });

@@ -8,7 +8,7 @@
  * (diakritika z macOS). Modul nemá stav; plugin ho dostane zabalený do svojho súboru.
  */
 import { realpath } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join, posix, relative } from "node:path";
 import { foldedPath, isPathWithin } from "./path-within.js";
 
 export const LINKED_FOLDERS_MAP_FILE = "lawoss-linked-folders.json";
@@ -313,4 +313,94 @@ export function parseLinkedFoldersMap(value: unknown): LinkedFoldersMap | null {
     clients.push({ root: client.root, folders: client.folders, client: owner });
   }
   return { version: 1, officeRoot, clients, firmManaged: value.firmManaged === true, ...(value.yolo === true ? { yolo: true } : {}) };
+}
+
+/**
+ * Začiatok `message` karty, ktorú plugin otvorí pre priečinok iného klienta vnoreného v klientovi (alebo naopak), za ním
+ * absolútny koreň toho klienta. Appka podľa neho ukáže varovanie o inom klientovi (`apps/app/src/lawoss/lite/other-client-folder.ts`).
+ */
+export const NESTED_CLIENT_CARD_PREFIX = "LAWOSS other client folder: ";
+
+/** Registrovaný kontajner praxe (rovná sa koreňu praxe alebo ho obsahuje): nie je klient. */
+const practiceContainer = (map: LinkedFoldersMap, client: LinkedFoldersClient): boolean => Boolean(map.officeRoot && isPathWithin(client.root, map.officeRoot));
+
+/**
+ * #264 (rozhodnutie MČ 23. 10. 2026): dva registrované priečinky, z ktorých jeden leží v druhom, sú oddelení klienti,
+ * keď má každý inú kartu alebo kartu nemá ani jeden. Vnútorný bez karty patrí kartou vonkajšiemu (spis toho istého
+ * klienta). Kontajner praxe klient nie je. Rovnaké pravidlo ako `foreignNestedClientRoots` na serveri.
+ */
+export function separateNestedClients(map: LinkedFoldersMap, a: LinkedFoldersClient, b: LinkedFoldersClient): boolean {
+  if (a === b || a.root === b.root) return false;
+  if (!isPathWithin(a.root, b.root) && !isPathWithin(b.root, a.root)) return false;
+  if (practiceContainer(map, a) || practiceContainer(map, b)) return false;
+  return !(a.client && b.client && a.client === b.client);
+}
+
+/** Doslovný začiatok vzoru: segmenty pred prvým so znakmi vzoru (`/a/b/*.txt` → `/a/b`). */
+function literalPrefix(pattern: string): string {
+  const parts = pattern.split(/([\\/]+)/);
+  const glob = parts.findIndex((part, index) => index % 2 === 0 && GLOB_CHARS.test(part));
+  return glob === -1 ? pattern : parts.slice(0, glob).join("").replace(/[\\/]+$/, "") || pattern.slice(0, 1);
+}
+
+/**
+ * Klient oddelený od klienta chatu a s ním vnorený (#264: vnútri neho alebo naopak), ktorého priečinok cieľ zasiahne;
+ * `null`, keď cieľ ostáva u klienta chatu. Doslovná cesta patrí najhlbšiemu registrovanému priečinku. Vzor (`*`, `?`,
+ * `[…]`) alebo `recursive` (glob s `**`, grep v celom priečinku) zasiahne vnoreného klienta, keď sa naň môže rozvinúť,
+ * a nadradeného, keď siaha mimo priečinka klienta chatu do jeho priečinka.
+ */
+export function separateNestedClientOf(map: LinkedFoldersMap, directory: string, target: string, recursive = false): LinkedFoldersClient | null {
+  const owner = ownerOf(map, directory);
+  if (!owner) return null;
+  const separate = map.clients.filter((client) => separateNestedClients(map, owner, client));
+  if (!separate.length) return null;
+  if (!recursive && !GLOB_CHARS.test(target)) {
+    const deepest = ownerOf(map, target);
+    return deepest && separate.includes(deepest) ? deepest : null;
+  }
+  const scope = recursive && !/(^|[\\/])\*\*$/.test(target) ? join(target, "**") : target;
+  const prefix = literalPrefix(scope);
+  const reached = separate.filter((client) => isPathWithin(owner.root, client.root)
+    ? patternRelation(scope, client.root) === "inside"
+    : !isPathWithin(owner.root, prefix) && (isPathWithin(client.root, prefix) || patternRelation(scope, client.root) === "inside"));
+  return reached.sort((a, b) => b.root.length - a.root.length)[0] ?? null;
+}
+
+/**
+ * #264 (rozhodnutie MČ 9. 11. 2026): vyhľadávanie (glob, grep) cielené do priečinka iného klienta vnoreného v klientovi
+ * chatu: doslovný začiatok rozsahu alebo vzoru leží v jeho priečinku. Vyhľadávanie z vyššieho priečinka, ktoré doň zasiahne
+ * len rekurziou, cielené nie je (výsledky z neho plugin vynechá, `separateNestedClientRoots`).
+ */
+export function targetedNestedClientOf(map: LinkedFoldersMap, directory: string, target: string): LinkedFoldersClient | null {
+  const owner = ownerOf(map, directory);
+  if (!owner) return null;
+  const prefix = literalPrefix(target);
+  return map.clients.filter((client) => separateNestedClients(map, owner, client) && isPathWithin(owner.root, client.root) && isPathWithin(client.root, prefix))
+    .sort((a, b) => b.root.length - a.root.length)[0] ?? null;
+}
+
+/** Korene iných klientov vnorených v klientovi chatu (spis bez vlastnej karty medzi nimi nie je). */
+export function separateNestedClientRoots(map: LinkedFoldersMap, directory: string): string[] {
+  const owner = ownerOf(map, directory);
+  if (!owner) return [];
+  return map.clients.filter((client) => separateNestedClients(map, owner, client) && isPathWithin(owner.root, client.root)).map((client) => client.root);
+}
+
+/**
+ * Spomína príkaz priečinok `root`? Absolútne (aj kanonicky), relatívne k pracovnému priečinku príkazu, alebo cestou
+ * v chránenom prostredí (`/workspace/…`). Zhoda musí byť celá súčasť cesty (pred ňou začiatok, medzera, úvodzovky,
+ * `=` alebo `./`; za ňou koniec, oddeľovač, medzera alebo úvodzovky; `\ ` je medzera). Je to len odhad: príkaz bez cesty (napr.
+ * rekurzívne hľadanie v celom priečinku) sa takto nerozpozná.
+ */
+export function commandMentionsFolder(command: string, cwd: string, roots: readonly string[], sandboxRoot?: { host: string; guest: string }): boolean {
+  const forms = new Set<string>();
+  for (const root of roots) {
+    forms.add(root.replace(/[\\/]+$/, ""));
+    const rel = relative(cwd, root);
+    if (rel && !rel.startsWith("..") && !isAbsolute(rel)) forms.add(rel);
+    if (sandboxRoot && isPathWithin(sandboxRoot.host, root)) forms.add(posix.join(sandboxRoot.guest, ...segmentsOf(relative(sandboxRoot.host, root))));
+  }
+  // Medzera zapísaná ako `\ ` je v shelli súčasť cesty.
+  const text = command.normalize("NFC").replace(/\\ /g, " ");
+  return [...forms].some((form) => new RegExp(`(?:^|[\\s"'=(:]|\\./)${escapeRegExp(form.normalize("NFC"))}(?=$|[\\\\/\\s"');|&])`, "u").test(text));
 }

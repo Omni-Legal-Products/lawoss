@@ -1,4 +1,7 @@
+import { Plugin } from "@opencode/plugin";
+import { nativeProviderRequest } from "./native-provider-request.js";
 import { createHash } from "node:crypto";
+import { checkModelResponse } from "./model-request-errors.js";
 
 // LiteLLM carries Gemini thought signatures in tool IDs. Replaying those IDs
 // after switching to OpenAI exceeds its 64-character limit. Rewrite only the
@@ -7,10 +10,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function requestPath(input: Parameters<typeof fetch>[0]): string {
-  try { return new URL(input instanceof Request ? input.url : String(input)).pathname; }
-  catch { return ""; }
-}
 
 function normalizeBody(body: string, path: string): string | null {
   let parsed: unknown;
@@ -58,28 +57,25 @@ function normalizeBody(body: string, path: string): string | null {
   return JSON.stringify(parsed);
 }
 
-let installed = false;
-
-// Keep helpers private: OpenCode treats every export as a plugin factory.
-export const LegalWorkOpenAIToolCallIds = async () => {
-  if (!installed) {
-    installed = true;
-    const base = globalThis.fetch;
-    const patched = async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
-      const path = requestPath(input);
-      if (!/\/(?:responses|chat\/completions)\/?$/.test(path)) return base(input, init);
-      const body = typeof init?.body === "string" ? init.body
-        : init?.body == null && input instanceof Request && input.method === "POST" ? await input.clone().text() : null;
-      if (body === null) return base(input, init);
-      const normalized = normalizeBody(body, path);
-      if (normalized === null) return base(input, init);
-      // Preserve Request-carried headers/auth and the caller's abort signal.
-      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
-      headers.delete("content-length");
-      if (input instanceof Request) return base(new Request(input, { ...init, headers, body: normalized }));
-      return base(input, { ...init, headers, body: normalized });
-    };
-    globalThis.fetch = Object.assign(patched, base);
-  }
-  return {};
-};
+export default Plugin.define({id:"legalwork.openai.tool-call-ids",async setup(ctx){
+  await ctx.session.hook("http.request",async event=>{
+    const path=new URL(event.request.url).pathname;
+    if(!/\/(?:responses|chat\/completions)\/?$/.test(path))return;
+    event.request=await nativeProviderRequest(event.request,body=>normalizeBody(body,path));
+  });
+  await ctx.session.hook("http.response", async event => {
+    if (event.response.status !== 413) return;
+    const bytes = event.request.method === "POST" ? (await event.request.clone().arrayBuffer()).byteLength : undefined;
+    try { await checkModelResponse(event.response, bytes); }
+    catch (error) {
+      // Native hooks mutate the response; throwing here is a plugin defect.
+      // A byte-limit rejection must be an ordinary non-retryable model error.
+      event.response = Response.json({ error: { code: "legalwork_request_byte_limit", message: (error instanceof Error ? error.message : String(error)).replace("request_too_large:", "Request byte limit:") } }, { status: 400 });
+    }
+  });
+  await ctx.session.hook("experimental.ws.send",event=>{
+    // Native Responses WebSocket requests are flattened response.create frames.
+    // Other control frames have no input list and remain byte-for-byte intact.
+    const normalized=normalizeBody(event.frame,"/responses");if(normalized!==null)event.frame=normalized;
+  });
+}});

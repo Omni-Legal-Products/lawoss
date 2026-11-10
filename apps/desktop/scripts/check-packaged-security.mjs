@@ -9,10 +9,15 @@ import path from "node:path";
 import { checkOkfCliWithNode } from "../electron/lawoss-okf-cli-smoke.mjs"; // 🟡 LAWOSS: kontrola bundlov OKF na konci
 import { checkBundledNpm } from "../electron/lawoss-npm-smoke.mjs"; // 🟡 LAWOSS: npm pre balíky LAWOSS Marketplace
 import { assertPackagedOpencodeSdk } from "./packaged-opencode-sdk.cjs";
+import { checkOpencodeRuntime } from "./check-opencode-runtime.mjs";
+import { opencodeRelease, opencodeReleaseTarget } from "@legalwork/opencode-release";
+import { verifyDerivativeDistributionContent, verifyInstalledDerivativeEngine } from "@legalwork/opencode-release/derivative";
+import { validateBuildSelection } from "../../../packages/opencode-release/build-policy.mjs";
 const require = createRequire(import.meta.url);
 const builderRequire = createRequire(require.resolve("electron-builder"));
 const libRequire = createRequire(builderRequire.resolve("app-builder-lib"));
 const { getCurrentFuseWire, FuseV1Options } = libRequire("@electron/fuses");
+const { extractFile, listPackage } = libRequire("@electron/asar");
 const target = process.argv[2];
 if (!target) throw new Error("Usage: pnpm check:packaged-security <packaged .app or executable>");
 const appPath = path.resolve(target);
@@ -25,6 +30,8 @@ for (const [name, enabled] of Object.entries({
   console.log(`PASS: ${name}=${enabled}`);
 }
 const resources = process.platform === "darwin" ? path.join(appPath, "Contents/Resources") : path.join(path.dirname(appPath), "resources");
+assert.ok(!listPackage(path.join(resources, "app.asar")).some(file => file.replaceAll("\\", "/").includes("/node_modules/@legalwork/opencode-release/generated/archive-cache")), "Packaged app must not include the engine build download cache");
+console.log("PASS: engine build download cache is absent from the packaged app");
 const nodeDirectory = path.join(resources, "node");
 const metadata = JSON.parse(await readFile(path.join(nodeDirectory, "runtime.json"), "utf8"));
 const expectedArch = metadata.source.target.split("-").at(-1);
@@ -35,20 +42,35 @@ if (node.error) throw node.error;
 assert.equal(node.status, 0, node.stderr);
 assert.deepEqual(JSON.parse(node.stdout), { version: metadata.source.version, electron: null, arch: expectedArch });
 console.log(`PASS: bundled Node ${metadata.source.version} runs with no system Node on PATH`);
-const sdk = assertPackagedOpencodeSdk(resources);
-const sdkImport = spawnSync("node", ["--input-type=module", "-e", `
-  const {tool} = await import(process.argv[1]);
-  const {createOpencodeClient} = await import(process.argv[2]);
-  if (typeof tool !== 'function' || typeof createOpencodeClient !== 'function') process.exit(1);
-`, ...["plugin", "sdk"].map((name) => pathToFileURL(path.join(sdk, "node_modules", "@opencode-ai", name, "dist/index.js")).href)], {
-  env: { ...process.env, PATH: nodeDirectory, NODE_OPTIONS: "", ELECTRON_RUN_AS_NODE: "" }, encoding: "utf8", timeout: 30_000,
-});
-if (sdkImport.error) throw sdkImport.error;
-assert.equal(sdkImport.status, 0, sdkImport.stderr);
-console.log("PASS: packaged OpenCode plugin SDK and client load with bundled Node");
+assertPackagedOpencodeSdk(resources);
+const enginePackage = path.join("node_modules", "@legalwork", "opencode-release");
+const packagedSelection = JSON.parse(extractFile(path.join(resources, "app.asar"), path.join(enginePackage, "generated", "selection.json")).toString("utf8"));
+assert.deepEqual(packagedSelection, JSON.parse(await readFile(new URL("../../../packages/opencode-release/generated/selection.json", import.meta.url), "utf8")), "Packaged OpenCode selection must exactly match its prepared build input");
+for (const name of ["selection.json", "build/recipe.json"]) {
+  const bundled = JSON.parse(extractFile(path.join(resources, "app.asar"), path.join(enginePackage, name)).toString("utf8"));
+  assert.deepEqual(bundled, JSON.parse(await readFile(new URL(`../../../packages/opencode-release/${name}`, import.meta.url), "utf8")), `Packaged engine ${name} must match its committed source policy`);
+}
+validateBuildSelection(packagedSelection);
+assert.equal(packagedSelection.schemaVersion, 1);
+assert.equal(packagedSelection.baseVersion, opencodeRelease.version);
+const engineTarget = opencodeReleaseTarget(process.platform, expectedArch);
+let engineBinary, candidateBuild;
+if (packagedSelection.kind === "derivative") {
+  const distribution = await verifyDerivativeDistributionContent({ manifestContent: packagedSelection.manifestContent, manifestSha256: packagedSelection.manifestSha256 });
+  assert.equal(distribution.version, packagedSelection.version);
+  const directory = path.join(resources, "opencode-engine", packagedSelection.manifestSha256, engineTarget);
+  candidateBuild = await verifyInstalledDerivativeEngine({ distribution, directory, target: engineTarget });
+  engineBinary = candidateBuild.path;
+} else {
+  assert.equal(packagedSelection.kind, "official");
+  assert.equal(packagedSelection.version, opencodeRelease.version);
+  engineBinary = path.join(resources, "sidecars", process.platform === "win32" ? "opencode.exe" : "opencode");
+}
+await checkOpencodeRuntime(engineBinary, candidateBuild);
+console.log("PASS: packaged OpenCode v2 starts, authenticates, and resolves native plugins through its host modules");
 if (process.platform === "win32") {
   const expectedMachine = expectedArch === "arm64" ? 0xaa64 : 0x8664;
-  for (const executable of [appPath, path.join(nodeDirectory, "node.exe"), path.join(resources, "sidecars/opencode.exe")]) {
+  for (const executable of [appPath, path.join(nodeDirectory, "node.exe"), engineBinary]) {
     const file = await open(executable, "r");
     try {
       const header = Buffer.alloc(64);
@@ -74,9 +96,6 @@ if (process.platform === "linux") console.log("NOTE: Electron does not enforce A
 // shipped Node on PATH, so a developer's installation cannot hide a missing dependency.
 const temporary = await mkdtemp(path.join(tmpdir(), "legalwork-packaged-tools-"));
 try {
-  const { extractFile } = libRequire("@electron/asar");
-  // Upstream v0.3.0: core-skills.js imports the generated help translations next to it, so both are
-  // extracted and imported from a file URL instead of a data: URL.
   for (const name of ["core-skills.js", "help-i18n.generated.js"]) {
     await writeFile(path.join(temporary, name), extractFile(path.join(resources, "app.asar"), path.join("server", "dist", name)));
   }

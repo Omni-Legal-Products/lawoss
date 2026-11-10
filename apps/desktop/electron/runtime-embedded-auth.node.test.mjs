@@ -5,8 +5,14 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { createRuntimeManager } from "./runtime.mjs";
 import { stageOpencodeSdk } from "../scripts/prepare-opencode-sdk.mjs";
+import { opencodeRelease } from "./opencode-release.mjs";
+import { useOfficialEngineSelection } from "../../../lawoss/testing/official-engine-selection.mjs";
+
+// LAWOSS v2: the inert Node engine is not the pinned derivative; this process
+// owns an official fixture selector (also when the unit job has no build output).
+test.after(await useOfficialEngineSelection());
+const { createRuntimeManager } = await import("./runtime.mjs");
 
 // Keep disposal and listener close at one fixture boundary.
 async function withFixtureCleanup(run, { dispose, close, remove }) {
@@ -79,7 +85,7 @@ async function fixture(run) {
       const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
       const constants = JSON.parse(await readFile(path.join(repoRoot, "constants.json"), "utf8"));
       await stageOpencodeSdk({
-        sourcePackage: path.join(repoRoot, "apps/server/node_modules/@opencode-ai/plugin"),
+        sourcePackage: path.join(repoRoot, "apps/server/node_modules/@opencode/plugin"),
         destination: path.join(root, "desktop", "resources", "opencode-sdk"),
         expectedVersion: constants.opencodeVersion.replace(/^v/, ""),
       });
@@ -132,7 +138,9 @@ async function publicProjection(manager, engine) {
       for (const key of ["username", "password", "opencodeUsername", "opencodePassword"]) assert.equal(Object.hasOwn(object, key), false);
     }
     const serialized = JSON.stringify(payload);
-    for (const secret of [engine.opencodeUsername, engine.opencodePassword]) {
+    // LAWOSS v2: the managed engine user is the fixed public name "opencode"; only
+    // the password is private (an external engine's own username stays private too).
+    for (const secret of [engine.opencodeUsername === "opencode" ? undefined : engine.opencodeUsername, engine.opencodePassword]) {
       if (secret) assert.equal(serialized.includes(secret), false, "Public workspace projection must omit engine credentials");
     }
   }
@@ -141,19 +149,37 @@ async function publicProjection(manager, engine) {
 test("fresh managed desktop authentication survives healthy reuse and embedded-server restart privately", { timeout: 20_000 }, async () => {
   await fixture(async ({ root, selected, manager }) => {
     const preload = path.join(root, "inert-engine.mjs");
+    // LAWOSS v2 handshake: user "opencode" with OPENCODE_PASSWORD (or the service
+    // file), /api/info with version and PID, completed v1 history migration, and the
+    // listener announced as JSON under the --stdio parent lease.
     await writeFile(preload, `
 import { createServer } from "node:http";
-import { basename } from "node:path";
+import { readFileSync } from "node:fs";
+import { basename, join } from "node:path";
 if (process.argv.includes("--help")) process.exit(0);
 if (basename(process.argv[1] ?? "") !== "serve") throw new Error("Unexpected fixture entry");
-const expected = "Basic " + Buffer.from(process.env.OPENCODE_SERVER_USERNAME + ":" + process.env.OPENCODE_SERVER_PASSWORD).toString("base64");
+const password = process.argv.includes("--service")
+  ? JSON.parse(readFileSync(join(process.env.OPENCODE_CONFIG_DIR, "service.json"), "utf8")).password
+  : process.env.OPENCODE_PASSWORD;
+const expected = "Basic " + Buffer.from("opencode:" + password).toString("base64");
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
+const routes = {
+  "/api/info": () => ({ version: ${JSON.stringify(opencodeRelease.version)}, pid: process.pid }),
+  "/api/experimental/migration/v1": () => ({ status: "completed", progress: { completed: 0, total: 0 } }),
+  "/global/health": () => ({ healthy: true, version: "inert-private-auth-fixture" }),
+};
 createServer((request, response) => {
   request.resume();
   if (request.headers.authorization !== expected) return response.writeHead(401).end();
   response.setHeader("Content-Type", "application/json");
-  response.end(JSON.stringify(request.url === "/global/health" ? { healthy: true, version: "inert-private-auth-fixture" } : {}));
-}).listen(port, "127.0.0.1", () => process.stdout.write("opencode server listening on http://127.0.0.1:" + port + "\\n"));
+  const route = routes[new URL(request.url, "http://127.0.0.1").pathname];
+  response.end(JSON.stringify(route ? route() : { data: [] }));
+}).listen(port, "127.0.0.1", () => {
+  if (process.argv.includes("--stdio")) {
+    process.stdout.write(JSON.stringify({ url: "http://127.0.0.1:" + port }) + "\\n");
+    process.stdin.on("end", () => process.exit(0)); process.stdin.resume();
+  } else process.stdout.write("server listening on http://127.0.0.1:" + port + "\\n");
+});
 await new Promise(() => {});
 `);
     // A genuine Node executable with an awaited fixture import is portable and

@@ -4,6 +4,7 @@ import {
   applyPermissionPatch,
   applyQuickToggle,
   emptyToolPermissionsModel,
+  nativeToolPermissionUpdates,
   parseToolPermissions,
   quickToggleChecked,
   readPermissionRecord,
@@ -58,7 +59,22 @@ describe("parseToolPermissions", () => {
   test("readPermissionRecord tolerates missing or invalid permission keys", () => {
     expect(readPermissionRecord({})).toEqual({});
     expect(readPermissionRecord({ permission: "allow" })).toEqual({});
-    expect(readPermissionRecord({ permission: { edit: "ask" } })).toEqual({ edit: "ask" });
+    expect(readPermissionRecord({ permission: { edit: "ask" } })).toEqual({});
+  });
+
+  test("native ordered permissions retain shell aliases, resource rules and later wildcard precedence", () => {
+    const permission = readPermissionRecord({ permissions: [
+      { action: "*", resource: "*", effect: "deny" },
+      { action: "shell", resource: "*", effect: "ask" },
+      { action: "shell", resource: "git *", effect: "allow" },
+      { action: "external_directory", resource: "/shared/*", effect: "allow" },
+    ] });
+    expect(permission.bash).toEqual({ "*": "ask", "git *": "allow" });
+    expect(permission.edit).toBe("deny");
+    expect(permission.external_directory).toEqual({ "*": "deny", "/shared/*": "allow" });
+    expect(readPermissionRecord({ permissions: [
+      { action: "shell", resource: "git *", effect: "allow" }, { action: "*", resource: "*", effect: "deny" },
+    ] }).bash).toBe("deny");
   });
 });
 
@@ -215,4 +231,21 @@ describe("withFirmPermissions", () => {
     });
     expect(withFirmPermissions(own, { mode: "default", value: { bash: "allow" } })).toMatchObject({ bash: "allow" });
   });
+});
+
+
+test("settings save native action rules without touching unknown actions or project folders", () => {
+  const loaded = readPermissionRecord({ permissions: [
+    { action: "shell", resource: "*", effect: "ask" },
+    { action: "shell", resource: "git *", effect: "allow" },
+    { action: "external_directory", resource: "/private/project-a/*", effect: "allow" },
+    { action: "future_tool", resource: "*", effect: "deny" },
+  ] });
+  const model = parseToolPermissions(loaded);
+  expect(nativeToolPermissionUpdates(model, loaded)).toEqual({ shell: [
+    { action: "shell", resource: "*", effect: "ask" },
+    { action: "shell", resource: "git *", effect: "allow" },
+  ] });
+  model.bash = { action: null, rules: [] };
+  expect(nativeToolPermissionUpdates(model, loaded)).toEqual({ shell: null });
 });

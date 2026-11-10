@@ -3,7 +3,8 @@ import { expect, test } from "bun:test";
 import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
 import { z } from "zod";
 import { LAWOSS_MEMORY_TOOL } from "../lawoss/tool-permission-defaults.js";
-import { LawossMemoryTools } from "./lawoss-memory-tools.js";
+import MemoryTools from "./lawoss-memory-tools.js";
+import { lawossNativePlugin } from "./lawoss-native-test-support.js";
 
 test("lawoss_memory posts the case folder of this chat to its own client and never shows a card", async () => {
   const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = wikiAgentSecret();
@@ -24,11 +25,11 @@ test("lawoss_memory posts the case folder of this chat to its own client and nev
   process.env.LEGALWORK_SERVER_URL = server.url.origin; adoptWikiAgentSecret("fixture-token");
   let asked = 0;
   try {
-    const plugin = await LawossMemoryTools();
+    const plugin = await lawossNativePlugin(MemoryTools);
     // Reading has its own tool; writing is lawoss_memory_write with one card (N-A7-10).
     expect(Object.keys(plugin.tool)).toEqual([LAWOSS_MEMORY_TOOL, "lawoss_memory_write"]);
     const tool = plugin.tool.lawoss_memory;
-    const schema = z.object(tool.args), wire = z.fromJSONSchema(z.toJSONSchema(schema));
+    const wire = z.fromJSONSchema(JSON.parse(JSON.stringify(tool.input)));
     expect(wire.safeParse({ action: "write" }).success).toBe(false);
     expect(wire.safeParse({ action: "preamble" }).success).toBe(true);
     // A case chat runs in the case folder; a path written from the client root is not doubled.
@@ -47,8 +48,7 @@ test("lawoss_memory posts the case folder of this chat to its own client and nev
     expect(bodies).toHaveLength(4);
     expect(asked).toBe(0);
     // Fixed text for the model: memory and folder listing without the shell.
-    const output = { system: [] as string[] };
-    await plugin["experimental.chat.system.transform"]({}, output);
+    const output = { system: await plugin.system() };
     expect(output.system.join("\n")).toContain("lawoss_memory");
     expect(output.system.join("\n")).toContain("instead of ls");
     expect(output.system.join("\n")).toContain("call lawoss_memory_write");

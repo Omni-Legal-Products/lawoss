@@ -1,3 +1,6 @@
+import { nativePluginTools } from "../opencode-plugins/native-plugin-test-support.js";
+import { nativeToolBefore } from "../opencode-plugins/native-plugin-test-support.js";
+const LegalWorkWikiTools = (context = {}) => nativePluginTools(LegalWorkWikiToolsDefinition, context);
 import { scopedWikiRuntime } from "./scoped-runtime.test-helper.js";
 import { adoptWikiAgentSecret, wikiAgentSecret } from "../opencode-plugins/wiki-agent-secret.js";
 import { enforceAiBoundaries } from "../lawoss/test-support/ai-boundaries.js";
@@ -7,7 +10,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { startServer } from "../server.js";
 import { registerLocalProject } from "../routes/workspaces.js";
-import { LegalWorkWikiTools } from "../opencode-plugins/legalwork-wiki-tools.js";
+import LegalWorkWikiToolsDefinition from "../opencode-plugins/legalwork-wiki-tools.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "./agent-access.js";
 import { WikiStore } from "./store.js";
 import type { ServerConfig } from "../types.js";
@@ -25,11 +28,13 @@ test("wiki tools respect project access without overriding host file access", as
   };
   const { workspace } = await registerLocalProject(config, { folderPath: join(root, "project"), name: "Project", preset: "starter" });
   const enginePosts: string[] = [];
-  const engine = Bun.serve({hostname: "127.0.0.1", port: 0, async fetch(request) {
+  const engine = Bun.serve({ port: 0, async fetch(request) {
     if (request.method === "POST") enginePosts.push(await request.text());
-    return Response.json({});
-  }});
-  cleanup.push(async () => {engine.stop(true);});
+    return new URL(request.url).pathname === "/api/session/project-session"
+      ? Response.json({ data: { id: "project-session", location: { directory: workspace.path } } })
+      : Response.json({ error: "Not found" }, { status: 404 });
+  } });
+  cleanup.push(async () => { engine.stop(true); });
   workspace.baseUrl = engine.url.origin;
   const store = new WikiStore(config); cleanup.push(() => store.close());
   const wiki = await store.create({ name: "Private disabled wiki", template: "blank" });
@@ -47,7 +52,7 @@ test("wiki tools respect project access without overriding host file access", as
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
   });
   const project = await LegalWorkWikiTools({ directory: workspace.path });
-  await expect(project["tool.execute.before"]({ tool: "read", sessionID: "project-session" }, { args: { filePath: join(root, "outside.txt") } })).resolves.toBeUndefined();
+  await expect(nativeToolBefore(project.runtime,"read",{ path: join(root, "outside.txt") },"project-session")).resolves.toBeUndefined();
   expect(project).not.toHaveProperty("shell.env");
   // The wiki's own registered chat is served for its own directory; a project chat cannot claim that directory.
   const claim = (session: string) => fetch(`${base}/wikis`, { headers: {
@@ -63,21 +68,21 @@ test("wiki tools respect project access without overriding host file access", as
   expect(wikiRuntime.config === config).toBe(false);
   expect(wikiRuntime.headers()["x-legalwork-wiki-agent-token"] === token).toBe(false);
   const ownWiki = await wikiRuntime.run(() => LegalWorkWikiTools({ directory: wiki.root }));
-  await expect(wikiRuntime.run(() => ownWiki["tool.execute.before"]({ tool: "read", sessionID: "wiki-session" }, { args: { filePath: join(workspace.path, "outside.txt") } }))).rejects.toMatchObject({ code: "wiki_native_project_access" });
-  await expect(wikiRuntime.run(() => ownWiki["tool.execute.before"]({ tool: "write", sessionID: "wiki-session" }, { args: { filePath: join(workspace.path, "new.txt") } }))).rejects.toMatchObject({ code: "wiki_native_project_access" });
-  await expect(wikiRuntime.run(() => ownWiki["tool.execute.before"]({ tool: "read", sessionID: "wiki-session" }, { args: { filePath: join(wiki.root, "AGENTS.md") } }))).resolves.toBeUndefined();
-  expect(JSON.parse(await project.tool.wiki_list.execute({}, { sessionID: "project-session" })).wikis).toEqual([]);
-  const headers = { authorization: `Bearer ${config.token}`, "x-legalwork-host-token": config.hostToken, "content-type": "application/json" };
+  await expect(wikiRuntime.run(() => nativeToolBefore(ownWiki.runtime,"read",{ path: join(workspace.path, "outside.txt") },"wiki-session"))).rejects.toMatchObject({ code: "wiki_native_project_access" });
+  await expect(wikiRuntime.run(() => nativeToolBefore(ownWiki.runtime,"write",{ path: join(workspace.path, "new.txt") },"wiki-session"))).rejects.toMatchObject({ code: "wiki_native_project_access" });
+  await expect(wikiRuntime.run(() => nativeToolBefore(ownWiki.runtime,"read",{ path: join(wiki.root, "AGENTS.md") },"wiki-session"))).resolves.toBeUndefined();
+  expect(JSON.parse(await project.tool.wiki_list.execute({}, { sessionID: "project-session", directory: workspace.path })).wikis).toEqual([]);
   // AI hranice off (alpha default): the pre-#168 sandbox gate still refuses host shells.
-  for (const path of ["/session/project-session/shell", "/pty"]) {
+  const headers = { authorization: `Bearer ${config.token}`, "x-legalwork-host-token": config.hostToken, "content-type": "application/json" };
+  for (const [path, code] of [["/api/session/project-session/shell", "sandbox_required"], ["/api/pty", "engine_terminal_disabled"]]) {
     const response = await fetch(`${base}/workspace/${workspace.id}/opencode${path}`, { method: "POST", headers, body: JSON.stringify({command: "SYNTHETIC_DENIED_SHELL_CANARY"}) });
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ code: "sandbox_required" });
+    expect(await response.json()).toMatchObject({ code });
   }
   expect(enginePosts).toEqual([]);
   // #168 denial expectation for the project shell: „AI hranice" on explicitly.
   await enforceAiBoundaries(config);
-  for (const [path, code] of [["/session/project-session/shell", "ai_transfer_denied"], ["/pty", "sandbox_required"]]) {
+  for (const [path, code] of [["/api/session/project-session/shell", "ai_transfer_denied"], ["/api/pty", "engine_terminal_disabled"]]) {
     const response = await fetch(`${base}/workspace/${workspace.id}/opencode${path}`, { method: "POST", headers, body: JSON.stringify({command: "SYNTHETIC_DENIED_SHELL_CANARY"}) });
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({ code });

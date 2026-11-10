@@ -10,6 +10,7 @@ import { currentLocale, t } from "@/i18n";
 import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
 import { type RecordingPanelTab, usePanelTabStore } from "../session/panel/panel-tab-store";
 import { ArtifactFrame } from "../session/artifacts/artifact-frame";
+import { MarkdownBlock } from "../session/surface/markdown";
 import { useRecorderStore } from "./recorder-store";
 import { recordingTime, transcriptTurns } from "./recording-transcript";
 import { RecordingSpeakers, SpeakerAssignment, SPEAKER_COLORS } from "./recording-speakers";
@@ -53,6 +54,7 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
   const partials = useRecorderStore(state => liveRecording ? state.partials : EMPTY_SEGMENTS);
   const startedAt = useRecorderStore(state => liveRecording ? state.recordingStartedAt : null);
   const finalizing = useRecorderStore(state => Boolean(liveRecording && state.finalizing));
+  const reconnecting = useRecorderStore(state => Boolean(liveRecording && !state.finalizing && state.transcriptionReconnecting));
   const savedRecording = useRecorderStore(state => state.recordings.find(item => item.id === recordingId));
   const queryKey = useMemo(() => ["recorder", "transcript", recordingId], [recordingId]);
   const detail = useQuery({
@@ -190,17 +192,20 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
               <Loader2 className="size-3.5 animate-spin" />{t("recorder.diarize_identifying")}
             </span> : null}
           </div>
+          {reconnecting ? <p className="mt-2 text-sm text-warning" role="status">{t("recorder.transcription_reconnecting")}</p> : null}
+          {!liveRecording && meta?.error ? <p className="mt-2 text-sm text-warning" role="status">{meta.error}</p> : null}
           {meta?.speakerError ? <p className="mt-2 text-sm text-muted-foreground" role="status">{meta.speakerError}</p> : null}
           {meta?.summaryProcessing && !meta.speakerProcessing ? <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground" role="status"><Loader2 className="size-3.5 animate-spin" />{t("recorder.meeting_notes_processing")}</p> : null}
-          {meta?.summaryError ? <p className="mt-2 text-sm text-muted-foreground" role="status">{meta.summaryError}</p> : null}
+          {meta?.summaryError ? <p className="mt-2 text-sm text-warning" role="alert">{meta.summaryError}</p> : null}
         </div>
         <div className="lw-recording-transcript-actions">
           {!liveRecording && meta?.transcriptionSource === "cloud" && !meta.summary && turns.length > 0 ?
             <Button variant="ghost" size="sm" className="px-2 text-xs" onClick={() => void summarize()}
               disabled={startingSummary || meta.summaryProcessing || meta.speakerProcessing}
-              aria-label={t("recorder.meeting_notes_manual")}
+              aria-label={t(meta.summaryError ? "recorder.meeting_notes_retry" : "recorder.meeting_notes_manual")}
               title={`${t("recorder.meeting_notes_manual")}: ${t("recorder.meeting_notes_manual_description")}`}>
-              {t((startingSummary || meta.summaryProcessing) && !meta.speakerProcessing ? "recorder.meeting_notes_manual_running" : "recorder.meeting_notes_manual")}
+              {t((startingSummary || meta.summaryProcessing) && !meta.speakerProcessing ? "recorder.meeting_notes_manual_running"
+                : meta.summaryError ? "recorder.meeting_notes_retry" : "recorder.meeting_notes_manual")}
             </Button> : null}
           <Button variant="ghost" size="icon-sm" aria-label={t("recorder.transcript_copy")} title={t("recorder.transcript_copy")} disabled={turns.length === 0} onClick={() => void copy()}>{copied ? <Check /> : <Copy />}</Button>
           <RecordingSpeakers speakers={people} disabled={saving || Boolean(liveRecording || meta?.speakerProcessing)} live={Boolean(liveRecording)} edit={edit} />
@@ -208,7 +213,7 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
       </header>
       {meta?.summary ? <section className="lw-recording-transcript-summary" aria-label={t("recorder.meeting_summary")}>
         <h2>{t("recorder.meeting_summary")}</h2>
-        <p>{meta.summary}</p>
+        <MarkdownBlock text={meta.summary} />
       </section> : null}
       <div className="lw-recording-transcript-body">
         {turns.length === 0 ? <div className="lw-recording-transcript-empty"><FileText className="size-6" /><p>{t(liveRecording ? "recorder.waiting_for_speech" : "recorder.transcript_empty")}</p></div> : turns.map(turn => (

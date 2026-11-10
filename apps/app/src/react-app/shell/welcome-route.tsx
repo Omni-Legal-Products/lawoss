@@ -16,7 +16,6 @@ import { LawossWelcomePage } from "@/lawoss/domains/onboarding/lawoss-welcome-pa
 import type { OnboardingApplyResult, OnboardingStep } from "@/lawoss/domains/onboarding/api";
 import type { OnboardingCompletion } from "@/lawoss/domains/onboarding/lawoss-welcome-page";
 import { authorAfterOnboarding } from "@/lawoss/okf/lawyer-name";
-import { markAllWhatsNewSeen } from "./whats-new";
 import { canonicalPathOf, withCanonicalPaths } from "@/lawoss/domains/onboarding/typed-paths";
 import { watchLegalworkConnection } from "@/lawoss/domains/onboarding/server-connection";
 import { registerOnboardedWorkspace } from "@/lawoss/domains/onboarding/register-clients";
@@ -48,8 +47,6 @@ export function WelcomeRoute() {
   const registeredClient = useRef<LegalworkServerClient | null>(null);
   const continuation = new URLSearchParams(location.search).get("continue");
   const initialStep = continuationStep(continuation);
-  // LAWOSS: ako upstream pri štarte onboardingu; novému používateľovi je nové všetko, „What's new“ nie.
-  useEffect(() => { if (!local.prefs.hasCompletedOnboarding) markAllWhatsNewSeen(); }, []);
 
   // 🟡 LAWOSS: pri prvom štarte počká, kým boot spustí server (server-connection.ts), namiesto okamžitej chyby.
   useEffect(() => watchLegalworkConnection({

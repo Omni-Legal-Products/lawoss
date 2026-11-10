@@ -4,10 +4,10 @@ Use this page to distinguish core, optional and account-dependent surfaces. The 
 
 | Capability | Availability and prerequisites |
 | --- | --- |
-| Chats, folder/workspace context, file outputs | A reachable worker; local folders are managed through the desktop. Remote work uses the remote worker's files and credentials. |
+| Chats, folder/workspace context, file outputs | LegalWork running with access to the selected project folder. Cloud sources need their own connected account. |
 | Model providers and Fusion | Connected providers and eligible models; Fusion needs selected candidate models. |
 | Document editors and previews | A supported file and an available file/editor surface. Format fidelity varies by editor. |
-| Connected file storage | Configured connection, worker reachability, provider permissions and appropriate access role. |
+| Connected file storage | Configured connection, service reachability, provider permissions and appropriate access role. |
 | Team libraries/storage and synced intake tasks | Connected firm account, supported platform capabilities, role and entitlement. |
 | Local Tasks and Workflows | Local server/workspace; starting a workflow also needs an installed workflow and reachable folder. |
 | Project Home, Files, Chats and sharing | Firm sharing also needs service support, membership, subscription and sharing scope. See [Projects](projects-sharing.md). |
@@ -15,7 +15,7 @@ Use this page to distinguish core, optional and account-dependent surfaces. The 
 | Scheduled assistant runs | Local computer awake and LegalWork running. A task due date alone never schedules a run. See [Scheduled tasks](scheduled-tasks.md). |
 | Native Tabular Review and prompt library | Available configured review/OCR models. See [Reviews](reviews.md). |
 | Wiki and saved dashboards/reports | Shared content needs appropriate access and service support. See [Wiki](wiki.md) and [Dashboards](dashboards.md). |
-| Evaluations | Connected tested models and judge, benchmark tasks, and a worker that remains available. |
+| Evaluations | Connected tested models and judge, benchmark tasks, and LegalWork remaining available. |
 | Recorder and dictation | Desktop/native audio support, a ready transcription source and required OS permissions. Local models need downloads; optional cloud models need account/region availability and network access. |
 | Meeting detection, microphone picker and overlay settings | Recorder settings; available controls and OS readiness determine support. Detection offers recording rather than starting it automatically. |
 | Per-app audio capture | Supported macOS capture runtime; the UI reports unsupported systems. Windows uses system audio for call capture. |

@@ -1,12 +1,15 @@
-import { useQuery, type QueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import type { Client, ModelRef, ProviderListItem } from "../../app/types";
-import { unwrap } from "../../app/lib/opencode";
 import { dispatchNewProviders } from "../../app/lib/provider-events";
 import { filterProviderList } from "../../app/utils/providers";
 import { pickDefaultModel } from "../../lawoss/shell/default-model-pick";
-import { filterSubscriptionModels } from "../../lawoss/providers/subscription-models";
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import { filterSubscriptionModels, nativeConnectionSource } from "../../lawoss/providers/subscription-models";
+import type { ProviderListView } from "../../app/types";
+import { ensureNativeCatalogReady, invalidateNativeCatalogReady } from "../../app/lib/opencode-catalog-ready";
+import { createCoalescedRefresh } from "../shell/coalesced-refresh";
+import type { NativeProviderDisplay } from "@legalwork/types/native-model-display";
 
 export const PROVIDER_LIST_CACHE_MS = 5 * 60 * 1000;
 const PROVIDER_LIST_QUERY_ROOT = ["opencode-provider-list"] as const;
@@ -39,6 +42,7 @@ export function providerListQueryKey(input: {
 }
 
 export async function refreshProviderListQueries(queryClient: QueryClient) {
+  invalidateNativeCatalogReady();
   // Lists of workspaces not on screen are dropped, not kept stale: the reload
   // (or the server reloading those workspaces) may have changed them too, and a
   // stale list would show their models as unavailable when one is opened.
@@ -52,18 +56,44 @@ export async function fetchProviderList(input: {
   client: Client;
   baseUrl?: string | null;
   directory?: string | null;
-}): Promise<ProviderListResponse> {
+}): Promise<ProviderListView> {
+  const location = input.directory?.trim() ? { directory: input.directory.trim() } : undefined;
+  const models = await ensureNativeCatalogReady(input.client, input.directory?.trim());
+  const [providers, modelDefault, integrations, mcp] = await Promise.all([
+    input.client.provider.list({ location }),
+    input.client.model.default({ location }), input.client.integration.list({ location }),
+    input.client.mcp.list({ location }),
+  ]);
+  const connectorIntegrations = new Set(mcp.data.flatMap(server => server.integrationID ? [server.integrationID] : []));
+  const byIntegration = new Map(integrations.data.map(integration => [integration.id, integration]));
+  const all: ProviderListItem[] = providers.data.map(provider => {
+    const display: typeof provider & NativeProviderDisplay = provider;
+    const integration = byIntegration.get(provider.integrationID ?? provider.id);
+    return {
+      id: provider.id, name: provider.name,
+      // LAWOSS: an active OAuth sign-in (ChatGPT subscription) stays `custom`, as in OpenCode 1.x: the subscription
+      // filter and the free-model rule (zero catalogue price is not a public free endpoint) depend on it.
+      source: nativeConnectionSource(integration),
+      settings: provider.settings, integrationID: provider.integrationID, hasCustomEndpoint: display.legalwork?.hasCustomEndpoint,
+      env: integration?.methods.flatMap(method => method.type === "env" ? method.names : []) ?? [],
+      models: Object.fromEntries(models.data.filter(model => model.providerID === provider.id).map(model => [model.id, model])),
+    };
+  });
+  const known = new Set(all.map(provider => provider.id));
+  for (const integration of integrations.data) {
+    if (known.has(integration.id) || connectorIntegrations.has(integration.id)) continue;
+    all.push({ id: integration.id, name: integration.name, source: "config", models: {}, env: integration.methods.flatMap(method => method.type === "env" ? method.names : []) });
+  }
   // LAWOSS: ChatGPT subscription offers only models its account accepts, filtered before the snapshot.
-  const value = filterSubscriptionModels(unwrap(
-    await input.client.provider.list({
-      directory: input.directory?.trim() || undefined,
-    }),
-  ));
+  const value: ProviderListView = filterSubscriptionModels({
+    all, connected: providers.data.map(provider => provider.id),
+    default: modelDefault.data ? { [modelDefault.data.providerID]: modelDefault.data.id } : {},
+  });
   recordConnectedProviderSnapshot(input, value);
   return value;
 }
 
-export function getConnectedProviderItems(value: ProviderListResponse | null | undefined) {
+export function getConnectedProviderItems(value: ProviderListView | null | undefined) {
   const connected = new Set(value?.connected ?? []);
   return (value?.all ?? []).filter(
     (provider) =>
@@ -72,7 +102,7 @@ export function getConnectedProviderItems(value: ProviderListResponse | null | u
   );
 }
 
-export function getConnectedProviderSnapshot(value: ProviderListResponse | null | undefined): ConnectedProviderSnapshot {
+export function getConnectedProviderSnapshot(value: ProviderListView | null | undefined): ConnectedProviderSnapshot {
   return getConnectedProviderItems(value)
     .map((provider) => ({
       id: provider.id,
@@ -86,13 +116,26 @@ export function getConnectedProviderSnapshot(value: ProviderListResponse | null 
 }
 
 export function isModelAvailableInConnectedProviders(
-  value: ProviderListResponse | null | undefined,
+  value: ProviderListView | null | undefined,
   model: ModelRef | null | undefined,
 ) {
   if (!model?.providerID || !model.modelID) return true;
   return getConnectedProviderItems(value).some(
     (provider) => provider.id === model.providerID && Boolean(provider.models?.[model.modelID]),
   );
+}
+
+/** Choose a usable default without replacing a valid saved selection. */
+export function getAvailableDefaultModel(value: ProviderListView, current: ModelRef | null): ModelRef | null {
+  if (current && isModelAvailableInConnectedProviders(value, current)) return null;
+  const providers = getConnectedProviderItems(value).filter(provider => Object.keys(provider.models).length > 0);
+  const provider = (current ? providers.find(provider => provider.id === current.providerID) : undefined)
+    ?? providers.find(provider => provider.id === "eigenwelt")
+    ?? (current ? undefined : providers.find(provider => provider.models[value.default[provider.id]]) ?? providers[0]);
+  if (!provider) return null;
+  const preferred = value.default[provider.id];
+  const modelID = preferred && provider.models[preferred] ? preferred : Object.keys(provider.models)[0];
+  return modelID ? { providerID: provider.id, modelID } : null;
 }
 
 /**
@@ -107,7 +150,7 @@ export function isModelAvailableInConnectedProviders(
  * dropped.
  */
 export function countConnectedProviders(
-  value: ProviderListResponse | null | undefined,
+  value: ProviderListView | null | undefined,
   disabledProviderIds: string[] = [],
 ) {
   if (!value) return 0;
@@ -121,7 +164,7 @@ export function countConnectedProviders(
  * tool-capable chat model qualifies (see pickDefaultModel).
  */
 export function getDefaultModelForSingleConnectedProvider(
-  value: ProviderListResponse | null | undefined,
+  value: ProviderListView | null | undefined,
 ): ModelRef | null {
   // LAWOSS: a retired free tier is never picked; session-route clears it again (endless loop).
   const providers = getConnectedProviderItems(value).filter((provider) => !RETIRED_FREE_PROVIDER_IDS.has(provider.id));
@@ -148,7 +191,7 @@ function recordConnectedProviderSnapshot(
     baseUrl?: string | null;
     directory?: string | null;
   },
-  value: ProviderListResponse,
+  value: ProviderListView,
 ) {
   const key = connectedProviderSnapshotKey(input);
   const previous = connectedProviderSnapshots.get(key) ?? null;
@@ -238,12 +281,43 @@ export function ensureProviderListQuery(
   });
 }
 
+/** Consume live events promptly; a slow catalog read must not block chat event subscribers. */
+export async function observeProviderCatalog(client: Client, refresh: () => Promise<void>, signal: AbortSignal) {
+  const schedule = createCoalescedRefresh(async () => { await refresh(); });
+  while (!signal.aborted) {
+    try {
+      for await (const event of client.event.subscribe({ signal })) {
+        if (["server.connected", "model.updated", "provider.updated", "integration.updated", "credential.updated", "credential.switched", "models-dev.refreshed", "config.updated"].includes(event.type)) {
+          invalidateNativeCatalogReady(client);
+          void schedule().catch(() => {});
+        }
+      }
+    } catch { /* Native streams are live-only; re-subscribe and re-read after reconnection. */ }
+    if (!signal.aborted) await new Promise<void>(resolve => {
+      const finish = () => { clearTimeout(timer); signal.removeEventListener("abort", finish); resolve(); };
+      const timer = setTimeout(finish, 1000);
+      signal.addEventListener("abort", finish, { once: true });
+    });
+  }
+}
+
 export function useProviderListQuery(input: {
   client: Client | null;
   baseUrl?: string | null;
   directory?: string | null;
   enabled?: boolean;
 }) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const client = input.client;
+    if (!client || input.enabled === false) return;
+    const controller = new AbortController();
+    const queryKey = providerListQueryKey(input);
+    void observeProviderCatalog(client, async () => {
+      await queryClient.invalidateQueries({ queryKey, exact: true });
+    }, controller.signal);
+    return () => controller.abort();
+  }, [input.client, input.baseUrl, input.directory, input.enabled, queryClient]);
   return useQuery({
     queryKey: providerListQueryKey(input),
     enabled: Boolean(input.client) && (input.enabled ?? true),
@@ -252,10 +326,10 @@ export function useProviderListQuery(input: {
     queryFn: () => {
       if (!input.client) {
         return {
-          all: [] as ProviderListItem[],
+          all: [],
           connected: [],
           default: {},
-        } satisfies ProviderListResponse;
+        } satisfies ProviderListView;
       }
       return fetchProviderList({
         client: input.client,

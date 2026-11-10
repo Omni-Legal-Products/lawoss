@@ -69,7 +69,7 @@ export function RecorderFlow(props: {
     >
       <div className="flex w-full flex-col items-start gap-7" data-testid={`onboarding-recorder-${section}`}>
         <div>
-          <StepDots step={section === "meetings" ? 3 : 4} total={6} />
+          <StepDots step={section === "meetings" ? 3 : 4} total={7} />
           <div className="mb-6 grid size-14 place-items-center rounded-2xl border border-dls-border bg-muted/40" aria-hidden="true">
             {section === "meetings" ? <AudioLines className="size-6" strokeWidth={1.5} /> : <Mic className="size-6" strokeWidth={1.5} />}
           </div>

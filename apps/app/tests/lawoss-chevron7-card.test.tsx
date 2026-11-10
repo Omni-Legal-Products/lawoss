@@ -123,8 +123,9 @@ describe("LAWOSS Chevron7 detekcia podľa bundle id (desktop, len čítanie)", (
   });
 });
 
-test("Integrations (záložka Connectors) vykresľuje kartu Chevron7 namiesto karty Autogram", () => {
-  const source = readFileSync(new URL("../src/react-app/domains/settings/pages/extensions-view.tsx", import.meta.url), "utf8");
+test("Integrations (úvod prehľadu integrácií) vykresľuje kartu Chevron7 namiesto karty Autogram", () => {
+  // Upstream v0.3.9: prehliadač integrácií podľa kategórií; LAWOSS karty idú do `lawossIntro` v nastaveniach.
+  const source = readFileSync(new URL("../src/react-app/shell/settings-route.tsx", import.meta.url), "utf8");
   expect(source).toContain("<Chevron7IntegrationCard />");
   expect(source).not.toContain("<AutogramIntegrationCard />");
 });

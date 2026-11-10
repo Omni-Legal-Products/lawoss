@@ -94,7 +94,10 @@ export async function openSessionWithPrompt(
     token: endpoint.token,
     mode: "legalwork",
   });
-  const session = unwrap(await opencode.session.create({ directory: directory || undefined }));
+  // LAWOSS v2: the proxy derives the chat location from the request scope, not the body; a case chat
+  // names its subfolder there as well (the server still checks it lies inside the client).
+  const session = await opencode.session.create(directory ? { location: { directory } } : {},
+    directory ? { headers: { "x-opencode-directory": encodeURIComponent(directory) } } : undefined);
   saveSessionDraft(workspace.id, session.id, { text: prompt, mode: "prompt" });
   if (modelContext) rememberCaseChatContext(session.id, modelContext);
   // Pole pro zprávu čte koncept z paměťového úložiště composeru, ne z draft-store (ten nikdo nečte).

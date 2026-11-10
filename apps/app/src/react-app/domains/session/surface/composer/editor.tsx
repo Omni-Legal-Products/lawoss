@@ -1,3 +1,4 @@
+import { parseIntegrationMention, integrationDisplayText } from "./integration-mention";
 import { readAttachmentClipboard } from "./attachment-clipboard";
 import { parseWorkspaceAttachmentMention } from "./workspace-attachment";
 /** @jsxImportSource react */
@@ -60,6 +61,7 @@ type EditorProps = {
   submitDisabled?: boolean;
   placeholder: string;
   ariaLabel?: string;
+  compact?: boolean;
   onChange: (value: string) => void;
   onSubmit: (options: { queue: boolean }) => void | Promise<void>;
   onExpandPastedText?: (label: string) => void;
@@ -116,10 +118,12 @@ const MENTION_PILL_CLASS: Record<ComposerMentionKind, string> = {
   review: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
   task: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
   calendar: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
+  integration: "inline-flex items-center rounded-full border border-gray-6 bg-gray-3 px-2.5 py-1 text-xs font-medium text-gray-11",
   plugin: "inline-flex items-center rounded-full border border-gray-6 bg-gray-3 px-2.5 py-1 text-xs font-medium text-gray-11",
 };
 
 function mentionPillText(value: string, kind: ComposerMentionKind) {
+  if (kind === "integration") return integrationDisplayText(value);
   if (kind === "plugin") return t("composer.plugin_pill", { name: parsePluginComposerMention(value)?.label ?? value });
   if (kind === "upload") return parseWorkspaceAttachmentMention(value)?.name ?? value;
   if (kind === "memory") {
@@ -187,7 +191,7 @@ class ComposerMentionNode extends TextNode {
     dom.textContent = mentionPillText(this.__value, this.__kind);
     dom.contentEditable = "false";
     dom.setAttribute("spellcheck", "false");
-    dom.title = this.__kind === "plugin" ? mentionPillText(this.__value, this.__kind) : `@${this.__value}`;
+    dom.title = (this.__kind === "plugin" || this.__kind === "integration") ? mentionPillText(this.__value, this.__kind) : `@${this.__value}`;
     return dom;
   }
 
@@ -195,7 +199,7 @@ class ComposerMentionNode extends TextNode {
     if (prevNode.__value !== this.__value || prevNode.__kind !== this.__kind) {
       dom.className = MENTION_PILL_CLASS[this.__kind];
       dom.textContent = mentionPillText(this.__value, this.__kind);
-      dom.title = this.__kind === "plugin" ? mentionPillText(this.__value, this.__kind) : `@${this.__value}`;
+      dom.title = (this.__kind === "plugin" || this.__kind === "integration") ? mentionPillText(this.__value, this.__kind) : `@${this.__value}`;
     }
     return false;
   }
@@ -548,7 +552,7 @@ function setPrompt(value: string, mentions: Record<string, ComposerMentionKind>,
     }
     if (segment.startsWith("@")) {
       const token = decodeComposerMentionValue(segment.slice(1));
-      const kind = mentions[token] ?? (parsePluginComposerMention(token) ? "plugin" : undefined);
+      const kind = mentions[token] ?? (parsePluginComposerMention(token) ? "plugin" : parseIntegrationMention(token) ? "integration" : undefined);
       if (kind) {
         paragraph.append($createComposerMentionNode(token, kind));
         continue;
@@ -981,11 +985,11 @@ export const LexicalPromptEditor = forwardRef<LexicalPromptEditorHandle, EditorP
         - max-h caps the composer — long pastes / multi-paragraph drafts scroll
           inside the editor instead of pushing the transcript out of view.
       */}
-      <div className="relative" onClickCapture={handlePastedTextPreviewPointer} onKeyDownCapture={handlePastedTextPreviewPointer} onMouseDownCapture={handlePastedTextPreviewMouseDown}>
+      <div className={props.compact ? "relative min-w-0 flex-1 py-1.5" : "relative"} onClickCapture={handlePastedTextPreviewPointer} onKeyDownCapture={handlePastedTextPreviewPointer} onMouseDownCapture={handlePastedTextPreviewMouseDown}>
         <PlainTextPlugin
           contentEditable={
             <ContentEditable
-              className="min-h-[72px] max-h-[280px] w-full resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-dls-text outline-none placeholder:text-dls-secondary [&_p]:min-h-[1.5rem] [&_p]:m-0"
+              className={`${props.compact ? "min-h-6 max-h-40" : "min-h-[72px] max-h-[280px]"} w-full resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-dls-text outline-none placeholder:text-dls-secondary [&_p]:min-h-[1.5rem] [&_p]:m-0`}
               aria-placeholder={props.placeholder}
               aria-label={props.ariaLabel}
               placeholder={<span />}
@@ -996,7 +1000,7 @@ export const LexicalPromptEditor = forwardRef<LexicalPromptEditorHandle, EditorP
             />
           }
           placeholder={
-            <div className="pointer-events-none absolute left-0 top-0 text-[15px] leading-6 text-dls-secondary">
+            <div className={`pointer-events-none absolute left-0 right-0 ${props.compact ? "top-1.5 truncate" : "top-0"} text-[15px] leading-6 text-dls-secondary`}>
               {props.placeholder}
             </div>
           }

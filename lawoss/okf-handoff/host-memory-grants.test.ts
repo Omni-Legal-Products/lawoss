@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveHostMemoryContext, resolveHostMemoryGrants } from "./host-memory-grants.mjs";
-import { LawossOkfHandoff } from "../../apps/server/src/opencode-plugins/lawoss-okf-handoff.ts";
+import { LawossOkfHandoff } from "./plugin.mjs";
 const roots: string[] = [];
 const prior = { url: process.env.LEGALWORK_SERVER_URL, token: wikiAgentSecret(), grants: process.env.LAWOSS_MEMORY_ALLOWED_ROOTS };
 afterEach(() => {
@@ -50,8 +50,9 @@ test("production entry exports only plugin; missing BOTH native env variables ne
   writeFileSync(join(f.vault, "memory.md"), "SYNTHETIC-ONLY");
   writeFileSync(join(f.child, ".lawoss/memory-profile.json"), JSON.stringify({ version: 1, matterId: "synthetic", roots: [{ id: "vault", path: f.vault }], sources: [{ id: "memory", root: "vault", path: "memory.md", role: "case_memory", required: true, writable: false, anchors: ["SYNTHETIC-ONLY"] }] }));
   process.env.LAWOSS_MEMORY_ALLOWED_ROOTS = JSON.stringify([f.vault]); delete process.env.LEGALWORK_SERVER_URL; adoptWikiAgentSecret("");
-  const entry = await import("../../apps/server/src/opencode-plugins/lawoss-okf-handoff.ts"); expect(Object.keys(entry)).toEqual(["LawossOkfHandoff"]);
-  const hooks = await LawossOkfHandoff({ directory: f.child }); const output = { context: [] as string[] };
+  // LAWOSS v2: the production entry is a native engine-2 plugin (default export only); it runs these hooks in native mode.
+  const entry = await import("../../apps/server/src/opencode-plugins/lawoss-okf-handoff.ts"); expect(Object.keys(entry)).toEqual(["default"]);
+  const hooks = await LawossOkfHandoff({ directory: f.child }, { mode: "native" }); const output = { context: [] as string[] };
   await hooks["experimental.session.compacting"]!({ sessionID: "native" }, output);
   expect(output.context[0]).toContain("FAILED"); expect(output.context[0]).not.toContain("SYNTHETIC-ONLY");
 });

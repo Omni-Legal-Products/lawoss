@@ -56,7 +56,7 @@ export function registerTriageRoutes(options: {
   const RUN_ID = /^triage-\d{8}-\d{6}-[a-f0-9]{6}$/;
   const consentSchema = z.strictObject({ version: z.literal(1), workspaceId: z.string().min(1), root: z.string().min(1), grantedAt: z.string().min(1), runId: z.string().regex(RUN_ID).optional() });
   type Consent = z.infer<typeof consentSchema>;
-  const registeredClient = (root: string) => config.workspaces.find(workspace => workspace.workspaceType !== "remote" && resolve(workspace.path) === root && (workspace.appFiles ?? "inside") === "inside");
+  const registeredClient = (root: string) => config.workspaces.find(workspace => resolve(workspace.path) === root && (workspace.appFiles ?? "inside") === "inside");
   /** Záznam z `grant` pre priečinok, ktorý je stále pripojený ako klient so súbormi appky vnútri; inak nič. */
   const readConsent = async (rootInput: string): Promise<Consent | undefined> => {
     if (!isAbsolute(rootInput)) return undefined;

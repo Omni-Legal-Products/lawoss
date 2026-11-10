@@ -12,13 +12,15 @@ COPY --from=node /usr/local/bin/node /usr/local/bin/node
 # architecture selected by build-guest. The read-only ELF is mounted later by
 # the host and is deliberately not duplicated in the initrd.
 RUN --mount=type=bind,source=runtime,target=/opt/protected-engine-check,ro \
-    /usr/local/bin/node --input-type=module -e 'import{readFileSync,writeFileSync}from"node:fs";import{createHash}from"node:crypto";import{execFileSync}from"node:child_process";const p="/opt/protected-engine-check/";const m=JSON.parse(readFileSync(p+"protected-opencode-manifest.json"));const binarySha256=createHash("sha256").update(readFileSync(p+"protected-opencode")).digest("hex");if(binarySha256!==m.binary.sha256)throw Error("Guest engine checksum mismatch");const version=execFileSync(p+"protected-opencode",["--version"],{timeout:60000,encoding:"utf8"}).trim();if(version!==m.engineVersion)throw Error("Guest engine version mismatch");writeFileSync("/opt/protected-opencode-guest-proof.json",JSON.stringify({version,binarySha256,environment:"linux-bookworm-guest"})+"\n")'
+    /usr/local/bin/node --input-type=module -e 'import{readFileSync,writeFileSync}from"node:fs";import{createHash}from"node:crypto";import{execFileSync}from"node:child_process";const p="/opt/protected-engine-check/";const m=JSON.parse(readFileSync(p+"protected-opencode-manifest.json"));const binarySha256=createHash("sha256").update(readFileSync(p+"protected-opencode")).digest("hex");if(binarySha256!==m.binary.sha256)throw Error("Guest engine checksum mismatch");const version=execFileSync(p+"protected-opencode",["--version"],{timeout:60000,encoding:"utf8"}).trim().replace(/^opencode v?/,"");if(version!==m.engineVersion)throw Error("Guest engine version mismatch");writeFileSync("/opt/protected-opencode-guest-proof.json",JSON.stringify({version,binarySha256,environment:"linux-bookworm-guest"})+"\n")'
 COPY bootstrap-pip.py /opt/legalwork/bootstrap-pip.py
 RUN python3 -I -S /opt/legalwork/bootstrap-pip.py --seed \
     && rm /opt/legalwork/bootstrap-pip.py
 COPY requirements.txt /opt/legalwork/requirements.txt
 RUN pip install --no-cache-dir -r /opt/legalwork/requirements.txt \
     && pip freeze > /opt/legalwork/python-packages.txt
+COPY test_pypdf.py /opt/legalwork/test_pypdf.py
+RUN python3 -B /opt/legalwork/test_pypdf.py && rm /opt/legalwork/test_pypdf.py
 COPY relay.py supervisor.py network.py protocol.py /opt/legalwork/
 COPY filesystem.py /opt/legalwork/filesystem.py
 COPY test_relay.py /opt/legalwork/test_relay.py

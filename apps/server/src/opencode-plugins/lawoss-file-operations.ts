@@ -9,12 +9,15 @@
  * Zamietnutie = engine `RejectedError`, server nič nevykoná. Plán a vykonanie robí server
  * (`lawoss/file-operations.ts`), ktorý pred vykonaním overí revíziou, že sa disk od karty nezmenil.
  */
-// Exportovaný je len vstupný bod pluginu: OpenCode volá každý export modulu.
+// OpenCode 2 načíta `default` export (`Plugin.define`).
+import { Plugin } from "@opencode/plugin";
 import { z } from "zod";
 import { chatFilePath, chatWorkspace } from "./lawoss-file-paths.js";
 import { EXACT_NAME_RULE, FILE_REPORT_RULE, fileOperationToolText, MOVE_ACROSS_DRIVES_RULE } from "./lawoss-file-operations-text.js";
 import { listWorkspaces, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 import { hideEngineEnvFromShell } from "./wiki-agent-secret.js";
+import { nativeTool } from "./native-tool.js";
+import { registerPrimaryContext } from "./native-review-worker.js";
 
 const pathArg = z.string().min(1).max(4096);
 // A flat object, not a union: every provider's tool schema accepts it (Gemini and OpenAI reject some anyOf shapes).
@@ -57,36 +60,44 @@ function visiblePaths(plan: Plan): string[] {
   return [...new Set(paths)];
 }
 
-export const LawossFileOperations = async () => ({
-  "shell.env": async (_input: unknown, output: { env: Record<string, string | undefined> }) => { hideEngineEnvFromShell(output); },
-  "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => { output.system.push(SYSTEM); },
-  tool: {
-    lawoss_files: {
-      description: `Rename, move, copy or delete files and folders, or create folders, in this client's folder and its linked folders. Shows the user one approval card with every change (no card when YOLO Mode is on). Deleting moves items to the Trash. Never overwrites: an existing target is refused. A declined card changes nothing. The result lists what was actually done. ${EXACT_NAME_RULE} ${MOVE_ACROSS_DRIVES_RULE}`,
-      args: args.shape,
-      async execute(raw: unknown, context: OpenCodeContext) {
-        const input = args.parse(raw);
-        if (!context.sessionID || !context.directory) throw new Error("File changes require a chat and its folder.");
-        if (!context.ask) throw new Error("File changes need the user's approval, but approval requests are unavailable.");
-        const directory = context.directory;
-        const own = chatWorkspace(await listWorkspaces(context), directory);
-        if (!own) throw new Error(`No LegalWork workspace matches the working directory ${directory}.`);
-        const absolute = (value: string) => chatFilePath(value, directory, own.path);
-        const operations = input.operations.map((item) => {
-          if (item.operation === "move" || item.operation === "copy") {
-            if (!item.from || !item.to) throw new Error(`${item.operation} needs both from and to. Nothing was changed.`);
-            return { operation: item.operation, from: absolute(item.from), to: absolute(item.to) };
-          }
-          if (!item.path) throw new Error(`${item.operation} needs path. Nothing was changed.`);
-          return { operation: item.operation, path: absolute(item.path) };
-        });
-        const workspace = own.id;
-        const plan: Plan = z.object({ operations: z.array(z.unknown()), revision: z.string() }).parse(await post(context, workspace, "plan", { operations }));
-        await context.ask({ permission: PERMISSION, patterns: visiblePaths(plan), always: [],
-          metadata: { lawossFiles: plan.operations, ...(input.description ? { description: input.description } : {}) } });
-        const result = await post(context, workspace, "apply", { operations, approved: plan.operations, revision: plan.revision, sessionID: context.sessionID });
-        return fileOperationToolText(result);
-      },
-    },
+async function execute(input: z.output<typeof args>, context: OpenCodeContext): Promise<string> {
+  if (!context.sessionID || !context.directory) throw new Error("File changes require a chat and its folder.");
+  if (!context.ask) throw new Error("File changes need the user's approval, but approval requests are unavailable.");
+  const directory = context.directory;
+  const own = chatWorkspace(await listWorkspaces(context), directory);
+  if (!own) throw new Error(`No LegalWork workspace matches the working directory ${directory}.`);
+  const absolute = (value: string) => chatFilePath(value, directory, own.path);
+  const operations = input.operations.map((item) => {
+    if (item.operation === "move" || item.operation === "copy") {
+      if (!item.from || !item.to) throw new Error(`${item.operation} needs both from and to. Nothing was changed.`);
+      return { operation: item.operation, from: absolute(item.from), to: absolute(item.to) };
+    }
+    if (!item.path) throw new Error(`${item.operation} needs path. Nothing was changed.`);
+    return { operation: item.operation, path: absolute(item.path) };
+  });
+  const workspace = own.id;
+  const plan: Plan = z.object({ operations: z.array(z.unknown()), revision: z.string() }).parse(await post(context, workspace, "plan", { operations }));
+  await context.ask({ permission: PERMISSION, patterns: visiblePaths(plan), always: [],
+    metadata: { lawossFiles: plan.operations, ...(input.description ? { description: input.description } : {}) } });
+  const result = await post(context, workspace, "apply", { operations, approved: plan.operations, revision: plan.revision, sessionID: context.sessionID });
+  return fileOperationToolText(result);
+}
+
+export default Plugin.define({
+  id: "lawoss.file-operations",
+  async setup(ctx) {
+    const shell = await ctx.shell.hook("create.before", (event) => { hideEngineEnvFromShell(event); });
+    const context = await registerPrimaryContext(ctx, (event) => { event.system.push({ type: "text", text: SYSTEM }); });
+    const tools = await ctx.tool.transform((editor) => {
+      editor.add(nativeTool(ctx, {
+        name: "lawoss_files",
+        description: `Rename, move, copy or delete files and folders, or create folders, in this client's folder and its linked folders. Shows the user one approval card with every change (no card when YOLO Mode is on). Deleting moves items to the Trash. Never overwrites: an existing target is refused. A declined card changes nothing. The result lists what was actually done. ${EXACT_NAME_RULE} ${MOVE_ACROSS_DRIVES_RULE}`,
+        schema: args,
+        // The tool asks its own `lawoss_file_change` card with the whole plan; no second card for its name.
+        permission: "domain",
+        execute,
+      }));
+    });
+    return async () => { await Promise.all([shell.dispose(), context.dispose(), tools.dispose()]); };
   },
 });

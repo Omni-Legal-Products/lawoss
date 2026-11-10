@@ -8,7 +8,7 @@ const { parse } = createRequire(new URL("../../apps/desktop/package.json", impor
 const workflow = (name) => parse(readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8"));
 
 // 🟡 LAWOSS: alfa forku sa spúšťa ručne a zapisuje vlastný pointer (alpha-*.yml); LegalWork Tests bežia aj po merge do dev.
-test.skip("every dev merge builds both alpha workflows without canceling older builds or retesting the sandbox", () => {
+test.skip("app-affecting dev merges build both alpha workflows without canceling older builds or retesting the sandbox", () => {
   for (const name of ["alpha-macos-aarch64", "alpha-windows-x64"]) {
     const config = workflow(name);
     assert.deepEqual(config.on.push.branches, ["dev"]);
@@ -16,7 +16,9 @@ test.skip("every dev merge builds both alpha workflows without canceling older b
     assert.match(config.concurrency.group, /github.sha/);
     assert.equal(config.on.workflow_dispatch.inputs.sandbox_tests.default, false);
     assert.match(config.jobs["sandbox-runtime"].with.run_tests, /github.event_name == 'workflow_dispatch'/);
-    const job = Object.values(config.jobs).find((job) => job.steps);
+    const job = Object.values(config.jobs).find((job) => job.steps?.some(step => step.name === "Verify packaged startup"));
+    assert.equal(config.jobs["opencode-engine"].if, "needs.changes.outputs.alpha == 'true'");
+    assert.equal(config.jobs["sandbox-runtime"].if, "needs.changes.outputs.alpha == 'true'");
     assert.ok(job.steps.some((step) => step.name === "Verify packaged startup"));
     const create = job.steps.find((step) => step.name === "Create immutable alpha prerelease").run;
     assert.match(create, /--draft/);

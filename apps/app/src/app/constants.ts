@@ -1,3 +1,4 @@
+import legalworkMark from "@/assets/legalwork-mark-dark.svg";
 import type { ModelRef, SuggestedPlugin } from "./types";
 import { t } from "../i18n";
 import { deriveMcpServerName } from "./mcp-identity";
@@ -36,6 +37,9 @@ export type McpDirectoryInfo = {
   timeout?: number;
   /** Update an existing owned connector without changing its scope or identity. */
   existingConfig?: import("@legalwork/types/connector-config").ConnectorConfig;
+  configured?: import("@legalwork/types/connector-config").ConnectorDisplayItem["configured"];
+  editable?: boolean;
+  configEdit?: import("@legalwork/types/connector-config").ConnectorConfigEdit;
   /** Static auth headers for a remote MCP (e.g. { Authorization: "Bearer …" }).
    * When set, the server connects via these headers and skips OAuth — the way to
    * connect token-authed servers like iManage that reject the engine's OAuth redirect. */
@@ -610,9 +614,9 @@ export const MCP_QUICK_CONNECT_ALL: McpDirectoryInfo[] = [
     command: ["npx", "-y", "legalwork-ui-mcp"],
     oauth: false,
     kind: "ui-control",
-    iconSrc: "/legalwork-mark.svg",
+    iconSrc: legalworkMark,
   },
-  ...BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS.map(extensionManifestToDirectoryInfo),
+  ...BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS.filter(manifest => manifest.id !== "google-workspace").map(extensionManifestToDirectoryInfo),
 ];
 
 /**

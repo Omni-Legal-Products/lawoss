@@ -69,7 +69,7 @@ test("a shell gets the engine's login, config paths and capabilities removed, ot
   const output: { env: Record<string, string | undefined> } = { env: { CUSTOM: "kept" } };
   hideEngineEnvFromShell(output);
   expect(output.env.CUSTOM).toBe("kept");
-  for (const name of ["OPENCODE_SERVER_USERNAME", "OPENCODE_SERVER_PASSWORD", "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG_CONTENT", "OPENCODE_DB", "LEGALWORK_CONNECTOR_TOKEN", WIKI_AGENT_TICKET_ENV]) {
+  for (const name of ["OPENCODE_SERVER_USERNAME", "OPENCODE_SERVER_PASSWORD", "OPENCODE_CONFIG", "OPENCODE_PASSWORD", "OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG_CONTENT", "OPENCODE_DB", "LEGALWORK_CONNECTOR_TOKEN", WIKI_AGENT_TICKET_ENV]) {
     expect(name in output.env).toBe(true);
     expect(output.env[name]).toBeUndefined();
   }

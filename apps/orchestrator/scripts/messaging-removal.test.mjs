@@ -56,6 +56,27 @@ test("retirement preserves previous archives", () => fixture(async (root) => {
   assert.equal((await readdir(join(root, "retired-messaging-tools"))).length, 2);
 }));
 
+test("retires native messaging plugins with local edits and preserves unrelated plugins", () => fixture(async (root) => {
+  for (const name of ["legalwork-messaging-send", "legalwork-messaging-status", "legalwork-documents"]) {
+    await mkdir(join(root, "plugins", name, "resources"), { recursive: true });
+    await writeFile(join(root, "plugins", name, "index.js"), `customized ${name}`);
+    await writeFile(join(root, "plugins", name, "resources", "notes.txt"), `local notes ${name}`);
+  }
+  await retireMessagingTools(root);
+  assert.deepEqual(await readdir(join(root, "plugins")), ["legalwork-documents"]);
+  const archived = await readdir(join(root, "retired-messaging-tools"));
+  assert.equal(archived.length, 2);
+  for (const name of ["legalwork-messaging-send", "legalwork-messaging-status"]) {
+    const backup = archived.find((entry) => entry.startsWith(`${name}.`) && entry.endsWith(".disabled"));
+    assert.ok(backup);
+    assert.equal(await readFile(join(root, "retired-messaging-tools", backup, "index.js"), "utf8"), `customized ${name}`);
+    assert.equal(await readFile(join(root, "retired-messaging-tools", backup, "resources", "notes.txt"), "utf8"), `local notes ${name}`);
+  }
+  assert.equal(await readFile(join(root, "plugins", "legalwork-documents", "index.js"), "utf8"), "customized legalwork-documents");
+  await retireMessagingTools(root);
+  assert.deepEqual(await readdir(join(root, "retired-messaging-tools")), archived);
+}));
+
 test("retirement also works on a new installation", () => fixture(async (root) => {
   await retireMessagingTools(root);
   assert.deepEqual(await readdir(join(root, "retired-messaging-tools")), []);

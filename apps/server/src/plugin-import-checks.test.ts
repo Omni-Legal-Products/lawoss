@@ -74,7 +74,7 @@ test("source-specific requirements are blocked before lossy normalization; suppo
   }
 });
 
-test("scope pins are blocked while callback paths, environment objects and portable credentials are preserved", async () => {
+test("scope pins, callback paths, environment objects and portable credentials are preserved", async () => {
   const imported = await plan({
     scopes: { url: "https://example.com/mcp", oauth: { clientId: "registered", callbackPort: 4321, scopes: "read" } },
     program: { command: "node", env_vars: [{ name: "LOCAL_TOKEN", source: "local" }] },
@@ -86,9 +86,55 @@ test("scope pins are blocked while callback paths, environment objects and porta
   expect(config("program")?.env).toMatchObject({ LOCAL_TOKEN: "${LOCAL_TOKEN}" });
   expect(config("key")?.headers).toMatchObject({ "X-Provider-Token": "${API_KEY}" });
   expect(config("confidential")?.oauth).toMatchObject({ clientId: "registered", clientSecret: "${OAUTH_CLIENT_SECRET}", scope: "read" });
-  expect(imported.preview.connectors?.find(check => check.name === "scopes")).toMatchObject({ status: "blocked", code: "pinned_scopes" });
-  expect(imported.preview.connectors?.find(check => check.name === "confidential")).toMatchObject({ status: "blocked", code: "pinned_scopes" });
+  expect(imported.preview.connectors?.find(check => check.name === "scopes")?.status).not.toBe("blocked");
+  expect(imported.preview.connectors?.find(check => check.name === "confidential")?.status).not.toBe("blocked");
   expect(imported.preview.connectors?.filter(check => !["scopes", "confidential"].includes(check.name)).every(check => check.status !== "blocked")).toBe(true);
+});
+
+test("portable fixed default scopes are supported without flattening required/default scope rules", async () => {
+  const imported = await plan({
+    fixed: { url: "https://example.com/mcp", extensions: { "com.openai": { auth: { type: "oauth", defaultScopes: ["mcp:read"] } } } },
+    fixedWithNoRequiredScopes: { url: "https://example.com/mcp", extensions: { "com.openai": { auth: { type: "oauth", baseScopes: [], defaultScopes: ["mcp:read"] } } } },
+    noDefaults: { url: "https://example.com/mcp", extensions: { "com.openai": { auth: { type: "oauth", defaultScopes: [] } } } },
+    requiredAndDefaults: { url: "https://example.com/mcp", extensions: { "com.openai": { auth: { type: "oauth", baseScopes: ["mcp:read"], defaultScopes: ["mcp:write"] } } } },
+    requiredWithProviderDefaults: { url: "https://example.com/mcp", extensions: { "com.openai": { auth: { type: "oauth", baseScopes: ["mcp:read"] } } } },
+  });
+  for (const name of ["fixed", "fixedWithNoRequiredScopes"]) {
+    const check = imported.preview.connectors?.find(check => check.name === name);
+    expect(check?.status).not.toBe("blocked");
+    expect(imported.connectorConfigs?.[check?.installedName ?? ""]?.oauth).toEqual({ scope: "mcp:read" });
+  }
+  for (const name of ["noDefaults", "requiredAndDefaults", "requiredWithProviderDefaults"]) {
+    expect(imported.preview.connectors?.find(check => check.name === name)).toMatchObject({ status: "blocked", code: "pinned_scopes" });
+  }
+});
+
+test("empty or unsupported explicit scope values are refused before normalization can widen sign-in permissions", async () => {
+  const imported = await plan({
+    emptyScope: { url: "https://example.com/mcp", oauth: { scope: "" } },
+    whitespaceScopes: { url: "https://example.com/mcp", oauth: { scopes: "   " } },
+    emptyList: { url: "https://example.com/mcp", oauth: { scopes: [] } },
+    unsupportedList: { url: "https://example.com/mcp", oauth: { scopes: ["mcp:read"] } },
+    emptyCodexList: { url: "https://example.com/mcp", scopes: [] },
+    conflictingPins: { url: "https://example.com/mcp", scopes: ["mcp:read"], oauth: { scope: "mcp:write" } },
+  });
+  expect(imported.preview.connectors).toHaveLength(6);
+  expect(imported.preview.connectors?.every(check => check.status === "blocked" && check.code === "pinned_scopes")).toBe(true);
+  expect(imported.preview.components.some(component => component.type === "skill")).toBe(true);
+});
+
+test("Codex fixed scope lists and Claude scope strings reach the same native scope without widening", async () => {
+  const imported = await plan({
+    codex: { url: "https://example.com/mcp", scopes: ["mcp:read", "profile"] },
+    matching: { url: "https://example.com/mcp", scopes: ["mcp:read", "profile"], oauth: { scopes: "profile mcp:read" } },
+  });
+  for (const check of imported.preview.connectors ?? []) {
+    expect(check.status).not.toBe("blocked");
+    const config = imported.connectorConfigs?.[check.installedName];
+    expect(config?.oauth).toEqual({ scope: check.name === "codex" ? "mcp:read profile" : "profile mcp:read" });
+    expect(config?.scopes).toBeUndefined();
+  }
+  expect(normalizeImportedConnector({ url: "https://example.com/mcp", scopes: ["mcp:read"], oauth: false }, []).oauth).toBe(false);
 });
 
 test("automatic registration is checked once and its exact callback/scopes survive installation preparation", async () => {
@@ -101,7 +147,7 @@ test("automatic registration is checked once and its exact callback/scopes survi
   expect(same.preview.validationId).toBe(checked.preview.validationId);
   expect(remote.registrations()).toBe(1);
   const ready = reviewedPluginImport(imported, target, checked.preview.validationId);
-  expect(JSON.stringify(ready.resolved)).toContain('"clientId":"legalwork-client"');
+  expect(JSON.stringify(ready.resolved)).toContain('"client_id":"legalwork-client"');
   expect(JSON.stringify(ready.resolved)).not.toContain("irrelevant-public-secret");
   expect(JSON.stringify(checked.preview)).not.toContain("legalwork-client");
   expect(JSON.stringify(checked.preview)).not.toContain("irrelevant-public-secret");
@@ -182,9 +228,9 @@ test("reimport checks existing owned setup and invalidates review if that setup 
   const imported = await plan({ figma: { url: "https://mcp.figma.com/mcp" } });
   const name = imported.preview.connectors?.[0]?.installedName;
   if (!name) throw new Error("Missing test connector");
-  const owned = { ...target, current: { [name]: { type: "remote", url: "https://mcp.figma.com/mcp", enabled: true, headers: { Authorization: "Bearer existing-private-token" }, oauth: false } }, installed: { pluginId: imported.preview.id, name: imported.preview.name, marketplaceId: null, description: null, updatedAt: null, importedAt: 1, files: [{ objectType: "mcp", path: `opencode.jsonc#mcp.${name}`, title: "Figma", configObjectId: "test", versionId: null, updatedAt: null }] } };
+  const owned = { ...target, current: { [name]: { type: "remote", url: "https://mcp.figma.com/mcp", disabled: false, headers: { Authorization: "Bearer existing-private-token" }, oauth: false } }, installed: { pluginId: imported.preview.id, name: imported.preview.name, marketplaceId: null, description: null, updatedAt: null, importedAt: 1, files: [{ objectType: "mcp", path: `opencode.jsonc#mcp.${name}`, title: "Figma", configObjectId: "test", versionId: null, updatedAt: null }] } };
   // A static token alone is not interpreted as an approved OAuth registration.
-  const approved = { ...owned, current: { [name]: { type: "remote", url: "https://mcp.figma.com/mcp", enabled: true, oauth: { clientId: "approved-legalwork-client", clientSecret: "private" } } } };
+  const approved = { ...owned, current: { [name]: { type: "remote", url: "https://mcp.figma.com/mcp", disabled: false, oauth: { client_id: "approved-legalwork-client", client_secret: "private" } } } };
   const remote = provider();
   const checked = await preparePluginImport(imported, approved, { fetch: async (url, init) => fetch(String(url).replace("https://mcp.figma.com", new URL(remote.url).origin), init) });
   expect(checked.preview.connectors?.[0]?.status).toBe("setup");
@@ -207,11 +253,12 @@ test("rechecking a prepared client preserves its identity without a second regis
   expect(reviewedPluginImport(imported, target, rechecked.preview.validationId).preview.connectors?.[0]?.status).toBe("setup");
 });
 
-test("a mismatched scope export and credentials embedded in an address are not silently used", async () => {
+test("a narrower explicit scope is kept while credentials embedded in an address are not transmitted", async () => {
   const remote = provider({ dcr: true });
   const narrowed = await preparePluginImport(await plan({ remote: { url: remote.url, oauth: { scope: "read" } } }), target);
-  expect(narrowed.preview.connectors?.[0]).toMatchObject({ status: "blocked", code: "scope_change" });
-  expect(remote.registrations()).toBe(0);
+  expect(narrowed.preview.connectors?.[0]).toMatchObject({ status: "setup", code: "sign_in" });
+  expect(remote.registrations()).toBe(1);
+  expect(remote.metadata()).toMatchObject({ scope: "read" });
   const credentialUrl = await preparePluginImport(await plan({ remote: { url: "https://example.com/mcp?api_key=source-private-key" } }), target, { fetch: async () => { throw new Error("Credential address must not be transmitted during import"); } });
   expect(credentialUrl.preview.connectors?.[0]).toMatchObject({ status: "setup", code: "address_credentials" });
   expect(JSON.stringify(credentialUrl.preview)).not.toContain("source-private-key");

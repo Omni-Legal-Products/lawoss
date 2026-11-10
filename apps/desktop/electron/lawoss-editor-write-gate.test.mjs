@@ -56,7 +56,8 @@ test("the server's approved editor calls and other actions still run", async (t)
 // Control actions the app registers: every id in the document panels, and any document/markdown/office id elsewhere.
 const appSource = fileURLToPath(new URL("../../app/src/", import.meta.url));
 const ARTIFACTS = path.join("react-app", "domains", "session", "artifacts");
-const NOT_EDITOR = ["browser.open_url", "browser.set_proxy", "session.open", "session.read_transcript"];
+// Upstream v0.3.0 browser.connection: rozšírené pripojenie prehliadača úlohy, nezapisuje súbor.
+const NOT_EDITOR = ["browser.connection", "browser.open_url", "browser.set_proxy", "session.open", "session.read_transcript"];
 const ACTION_ID = /\bid:\s*(?:[^,\n{}]*?\?\s*)?"([a-z_]+\.[a-z_.]+)"(?:\s*:\s*"([a-z_]+\.[a-z_.]+)")?/g;
 
 async function registeredActionIds() {

@@ -2,7 +2,8 @@
 // že originály sú v Koši, lebo výsledok niesol len `trash: "system"`.
 import { afterEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
-import { LawossFileOperations } from "./lawoss-file-operations.js";
+import FileOperations from "./lawoss-file-operations.js";
+import { lawossNativePlugin } from "./lawoss-native-test-support.js";
 import { EXACT_NAME_RULE, FILE_REPORT_RULE, fileOperationReport, fileOperationToolText, MOVE_ACROSS_DRIVES_RULE } from "./lawoss-file-operations-text.js";
 
 const moved = { operation: "move", kind: "file", from: "Spisy/M004/Podklady.pdf", to: "C002-podklady/Podklady.pdf", status: "done", trash: "system" };
@@ -42,10 +43,9 @@ test("a move to another drive or linked folder is described as a real move, and 
   expect(MOVE_ACROSS_DRIVES_RULE).toContain("moves the original to the Trash, where the user can restore it");
   expect(MOVE_ACROSS_DRIVES_RULE).toContain("use the move operation, not copy, even across drives");
   expect(MOVE_ACROSS_DRIVES_RULE).toContain("\"presuň\"");
-  const plugin = await LawossFileOperations();
+  const plugin = await lawossNativePlugin(FileOperations);
   expect(plugin.tool.lawoss_files.description).toContain(MOVE_ACROSS_DRIVES_RULE);
-  const system: string[] = [];
-  await plugin["experimental.chat.system.transform"]({}, { system });
+  const system = await plugin.system();
   expect(system.join("\n")).toContain(MOVE_ACROSS_DRIVES_RULE);
 });
 
@@ -76,14 +76,13 @@ test("the lawoss_files tool returns the report to the model after an approved mo
   } });
   try {
     process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${server.port}`;
-    const plugin = await LawossFileOperations();
+    const plugin = await lawossNativePlugin(FileOperations);
     const asked: string[] = [];
     const output = await plugin.tool.lawoss_files.execute({ operations: [{ operation: "move", from: "Podklady.pdf", to: "NAS/Podklady.pdf" }] },
       { sessionID: "ses_1", directory: folder, ask: async (input) => { asked.push(input.permission); } });
     expect(asked).toEqual(["lawoss_file_change"]);
     expect(output).toContain("the original is now in the system Trash");
-    const system: string[] = [];
-    await plugin["experimental.chat.system.transform"]({}, { system });
+    const system = await plugin.system();
     expect(system.join("\n")).toContain(FILE_REPORT_RULE);
   } finally { await server.stop(true); }
 });
@@ -94,10 +93,9 @@ test("N-A5-1: the exact name the user wrote wins, a similar one is a question, a
   expect(EXACT_NAME_RULE).toContain("ask the user which item they mean before calling lawoss_files");
   // N-A7-7: the folder is listed with read, which also shows an empty subfolder that glob never returns.
   expect(EXACT_NAME_RULE).toContain("list the folder with read on its path (glob does not show empty folders)");
-  const plugin = await LawossFileOperations();
+  const plugin = await lawossNativePlugin(FileOperations);
   expect(plugin.tool.lawoss_files.description).toContain(EXACT_NAME_RULE);
-  const system: string[] = [];
-  await plugin["experimental.chat.system.transform"]({}, { system });
+  const system = await plugin.system();
   expect(system.join("\n")).toContain(EXACT_NAME_RULE);
   const deleted = { operation: "delete", kind: "file", from: "Spisy/M004/podklad.pdf", similar: ["Podklady.pdf"], status: "done", trash: "system" };
   expect(fileOperationReport({ complete: true, results: [deleted] })).toEqual([

@@ -6,13 +6,15 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildLegalworkRuntimeConfigObject, keepLegalworkRuntimeConfigFileFresh, legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "../legalwork-runtime-config.js";
-import { readRuntimeOpencodeConfig, runtimeStorageDir, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import { buildLegalworkRuntimeConfigObject, keepLegalworkRuntimeConfigFileFresh, legalworkRuntimeConfigFilePath, mandatoryRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "../legalwork-runtime-config.js";
+import { readRuntimeOpencodeConfig, runtimeExternalDirectory, runtimeStorageDir, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import { clientCardFolder, documentLinkedFolders, linkableFolders, linkedFoldersMapPath, writeLinkedFoldersMap } from "./linked-folders.js";
 import { externalDirectoryOtherClient, parseLinkedFoldersMap } from "./linked-folders-rules.js";
 import { startServer } from "../server.js";
 import { writeYoloMode } from "./yolo-mode.js";
 import type { ServerConfig } from "../types.js";
+import { hasBundledPlugin, nativeRow } from "./test-support/native-config.js";
+import { externalDirectoryMap } from "./linked-folders.js";
 
 const CLIENT_TOKEN = "owt_linked_folders_client";
 const stops: Array<() => void | Promise<void>> = [];
@@ -65,7 +67,8 @@ async function practice() {
   stops.push(() => server.stop());
   const base = `http://127.0.0.1:${server.port}`;
   const patch = (workspaceId: string, externalDirectory: Record<string, unknown>) => fetch(`${base}/workspace/${workspaceId}/config`, {
-    method: "PATCH", headers: { authorization: `Bearer ${CLIENT_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ opencode: { permission: { external_directory: externalDirectory } } }),
+    method: "PATCH", headers: { authorization: `Bearer ${CLIENT_TOKEN}`, "content-type": "application/json" }, // Engine v2: the native rules of this project.
+    body: JSON.stringify({ opencode: { permissions: Object.entries(externalDirectory).map(([resource, effect]) => ({ action: "external_directory", resource, effect })) } }),
   });
   const host = (path: string, method: string, body?: unknown) => fetch(`${base}${path}`, {
     method, headers: { "x-legalwork-host-token": "owt_linked_folders_host", "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body),
@@ -81,24 +84,30 @@ async function practice() {
   return { root, config, client, other, linked, practiceRoot, put, patch, host, writeProfile, readMap };
 }
 
+/** Engine v2: folder rules of the built configuration as a `{ pattern: effect }` map (last rule wins). */
 const externalDirectory = (built: Record<string, unknown>): Record<string, unknown> => {
-  const permission = built.permission;
-  if (!permission || typeof permission !== "object" || Array.isArray(permission)) return {};
-  const value = "external_directory" in permission ? permission.external_directory : undefined;
-  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {};
+  const rules = Array.isArray(built.permissions) ? built.permissions : [];
+  return externalDirectoryMap(rules.filter((rule): rule is { action: string; resource: string; effect: string } =>
+    !!rule && typeof rule === "object" && typeof rule.action === "string" && typeof rule.resource === "string" && typeof rule.effect === "string"));
 };
+/** Upstream v2 asks for every folder by default (`external_directory` `*` ask, before the lawyer's rules). */
+const DEFAULT_FOLDER_RULE = { "*": "ask" };
 
 const code = async (response: Response) => ({ status: response.status, code: (await response.json() as { code?: string }).code });
 
 describe("pripojené priečinky klienta: spoločný súbor enginu a mapa pre plugin", () => {
   test("spoločný súbor nenesie priečinky žiadneho klienta (ani spúšťacieho); iné položky ostanú", async () => {
     const { config, linked, put } = await practice();
-    await writeRuntimeOpencodeConfig(config, "ws_client", (current) => ({ ...current, permission: { external_directory: { "/denied/*": "deny" } } }));
+    await writeRuntimeOpencodeConfig(config, "ws_client", (current) => ({ ...current, ...nativeRow({ permission: { external_directory: { "/denied/*": "deny" } } }) }));
     expect((await put("ws_client", [linked])).status).toBe(200);
-    expect(externalDirectory(await buildLegalworkRuntimeConfigObject(config, "ws_client"))).toEqual({ "/denied/*": "deny" });
+    const built = await buildLegalworkRuntimeConfigObject(config, "ws_client");
+    expect(externalDirectory(built)).toEqual({ ...DEFAULT_FOLDER_RULE, "/denied/*": "deny" });
     const file: unknown = JSON.parse(await readFile(await writeLegalworkRuntimeConfigFile(config, "ws_client"), "utf8"));
-    expect(file && typeof file === "object" && !Array.isArray(file) ? externalDirectory({ ...file }) : {}).toEqual({ "/denied/*": "deny" });
-    expect((file && typeof file === "object" && "plugin" in file && Array.isArray(file.plugin) ? file.plugin : []).some((spec: unknown) => typeof spec === "string" && /lawoss-linked-folders\.(?:js|ts)/.test(spec))).toBe(true);
+    // The common file carries no linked folder of any client.
+    expect(JSON.stringify(file)).not.toContain(linked);
+    // The plugin itself is mandatory, after the managed folder permissions (legalwork-runtime-config.ts).
+    const mandatory: unknown = JSON.parse(await readFile(mandatoryRuntimeConfigFilePath(config), "utf8"));
+    expect(await hasBundledPlugin(mandatory !== null && typeof mandatory === "object" && "plugins" in mandatory && Array.isArray(mandatory.plugins) ? mandatory.plugins : [], "lawoss-linked-folders")).toBe(true);
   });
 
   test("mapa: každý klient so svojím koreňom a pripojenými priečinkami; zápis iného klienta ju obnoví bez prepisu súboru", async () => {
@@ -139,10 +148,10 @@ describe("pripojené priečinky klienta: spoločný súbor enginu a mapa pre plu
   test("odpojenie cez natívny zápis zachová položky, ktoré zoznam neukazuje (napr. odmietnutia)", async () => {
     const { config, linked, put } = await practice();
     await writeRuntimeOpencodeConfig(config, "ws_client", (current) => ({
-      ...current, permission: { ...current.permission, external_directory: { "/denied/*": "deny", [`${linked}/*`]: "allow" } },
+      ...current, permissions: [...current.permissions ?? [], { action: "external_directory", resource: "/denied/*", effect: "deny" }, { action: "external_directory", resource: `${linked}/*`, effect: "allow" }],
     }));
     expect((await put("ws_client", [])).status).toBe(200);
-    expect((await readRuntimeOpencodeConfig(config, "ws_client")).permission?.external_directory).toEqual({ "/denied/*": "deny" });
+    expect(runtimeExternalDirectory(await readRuntimeOpencodeConfig(config, "ws_client"))).toEqual([{ action: "external_directory", resource: "/denied/*", effect: "deny" }]);
   });
 });
 
@@ -173,7 +182,7 @@ describe("pripojené priečinky klienta: kontrola natívneho zápisu na serveri"
 
   test("už uložené položky sa pri ďalšom zápise neoverujú znova; chýbajúca cesta mimo klientov ostáva ako v upstreame", async () => {
     const { config, other, put, root } = await practice();
-    await writeRuntimeOpencodeConfig(config, "ws_client", (current) => ({ ...current, permission: { external_directory: { [`${other}/*`]: "allow" } } }));
+    await writeRuntimeOpencodeConfig(config, "ws_client", (current) => ({ ...current, ...nativeRow({ permission: { external_directory: { [`${other}/*`]: "allow" } } }) }));
     expect((await put("ws_client", [other, join(root, "Neexistuje")])).status).toBe(200);
   });
 });
@@ -181,9 +190,9 @@ describe("pripojené priečinky klienta: kontrola natívneho zápisu na serveri"
 describe("pripojené priečinky klienta: oprava 2", () => {
   test("spoločný súbor: preč ide každé povolenie priečinka (`**`, glob, holý priečinok, `~/…`), ostane holé `*`, odmietnutia a otázky", async () => {
     const { config } = await practice();
-    await writeRuntimeOpencodeConfig(config, "ws_client", (current) => ({ ...current, permission: { external_directory: {
+    await writeRuntimeOpencodeConfig(config, "ws_client", (current) => ({ ...current, ...nativeRow({ permission: { external_directory: {
       "/a/**": "allow", "/b/*.pdf": "allow", "/c": "allow", "~/d/*": "allow", "/e/*": "allow", "*": "allow", "/f/*": "deny", "/g/*": "ask",
-    } } }));
+    } } }) }));
     expect(externalDirectory(await buildLegalworkRuntimeConfigObject(config, "ws_client"))).toEqual({ "*": "allow", "/f/*": "deny", "/g/*": "ask" });
   });
 
@@ -223,7 +232,7 @@ describe("pripojené priečinky klienta: oprava 2", () => {
   test("mapa: súbežné zápisy idú za sebou, posledný obsah vyhrá", async () => {
     const { config, linked, readMap } = await practice();
     const first = writeLinkedFoldersMap(config);
-    await writeRuntimeOpencodeConfig(config, "ws_client", (current) => ({ ...current, permission: { external_directory: { [`${linked}/*`]: "allow" } } }));
+    await writeRuntimeOpencodeConfig(config, "ws_client", (current) => ({ ...current, ...nativeRow({ permission: { external_directory: { [`${linked}/*`]: "allow" } } }) }));
     const second = writeLinkedFoldersMap(config);
     await Promise.all([first, second]);
     expect((await readMap())?.clients.find((entry) => entry.folders.length)?.folders).toEqual([linked]);
@@ -231,9 +240,9 @@ describe("pripojené priečinky klienta: oprava 2", () => {
 
   test("mapa: položka zapísaná mimo kontrol (napr. migráciou) s iným klientom alebo relatívna sa do mapy nedostane", async () => {
     const { config, other, linked, readMap } = await practice();
-    await writeRuntimeOpencodeConfig(config, "ws_client", (current) => ({ ...current, permission: { external_directory: {
+    await writeRuntimeOpencodeConfig(config, "ws_client", (current) => ({ ...current, ...nativeRow({ permission: { external_directory: {
       [`${other}/*`]: "allow", "relative/*": "allow", [`${linked}/*`]: "allow",
-    } } }));
+    } } }) }));
     await writeLinkedFoldersMap(config);
     expect((await readMap())?.clients.find((entry) => entry.folders.length)?.folders).toEqual([linked]);
   });

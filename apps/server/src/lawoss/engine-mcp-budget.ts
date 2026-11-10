@@ -1,15 +1,16 @@
 /**
  * LAWOSS: rozpočet RAM 2 GB (issue #367).
  *
- * Engine OpenCode drží jednu inštanciu na adresár a pri prvom dotyku MCP stavu
- * (GET /mcp, GET /command, prompt…) v nej spustí všetky zapnuté MCP servery.
+ * Engine OpenCode 2.1.4 drží služby jednej lokácie (adresára) spolu: pluginy aj MCP
+ * sú `makeLocationNode`. Prvá požiadavka viazaná na lokáciu (`location[directory]`,
+ * `x-opencode-directory` alebo priečinok chatu) ju postaví a spustí všetky jej
+ * zapnuté MCP servery; engine ich drží bez obmedzenia (`idleTimeToLive: infinity`).
  * Každý MCP z LAWOSS Marketplace sú dva procesy `node`, takže každý otvorený
- * klient stojí stovky MB. Inštancie engine sám nikdy neuvoľní.
+ * klient stojí stovky MB.
  *
- * Tento modul eviduje adresáre s aktívnym MCP („otvorení klienti“), drží ich
+ * Tento modul eviduje lokácie s aktívnym MCP („otvorení klienti“), drží ich
  * najviac `limit` a nečinné (bez rozpracovaného chatu) uvoľní cez
- * `POST /instance/dispose`. Ďalšia požiadavka inštanciu znovu postaví; MCP sa
- * spustia až pri ďalšom skutočnom použití.
+ * `DELETE /api/debug/location` (server.ts). Ďalšia požiadavka lokáciu znovu postaví.
  */
 
 import { isAbsolute, relative } from "node:path";
@@ -85,7 +86,7 @@ export type EngineMcpBudget = {
   close(): void;
 };
 
-const MCP_SESSION_ACTION = /^(?:\/api)?\/session\/([^/]+)\/(?:message|prompt|prompt_async|command|shell|summarize|init)$/;
+const MCP_SESSION_ACTION = /^(?:\/api)?\/session\/([^/]+)\/(?:prompt|command|synthetic|shell|compact|fork|generate|skill)$/;
 
 /**
  * Chat, ktorý požiadavka spúšťa. Engine ho spustí v priečinku chatu, nie v priečinku požiadavky: chat
@@ -95,18 +96,32 @@ export function engineSessionAction(method: string, path: string): string | null
   return method.toUpperCase() === "POST" ? path.match(MCP_SESSION_ACTION)?.[1] ?? null : null;
 }
 
-/** Engine cesty, ktoré inicializujú MCP stav inštancie (opencode v1.18.29). */
-export function initializesEngineMcp(method: string, path: string): boolean {
-  const verb = method.toUpperCase();
-  if (path === "/mcp" || path.startsWith("/mcp/")) return true;
-  if (verb === "GET" && path === "/command") return true;
-  if (path.startsWith("/experimental/tool") || path.startsWith("/experimental/resource")) return true;
-  return engineSessionAction(verb, path) !== null;
+/**
+ * Engine v2 (2.1.4, `protocol/src/groups/*.ts`): cesty bez strednej vrstvy lokácie. Žiadna z nich
+ * nepostaví služby lokácie, a teda ani jej MCP: informácie o serveri, udalosti, zoznam, vytvorenie,
+ * presun, zmazanie a čítanie chatov a ich správ, stav behu, migrácia histórie, ladenie, prihlasovacie údaje.
+ */
+const LOCATION_FREE: Record<string, RegExp> = {
+  GET: /^\/(?:info|event|session|session\/active|experimental\/session\/stats|experimental\/migration\/v1|session\/[^/]+(?:\/(?:context|diff|inbox|message(?:\/[^/]+)?))?|experimental\/session\/[^/]+\/export|debug\/.+|credential(?:\/.+)?|experimental\/persistent-pty\/.+)$/,
+  POST: /^\/(?:session|experimental\/session\/import|session\/[^/]+\/(?:move|interrupt)|credential(?:\/.+)?)$/,
+  DELETE: /^\/(?:session\/[^/]+|session\/[^/]+\/inbox\/[^/]+|debug\/location|credential\/.+)$/,
+  PATCH: /^\/credential\/.+$/,
+};
+
+/** Cesta bez prefixu `/api`, ako ju vidí proxy aj klient enginu. */
+export function enginePath(path: string): string {
+  return path.replace(/^\/api(?=\/|$)/, "") || "/";
 }
 
-/** Engine cesty, ktorých odpoveď závisí od konfigurácie inštancie (poskytovatelia, agenti, skilly). */
+/** Engine v2: požiadavka postaví lokáciu (pluginy a všetky jej MCP), ak nejde o cestu mimo lokácie. */
+export function initializesEngineMcp(method: string, path: string): boolean {
+  const verb = method.toUpperCase() === "HEAD" ? "GET" : method.toUpperCase();
+  return !LOCATION_FREE[verb]?.test(enginePath(path));
+}
+
+/** Engine cesty, ktorých odpoveď závisí od konfigurácie lokácie (poskytovatelia, modely, agenti, skilly). */
 export function readsEngineConfig(path: string): boolean {
-  return /^\/(?:provider|config|agent|skill|formatter|lsp)(?:\/|$)/.test(path);
+  return /^\/(?:provider|config|agent|skill|model|command)(?:\/|$)/.test(enginePath(path));
 }
 
 export function scopeKey(scope: Pick<EngineScope, "baseUrl" | "directory">): string {
@@ -114,9 +129,8 @@ export function scopeKey(scope: Pick<EngineScope, "baseUrl" | "directory">): str
 }
 
 /**
- * Poradie zmien MCP stavu v jednom priečinku. Engine 1.18.29 uloží klienta z `POST /mcp` aj do už
- * uvoľnenej inštancie a jej koniec ho nezavrie: proces žije až do zastavenia enginu. Uvoľnenie preto
- * čaká na rozbehnutú registráciu a registrácia na rozbehnuté uvoľnenie.
+ * Poradie zmien MCP stavu v jednom priečinku: uvoľnenie lokácie čaká na rozbehnutú zmenu MCP
+ * a zmena MCP na rozbehnuté uvoľnenie, aby proces MCP neprežil uvoľnenú lokáciu.
  */
 export function createEngineDirectoryLanes() {
   const lanes = new Map<string, Promise<void>>();

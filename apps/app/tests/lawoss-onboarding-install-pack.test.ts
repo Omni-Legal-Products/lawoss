@@ -23,7 +23,10 @@ function clientFixture(skills: Skill[], resources = new Map<string, Map<string, 
     listSkills: async () => ({ items: skills.map(({ name, scope }) => ({ name, scope, path: `/${name}`, description: "" })), skipped: [] }),
     getSkill: async (_workspaceId, name) => ({ item: { name, path: `/${name}`, description: "", scope: "project" }, content: skills.find((skill) => skill.name === name)?.content ?? "" }),
     listSkillResources: async (_workspaceId, skill) => ({ items: [...(resources.get(skill)?.keys() ?? [])].map((name) => ({ name, path: `/${name}`, size: 1, updatedAt: 0 })) }),
-    getSkillResource: async (_workspaceId, skill, name) => ({ item: { name, path: `/${name}`, size: 1, updatedAt: 0 }, content: resources.get(skill)?.get(name) ?? "" }),
+    getSkillResource: async (_workspaceId, skill, name, encoding = "utf8") => {
+      const content = resources.get(skill)?.get(name) ?? "";
+      return { item: { name, path: `/${name}`, size: 1, updatedAt: 0 }, content: encoding === "base64" ? Buffer.from(content).toString("base64") : content };
+    },
     upsertSkill: async (_workspaceId, input) => { calls.skill.push(input.name); skills.push({ name: input.name, scope: "project", content: input.content }); return { name: input.name, path: "/", description: "", scope: "project" }; },
     upsertSkillResource: async (_workspaceId, skill, input) => {
       calls.resource.push(`${skill}/${input.name}`);

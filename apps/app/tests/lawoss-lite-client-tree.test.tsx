@@ -389,24 +389,23 @@ describe("prehľad klienta a detail veci", () => {
 });
 
 describe("výpis priečinka ide do enginu, nie na výpis koreňa priečinka (PATCHES.md)", () => {
-  test("session.list s `path` alebo `directory` použije proxy enginu; bez nich ostáva výpis LegalWork", async () => {
+  // Engine v2: výpis priečinka ide vždy cez proxy enginu (`/api/session`) s `directory` a voliteľným `subpath`.
+  test("session.list s `subpath` alebo `directory` použije proxy enginu", async () => {
     const { createClient } = await import("../src/app/lib/opencode");
     const original = globalThis.fetch;
     const urls: string[] = [];
     globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
       urls.push(new Request(input, init).url);
-      return new Response(JSON.stringify(urls.at(-1)?.includes("/sessions") ? { items: [] } : []), { headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ data: [], cursor: {} }), { headers: { "content-type": "application/json" } });
     }, { preconnect: original.preconnect });
     try {
       const client = createClient("http://127.0.0.1:9/workspace/ws-tatran/opencode", "/prax/Tatran", { token: "t", mode: "legalwork" });
-      await client.session.list({ directory: "/prax/Tatran", path: "prax/Tatran", roots: true, limit: 5 });
-      await client.session.list({ directory: "/prax/Tatran/Spisy/Uhrada", roots: true, limit: 5 });
-      await client.session.list({ roots: true, limit: 5 });
+      await client.session.list({ directory: "/prax/Tatran", subpath: "prax/Tatran", parentID: null, limit: 5 }).catch(() => undefined);
+      await client.session.list({ directory: "/prax/Tatran/Spisy/Uhrada", parentID: null, limit: 5 }).catch(() => undefined);
     } finally { globalThis.fetch = original; }
-    expect(urls[0]).toContain("/workspace/ws-tatran/opencode/session?");
-    expect(urls[0]).toContain("path=prax%2FTatran");
-    expect(urls[1]).toContain("/workspace/ws-tatran/opencode/session?directory=%2Fprax%2FTatran%2FSpisy%2FUhrada");
-    expect(urls[2]).toContain("/workspace/ws-tatran/sessions?roots=true&limit=5");
+    expect(urls[0]).toContain("/workspace/ws-tatran/opencode/api/session?");
+    expect(urls[0]).toContain("subpath=prax%2FTatran");
+    expect(urls[1]).toContain("directory=%2Fprax%2FTatran%2FSpisy%2FUhrada");
   });
 });
 

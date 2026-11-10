@@ -55,30 +55,33 @@ import { runFusionSend } from "../src/react-app/domains/session/fusion/fusion-co
 import type { Client } from "../src/app/types";
 
 test("fusion forwards optional native message identity only to its existing main prompt", async () => {
+  // Engine v2 (ADR 0016): the main prompt goes through `sendSessionPrompt` → native `session.prompt`;
+  // the engine-visible message ID travels as the native prompt `id`.
   const requests: Array<Record<string, unknown>> = [];
-  const client = { session: {
-    messages: async () => ({ data: [] }),
-    promptAsync: async (request: Record<string, unknown>) => {
-      requests.push(request);
-      return { error: { name: "APIError", message: "synthetic rejection" } };
+  const switches: Array<Record<string, unknown>> = [];
+  const client = {
+    message: { list: async () => ({ data: [], cursor: {} }) },
+    session: {
+      update: async () => undefined,
+      switchModel: async (request: Record<string, unknown>) => { switches.push(request); },
+      switchAgent: async (request: Record<string, unknown>) => { switches.push(request); },
+      prompt: async (request: Record<string, unknown>) => { requests.push(request); throw new Error("synthetic rejection"); },
     },
-  } } as unknown as Client;
+  } as unknown as Client;
   const candidateModels = [{ providerID: "candidate", modelID: "selected" }];
   const input = { client, mainSessionId: "main", directory: "/root/work", parts: [{ type: "text" as const, text: "task" }], userText: "task", candidateModels, mainModel: { providerID: "main", modelID: "chosen" }, agent: "agent", variant: "variant" };
   await expect(runFusionSend({ ...input, messageID: "msg_000000000001abcdefghijklmn" })).rejects.toThrow();
   await expect(runFusionSend(input)).rejects.toThrow();
   expect(requests).toHaveLength(2);
-  expect(requests[0].messageID).toBe("msg_000000000001abcdefghijklmn");
-  expect(requests[1]).not.toHaveProperty("messageID");
+  expect(requests[0].id).toBe("msg_000000000001abcdefghijklmn");
+  expect(requests[1].id).toBeUndefined();
   for (const request of requests) {
     expect(request.sessionID).toBe("main");
-    expect(request.directory).toBe(input.directory);
-    expect(request.model).toEqual(input.mainModel);
-    expect(request.agent).toBe("agent");
-    expect(request.variant).toBe("variant");
     // Od LegalWork v0.2.9 ide kontext Fusion ako skrytá časť správy, nie ako `system`.
-    expect(request.parts).toEqual([...input.parts, expect.objectContaining({ type: "text", synthetic: true, text: expect.stringContaining("candidate/selected") })]);
+    expect(String(request.text)).toContain("candidate/selected");
     expect(request).not.toHaveProperty("system");
   }
+  expect(switches).toContainEqual(expect.objectContaining({ sessionID: "main", model: expect.objectContaining({ id: "chosen", providerID: "main", variant: "variant" }) }));
+  expect(switches).toContainEqual({ sessionID: "main", agent: "agent" });
   expect(candidateModels).toEqual([{ providerID: "candidate", modelID: "selected" }]);
 });

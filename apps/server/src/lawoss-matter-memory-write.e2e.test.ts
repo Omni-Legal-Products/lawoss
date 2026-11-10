@@ -11,7 +11,8 @@ import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { engineAgentSession } from "./lawoss/test-support/engine-agent.js";
 import { writeMatterMemoryForChat } from "./lawoss/matter-memory.js";
-import { LawossMemoryTools } from "./opencode-plugins/lawoss-memory-tools.js";
+import LawossMemoryTools from "./opencode-plugins/lawoss-memory-tools.js";
+import { nativePluginTools } from "./opencode-plugins/native-plugin-test-support.js";
 
 const priorData = process.env.LEGALWORK_DATA_DIR, priorTokens = process.env.LEGALWORK_TOKEN_STORE, priorDb = process.env.LEGALWORK_RUNTIME_DB;
 const roots: string[] = [], stops: (() => void | Promise<void>)[] = [];
@@ -60,7 +61,7 @@ async function setup() {
   process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${server.port}`;
   const agent = await engineAgentSession(config, { sessionID: "ses_memory_write", directory: case1 });
   stops.push(() => { agent.restore(); if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl; });
-  const tools = (await LawossMemoryTools()).tool;
+  const tools = (await nativePluginTools(LawossMemoryTools)).tool;
   const revision = async () => {
     const read = JSON.parse(await tools.lawoss_memory.execute({ action: "read" }, { ...agent.context, ask: async () => { throw new Error("no card expected"); } }));
     return /Revision M-001: ([0-9a-f]{64})/.exec(read.text)?.[1];

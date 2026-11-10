@@ -60,3 +60,12 @@ export function keepCommentaryAnswer(existing: UIMessage["parts"][number], next:
   const answered = existing.type === "text" && Reflect.get(existing.providerMetadata?.opencode ?? {}, "commentary") === true;
   return answered && next.type === "reasoning" && isCommentaryReasoning(next) ? { ...next, type: "text" as const } : next;
 }
+
+/**
+ * Engine v2 (OpenCode 2.1.4): fáza textu nie je v časti, ale v `native` obsahu správy (výrez metadát poskytovateľa,
+ * napr. `{ itemId, phase: "commentary" }`), a pri živom prenose v `session.text.ended`. Upstream projekcia
+ * (`@legalwork/types/opencode-view`) ho zahodí; LAWOSS ho vráti do `metadata.native`, odkiaľ ho číta `isModelCommentary`.
+ */
+export function nativeTextMetadata(native: unknown): { metadata: { native: Record<string, unknown> } } | Record<string, never> {
+  return native && typeof native === "object" && !Array.isArray(native) ? { metadata: { native: { ...native } } } : {};
+}

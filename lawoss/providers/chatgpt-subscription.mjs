@@ -33,10 +33,23 @@ export const CHATGPT_SUBSCRIPTION_MODELS = new Set([
 export const CHATGPT_RECOMMENDED_MODELS = ["gpt-6-luna", "gpt-5.6-luna"];
 
 /**
+ * Zdroj poskytovateľa v tvare OpenCode 1.x z integrácie enginu 2.1.4, ktorý pole `source` nemá. Rozhoduje aktívne
+ * pripojenie (prvé v `connections`, ako `integration.connection.active` enginu): prihlásenie OAuth je `custom`
+ * (predplatné ChatGPT, metóda `chatgpt-token-sharing`), uložený kľúč `api`, premenná prostredia `env`, bez
+ * pripojenia `config`.
+ */
+export function nativeConnectionSource(integration) {
+  const active = integration?.connections?.[0];
+  if (!active) return "config";
+  if (active.type === "env") return "env";
+  return active.method === "oauth" ? "custom" : "api";
+}
+
+/**
  * OpenAI pripojené cez predplatné ChatGPT. OpenCode dáva poskytovateľovi zdroj `custom`,
  * keď ho pripojí loader pluginu z OAuth záznamu; API kľúč má zdroj `api`, premenná
  * prostredia `env`, konfigurácia `config` (overené na OpenCode 1.18.29 so syntetickým
- * `auth.json`). Tie ostávajú bez zmeny.
+ * `auth.json`). Tie ostávajú bez zmeny. Na engine v2 zdroj dopočíta `nativeConnectionSource`.
  */
 export function isChatgptSubscription(provider) {
   return provider?.id === "openai" && provider?.source === "custom";
@@ -48,7 +61,8 @@ export function isChatgptSubscription(provider) {
  * znamenajú len vyššiu spotrebu predplatného (MČ 5. 10. 2026).
  */
 export function isSubscriptionModel(key, model) {
-  const id = model?.api?.id ?? model?.id ?? key;
+  // Engine 2.1.4 nesie id modelu poskytovateľa v `modelID`, 1.18.29 v `api.id`.
+  const id = model?.modelID ?? model?.api?.id ?? model?.id ?? key;
   return key === id && CHATGPT_SUBSCRIPTION_MODELS.has(id);
 }
 

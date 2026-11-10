@@ -1,3 +1,4 @@
+import type { NativePermissionRule } from "./permissions.js";
 import { grantWikiAgentSession, verifiedWikiSessionOrigin } from "../wiki/agent-access.js";
 import { grantWikiProjectAccess, revokeWikiProjectAccess, wikiProjectAccessRevision, wikiProjectAccessSignal, wikiProjectGrants, wikiProjectSandboxMounts } from "../wiki/project-access.js";
 import { afterEach, expect, test } from "bun:test";
@@ -6,6 +7,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSandboxService, type AgentPermissionRule } from "./service.js";
+import type { RawHttpNetwork } from "./raw-http.js";
 import { explicitFileApprovals, managedPermissionRules } from "./engine-policy.js";
 import { webInputSchema } from "./web.js";
 import { brokerRequest, type OutboundRequest, type OutboundResponse, prepareOutboundRequest } from "./network.js";
@@ -13,7 +15,7 @@ import type { SandboxRun } from "./vm.js";
 import { SANDBOX_DEFAULT_ID, sandboxSessionId, readSandboxNetworkMode, writeSandboxNetworkMode, writeSandboxDefault, writeSessionSandbox, effectiveSandbox } from "./settings.js";
 import { ApprovalService } from "../approvals.js";
 import { resetOrgPolicyRuntimeForTests } from "../org-policy.js";
-import { closeRuntimeOpencodeConfig, runtimeStorageDir, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import { closeRuntimeOpencodeConfig, runtimeStorageDir, GLOBAL_TOOL_PERMISSIONS_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ApprovalRequest, ServerConfig, WorkspaceInfo } from "../types.js";
 import { WikiStore } from "../wiki/store.js";
 import { unregisterWorkspace } from "../routes/workspaces.js";
@@ -22,7 +24,7 @@ const roots: string[] = [];
 const services: AgentSandboxService[] = [];
 const configs: ServerConfig[] = [];
 afterEach(async () => {
-  services.splice(0).forEach(service => service.stop());
+  await Promise.all(services.splice(0).map(service => service.stop()));
   for (const config of configs.splice(0)) {
     await closeRuntimeOpencodeConfig(config);
     await resetOrgPolicyRuntimeForTests(config);
@@ -40,7 +42,7 @@ afterEach(async () => {
   }
 });
 
-async function fixture(permissions: Record<string, unknown>, approve = true, onRun?: (input: SandboxRun) => Promise<void>) {
+async function fixture(permissions: NativePermissionRule[], approve = true, onRun?: (input: SandboxRun) => Promise<void>, rawHttpSend?: RawHttpNetwork["send"]) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-sandbox-policy-"));
   roots.push(root);
   const matter = join(root, "matter");
@@ -55,14 +57,14 @@ async function fixture(permissions: Record<string, unknown>, approve = true, onR
   await writeSandboxDefault(config, { enabled: true, networkMode: "approve" });
   // LAWOSS: unset edit/bash ask by default (lawoss/tool-permission-defaults.ts); these upstream
   // scenarios model the engine's own default, so they state it explicitly.
-  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "allow", edit: "allow", ...permissions } }));
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "shell", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }, ...permissions] }));
   const prompts: ApprovalRequest[] = [];
   const approvals = new ApprovalService(config.approval, async (request) => { prompts.push(request); return approve ? "allow" : "deny"; });
   const executions: SandboxRun[] = [];
   const service = new AgentSandboxService(config, approvals, {
     status: async () => ({ available: true }), prepare: async () => "test-image",
     run: async (input) => { executions.push(input); await onRun?.(input); return { output: "done", exitCode: 0, truncated: false }; },
-  });
+  }, rawHttpSend);
   services.push(service);
   const run = (write = false) => service.run(workspace, { command: "python report.py", write, timeoutMs: 1000 },
     { type: "remote", scope: "collaborator" }, new AbortController().signal);
@@ -70,7 +72,7 @@ async function fixture(permissions: Record<string, unknown>, approve = true, onR
 }
 
 test("shell denial prevents runtime launch", async () => {
-  const fixtureState = await fixture({ bash: "deny" });
+  const fixtureState = await fixture([{ action: "shell", resource: "*", effect: "deny" }]);
   await expect(fixtureState.run()).rejects.toThrow("bash is blocked");
   expect(fixtureState.executions).toHaveLength(0);
   expect(fixtureState.prompts).toHaveLength(0);
@@ -78,8 +80,80 @@ test("shell denial prevents runtime launch", async () => {
 
 const networkRequest = () => prepareOutboundRequest({ url: "https://example.com/", method: "POST", headers: {}, bodyBase64: Buffer.from("test body").toString("base64") });
 
-test("sandbox off permits host reads and writes with external wikis registered", async () => {
-  const f = await fixture({ bash: "allow", read: "allow", edit: "allow", webfetch: "allow" });
+test("raw HTTP offers full large request review before DNS and keeps each chat's settings", async () => {
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
+  await writeSessionSandbox(f.config, f.workspace.id, "blocked", { enabled: true, networkMode: "block" });
+  const body = "complete request:" + "x".repeat(40000);
+  const input = { sessionID: "approved", url: "https://example.com/raw", method: "POST", headers: { authorization: "private token" }, bodyBase64: Buffer.from(body).toString("base64") };
+  const events: string[] = [];
+  const network = { resolve: async () => { events.push("dns"); return [{ address: "93.184.216.34", family: 4 }]; },
+    send: async () => { events.push("connect"); return { status: 200, statusText: "OK", headers: {}, bodyBase64: "AAH/" }; } };
+  await expect(f.service.rawHttp(f.workspace, { ...input, sessionID: "blocked" }, { type: "host" }, new AbortController().signal, [], undefined, network)).rejects.toThrow("blocked");
+  const running = f.service.rawHttp(f.workspace, input, { type: "host" }, new AbortController().signal, [], undefined, network);
+  const [approval] = await waitForWebApproval(f.service);
+  expect(approval.network).toMatchObject({ complete: true, body, bodyBytes: Buffer.byteLength(body), headers: input.headers });
+  expect(approval.network?.sha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(approval.summary).not.toContain(body);
+  expect(events).toEqual([]);
+  f.service.approvals.respond(approval.id, "allow");
+  expect(await running).toMatchObject({ status: 200, bodyBase64: "AAH/" });
+  expect(events).toEqual(["dns", "connect"]);
+  expect(f.service.approvals.list()).toEqual([]);
+});
+
+test("raw HTTP respects agent denial and cancels approval/body transport when policy is revoked", async () => {
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
+  const input = { sessionID: "chat", url: "https://example.com/raw", method: "GET", headers: {} };
+  let sent = 0;
+  let connected: () => void = () => {};
+  const connection = new Promise<void>(resolve => { connected = resolve; });
+  const network = { resolve: async () => [{ address: "93.184.216.34", family: 4 }],
+    send: async (_: unknown, __: unknown, signal: AbortSignal): Promise<{ status: number; statusText: string; headers: Record<string, string>; bodyBase64: string }> => {
+      sent++; connected(); return new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+    } };
+  await expect(f.service.rawHttp(f.workspace, input, { type: "host" }, new AbortController().signal,
+    [{ permission: "webfetch", pattern: "*", action: "deny" }], undefined, network)).rejects.toThrow("blocked by your permissions");
+  expect(sent).toBe(0);
+  const waiting = f.service.rawHttp(f.workspace, input, { type: "host" }, new AbortController().signal, [], undefined, network).catch(error => error);
+  await waitForWebApproval(f.service);
+  await writeSessionSandbox(f.config, f.workspace.id, "chat", { enabled: true, networkMode: "block" });
+  expect(await waiting).toBeInstanceOf(Error); expect(sent).toBe(0); expect(f.service.approvals.list()).toEqual([]);
+  await writeSessionSandbox(f.config, f.workspace.id, "chat", { enabled: true, networkMode: "allow" });
+  const running = f.service.rawHttp(f.workspace, input, { type: "host" }, new AbortController().signal, [], undefined, network).catch(error => error);
+  await connection;
+  await writeSessionSandbox(f.config, f.workspace.id, "chat", { enabled: true, networkMode: "block" });
+  expect(await running).toBeInstanceOf(Error); expect(sent).toBe(1);
+});
+
+test("shutdown waits for the host-owned HTTP transport to finish cleanup and cancels pending consent", async () => {
+  let entered: () => void = () => {}, release: () => void = () => {};
+  const started = new Promise<void>(done => { entered = done; }), cleanup = new Promise<void>(done => { release = done; });
+  let requests = 0;
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }], true, undefined, async (_request, _address, signal) => {
+    requests++; entered();
+    await new Promise<void>(done => signal.addEventListener("abort", () => done(), { once: true }));
+    await cleanup; signal.throwIfAborted();
+    throw new Error("Unreachable transport completion");
+  });
+  await writeSessionSandbox(f.config, f.workspace.id, "active", { enabled: true, networkMode: "allow" });
+  const input = { url: "http://127.0.0.1/owned-fixture", method: "GET", headers: {} };
+  const waiting = f.service.rawHttp(f.workspace, { ...input, sessionID: "waiting" }, { type: "host" }, new AbortController().signal).catch(error => error);
+  await waitForWebApproval(f.service);
+  const running = f.service.rawHttp(f.workspace, { ...input, sessionID: "active" }, { type: "host" }, new AbortController().signal).catch(error => error);
+  await started;
+  let stopped = false;
+  const stopping = f.service.stop().then(() => { stopped = true; });
+  await Bun.sleep(1);
+  expect(stopped).toBe(false); expect(requests).toBe(1);
+  expect(await waiting).toBeInstanceOf(Error); expect(f.service.approvals.list()).toEqual([]);
+  release(); await stopping;
+  expect(stopped).toBe(true); expect(await running).toBeInstanceOf(Error);
+  await expect(f.service.rawHttp(f.workspace, { ...input, sessionID: "after-stop" }, { type: "host" }, new AbortController().signal)).rejects.toThrow("stopping");
+  expect(requests).toBe(1);
+});
+
+test("sandbox off permits approved host reads and writes with external wikis registered", async () => {
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }, { action: "webfetch", resource: "*", effect: "allow" }]);
   const store = new WikiStore(f.config);
   try {
     const wiki = await store.create({ name: "External", template: "blank" });
@@ -100,11 +174,11 @@ test("sandbox off permits host reads and writes with external wikis registered",
 });
 
 test("sandbox mounts external wiki content read-only but retains writable project and own-wiki files", async () => {
-  const f = await fixture({ bash: "allow", read: "allow", edit: "allow", external_directory: "allow" });
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }, { action: "external_directory", resource: "*", effect: "allow" }]);
   const store = new WikiStore(f.config);
   try {
     const wiki = await store.create({ name: "External", template: "blank" });
-    await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permission: { external_directory: { [`${wiki.root}/*`]: "allow" } } }));
+    await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permissions: [{ action: "external_directory", resource: `${wiki.root}/*`, effect: "allow" }] }));
     const runOwner = (write: boolean) => f.service.run(f.workspace, { command: "true", write, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal);
     await runOwner(true);
     expect(f.executions[0].mounts.map(mount => [mount.target, mount.writable])).toEqual([["/workspace", true], ["/authorized/0", false]]);
@@ -121,9 +195,9 @@ test("sandbox mounts external wiki content read-only but retains writable projec
 });
 
 test("a wiki registered during a command prevents its staged changes from committing", async () => {
-  const f = await fixture({ bash: "allow", read: "allow", edit: "allow", external_directory: "allow" });
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }, { action: "external_directory", resource: "*", effect: "allow" }]);
   const external = await mkdtemp(join(tmpdir(), "sandbox-new-wiki-")); roots.push(external);
-  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permission: { external_directory: { [`${external}/*`]: "allow" } } }));
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permissions: [{ action: "external_directory", resource: `${external}/*`, effect: "allow" }] }));
   const store = new WikiStore(f.config);
   const service = new AgentSandboxService(f.config, new ApprovalService(f.config.approval), {
     status: async () => ({ available: true }), prepare: async () => "test-image",
@@ -140,7 +214,7 @@ test("a wiki registered during a command prevents its staged changes from commit
 });
 
 test("approve is the persistent default and prompts even when webfetch and server approvals allow", async () => {
-  const f = await fixture({ webfetch: "allow" }, true, async (input) => {
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }], true, async (input) => {
     expect(input.networkMode).toBe("approve");
     expect(await input.authorizeNetwork(networkRequest())).toBe(true);
   });
@@ -155,7 +229,7 @@ test("approve is the persistent default and prompts even when webfetch and serve
 });
 
 test("approval identifies non-printable payloads instead of showing invisible text", async () => {
-  const f = await fixture({ webfetch: "allow" }, true, async (input) => {
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }], true, async (input) => {
     await input.authorizeNetwork(prepareOutboundRequest({ url: "https://example.com/", method: "POST", headers: {}, bodyBase64: "AAEC" }));
   });
   await f.run();
@@ -165,7 +239,7 @@ test("approval identifies non-printable payloads instead of showing invisible te
 
 test("block denies without an approval and allow sends without an approval", async () => {
   for (const mode of ["block", "allow"] satisfies Array<"block" | "allow">) {
-    const f = await fixture({ webfetch: "allow" }, true, async (input) => {
+    const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }], true, async (input) => {
       expect(input.networkMode).toBe(mode);
       if (mode === "block") await expect(input.authorizeNetwork(networkRequest())).rejects.toThrow("All sandbox network traffic is blocked");
       else expect(await input.authorizeNetwork(networkRequest())).toBe(true);
@@ -177,7 +251,7 @@ test("block denies without an approval and allow sends without an approval", asy
 });
 
 test("network approval denial blocks the request", async () => {
-  const f = await fixture({ webfetch: "allow" }, false, async (input) => {
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }], false, async (input) => {
     await expect(input.authorizeNetwork(networkRequest())).rejects.toThrow("declined");
   });
   await f.run();
@@ -186,9 +260,9 @@ test("network approval denial blocks the request", async () => {
 
 test("allow never bypasses scoped tool or agent restrictions with a direct NIC", async () => {
   const cases = [
-    { permissions: { webfetch: { "*": "allow", "https://example.com/*": "deny" } }, rules: [] },
-    { permissions: { webfetch: "allow" }, rules: [{ permission: "webfetch", pattern: "https://example.com/*", action: "deny" }] },
-  ] satisfies Array<{ permissions: Record<string, unknown>; rules: Array<{ permission: string; pattern: string; action: "deny" }> }>;
+    { permissions: [{ action: "webfetch", resource: "*", effect: "allow" }, { action: "webfetch", resource: "https://example.com/*", effect: "deny" }], rules: [] },
+    { permissions: [{ action: "webfetch", resource: "*", effect: "allow" }], rules: [{ permission: "webfetch", pattern: "https://example.com/*", action: "deny" }] },
+  ] satisfies Array<{ permissions: NativePermissionRule[]; rules: Array<{ permission: string; pattern: string; action: "deny" }> }>;
   for (const entry of cases) {
     const f = await fixture(entry.permissions, true, async (input) => {
       expect(input.networkMode).toBe("approve");
@@ -201,7 +275,7 @@ test("allow never bypasses scoped tool or agent restrictions with a direct NIC",
 });
 
 test("changing network mode cancels running commands and pending approvals", async () => {
-  const f = await fixture({ webfetch: "allow" });
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
   await writeSandboxNetworkMode(f.config, "allow");
   const service = new AgentSandboxService(f.config, new ApprovalService(f.config.approval), {
     status: async () => ({ available: true }), prepare: async () => "test-image",
@@ -219,7 +293,7 @@ test("changing network mode cancels running commands and pending approvals", asy
 });
 
 test("saving a network mode waits for cancelled workers to finish cleanup", async () => {
-  const f = await fixture({ webfetch: "allow" });
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
   let ready: () => void = () => {};
   const started = new Promise<void>((resolve) => { ready = resolve; });
   let release: () => void = () => {};
@@ -245,7 +319,7 @@ test("saving a network mode waits for cancelled workers to finish cleanup", asyn
 });
 
 test("project helper aliases share the project edit permission and still require skill permission", async () => {
-  const f = await fixture({ bash: "allow", read: "ask", skill: { "helper": "ask" } });
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "ask" }, { action: "skill", resource: "helper", effect: "ask" }]);
   const folder = join(f.workspace.path, ".opencode", "skills", "helper");
   await mkdir(folder, { recursive: true });
   await writeFile(join(folder, "SKILL.md"), "---\nname: helper\ndescription: Test installed helper\n---\nRun helper.py.\n");
@@ -260,7 +334,7 @@ test("project helper aliases share the project edit permission and still require
 });
 
 test("read-only commands work when file changes are denied", async () => {
-  const fixtureState = await fixture({ bash: "allow", edit: "deny" });
+  const fixtureState = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "deny" }]);
   await fixtureState.run();
   expect(fixtureState.executions[0].mounts[0].writable).toBe(false);
   await expect(fixtureState.run(true)).rejects.toThrow("edit is blocked");
@@ -268,20 +342,20 @@ test("read-only commands work when file changes are denied", async () => {
 });
 
 test("shell and file-change asks use real prompts even when the server auto-approves other operations", async () => {
-  const fixtureState = await fixture({ bash: "ask", edit: "ask" });
+  const fixtureState = await fixture([{ action: "shell", resource: "*", effect: "ask" }, { action: "edit", resource: "*", effect: "ask" }]);
   await fixtureState.run(true);
   expect(fixtureState.prompts.map((prompt) => prompt.action)).toEqual(["sandbox.bash", "sandbox.edit"]);
   expect(fixtureState.executions[0].mounts[0].writable).toBe(true);
 });
 
 test("a declined file-change prompt does not launch a writable sandbox", async () => {
-  const fixtureState = await fixture({ bash: "allow", edit: "ask" }, false);
+  const fixtureState = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "ask" }], false);
   await expect(fixtureState.run(true)).rejects.toThrow("declined");
   expect(fixtureState.executions).toHaveLength(0);
 });
 
 test("agent denials cannot be overridden by global allow settings", async () => {
-  const fixtureState = await fixture({ bash: "allow", edit: "allow" });
+  const fixtureState = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }]);
   await expect(fixtureState.service.run(fixtureState.workspace,
     { command: "python report.py", write: true, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal,
     [{ permission: "*", pattern: "*", action: "allow" }, { permission: "edit", pattern: "*", action: "deny" }],
@@ -290,7 +364,7 @@ test("agent denials cannot be overridden by global allow settings", async () => 
 });
 
 test("later whole-tool permissions replace scoped engine defaults", async () => {
-  const f = await fixture({ bash: "allow", read: "allow" });
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }]);
   await f.service.run(f.workspace, { command: "python3 report.py", write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal,
     [{ permission: "read", pattern: "*.env", action: "ask" }, { permission: "read", pattern: "*", action: "allow" }]);
   expect(f.prompts).toHaveLength(0);
@@ -298,28 +372,28 @@ test("later whole-tool permissions replace scoped engine defaults", async () => 
 });
 
 test("a scoped edit denial cannot be bypassed with a writable folder mount", async () => {
-  const fixtureState = await fixture({ edit: { "*": "allow", "*.secret": "deny" } });
+  const fixtureState = await fixture([{ action: "edit", resource: "*", effect: "allow" }, { action: "edit", resource: "*.secret", effect: "deny" }]);
   await expect(fixtureState.run(true)).rejects.toThrow("edit is blocked");
 });
 
 test("a script cannot bypass scoped read or nested shell denials", async () => {
-  const reads = await fixture({ read: { "*": "allow", "*.secret": "deny" } });
+  const reads = await fixture([{ action: "read", resource: "*", effect: "allow" }, { action: "read", resource: "*.secret", effect: "deny" }]);
   await expect(reads.run()).rejects.toThrow("read is blocked");
-  const shell = await fixture({ bash: { "*": "allow", "curl *": "deny" } });
+  const shell = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "shell", resource: "curl *", effect: "deny" }]);
   await expect(shell.run()).rejects.toThrow("bash is blocked");
   expect(reads.executions).toHaveLength(0);
   expect(shell.executions).toHaveLength(0);
 });
 
 test("changing permission settings aborts a running command before more network requests", async () => {
-  const fixtureState = await fixture({ bash: "allow", webfetch: "allow" });
+  const fixtureState = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "webfetch", resource: "*", effect: "allow" }]);
   let stopped = false;
   const service = new AgentSandboxService(fixtureState.config, new ApprovalService(fixtureState.config.approval), {
     status: async () => ({ available: true }), prepare: async () => "test-image",
     run: async (input) => {
       await writeRuntimeOpencodeConfig(fixtureState.config, GLOBAL_TOOL_PERMISSIONS_ID, current => current);
       expect(input.signal.aborted).toBe(false);
-      await writeRuntimeOpencodeConfig(fixtureState.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { webfetch: "deny" } }));
+      await writeRuntimeOpencodeConfig(fixtureState.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "webfetch", resource: "*", effect: "deny" }] }));
       stopped = input.signal.aborted;
       await input.authorizeNetwork(prepareOutboundRequest({ url: "https://example.com/", method: "GET", headers: {}, bodyBase64: "" }));
       return { output: "", exitCode: 0, truncated: false };
@@ -331,29 +405,27 @@ test("changing permission settings aborts a running command before more network 
 });
 
 test("an agent external-folder denial overrides an older workspace grant", async () => {
-  const f = await fixture({ bash: "allow", read: "allow" });
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }]);
   const external = await mkdtemp(join(tmpdir(), "sandbox-external-")); roots.push(external);
-  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permission: { external_directory: { [`${external}/*`]: "allow" } } }));
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permissions: [{ action: "external_directory", resource: `${external}/*`, effect: "allow" }] }));
   await expect(f.service.run(f.workspace, { command: "python report.py", write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal,
     [{ permission: "external_directory", pattern: "*", action: "deny" }])).rejects.toThrow("external_directory is blocked");
   expect(f.executions).toHaveLength(0);
 });
 
 test("a denied subfolder cannot enter a whole-folder snapshot", async () => {
-  const f = await fixture({ bash: "allow", read: "allow" });
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }]);
   const external = await mkdtemp(join(tmpdir(), "sandbox-external-")); roots.push(external);
-  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permission: { external_directory: { [`${external}/*`]: "allow", [`${external}/private/*`]: "deny" } } }));
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permissions: [{ action: "external_directory", resource: `${external}/*`, effect: "allow" }, { action: "external_directory", resource: `${external}/private/*`, effect: "deny" }] }));
   await expect(f.run()).rejects.toThrow("scoped folder denial");
   expect(f.executions).toHaveLength(0);
 });
 
 test("multiple authorized folders participate in read and edit approval", async () => {
-  const f = await fixture({ bash: "allow", read: "ask", edit: "ask" });
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "ask" }, { action: "edit", resource: "*", effect: "ask" }]);
   const sources = [join(f.workspace.path, "first"), join(f.workspace.path, "second")];
   for (const source of sources) await mkdir(source);
-  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permission: {
-    external_directory: Object.fromEntries(sources.map((source) => [`${source}/*`, "allow"])),
-  } }));
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permissions: sources.map((source): NativePermissionRule => ({ action: "external_directory", resource: `${source}/*`, effect: "allow" })) }));
   await f.run(true);
   expect(f.executions[0].mounts.map(({ target, writable }) => ({ target, writable }))).toEqual([
     { target: "/workspace", writable: true },
@@ -368,11 +440,9 @@ test("multiple authorized folders participate in read and edit approval", async 
 
 test("an allowed parent cannot bypass a subfolder's approval requirement", async () => {
   for (const approved of [false, true]) {
-    const f = await fixture({ bash: "allow", read: "allow" }, approved);
+    const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }], approved);
     const external = await mkdtemp(join(tmpdir(), "sandbox-external-")); roots.push(external);
-    await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permission: { external_directory: {
-      [`${external}/*`]: "allow", [`${external}/private/*`]: "ask",
-    } } }));
+    await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permissions: [{ action: "external_directory", resource: `${external}/*`, effect: "allow" }, { action: "external_directory", resource: `${external}/private/*`, effect: "ask" }] }));
     if (approved) await f.run();
     else await expect(f.run()).rejects.toThrow("declined");
     expect(f.prompts.map(({ action, paths }) => ({ action, paths }))).toEqual([
@@ -383,14 +453,14 @@ test("an allowed parent cannot bypass a subfolder's approval requirement", async
 });
 
 test("removing a folder grant cancels commands using the previous folder snapshot", async () => {
-  const f = await fixture({ bash: "allow", read: "allow" });
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }]);
   const external = await mkdtemp(join(tmpdir(), "sandbox-external-")); roots.push(external);
-  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permission: { external_directory: { [`${external}/*`]: "allow" } } }));
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permissions: [{ action: "external_directory", resource: `${external}/*`, effect: "allow" }] }));
   const service = new AgentSandboxService(f.config, new ApprovalService(f.config.approval), {
     status: async () => ({ available: true }), prepare: async () => "test-image",
     run: async (input) => {
       expect(input.mounts).toHaveLength(2);
-      await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permission: { external_directory: {} } }));
+      await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permissions: [] }));
       expect(input.signal.aborted).toBe(true);
       input.signal.throwIfAborted();
       return { output: "", exitCode: 0, truncated: false };
@@ -403,11 +473,12 @@ test("removing a folder grant cancels commands using the previous folder snapsho
 });
 
 test("application off and per-chat on run side by side, with all network modes and parent inheritance", async () => {
-  const f = await fixture({ "*": "allow" });
+  const f = await fixture([{ action: "*", resource: "*", effect: "allow" }]);
   await writeSandboxDefault(f.config, { enabled: false, networkMode: "block" });
   const run = (sessionID: string, lineage = [sessionID]) => f.service.run(f.workspace,
     { command: "echo host-proof", sessionID, write: false, timeoutMs: 10000 }, { type: "host" }, new AbortController().signal, [], lineage);
   const host = await run("ordinary");
+  expect(f.service.approvals.list()).toEqual([]);
   expect(host).toMatchObject({ exitCode: 0, sandbox: "host" });
   expect(host.output).toContain("host-proof");
   expect(f.executions).toHaveLength(0);
@@ -420,6 +491,7 @@ test("application off and per-chat on run side by side, with all network modes a
   await writeSandboxDefault(f.config, { enabled: true, networkMode: "allow" });
   await writeSessionSandbox(f.config, f.workspace.id, "ordinary", { enabled: false, networkMode: "block" });
   expect((await run("ordinary")).sandbox).toBe("host");
+  expect(f.service.approvals.list()).toEqual([]);
   await writeSessionSandbox(f.config, f.workspace.id, "ordinary", null);
   expect((await run("ordinary")).sandbox).toBe("virtual-machine");
   await closeRuntimeOpencodeConfig(f.config);
@@ -428,7 +500,7 @@ test("application off and per-chat on run side by side, with all network modes a
 
 test("ten chats retain independent overrides and only affected commands are cancelled", async () => {
   const running = new Map<string, AbortSignal>();
-  const f = await fixture({ "*": "allow" }, true, async input => {
+  const f = await fixture([{ action: "*", resource: "*", effect: "allow" }], true, async input => {
     running.set(input.command, input.signal);
     await new Promise<void>(resolve => input.signal.addEventListener("abort", () => resolve(), { once: true }));
     input.signal.throwIfAborted();
@@ -452,7 +524,7 @@ test("ten chats retain independent overrides and only affected commands are canc
 
 test("unprotected commands still respect shell, read and write denials", async () => {
   for (const tool of ["bash", "read", "edit", "webfetch"]) {
-    const f = await fixture({ [tool]: "deny" });
+    const f = await fixture([{ action: tool === "bash" ? "shell" : tool, resource: "*", effect: "deny" }]);
     await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
     await expect(f.service.run(f.workspace, { command: "echo must-not-run", write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal)).rejects.toThrow();
     expect(f.executions).toHaveLength(0);
@@ -477,7 +549,7 @@ function observedWebNetwork(responses: OutboundResponse[] = [{ status: 200, head
 }
 
 test("weather page waits for inline approval before DNS or sending, even with automatic tool approvals", async () => {
-  const f = await fixture({ webfetch: "allow" });
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
   const net = observedWebNetwork();
   const result = f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send);
   const [approval] = await waitForWebApproval(f.service);
@@ -493,7 +565,7 @@ test("weather page waits for inline approval before DNS or sending, even with au
 
 test("declining a web read or blocking networking sends nothing", async () => {
   for (const mode of ["approve", "block"] satisfies Array<"approve" | "block">) {
-    const f = await fixture({ webfetch: "allow" });
+    const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
     await writeSandboxNetworkMode(f.config, mode);
     const net = observedWebNetwork();
     const result = f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send).catch(error => error);
@@ -509,20 +581,20 @@ test("declining a web read or blocking networking sends nothing", async () => {
 
 test("web allow and sandbox-off skip network prompts but retain explicit permissions", async () => {
   for (const enabled of [true, false]) {
-    const f = await fixture({ webfetch: "allow" });
+    const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
     await writeSandboxDefault(f.config, { enabled, networkMode: enabled ? "allow" : "block" });
     const net = observedWebNetwork();
     await f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send);
     expect(net.sent).toHaveLength(1);
     expect(f.service.approvals.list()).toEqual([]);
-    await writeRuntimeOpencodeConfig(f.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { webfetch: "deny" } }));
+    await writeRuntimeOpencodeConfig(f.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "webfetch", resource: "*", effect: "deny" }] }));
     await expect(f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send)).rejects.toThrow("blocked by your permissions");
     expect(net.sent).toHaveLength(1);
   }
 });
 
 test("website redirects require a fresh exact approval and cannot inherit consent", async () => {
-  const f = await fixture({ webfetch: "allow" });
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
   const net = observedWebNetwork([{ status: 302, headers: { location: "https://other.example/private?data=canary" }, bodyBase64: "" }]);
   const result = f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send).catch(error => error);
   const [first] = await waitForWebApproval(f.service);
@@ -537,7 +609,7 @@ test("website redirects require a fresh exact approval and cannot inherit consen
 });
 
 test("approve web reads reject local-network redirects", async () => {
-  const f = await fixture({ webfetch: "allow" });
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
   const net = observedWebNetwork([{ status: 302, headers: { location: "http://127.0.0.1/admin" }, bodyBase64: "" }]);
   const result = f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send).catch(error => error);
   const [approval] = await waitForWebApproval(f.service);
@@ -547,7 +619,7 @@ test("approve web reads reject local-network redirects", async () => {
 });
 
 test("changing chat network settings cancels a pending web read", async () => {
-  const f = await fixture({ webfetch: "allow" });
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
   const net = observedWebNetwork();
   const result = f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send).catch(error => error);
   await waitForWebApproval(f.service);
@@ -558,7 +630,7 @@ test("changing chat network settings cancels a pending web read", async () => {
 });
 
 test("ten web reads have independent approvals and honor cancellation", async () => {
-  const f = await fixture({ webfetch: "allow" });
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
   const net = observedWebNetwork();
   const controllers = Array.from({ length: 10 }, () => new AbortController());
   const reads = controllers.map((controller, i) => f.service.web(f.workspace, { ...webInput(), sessionID: `chat-${i}` }, { type: "host" }, controller.signal, [], undefined, net.send).catch(error => error));
@@ -573,7 +645,7 @@ test("ten web reads have independent approvals and honor cancellation", async ()
 });
 
 test("web search waits before sending the exact query to its provider", async () => {
-  const f = await fixture({ webfetch: "allow", websearch: "allow" });
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }, { action: "websearch", resource: "*", effect: "allow" }]);
   const net = observedWebNetwork([{ status: 200, headers: {}, bodyBase64: Buffer.from(JSON.stringify({ result: { content: [{ type: "text", text: "Berlin weather" }] } })).toString("base64") }]);
   const input = webInputSchema.parse({ kind: "search", query: "weather Berlin", sessionID: "weather", agent: "build" });
   const result = f.service.web(f.workspace, input, { type: "host" }, new AbortController().signal, [], undefined, net.send);
@@ -588,7 +660,7 @@ test("web search waits before sending the exact query to its provider", async ()
 });
 
 test("web requests inherit parent settings and stricter agent permissions", async () => {
-  const f = await fixture({ webfetch: "allow" });
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
   await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
   await writeSessionSandbox(f.config, f.workspace.id, "parent", { enabled: true, networkMode: "block" });
   const net = observedWebNetwork();
@@ -599,7 +671,7 @@ test("web requests inherit parent settings and stricter agent permissions", asyn
 });
 
 test("changing network mode closes an active web response", async () => {
-  const f = await fixture({ webfetch: "allow" });
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
   await writeSandboxNetworkMode(f.config, "allow");
   let connected: () => void = () => {};
   const connection = new Promise<void>(resolve => { connected = resolve; });
@@ -616,7 +688,7 @@ test("changing network mode closes an active web response", async () => {
 });
 
 test("a legacy chat shell denial prevents real native execution after migration", async () => {
-  const f = await fixture({ "*": "allow" });
+  const f = await fixture([{ action: "*", resource: "*", effect: "allow" }]);
   await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
   const rules = managedPermissionRules<AgentPermissionRule>([
     { permission: "bash", pattern: "*", action: "deny" },
@@ -628,28 +700,81 @@ test("a legacy chat shell denial prevents real native execution after migration"
 });
 
 
-test("approval-off project reads and writes run repeatedly without inherited engine file prompts", async () => {
-  const f = await fixture({ bash: "allow", edit: "allow" });
+test("commands follow configured approvals without an extra prompt when sandboxing is off", async () => {
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }]);
   const rules = explicitFileApprovals<AgentPermissionRule>([
     { permission: "*", pattern: "*", action: "allow" },
     { permission: "read", pattern: "*.env", action: "ask" },
     { permission: "read", pattern: "*.env.*", action: "ask" },
     { permission: "external_directory", pattern: "*", action: "ask" },
-  ], [{ bash: "allow", edit: "allow" }]);
+  ], [{ action: "shell", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }]);
   for (const enabled of [true, false]) {
     await writeSandboxDefault(f.config, { enabled, networkMode: "allow" });
     for (let run = 0; run < 2; run++) {
-      const result = await f.service.run(f.workspace, { command: "printf verified > result.txt; cat result.txt", sessionID: "chat", write: true, timeoutMs: 5000 }, { type: "host" }, new AbortController().signal, rules);
+      const running = f.service.run(f.workspace, { command: "printf verified > result.txt; cat result.txt", sessionID: "chat", write: true, timeoutMs: 5000 }, { type: "host" }, new AbortController().signal, rules);
+      const result = await running;
       expect(result.exitCode).toBe(0);
     }
   }
   expect(f.prompts).toHaveLength(0);
 });
 
+test("removing host consent does not bypass explicit project or agent folder denials", async () => {
+  for (const source of ["project", "agent"]) {
+    const f = await fixture([{ action: "*", resource: "*", effect: "allow" }]);
+    await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
+    if (source === "project") await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({
+      permissions: [{ action: "external_directory", resource: "*", effect: "deny" }],
+    }));
+    const rules: AgentPermissionRule[] = source === "agent" ? [{ permission: "external_directory", pattern: "*", action: "deny" }] : [];
+    await expect(f.service.run(f.workspace, { command: "echo blocked", sessionID: "chat", write: false, timeoutMs: 5000 },
+      { type: "host" }, new AbortController().signal, rules)).rejects.toThrow("external_directory is blocked");
+    expect(f.prompts).toHaveLength(0);
+    expect(f.service.approvals.list()).toEqual([]);
+  }
+});
+
+test("configured command approval remains denyable, chat-scoped and revocable with sandboxing off", async () => {
+  const f = await fixture([{ action: "*", resource: "*", effect: "allow" }, { action: "shell", resource: "*", effect: "ask" }]);
+  await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
+  const run = (sessionID: string, command = "echo consent-proof") => f.service.run(f.workspace,
+    { command, sessionID, write: false, timeoutMs: 5000 }, { type: "host" }, new AbortController().signal);
+  const declined = run("declined").catch(error => error);
+  const [denial] = await waitForWebApproval(f.service);
+  expect(denial.action).toBe("sandbox.bash");
+  f.service.approvals.respond(denial.id, "deny");
+  expect(await declined).toBeInstanceOf(Error);
+  const first = run("approved");
+  const [approval] = await waitForWebApproval(f.service);
+  expect(approval.action).toBe("sandbox.bash");
+  // LAWOSS (PATCHES.md, agent-sandbox/service.ts): with sandboxing off the one card covers this whole
+  // computer, so it is never remembered; "always" is refused and the same chat gets a new card.
+  expect(approval.canRemember).toBe(false);
+  expect(f.service.approvals.respond(approval.id, "always")).toBeNull();
+  f.service.approvals.respond(approval.id, "allow");
+  expect((await first).output).toContain("consent-proof");
+  const second = run("approved");
+  const [repeat] = await waitForWebApproval(f.service);
+  expect(repeat.sessionID).toBe("approved");
+  f.service.approvals.respond(repeat.id, "allow");
+  expect((await second).output).toContain("consent-proof");
+  const other = run("other").catch(error => error);
+  const [otherApproval] = await waitForWebApproval(f.service);
+  f.service.approvals.respond(otherApproval.id, "deny");
+  expect(await other).toBeInstanceOf(Error);
+  expect(f.service.approvals.list()).toEqual([]);
+  await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
+  const revoked = run("approved").catch(error => error);
+  const [again] = await waitForWebApproval(f.service);
+  expect(again.sessionID).toBe("approved");
+  f.service.approvals.respond(again.id, "deny");
+  expect(await revoked).toBeInstanceOf(Error);
+});
+
 
 test("wiki shell requires protected execution and approved project mounts stay read-only and abort on revoke", async () => {
   let revoke = () => {};
-  const f = await fixture({ bash: "allow", read: "allow", edit: "allow", external_directory: "allow" }, true, async run => {
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }, { action: "external_directory", resource: "*", effect: "allow" }], true, async run => {
     expect(run.signal.aborted).toBe(false);
     revoke();
     expect(run.signal.aborted).toBe(true);
@@ -665,7 +790,7 @@ test("wiki shell requires protected execution and approved project mounts stay r
     const signal = new AbortController().signal;
     const origin = await verifiedWikiSessionOrigin(f.config, own, "wiki-chat", "owner", signal);
     const command = { command: "true", sessionID: "wiki-chat", write: true, timeoutMs: 1000 };
-    await writeRuntimeOpencodeConfig(f.config, own.id, () => ({ permission: { external_directory: { [`${f.workspace.path}/*`]: "allow" } } }));
+    await writeRuntimeOpencodeConfig(f.config, own.id, () => ({ permissions: [{ action: "external_directory", resource: `${f.workspace.path}/*`, effect: "allow" }] }));
     await expect(f.service.run(own, command, { type: "host" }, signal)).rejects.toMatchObject({ code: "wiki_project_access_required" });
     grantWikiProjectAccess(f.config, "wiki-chat", { wikiId: wiki.id, projectId: f.workspace.id, root: await realpath(f.workspace.path), scope: "owner", origin: origin.generation }, wikiProjectAccessRevision(f.config, "wiki-chat"));
     revoke = () => revokeWikiProjectAccess(f.config, "wiki-chat", f.workspace.id);
@@ -682,7 +807,7 @@ test("wiki shell requires protected execution and approved project mounts stay r
 
 
 for (const registryChange of ["unregister", "path-change", "missing-folder"]) test(`stale wiki project grants cannot become writable mounts after ${registryChange}`, async () => {
-  const f = await fixture({ bash: "allow", read: "allow", edit: "allow", external_directory: "allow" });
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }, { action: "external_directory", resource: "*", effect: "allow" }]);
   const store = new WikiStore(f.config);
   try {
     const wiki = await store.create({ name: "Protected project access", template: "blank" });
@@ -712,7 +837,7 @@ for (const registryChange of ["unregister", "path-change", "missing-folder"]) te
     expect(f.executions[1].mounts[0].target).toBe("/workspace");
     if (registryChange !== "missing-folder") {
       // An old generic allow rule must not revive the same read-only project as writable.
-      await writeRuntimeOpencodeConfig(f.config, own.id, () => ({ permission: { external_directory: { [`${root}/*`]: "allow" } } }));
+      await writeRuntimeOpencodeConfig(f.config, own.id, () => ({ permissions: [{ action: "external_directory", resource: `${root}/*`, effect: "allow" }] }));
       await expect(f.service.run(own, command, { type: "host" }, signal)).rejects.toMatchObject({ code: "wiki_project_access_required" });
       expect(f.executions).toHaveLength(2);
     }
@@ -720,7 +845,7 @@ for (const registryChange of ["unregister", "path-change", "missing-folder"]) te
 });
 
 test("nested project registrations honor child-only and parent grants without broadening mounts", async () => {
-  const f = await fixture({ bash: "allow", read: "allow", edit: "allow", external_directory: "allow" });
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }, { action: "external_directory", resource: "*", effect: "allow" }]);
   const store = new WikiStore(f.config);
   try {
     const wiki = await store.create({ name: "Nested project access", template: "blank" });
@@ -750,7 +875,7 @@ test("nested project registrations honor child-only and parent grants without br
 
 test("unregistering a project aborts an active wiki command before it can commit", async () => {
   let removeProject = async () => {};
-  const f = await fixture({ bash: "allow", read: "allow", edit: "allow", external_directory: "allow" }, true, async run => {
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }, { action: "external_directory", resource: "*", effect: "allow" }], true, async run => {
     await removeProject();
     expect(run.signal.aborted).toBe(true);
     await expect(run.beforeCommit?.()).rejects.toThrow();
@@ -772,7 +897,7 @@ test("unregistering a project aborts an active wiki command before it can commit
 
 test("a new read-only project boundary cannot commit an older writable mount", async () => {
   let addProject = async () => {};
-  const f = await fixture({ bash: "allow", read: "allow", edit: "allow", external_directory: "allow" }, true, async run => {
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }, { action: "external_directory", resource: "*", effect: "allow" }], true, async run => {
     expect(run.mounts.find(mount => mount.target === "/authorized/0")?.writable).toBe(true);
     await addProject();
     await expect(run.beforeCommit?.()).rejects.toMatchObject({ code: "wiki_project_access_changed" });
@@ -783,7 +908,7 @@ test("a new read-only project boundary cannot commit an older writable mount", a
     const own = f.config.workspaces.find(item => item.id === wiki.workspaceId);
     if (!own) throw new Error("Missing wiki workspace");
     const external = join(f.workspace.path, "../external"); await mkdir(external);
-    await writeRuntimeOpencodeConfig(f.config, own.id, () => ({ permission: { external_directory: { [`${external}/*`]: "allow" } } }));
+    await writeRuntimeOpencodeConfig(f.config, own.id, () => ({ permissions: [{ action: "external_directory", resource: `${external}/*`, effect: "allow" }] }));
     const signal = new AbortController().signal;
     await grantWikiAgentSession(f.config, { sessionId: "wiki-chat", directory: own.path, scope: "owner" });
     const origin = await verifiedWikiSessionOrigin(f.config, own, "wiki-chat", "owner", signal);
@@ -796,7 +921,7 @@ test("a new read-only project boundary cannot commit an older writable mount", a
 });
 
 test("remembered network approval repeats only for an identical request in the same chat", async () => {
-  const f = await fixture({ webfetch: "allow" });
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
   const net = observedWebNetwork();
   const input = webInput("https://example.com/document");
   const run = (request = input, lineage = [request.sessionID]) => f.service.web(f.workspace, request,
@@ -810,20 +935,20 @@ test("remembered network approval repeats only for an identical request in the s
   expect(f.service.approvals.list()).toEqual([]);
   expect(net.sent).toHaveLength(2);
 
-  for (const request of [{ ...input, url: "https://example.com/other-document" }, { ...input, sessionID: "child" }]) {
+  for (const request of [{ ...input, sessionID: "child" }, { ...input, url: "https://example.com/other-document" }]) {
     const result = run(request, [request.sessionID, input.sessionID]).catch(error => error);
     const [changed] = await waitForWebApproval(f.service);
     f.service.approvals.respond(changed.id, "deny");
     expect(await result).toBeInstanceOf(Error);
   }
   expect(net.sent).toHaveLength(2);
-  await writeRuntimeOpencodeConfig(f.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { webfetch: "deny" } }));
+  await writeRuntimeOpencodeConfig(f.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "webfetch", resource: "*", effect: "deny" }] }));
   await expect(run()).rejects.toThrow("blocked by your permissions");
   expect(net.sent).toHaveLength(2);
 });
 
 test("unchanged config writes retain remembered network approval but permission changes revoke it", async () => {
-  const f = await fixture({ webfetch: "allow" });
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
   const net = observedWebNetwork();
   const run = () => f.service.web(f.workspace, webInput("https://example.com/document"),
     { type: "host" }, new AbortController().signal, [], undefined, net.send);
@@ -840,7 +965,7 @@ test("unchanged config writes retain remembered network approval but permission 
   expect(f.service.approvals.list()).toEqual([]);
   expect(net.sent).toHaveLength(3);
 
-  await writeRuntimeOpencodeConfig(f.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { webfetch: "ask" } }));
+  await writeRuntimeOpencodeConfig(f.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "webfetch", resource: "*", effect: "ask" }] }));
   const repeated = run().catch(error => error);
   const [again] = await waitForWebApproval(f.service);
   expect(again.network).toEqual(approval.network);
@@ -852,15 +977,15 @@ test("unchanged config writes retain remembered network approval but permission 
 
 
 test("corrupt execution settings block commands and web before runtime, DNS or prompts, and allow explicit repair", async () => {
-  const f = await fixture({ bash: "allow", webfetch: "allow" });
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "webfetch", resource: "*", effect: "allow" }]);
   const db = new Database(join(runtimeStorageDir(f.config), "runtime.sqlite"));
   const net = observedWebNetwork();
   try {
     for (const malformed of ["{", "[]", JSON.stringify({ sandbox: { enabled: true, networkMode: "typo" } }), JSON.stringify({ sandbox: { enabled: "false", networkMode: "allow" } })]) {
-      db.run("UPDATE runtime_opencode_configs SET config_json = ? WHERE workspace_id = ?", [malformed, SANDBOX_DEFAULT_ID]);
-      await expect(f.run()).rejects.toThrow("Commands and web access are blocked");
+      db.run("UPDATE native_runtime_configs SET config_json = ? WHERE workspace_id = ?", [malformed, SANDBOX_DEFAULT_ID]);
+      await expect(f.run()).rejects.toThrow("Saved native settings could not be loaded safely");
       await expect(effectiveSandbox(f.config, f.workspace.id, [])).rejects.toMatchObject({ details: { settingsScope: "application" } });
-      await expect(f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send)).rejects.toThrow("Commands and web access are blocked");
+      await expect(f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send)).rejects.toThrow("Saved native settings could not be loaded safely");
       expect(f.executions).toHaveLength(0);
       expect(f.prompts).toHaveLength(0);
       expect(net.resolved).toHaveLength(0);
@@ -871,10 +996,48 @@ test("corrupt execution settings block commands and web before runtime, DNS or p
     await f.run();
     expect(f.executions).toHaveLength(1);
     await writeSessionSandbox(f.config, f.workspace.id, "weather", { enabled: true, networkMode: "block" });
-    db.run("UPDATE runtime_opencode_configs SET config_json = ? WHERE workspace_id = ?", ["{", sandboxSessionId(f.workspace.id, "weather")]);
-    await expect(f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send)).rejects.toThrow("Commands and web access are blocked");
+    db.run("UPDATE native_runtime_configs SET config_json = ? WHERE workspace_id = ?", ["{", sandboxSessionId(f.workspace.id, "weather")]);
+    await expect(f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send)).rejects.toThrow("Saved native settings could not be loaded safely");
     await expect(effectiveSandbox(f.config, f.workspace.id, ["weather"])).rejects.toMatchObject({ details: { settingsScope: "session" } });
     await writeSessionSandbox(f.config, f.workspace.id, "weather", null);
     expect(await effectiveSandbox(f.config, f.workspace.id, ["weather"])).toMatchObject({ enabled: true, networkMode: "block" });
   } finally { db.close(); }
+});
+
+
+test("chat folder approvals mount only for that chat and keep narrower denials effective", async () => {
+  const f = await fixture([]);
+  const external = await mkdtemp(join(tmpdir(), "sandbox-chat-folder-")); roots.push(external);
+  const rules: AgentPermissionRule[] = [{ permission: "external_directory", pattern: `${external}/*`, action: "allow", session: true }];
+  await f.service.run(f.workspace, { command: "true", write: false, timeoutMs: 1000, sessionID: "approved-chat" }, { type: "host" }, new AbortController().signal, rules);
+  expect(f.executions[0].mounts.map(mount => mount.source)).toEqual([await realpath(f.workspace.path), await realpath(external)]);
+  await f.service.run(f.workspace, { command: "true", write: false, timeoutMs: 1000, sessionID: "another-chat" }, { type: "host" }, new AbortController().signal, []);
+  expect(f.executions[1].mounts.map(mount => mount.source)).toEqual([await realpath(f.workspace.path)]);
+  await expect(f.service.run(f.workspace, { command: "true", write: false, timeoutMs: 1000, sessionID: "approved-chat" }, { type: "host" }, new AbortController().signal,
+    [...rules, { permission: "external_directory", pattern: `${external}/private/*`, action: "deny", session: true }])).rejects.toThrow("blocked by your permissions");
+  expect(f.executions).toHaveLength(2);
+});
+
+test("native remembered folder approvals feed project sandbox mounts and are revocable without native config copies", async () => {
+  const f = await fixture([]);
+  const external = await mkdtemp(join(tmpdir(), "sandbox-native-folder-")); roots.push(external);
+  const siblingPath = await mkdtemp(join(tmpdir(), "sandbox-native-sibling-")); roots.push(siblingPath);
+  const sibling: WorkspaceInfo = { ...f.workspace, id: "ws_sibling", path: siblingPath };
+  f.config.workspaces.push(sibling); f.config.authorizedRoots.push(siblingPath);
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, current => ({ ...current,
+    projectPermissionApprovals: [{ id: "psv_folder", action: "external_directory", resources: [`${external}/*`], createdAt: 1 }],
+  }));
+  await f.run();
+  expect(f.executions[0].mounts.map(mount => mount.source)).toEqual([await realpath(f.workspace.path), await realpath(external)]);
+  expect((await readRuntimeOpencodeConfig(f.config, f.workspace.id)).permissions).toBeUndefined();
+  await f.service.run(sibling, { command: "true", write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal);
+  expect(f.executions[1].mounts.map(mount => mount.source)).toEqual([await realpath(siblingPath)]);
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, current => ({ ...current,
+    permissions: [{ action: "external_directory", resource: `${external}/private/*`, effect: "deny" }],
+  }));
+  await expect(f.run()).rejects.toThrow("scoped folder denial");
+  expect(f.executions).toHaveLength(2);
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, current => ({ ...current, permissions: [], projectPermissionApprovals: [] }));
+  await f.run();
+  expect(f.executions[2].mounts.map(mount => mount.source)).toEqual([await realpath(f.workspace.path)]);
 });

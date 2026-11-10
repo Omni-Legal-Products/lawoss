@@ -3,11 +3,12 @@ import { remapHistoricalFilePath } from "../lawoss/workspace-history.js";
 import { writeConditionalText } from "../lawoss/conditional-text-write.js";
 import { childPathWithin } from "../lawoss/path-within.js";
 import { resolveWorkspaceFilePath, resolveReadableWorkspaceFilePath, recheckWorkspaceFilePath } from "../lawoss/filesystem-boundary.js";
+import { nestedClientFileGuard } from "../lawoss/nested-client-files.js";
 import { statWithAdvancedMtime } from "../lawoss/advance-mtime.js";
 import { readWorkspaceText } from "../lawoss/workspace-text.js";
 import { projectFileLinkSchema, projectFileSourceSchema, projectFilePath } from "../project-file-schema.js";
 import { workspaceViewFiles } from "../views/repository.js";
-import { isViewFile, copyViewFile } from "../views/schema.js";
+import { isViewFile, copyViewFile, StoredViewSchema } from "../views/schema.js";
 import { importProjectFile, renameProjectFileEntry, projectFileParent, readProjectFileLinks, updateProjectFileLinks } from "../project-file-links.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -200,6 +201,7 @@ type ArtifactTargetInput = {
 };
 
 function artifactPreviewForPath(path: string): string {
+  if (isViewFile(path)) return "view";
   const lowered = path.toLowerCase();
   if (/\.(md|markdown|mdx)$/.test(lowered)) return "markdown";
   if (/\.(csv|tsv|xlsx|xls|ods)$/.test(lowered)) return "sheet";
@@ -320,12 +322,16 @@ export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, inp
       size = info.size;
       updatedAt = info.mtimeMs;
     }
+    const view = existsFile && isViewFile(relativePath)
+      ? StoredViewSchema.safeParse(await workspaceViewFiles(workspaceRoot).read(relativePath).then(bytes => JSON.parse(bytes.toString())).catch(() => null))
+      : null;
     const next = {
       id: key,
       kind: "file",
       value: relativePath,
       name: basename(relativePath),
       preview: artifactPreviewForPath(relativePath),
+      ...(view?.success ? { documentType: view.data.mode } : {}),
       confidence,
       reason,
       exists: existsFile,
@@ -566,8 +572,18 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     scopeRank,
   } = options;
   const fileSessions = new FileSessionStore();
-  const readable = (ctx: RequestContext, root: string, path: string, allowRoot = false) =>
-    resolveReadableWorkspaceFilePath(root, path, ctx.actor?.scope ?? (ctx.actor?.type === "host" ? "owner" : "viewer"), { allowRoot });
+  // LAWOSS (#264): no file route reaches into the folder of another client registered inside this client.
+  const nestedClients = nestedClientFileGuard(config);
+  const readable = async (ctx: RequestContext, root: string, path: string, allowRoot = false) => {
+    const absolute = await resolveReadableWorkspaceFilePath(root, path, ctx.actor?.scope ?? (ctx.actor?.type === "host" ? "owner" : "viewer"), { allowRoot });
+    await nestedClients.assert(root, absolute);
+    return absolute;
+  };
+  const resolveSafeChildPath = async (root: string, child: string, options?: Parameters<typeof resolveWorkspaceFilePath>[2]) => {
+    const absolute = await resolveWorkspaceFilePath(root, child, options);
+    await nestedClients.assert(root, absolute);
+    return absolute;
+  };
 
   const serializeFileSession = (session: {
     id: string;
@@ -1141,6 +1157,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     }
     const parsed = projectFileLinkSchema.safeParse({ ...body, id: body.id ?? randomUUID(), createdAt: Date.now() });
     if (!parsed.success) throw new ApiError(400, "invalid_payload", "Invalid project file link");
+    await nestedClients.assert(workspace.path, parsed.data.folder);
     const links = await updateProjectFileLinks(workspace.path, async links => {
       await projectFileParent(workspace.path, parsed.data.folder);
       const duplicate = links.find(link => link.folder === parsed.data.folder && link.source.projectId === parsed.data.source.projectId && link.source.workspaceId === parsed.data.source.workspaceId && link.source.path === parsed.data.source.path && link.source.connectionId === parsed.data.source.connectionId);
@@ -1160,6 +1177,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const parsedPath = projectFilePath.safeParse(body.path);
     if (!parsedPath.success) throw new ApiError(400, "invalid_path", "Invalid destination file");
     const path = parsedPath.data;
+    await nestedClients.assert(workspace.path, path);
     if (source.data && isViewFile(source.data.path) && !isViewFile(path)) throw new ApiError(400, "invalid_view_path", "Dashboard copies keep the .view.json extension.");
     await requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: `Copy ${source.data?.name ?? path} into this project`, paths: [join(workspace.path, path)] });
     let bytes = Buffer.from(body.dataBase64, "base64");
@@ -1288,7 +1306,9 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
   addRoute(routes, "GET", "/workspace/:id/files/raw", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const requested = (ctx.url.searchParams.get("path") ?? "").trim();
-    const relativePath = normalizeWorkspaceRelativePath(requested, { allowSubdirs: true });
+    const fromWorkspace = isAbsolute(requested) ? relative(workspace.path, requested) : requested;
+    const insideWorkspace = fromWorkspace !== ".." && !fromWorkspace.startsWith(`..${sep}`) && !isAbsolute(fromWorkspace);
+    const relativePath = normalizeWorkspaceRelativePath(insideWorkspace ? fromWorkspace : requested, { allowSubdirs: true });
     const absPath = await readable(ctx, workspace.path, relativePath);
     if (!(await exists(absPath))) {
       throw new ApiError(404, "file_not_found", "File not found");
@@ -1314,6 +1334,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const body = await readJsonBody(ctx.request);
     const source = storagePath(typeof body.path === "string" ? body.path : "", false);
     const target = storagePath(typeof body.targetPath === "string" ? body.targetPath : "", false);
+    for (const path of [source, target]) await nestedClients.assert(workspace.path, path);
     await requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: `Create ${target} from ${source}`, paths: [join(workspace.path, target)] });
     let result;
     try {

@@ -390,6 +390,7 @@ export type AudioSaveToWorkspaceResult = {
  * main window and the call overlay window.
  */
 export type AudioRecorderEvent =
+  | { type: "recordings-changed" }
   | { type: "model-download-progress"; modelId: string; downloadedBytes: number; totalBytes: number }
   | { type: "model-download-done"; modelId: string }
   | { type: "model-download-error"; modelId: string; error: string }
@@ -403,6 +404,7 @@ export type AudioRecorderEvent =
   | { type: "transcript-segment"; streamId: string; segment: AudioTranscriptSegment }
   | { type: "transcript-speakers-updated"; streamId: string; segments: AudioTranscriptSegment[]; replacedIds?: string[]; speakerNames: Record<string, string> }
   | { type: "recording-warning"; recordingId: string; error: string }
+  | { type: "recording-transcription-status"; recordingId: string; reconnecting: boolean }
   | { type: "recording-updated"; meta: AudioRecordingMeta }
   /** A speech run ended with an empty decode — drop any partial up to endMs. */
   | { type: "transcript-partial-clear"; streamId: string; endMs: number; source?: AudioCaptureSourceKind }

@@ -2,14 +2,13 @@ import { expect, test } from "bun:test";
 import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { ApiError } from "../errors.js";
-import { buildLegalworkRuntimeConfigObject } from "../legalwork-runtime-config.js";
 import { closeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { readMatterMemoryForChat } from "./matter-memory.js";
-import { WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PATH } from "./engine-agent-contract.js";
+import { WIKI_AGENT_TICKET_PATH } from "./engine-agent-contract.js";
+import { startScriptedEngine } from "./test-support/scripted-engine.js";
 
 /**
  * Alfa 2 (N-A3-3, MČ 23. 10. 2026: čítanie pamäte bez karty) with the shipped engine, the production permission
@@ -18,13 +17,14 @@ import { WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PATH } from "./engine-agent-co
  * folder with glob and read, and is refused (without a name and without a card) for another client's case.
  * Zero approval cards, no change to the client's files; the ban-list and the case facts reach the model.
  * The model is scripted: this proves the engine, skill, tool and permissions, not that a real LLM follows the skill.
+ * Engine v2 (2.1.4): the production rules and the built plugin through `test-support/scripted-engine.ts`; plugin tools
+ * are offered directly (not through Code Mode) so the scripted model can name them.
  * Opt-in: pnpm --filter legalwork-server build
  *   LAWOSS_PAMAT_ENGINE=1 LEGALWORK_TEST_OPENCODE_BIN=/Applications/LAWOSS.app/Contents/Resources/sidecars/opencode \
  *     pnpm --filter legalwork-server exec bun test src/lawoss/okf-pamat-citanie.integration.test.ts
  */
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 const repo = join(import.meta.dir, "../../../..");
-const askSchema = z.array(z.object({ id: z.string(), sessionID: z.string(), permission: z.string(), patterns: z.array(z.string()) }));
 type ToolCall = { tool: string; args: Record<string, unknown> };
 const requestSchema = z.object({
   messages: z.array(z.object({ role: z.string(), content: z.unknown() })),
@@ -109,51 +109,22 @@ test.skipIf(!binary || process.env.LAWOSS_PAMAT_ENGINE !== "1")("a real engine: 
     return new Response(chunk({ role: "assistant", ...delta }, null) + chunk({}, next ? "tool_calls" : "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
   } });
 
-  const plugins = ["lawoss-memory-tools"].map(name => pathToFileURL(join(import.meta.dir, `../../dist/opencode-plugins/${name}.js`)).href);
-  const production = await buildLegalworkRuntimeConfigObject(config, workspace.id);
-  const file = join(root, "config.json");
-  await writeFile(file, JSON.stringify({ enabled_providers: ["fixture"], model: "fixture/fixture", small_model: "fixture/fixture", share: "disabled", autoupdate: false,
-    provider: { fixture: { npm: "@ai-sdk/openai-compatible", name: "Fixture", options: { baseURL: fixture.url.origin + "/v1", apiKey: "fixture" }, models: { fixture: { name: "Fixture", limit: { context: 100000, output: 4000 } } } } },
-    plugin: plugins, permission: production.permission, agent: production.agent, experimental: production.experimental, skills: production.skills, lsp: false, formatter: false }));
-  const reservation = Bun.serve({ port: 0, fetch: () => new Response() }), port = reservation.port;
-  reservation.stop(true);
-  const child = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: client, env: {
-    ...process.env, HOME: root, XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
-    OPENCODE_TEST_HOME: root, OPENCODE_CONFIG: file, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-    LEGALWORK_SERVER_URL: fixture.url.origin, [WIKI_AGENT_TICKET_ENV]: "synthetic-ticket",
-  }, stdout: "pipe", stderr: "pipe" });
-  const logs = new Response(child.stderr).text();
-  const engineBase = `http://127.0.0.1:${port}`;
+  const cleanups: (() => Promise<unknown> | unknown)[] = [];
   try {
-    let ready = false;
-    for (let i = 0; i < 300 && !ready && child.exitCode === null; i++) {
-      try { ready = (await fetch(engineBase + "/global/health", { signal: AbortSignal.timeout(1000) })).ok; } catch { await Bun.sleep(100); }
-    }
-    if (!ready) throw new Error("Engine did not start: " + (child.exitCode !== null ? await logs : "timed out"));
-    const session = z.object({ id: z.string() }).parse(await (await fetch(engineBase + "/session", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json());
+    const { chat } = await startScriptedEngine({ binary, config, workspaceId: workspace.id, home: join(root, "engine"), cleanups,
+      plugins: ["lawoss-memory-tools"], pluginIds: ["lawoss.memory-tools"], serverUrl: fixture.url.origin, modelUrl: fixture.url.origin + "/v1" });
+    const session = await chat(client);
     const before = await tree(client);
     script = [
-      { tool: "skill", args: { name: "okf-pamat" } },
+      { tool: "skill", args: { id: "okf-pamat" } },
       { tool: "lawoss_memory", args: { action: "preamble", matter: "Spisy/M001" } },
       { tool: "lawoss_memory", args: { action: "read", matter: "Spisy/M001" } },
       { tool: "glob", args: { pattern: "Spisy/M001/**/*" } },
-      { tool: "read", args: { filePath: join(matter, "01_Podklady", "IN-001") } },
+      { tool: "read", args: { path: join(matter, "01_Podklady", "IN-001") } },
       { tool: "lawoss_memory", args: { action: "read", matter: otherMatter } },
     ];
-    const cards: unknown[] = [];
-    const accepted = await fetch(`${engineBase}/session/${session.id}/prompt_async`, { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ agent: "legalwork", model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: "Zhrň spis M001." }] }) });
-    expect(accepted.ok).toBe(true);
-    for (let i = 0; i < 400; i++) {
-      for (const ask of askSchema.parse(await (await fetch(`${engineBase}/permission`)).json())) {
-        if (cards.some(card => JSON.stringify(card) === JSON.stringify(ask))) continue;
-        cards.push(ask);
-        await fetch(`${engineBase}/permission/${ask.id}/reply`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reply: "reject" }) });
-      }
-      const status = z.record(z.string(), z.object({ type: z.string() })).parse(await (await fetch(`${engineBase}/session/status`)).json());
-      if (i > 5 && (status[session.id]?.type ?? "idle") === "idle") break;
-      await Bun.sleep(100);
-    }
+    // Každá karta sa zaznamená a zamietne (ostala by pre advokáta).
+    const cards = await session.turn("Zhrň spis M001.");
     const evidence = { cards, toolResults: toolResults.map(result => result.slice(0, 300)), memoryRequests,
       tools: advertisedTools.filter(name => ["lawoss_memory", "glob", "grep", "list", "read", "bash", "legalwork_shell", "skill"].includes(name)) };
     console.log(JSON.stringify(evidence));
@@ -182,7 +153,7 @@ test.skipIf(!binary || process.env.LAWOSS_PAMAT_ENGINE !== "1")("a real engine: 
     expect(system).toContain("read it with lawoss_memory");
     expect(system).toContain("instead of ls");
   } finally {
-    child.kill("SIGKILL"); await child.exited;
+    for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
     fixture.stop(true);
     await closeRuntimeOpencodeConfig(config); Bun.gc(true);
     if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previousDb;

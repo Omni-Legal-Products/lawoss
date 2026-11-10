@@ -7,6 +7,7 @@
 !protocol.py
 !filesystem.py
 !test_relay.py
+!test_pypdf.py
 !init
 !requirements.txt
 # BuildKit verifies only these measured engine inputs through a read-only mount.

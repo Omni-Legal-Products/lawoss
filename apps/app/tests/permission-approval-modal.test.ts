@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { PendingPermission } from "../src/app/types";
-import type { Part, PermissionRequest } from "@opencode-ai/sdk/v2/client";
+import type { PermissionRequest } from "@opencode/client";
+import type { Part } from "../src/app/lib/opencode-view";
 import { permissionToolInput, permissionWithReceivedAt } from "../src/react-app/domains/session/sync/interaction-state";
 
 import {
@@ -28,10 +29,24 @@ function pendingPermission(overrides: Partial<PendingPermission> = {}): PendingP
 }
 
 describe("permission approval modal helpers", () => {
+  test("folder approval explains chat scope and shows the native resolved destination", () => {
+    const permission = permissionWithReceivedAt({
+      id: "folder", sessionID: "session-1", action: "external_directory", resources: ["/shortcut/*"], save: ["/shortcut/*"],
+      message: "This folder resolves to /actual/private. Remembering approval includes that destination.",
+    } satisfies PermissionRequest, 1);
+    const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, { permission, respondPermission: () => {} }));
+    const main = html.split("<details")[0];
+    expect(main).toContain("/actual/private");
+    expect(main).toContain("/shortcut/*");
+    expect(main).toContain("Allow for this chat");
+    expect(main).toContain("Other chats do not receive access");
+    expect(main).not.toContain("Allow for project");
+  });
+
   test("shows actual MCP call arguments before approving an engine event with empty metadata", () => {
     const request = permissionWithReceivedAt({
-      id: "mcp-request", sessionID: "child-session", permission: "legalmemory_search", patterns: ["*"],
-      metadata: {}, always: ["*"], tool: { messageID: "message-one", callID: "call-one" },
+      id: "mcp-request", sessionID: "child-session", action: "legalmemory_search", resources: ["*"],
+      metadata: {}, save: ["*"], source: { messageID: "message-one", id: "call-one" },
     } satisfies PermissionRequest, 1);
     const part: Part = {
       id: "part-one", sessionID: "child-session", messageID: "message-one", type: "tool", callID: "call-one", tool: "legalmemory_search",
@@ -51,8 +66,8 @@ describe("permission approval modal helpers", () => {
 
   test("does not reuse arguments from another request, session, message, or completed call", () => {
     const request = permissionWithReceivedAt({
-      id: "request", sessionID: "child", permission: "legalmemory_search", patterns: ["*"], metadata: {}, always: [],
-      tool: { messageID: "message", callID: "call" },
+      id: "request", sessionID: "child", action: "legalmemory_search", resources: ["*"], metadata: {}, save: [],
+      source: { messageID: "message", id: "call" },
     } satisfies PermissionRequest, 1);
     const part: Part = { id: "part", type: "tool", sessionID: "child", messageID: "message", callID: "call", tool: "legalmemory_search",
       state: { status: "running", input: { query: "Correct query" }, time: { start: 1 } } };
@@ -162,7 +177,7 @@ describe("permission approval modal helpers", () => {
     ]);
   });
 
-  test("keeps keyboard order on the safer one-shot approval before session approval", () => {
+  test("keeps keyboard order on the safer one-shot approval before project approval", () => {
     const html = renderToStaticMarkup(
       React.createElement(PermissionApprovalPanel, {
         permission: pendingPermission(),

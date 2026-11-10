@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
+import { OpenCode } from "@opencode/client";
 import type { BenchmarkArm } from "./ablation.js";
 import { BenchmarkRunner, type BenchmarkOpencodeClient } from "./runner.js";
 import { createScenarioTask } from "../lawoss/benchmark-scenarios.js";
-import { openBenchmarkStore, resetBenchmarkStoreCache, type BenchmarkStore } from "./store.js";
-
-type MessageEntry = NonNullable<Awaited<ReturnType<BenchmarkOpencodeClient["session"]["messages"]>>["data"]>[number];
+import {
+  openBenchmarkStore,
+  resetBenchmarkStoreCache,
+  type BenchmarkStore,
+} from "./store.js";
 
 let dir: string;
 let config: ServerConfig;
@@ -25,7 +28,11 @@ type FakeBehavior = {
   agentNeverFinishes?: boolean;
   agentError?: string;
   writeDeliverables?: string[];
+  /** LAWOSS: exact deliverable bytes, read when the turn writes them. */
   deliverableContents?: Record<string, string>;
+  /** LAWOSS: observes each agent prompt or agent session creation with the session directory. */
+  beforeAgentPrompt?: (directory: string) => void;
+  beforeAgentSession?: (directory: string) => void;
   judgeStructured?: (prompt: string) => unknown;
   judgeDelayMs?: number;
   /** Simulate providers that reject the structured-output tool call (DeepSeek thinking mode). */
@@ -47,6 +54,7 @@ type FakeBehavior = {
   startDelayMs?: number;
   /** Model limits the fake provider list reports, keyed by model id. */
   modelLimits?: Record<string, { context: number; output: number }>;
+  historyPageSize?: number;
 };
 
 type FakeStats = {
@@ -59,7 +67,10 @@ type FakeStats = {
   abortedSessions: string[];
   deletedSessions: string[];
   /** Every agent prompt the runner sent, for asserting ablation reached the engine. */
-  agentPrompts: Array<{ tools: Record<string, boolean> | undefined; text: string }>;
+  agentPrompts: Array<{
+    tools: Record<string, boolean> | undefined;
+    text: string;
+  }>;
 };
 
 function createFake(behavior: FakeBehavior = {}) {
@@ -79,8 +90,10 @@ function createFake(behavior: FakeBehavior = {}) {
     state: "idle" | "busy";
     aborted: boolean;
     turns: number;
-    replies: Array<NonNullable<MessageEntry["info"]>>;
-    userId?: string;
+    replies: Array<Record<string, unknown>>;
+    pending?: boolean;
+    judge: boolean;
+    permissions: Array<{ action: string; resource: string; effect: string }>;
     /** The in-flight turn, cancelled by abort like a real engine stops generating. */
     timer?: ReturnType<typeof setTimeout>;
   };
@@ -88,158 +101,247 @@ function createFake(behavior: FakeBehavior = {}) {
   let counter = 0;
   let replyCounter = 0;
 
-  const client: BenchmarkOpencodeClient = {
-    session: {
-      create: async (params) => {
-        const id = `ses-${++counter}`;
-        sessions.set(id, { directory: String(params.directory ?? ""), state: "idle", aborted: false, turns: 0, replies: [] });
-        return { data: { id } };
-      },
-      promptAsync: async (params) => {
-        stats.agentPrompts.push({
-          tools: params.tools as Record<string, boolean> | undefined,
-          text: String((params.parts as Array<{ text?: string }> | undefined)?.[0]?.text ?? ""),
-        });
-        if (behavior.promptAsyncUnsupported) {
-          return { error: { status: 404, message: "prompt_async unsupported" } };
-        }
-        const session = sessions.get(String(params.sessionID))!;
-        session.userId = String(params.messageID);
-        session.turns += 1;
-        const cutOff = session.turns <= (behavior.cutOffTurns ?? 0);
-        stats.agentStarts += 1;
-        stats.activeAgents += 1;
-        stats.maxActiveAgents = Math.max(stats.maxActiveAgents, stats.activeAgents);
-        if (stats.activeJudges > 0) stats.agentJudgeOverlap += 1;
-        const begin = () => {
-          session.state = "busy";
-          if (behavior.agentNeverFinishes) return;
-          session.timer = setTimeout(() => {
-            session.timer = undefined;
-            if (!cutOff || behavior.cutOffAfterWriting) {
-              for (const name of behavior.writeDeliverables ?? []) {
-                writeFileSync(join(session.directory, name), behavior.deliverableContents?.[name] ?? `content of ${name}`);
-              }
-            }
-            const id = `msg-${++replyCounter}`;
-            session.replies.push(
-              behavior.agentError
-                ? { id, parentID: session.userId, role: "assistant", error: { name: "UnknownError", data: { message: behavior.agentError } } }
-                : cutOff
-                  ? { id, parentID: session.userId, role: "assistant", time: { completed: 1 }, finish: "length", cost: 0, tokens: { input: 5, output: 0 } }
-                  : { id, parentID: session.userId, role: "assistant", time: { completed: 1 }, finish: "stop", cost: 0.25, tokens: { input: 5, output: 9 } },
-            );
-            session.state = "idle";
-            stats.activeAgents -= 1;
-          }, behavior.agentDelayMs ?? 10);
-        };
-        if (behavior.startDelayMs) session.timer = setTimeout(begin, behavior.startDelayMs);
-        else begin();
-        return { error: undefined };
-      },
-      prompt: async (params) => {
-        if (params.system) {
-          // batched judge call (attempt 0 sends format; the fallback attempt does not)
-          stats.judgeStarts += 1;
-          if (stats.activeAgents > 0) stats.agentJudgeOverlap += 1;
-          stats.activeJudges += 1;
-          if (behavior.judgeDelayMs) {
-            await new Promise((resolve) => setTimeout(resolve, behavior.judgeDelayMs));
-          }
-          stats.activeJudges -= 1;
-          const promptText = String((params.parts as Array<{ text?: string }> | undefined)?.[0]?.text ?? "");
-          const criterionIds = Array.from(
-            new Set(Array.from(promptText.matchAll(/### (C-\d+):/g), (match) => match[1]!)),
-          );
-          if (params.format) {
-            if (behavior.judgeStructuredUnsupported) {
-              return {
-                data: {
-                  info: {
-                    role: "assistant",
-                    error: { name: "ProviderError", data: { message: "Thinking mode does not support this tool_choice" } },
-                  },
-                  parts: [],
+  const nativeInfo = (id: string, session: FakeSession) => ({
+    id,
+    projectID: "project",
+    location: { directory: session.directory },
+    title: "Fixture",
+    time: { created: 0, updated: 0 },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    permissions: session.permissions,
+  });
+  const client = OpenCode.make({
+    baseUrl: "http://native-benchmark-fixture",
+    fetch: Object.assign(
+      async (
+        input: Parameters<typeof fetch>[0],
+        init?: Parameters<typeof fetch>[1],
+      ) => {
+        const url = new URL(
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input.url,
+        );
+        const path = url.pathname;
+        const params =
+          typeof init?.body === "string" ? JSON.parse(init.body) : {};
+        if (path === "/api/model")
+          return Response.json({
+            data: PROVIDERS.flatMap((provider) =>
+              Object.keys(provider.models).map((id) => ({
+                id,
+                providerID: provider.id,
+                limit: behavior.modelLimits?.[id] ?? {
+                  context: 100000,
+                  output: 16384,
                 },
-              };
-            }
-            const structured = behavior.judgeStructured
-              ? behavior.judgeStructured(promptText)
-              : { verdicts: criterionIds.map((id) => ({ id, verdict: "pass", reasoning: "looks good" })) };
-            return { data: { info: { role: "assistant", structured }, parts: [] } };
-          }
-          const text =
-            behavior.judgeFallbackText ??
-            `Let me check the deliverable first. ${JSON.stringify({
-              verdicts: criterionIds.map((id) => ({ id, verdict: "pass", reasoning: "fallback ok" })),
-            })}`;
-          return { data: { info: { role: "assistant" }, parts: [{ type: "text", text }] } };
+              })),
+            ),
+          });
+        if (path === "/api/rpc/legalwork.benchmarks/tools")
+          return Response.json({
+            output: {
+              tools: [
+                "bash",
+                "skill",
+                "write",
+                "edit",
+                "patch",
+                "shell",
+                "apply_patch",
+              ].map((name) => ({ id: name, name, permission: name })),
+            },
+          });
+        if (path === "/api/session" && init?.method === "POST") {
+          const id = `ses-${++counter}`;
+          if (String(params.title).startsWith("Benchmark:")) behavior.beforeAgentSession?.(params.location.directory);
+          const session: FakeSession = {
+            directory: params.location.directory,
+            state: "idle",
+            aborted: false,
+            turns: 0,
+            replies: [],
+            judge: String(params.title).startsWith("Benchmark judge:"),
+            permissions: params.permissions,
+          };
+          sessions.set(id, session);
+          return Response.json({ data: nativeInfo(id, session) });
         }
-        // synchronous agent fallback
-        const session = sessions.get(String(params.sessionID))!;
-        stats.agentStarts += 1;
-        for (const name of behavior.writeDeliverables ?? []) {
-          writeFileSync(join(session.directory, name), behavior.deliverableContents?.[name] ?? `content of ${name}`);
+        if (path === "/api/session/active")
+          return Response.json({
+            data: Object.fromEntries(
+              [...sessions]
+                .filter(([, session]) => session.state === "busy")
+                .map(([id]) => [id, { type: "running" }]),
+            ),
+          });
+        const match = /^\/api\/session\/([^/]+)(?:\/(.+))?$/.exec(path);
+        const id = match?.[1];
+        const session = id ? sessions.get(id) : undefined;
+        if (!session)
+          throw new Error(
+            `Unexpected native benchmark fixture request: ${path}`,
+          );
+        const operation = match?.[2];
+        if (!operation && init?.method === "GET")
+          return Response.json({ data: nativeInfo(id!, session) });
+        if (operation === "inbox")
+          return Response.json({
+            data: session.pending ? [{ id: "pending", type: "user" }] : [],
+          });
+        if (operation === "message") {
+          const start = Number(url.searchParams.get("cursor") ?? 0);
+          const size = behavior.historyPageSize ?? session.replies.length;
+          return Response.json({
+            data: session.replies.slice(start, start + size),
+            cursor: {
+              ...(start + size < session.replies.length
+                ? { next: String(start + size) }
+                : {}),
+            },
+          });
         }
-        session.userId = String(params.messageID);
-        const info = { id: `msg-${++replyCounter}`, parentID: session.userId, role: "assistant", finish: "stop", time: { completed: 1 }, cost: 0.5, tokens: { input: 10, output: 20 } };
-        session.replies.push(info);
-        return { data: { info, parts: [{ type: "text", text: "Done" }] } };
-      },
-      status: async () => {
-        const map: Record<string, { type: string }> = {};
-        for (const [id, session] of sessions) {
-          map[id] = { type: session.state };
-        }
-        return { data: map };
-      },
-      messages: async (params) => {
-        const session = sessions.get(String(params.sessionID));
-        const replies = (session?.replies ?? []).map((info) => ({ info, parts: [{ type: "text", text: "Done" }] }));
-        const entries: MessageEntry[] = replies.flatMap(entry => [{ info: { id: entry.info.parentID, role: "user" } }, entry]);
-        if (!entries.some(entry => entry.info?.id === session?.userId)) entries.push({ info: { id: session?.userId, role: "user" } });
-        return { data: entries };
-      },
-      abort: async (params) => {
-        const session = sessions.get(String(params.sessionID));
-        if (session) {
-          // Stop the in-flight turn: a pending write would otherwise land after
-          // the test has already removed the work dir.
+        if (operation === "interrupt") {
           if (session.timer) clearTimeout(session.timer);
           session.timer = undefined;
           session.state = "idle";
+          session.pending = false;
           session.aborted = true;
-          stats.abortedSessions.push(String(params.sessionID));
-          if (stats.activeAgents > 0) stats.activeAgents -= 1;
+          stats.abortedSessions.push(id!);
+          if (!session.judge && stats.activeAgents > 0) stats.activeAgents--;
+          return Response.json({ interrupted: true });
         }
-        return { data: true };
+        if (operation === "prompt") {
+          if (!session.judge) behavior.beforeAgentPrompt?.(session.directory);
+          session.turns++;
+          session.pending = true;
+          if (session.judge) {
+            stats.judgeStarts++;
+            stats.activeJudges++;
+            if (stats.activeAgents > 0) stats.agentJudgeOverlap++;
+          } else {
+            stats.agentStarts++;
+            stats.activeAgents++;
+            stats.maxActiveAgents = Math.max(
+              stats.maxActiveAgents,
+              stats.activeAgents,
+            );
+            if (stats.activeJudges > 0) stats.agentJudgeOverlap++;
+            const disabled = Object.fromEntries(
+              session.permissions
+                .filter((rule) => rule.effect === "deny")
+                .map((rule) => [rule.action, false]),
+            );
+            stats.agentPrompts.push({
+              text: params.text,
+              tools: Object.keys(disabled).length ? disabled : undefined,
+            });
+          }
+          const begin = () => {
+            session.pending = false;
+            session.state = "busy";
+            if (!session.judge && behavior.agentNeverFinishes) return;
+            session.timer = setTimeout(
+              () => {
+                session.timer = undefined;
+                const cutOff =
+                  !session.judge &&
+                  session.turns <= (behavior.cutOffTurns ?? 0);
+                if (!session.judge && (!cutOff || behavior.cutOffAfterWriting))
+                  for (const name of behavior.writeDeliverables ?? [])
+                    writeFileSync(
+                      join(session.directory, name),
+                      behavior.deliverableContents?.[name] ?? `content of ${name}`,
+                    );
+                const criterionIds = [
+                  ...new Set(
+                    Array.from(
+                      String(params.text).matchAll(/### (C-\d+):/g),
+                      (match) => match[1]!,
+                    ),
+                  ),
+                ];
+                // LAWOSS: only a judge session answers with verdicts; agent prompts never reach the judge fixture.
+                const judgeText = !session.judge ? "" :
+                  behavior.judgeFallbackText ??
+                  JSON.stringify(
+                    behavior.judgeStructured
+                      ? behavior.judgeStructured(String(params.text))
+                      : {
+                          verdicts: criterionIds.map((id) => ({
+                            id,
+                            verdict: "pass",
+                            reasoning: "fallback ok",
+                          })),
+                        },
+                  );
+                session.replies.push({
+                  id: `msg-${++replyCounter}`,
+                  type: "assistant",
+                  agent: "legalwork",
+                  model: { providerID: "prov", id: "model-a" },
+                  time: { created: 0, completed: 1 },
+                  finish: cutOff ? "length" : "stop",
+                  cost: 0.25,
+                  tokens: {
+                    input: 5,
+                    output: 9,
+                    reasoning: 0,
+                    cache: { read: 0, write: 0 },
+                  },
+                  content: session.judge
+                    ? [{ type: "text", text: judgeText }]
+                    : [],
+                  ...(!session.judge && behavior.agentError
+                    ? {
+                        error: {
+                          type: "UnknownError",
+                          message: behavior.agentError,
+                        },
+                      }
+                    : {}),
+                });
+                session.state = "idle";
+                if (session.judge) stats.activeJudges--;
+                else stats.activeAgents--;
+              },
+              session.judge
+                ? (behavior.judgeDelayMs ?? 0)
+                : (behavior.agentDelayMs ?? 10),
+            );
+          };
+          if (behavior.startDelayMs)
+            session.timer = setTimeout(begin, behavior.startDelayMs);
+          else begin();
+          return Response.json({
+            data: {
+              id: `user-${replyCounter}-${session.turns}`,
+              sessionID: id,
+              type: "user",
+              payload: { text: params.text },
+              time: { created: 0 },
+              delivery: "queue",
+            },
+          });
+        }
+        throw new Error(
+          `Unimplemented native benchmark fixture request: ${path}`,
+        );
       },
-      delete: async (params) => {
-        stats.deletedSessions.push(String(params.sessionID));
-        return { data: true };
-      },
-    },
-    provider: {
-      list: async () => ({
-        data: {
-          all: PROVIDERS.map((provider) => ({
-            ...provider,
-            models: Object.fromEntries(
-              Object.keys(provider.models).map((id) => [
-                id,
-                behavior.modelLimits?.[id] ? { limit: behavior.modelLimits[id] } : {},
-              ]),
-            ),
-          })),
-        },
-      }),
-    },
-  };
+      { preconnect: fetch.preconnect },
+    ),
+  });
 
   return { client, stats };
 }
 
-function makeRunner(client: BenchmarkOpencodeClient, overrides?: { itemTimeoutMs?: number; judgeConcurrency?: number }) {
+function makeRunner(
+  client: BenchmarkOpencodeClient,
+  overrides?: { itemTimeoutMs?: number; judgeConcurrency?: number },
+) {
   return new BenchmarkRunner({
     config,
     createClient: () => client,
@@ -248,7 +350,6 @@ function makeRunner(client: BenchmarkOpencodeClient, overrides?: { itemTimeoutMs
       pollIntervalMs: 5,
       itemTimeoutMs: overrides?.itemTimeoutMs ?? 2_000,
       judgeTimeoutMs: 500,
-      quietIdleMs: 15,
     },
   });
 }
@@ -279,7 +380,10 @@ async function seedCustomTask(id: string, criteria = 2): Promise<void> {
   });
 }
 
-async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 5_000,
+): Promise<void> {
   const start = Date.now();
   while (!predicate()) {
     if (Date.now() - start > timeoutMs) throw new Error("waitFor timed out");
@@ -333,14 +437,6 @@ describe("createRun validation", () => {
         models: [{ providerID: "prov", modelID: "model-a" }],
       }),
     ).rejects.toThrow(/Unknown benchmark task/);
-
-    const remote = { ...workspace, workspaceType: "remote" } as WorkspaceInfo;
-    await expect(
-      runner.createRun(remote, {
-        tasks: ["missing"],
-        models: [{ providerID: "prov", modelID: "model-a" }],
-      }),
-    ).rejects.toThrow(/local workspace/);
   });
 
   test("defaults the judge to deepseek-v4-flash", async () => {
@@ -351,7 +447,10 @@ describe("createRun validation", () => {
       tasks: ["ct-1"],
       models: [{ providerID: "prov", modelID: "model-a" }],
     });
-    expect(run.judgeModel).toEqual({ providerID: "deepseek", modelID: "deepseek-v4-flash" });
+    expect(run.judgeModel).toEqual({
+      providerID: "deepseek",
+      modelID: "deepseek-v4-flash",
+    });
   });
 });
 
@@ -363,10 +462,7 @@ describe("run execution", () => {
     const runner = makeRunner(client);
     const created = await runner.createRun(workspace, {
       title: "My benchmark",
-      tasks: [
-        "ct-1",
-        "ct-2",
-      ],
+      tasks: ["ct-1", "ct-2"],
       models: [
         { providerID: "prov", modelID: "model-a" },
         { providerID: "prov", modelID: "model-b" },
@@ -384,19 +480,23 @@ describe("run execution", () => {
       expect(item.nCriteria).toBe(2);
       expect(item.nPassed).toBe(2);
       expect(item.sessionId).toBeTruthy();
-      expect(JSON.parse(item.deliverablesFound!).deliverables[0].relativePath).toBe("memo.docx");
+      expect(
+        JSON.parse(item.deliverablesFound!).deliverables[0].relativePath,
+      ).toBe("memo.docx");
       expect(store.listVerdicts(item.id)).toHaveLength(2);
     }
     // judging is batched: exactly ONE judge call per task×model item
     expect(stats.judgeStarts).toBe(4);
     // judge sessions are throwaway and cleaned up
-    expect(stats.deletedSessions.length).toBe(4);
+    expect(stats.deletedSessions.length).toBe(0); // Complete native judge histories remain inspectable.
     // bounded agent concurrency
     expect(stats.maxActiveAgents).toBeLessThanOrEqual(2);
 
     const summary = runner.serializeRunSummary(store.getRun(runId)!);
     expect(summary.aggregateScore).toBe(1);
-    expect((summary.scoreByModel as Array<{ passed: number }>)[0]!.passed).toBe(2);
+    expect((summary.scoreByModel as Array<{ passed: number }>)[0]!.passed).toBe(
+      2,
+    );
     expect(summary.taskCount).toBe(2);
   });
 
@@ -405,18 +505,20 @@ describe("run execution", () => {
     await seedCustomTask("ct-2", 1);
     await seedCustomTask("ct-3", 1);
     // concurrency 1 forces sequential agents; the slow judge of item N overlaps agent N+1
-    const { client, stats } = createFake({ writeDeliverables: ["memo.docx"], agentDelayMs: 40, judgeDelayMs: 80 });
+    const { client, stats } = createFake({
+      writeDeliverables: ["memo.docx"],
+      agentDelayMs: 40,
+      judgeDelayMs: 80,
+    });
     const runner = makeRunner(client);
     const created = await runner.createRun(workspace, {
-      tasks: [
-        "ct-1",
-        "ct-2",
-        "ct-3",
-      ],
+      tasks: ["ct-1", "ct-2", "ct-3"],
       models: [{ providerID: "prov", modelID: "model-a" }],
       concurrency: 1,
     });
-    await waitFor(() => store.getRun(created.id as string)?.status === "completed");
+    await waitFor(
+      () => store.getRun(created.id as string)?.status === "completed",
+    );
     expect(stats.agentJudgeOverlap).toBeGreaterThan(0);
   });
 
@@ -457,12 +559,12 @@ describe("run execution", () => {
     expect(item.status).toBe("error");
     expect(item.error).toContain("judging failed for every criterion");
     expect(item.nPassed).toBe(0);
-    expect(structuredCalls).toBe(1); // the retry drops structured output
+    expect(structuredCalls).toBe(0); // Native JSON-text judge; explicit two malformed text attempts.
     const verdicts = store.listVerdicts(item.id);
     expect(verdicts[0]?.verdict).toBe("error");
   });
 
-  test("judge falls back to plain-JSON text when the provider rejects structured output", async () => {
+  test("native judge uses validated JSON text without inventing a structured-output endpoint", async () => {
     await seedCustomTask("ct-1", 2);
     const { client, stats } = createFake({
       writeDeliverables: ["memo.docx"],
@@ -479,7 +581,7 @@ describe("run execution", () => {
     expect(item.status).toBe("passed");
     expect(item.nPassed).toBe(2);
     // one rejected structured attempt + one successful text fallback for the whole batch
-    expect(stats.judgeStarts).toBe(2);
+    expect(stats.judgeStarts).toBe(1);
     const verdicts = store.listVerdicts(item.id);
     expect(verdicts.every((verdict) => verdict.verdict === "pass")).toBe(true);
     expect(verdicts[0]?.reasoning).toBe("fallback ok");
@@ -501,9 +603,12 @@ describe("run execution", () => {
     expect(stats.abortedSessions.length).toBeGreaterThan(0);
   });
 
-  test("falls back to synchronous prompt when prompt_async is unsupported", async () => {
+  test("native durable prompt admission and inbox observation complete without prompt_async", async () => {
     await seedCustomTask("ct-1", 1);
-    const { client } = createFake({ promptAsyncUnsupported: true, writeDeliverables: ["memo.docx"] });
+    const { client } = createFake({
+      promptAsyncUnsupported: true,
+      writeDeliverables: ["memo.docx"],
+    });
     const runner = makeRunner(client);
     const created = await runner.createRun(workspace, {
       tasks: ["ct-1"],
@@ -522,10 +627,7 @@ describe("abort / resume / delete", () => {
     const { client, stats } = createFake({ agentNeverFinishes: true });
     const runner = makeRunner(client);
     const created = await runner.createRun(workspace, {
-      tasks: [
-        "ct-1",
-        "ct-2",
-      ],
+      tasks: ["ct-1", "ct-2"],
       models: [{ providerID: "prov", modelID: "model-a" }],
       concurrency: 1,
     });
@@ -539,7 +641,9 @@ describe("abort / resume / delete", () => {
     expect(stats.abortedSessions.length).toBeGreaterThan(0);
 
     // resume re-queues aborted items and completes them
-    const { client: healthyClient } = createFake({ writeDeliverables: ["memo.docx"] });
+    const { client: healthyClient } = createFake({
+      writeDeliverables: ["memo.docx"],
+    });
     const resumingRunner = makeRunner(healthyClient);
     await resumingRunner.resumeRun(workspace, runId);
     await waitFor(() => store.getRun(runId)?.status === "completed");
@@ -556,7 +660,9 @@ describe("abort / resume / delete", () => {
     });
     const runId = created.id as string;
     await waitFor(() => store.countItemsByStatus(runId).running >= 1);
-    await expect(runner.deleteRun(workspace, runId)).rejects.toThrow(/Abort the run/);
+    await expect(runner.deleteRun(workspace, runId)).rejects.toThrow(
+      /Abort the run/,
+    );
 
     await runner.abortRun(workspace, runId);
     await waitFor(() => store.getRun(runId)?.status === "aborted");
@@ -577,17 +683,27 @@ describe("ablation arms", () => {
         { label: "Full" },
         { label: "No bash", config: { tools: { bash: false } } },
         { label: "No skills", config: { skills: { mode: "none" } } },
-        { label: "No tabular", config: { skills: { mode: "deny", names: ["tabular-review"] } } },
+        {
+          label: "No tabular",
+          config: { skills: { mode: "deny", names: ["tabular-review"] } },
+        },
       ],
       concurrency: 4,
     });
-    await waitFor(() => store.getRun(created.id as string)?.status === "completed");
+    await waitFor(
+      () => store.getRun(created.id as string)?.status === "completed",
+    );
 
     // 1 task × 1 model × 4 arms.
     const detail = await runner.getRunDetail(workspace, created.id as string);
     const items = detail.items as Array<{ armId: string; armLabel: string }>;
     expect(items).toHaveLength(4);
-    expect(items.map((item) => item.armId).sort()).toEqual(["full", "no-bash", "no-skills", "no-tabular"]);
+    expect(items.map((item) => item.armId).sort()).toEqual([
+      "full",
+      "no-bash",
+      "no-skills",
+      "no-tabular",
+    ]);
 
     // Tool ablation rides the engine's native tools map...
     const toolMaps = stats.agentPrompts.map((prompt) => prompt.tools);
@@ -598,13 +714,19 @@ describe("ablation arms", () => {
     // named-skill arm, which the tools map cannot express — one `skill` tool
     // gates every skill, so denying one by name is the plugin's job.
     expect(toolMaps.filter((tools) => tools === undefined)).toHaveLength(2);
-    expect(toolMaps).not.toContainEqual({ skill: false, "tabular-review": false });
+    expect(toolMaps).not.toContainEqual({
+      skill: false,
+      "tabular-review": false,
+    });
 
     // The model is told what it lost, appended to the task prompt rather than
     // replacing the system prompt.
-    const ablated = stats.agentPrompts.filter((prompt) => prompt.text.includes("ablation arm"));
+    const ablated = stats.agentPrompts.filter((prompt) =>
+      prompt.text.includes("ablation arm"),
+    );
     expect(ablated).toHaveLength(3);
-    for (const prompt of ablated) expect(prompt.text).toContain("Write the memo");
+    for (const prompt of ablated)
+      expect(prompt.text).toContain("Write the memo");
   });
 
   test("a run without arms keeps the plain tasks × models shape", async () => {
@@ -615,7 +737,9 @@ describe("ablation arms", () => {
       tasks: ["ct-1"],
       models: [{ providerID: "prov", modelID: "model-a" }],
     });
-    await waitFor(() => store.getRun(created.id as string)?.status === "completed");
+    await waitFor(
+      () => store.getRun(created.id as string)?.status === "completed",
+    );
 
     const detail = await runner.getRunDetail(workspace, created.id as string);
     expect(detail.items as unknown[]).toHaveLength(1);
@@ -629,11 +753,15 @@ describe("ablation arms", () => {
 });
 
 describe("replies cut off at the output limit", () => {
-  const RECOVERY_PROMPT = /cut off because it reached the model's output token limit/;
+  const RECOVERY_PROMPT =
+    /cut off because it reached the model's output token limit/;
 
   test("a cut-off reply is followed up, and the finished work is judged", async () => {
     await seedCustomTask("ct-1", 1);
-    const { client, stats } = createFake({ writeDeliverables: ["memo.docx"], cutOffTurns: 1 });
+    const { client, stats } = createFake({
+      writeDeliverables: ["memo.docx"],
+      cutOffTurns: 1,
+    });
     const runner = makeRunner(client);
     const created = await runner.createRun(workspace, {
       tasks: ["ct-1"],
@@ -680,7 +808,7 @@ describe("replies cut off at the output limit", () => {
     expect(stats.agentPrompts).toHaveLength(3);
   });
 
-  test("the reported limit is the one the engine enforces, not a higher configured value", async () => {
+  test("the native catalog output limit is reported without the old application cap", async () => {
     await seedCustomTask("ct-1", 1);
     const { client } = createFake({
       cutOffTurns: 99,
@@ -693,12 +821,18 @@ describe("replies cut off at the output limit", () => {
     });
     const runId = created.id as string;
     await waitFor(() => store.getRun(runId)?.status === "completed");
-    expect(store.listItems(runId)[0]!.error).toContain("output limit (32,000 tokens)");
+    expect(store.listItems(runId)[0]!.error).toContain(
+      "output limit (65,536 tokens)",
+    );
   });
 
   test("a reply cut off after the deliverable was written is judged normally", async () => {
     await seedCustomTask("ct-1", 1);
-    const { client } = createFake({ writeDeliverables: ["memo.docx"], cutOffTurns: 99, cutOffAfterWriting: true });
+    const { client } = createFake({
+      writeDeliverables: ["memo.docx"],
+      cutOffTurns: 99,
+      cutOffAfterWriting: true,
+    });
     const runner = makeRunner(client);
     const created = await runner.createRun(workspace, {
       tasks: ["ct-1"],
@@ -715,7 +849,11 @@ describe("replies cut off at the output limit", () => {
     // The engine takes a moment to pick each prompt up. Meanwhile the session
     // reads idle and still ends with the cut-off reply — counting that as the
     // answer would burn every follow-up without the agent ever running.
-    const { client, stats } = createFake({ writeDeliverables: ["memo.docx"], cutOffTurns: 1, startDelayMs: 40 });
+    const { client, stats } = createFake({
+      writeDeliverables: ["memo.docx"],
+      cutOffTurns: 1,
+      startDelayMs: 40,
+    });
     const runner = makeRunner(client);
     const created = await runner.createRun(workspace, {
       tasks: ["ct-1"],
@@ -731,12 +869,15 @@ describe("replies cut off at the output limit", () => {
     await seedCustomTask("ct-1", 1);
     const { client, stats } = createFake({ agentError: "unused" });
     // Swap the fake's generic error for the engine's MessageOutputLengthError.
-    const messages = client.session.messages;
-    client.session.messages = async (params) => {
+    const messages = client.message.list;
+    client.message.list = async (params) => {
       const result = await messages(params);
-      for (const entry of result.data ?? []) {
-        if (entry.info?.error) entry.info.error = { name: "MessageOutputLengthError", data: {} };
-      }
+      for (const entry of result.data)
+        if (entry.type === "assistant" && entry.error)
+          entry.error = {
+            type: "MessageOutputLengthError",
+            message: "output length",
+          };
       return result;
     };
     const runner = makeRunner(client);
@@ -758,7 +899,11 @@ describe("replies cut off at the output limit", () => {
     // Each turn takes 200ms against a 300ms item budget: the cut-off turn ends
     // at ~200ms, so the follow-up cannot finish in time. A fresh window per
     // prompt would let it run to ~400ms and pass.
-    const { client } = createFake({ writeDeliverables: ["memo.docx"], cutOffTurns: 1, agentDelayMs: 200 });
+    const { client } = createFake({
+      writeDeliverables: ["memo.docx"],
+      cutOffTurns: 1,
+      agentDelayMs: 200,
+    });
     const runner = makeRunner(client, { itemTimeoutMs: 300 });
     const created = await runner.createRun(workspace, {
       tasks: ["ct-1"],
@@ -772,126 +917,127 @@ describe("replies cut off at the output limit", () => {
   });
 });
 
-
-describe("agent terminal evidence", () => {
-  // Mutations caught: returning the first idle assistant, trusting completed
-  // tool calls, stale parent replies, or status observed before a newer busy.
-  async function runFrames(frames: Array<{
-    finish?: string; text?: string; completed?: number; error?: string;
-    parent?: "stale"; newerBusy?: boolean; write?: boolean; userVisible?: boolean; laterUser?: boolean;
-  }>, idleOmitted = false) {
-    await seedCustomTask("terminal-evidence");
-    const { client, stats } = createFake();
-    let userId = "";
-    let directory = "";
-    let index = 0;
-    let postRead = false;
-    client.session.promptAsync = async params => {
-      userId = String(params.messageID ?? "current-user");
-      directory = String(params.directory);
-      return {};
-    };
-    client.session.status = async params => {
-      const frame = frames[Math.min(index, frames.length - 1)]!;
-      const busy = postRead && frame.newerBusy;
-      if (postRead) { index += 1; postRead = false; }
-      return { data: !busy && idleOmitted ? {} : { "ses-1": { type: busy ? "busy" : "idle" } } };
-    };
-    client.session.messages = async () => {
-      const frame = frames[Math.min(index, frames.length - 1)]!;
-      if (frame.write) writeFileSync(join(directory, "memo.docx"), "real final deliverable");
-      postRead = true;
-      return { data: [
-        { info: { id: "old-user", role: "user" } },
-        { info: { id: "old-answer", role: "assistant", parentID: "old-user", time: { completed: 1 }, finish: "stop" }, parts: [{ type: "text", text: "Stale" }] },
-        ...(frame.userVisible === false ? [] : [{ info: { id: userId, role: "user" } }]),
-        ...(frame.laterUser ? [{ info: { id: "later-user", role: "user" } }] : []),
-        { info: { id: `reply-${Math.min(index, frames.length - 1)}`, role: "assistant", parentID: frame.parent === "stale" ? "old-user" : userId,
-          time: { completed: frame.completed }, finish: frame.finish,
-          ...(frame.error ? { error: { name: frame.error, data: { message: frame.error } } } : {}) },
-          parts: [{ type: "text", text: frame.text ?? "" }] },
-      ] };
-    };
-    const runner = makeRunner(client, { itemTimeoutMs: 120 });
-    const run = await runner.createRun(workspace, {
-      tasks: ["terminal-evidence"], models: [{ providerID: "prov", modelID: "model-a" }],
-    });
-    await waitFor(() => store.getRun(String(run.id))?.status === "completed");
-    return { item: store.listItems(String(run.id))[0]!, stats };
-  }
-
-  test("waits through completed tool rounds and unfinished assistant until the final answer", async () => {
-    const { item } = await runFrames([
-      { finish: "tool-calls", completed: 1, text: "Reading" },
-      { completed: 1, text: "unfinished" },
-      { finish: "tool-calls", completed: 2 },
-      { finish: "stop", completed: 3, text: "Finished", write: true },
-    ]);
-    expect(item.status).toBe("passed");
-    expect(item.deliverablesFound).toContain("memo.docx");
-    expect(item.deliverablesFound).not.toContain('"relativePath":null');
+test("native benchmark aggregates every history page and persists explicit normal-policy zero-recovery scenario", async () => {
+  await seedCustomTask("native-usage", 1);
+  const { client, stats } = createFake({
+    cutOffTurns: 1,
+    historyPageSize: 1,
+    writeDeliverables: ["memo.docx"],
   });
-
-  test("ignores replies parented to an older user message", async () => {
-    const { item } = await runFrames([
-      { finish: "stop", completed: 1, text: "Old reply", parent: "stale" },
-      { finish: "stop", completed: 2, text: "Current reply", write: true },
-    ]);
-    expect(item.deliverablesFound).not.toContain('"relativePath":null');
+  const runner = new BenchmarkRunner({
+    config,
+    createClient: () => client,
+    timings: { pollIntervalMs: 5, itemTimeoutMs: null, judgeTimeoutMs: null },
+    scenario: {
+      permissionMode: "normal",
+      outputLimitRecoveryAttempts: 0,
+      judgeAttempts: 1,
+    },
   });
-
-  test("rechecks busy after reading a completed reply", async () => {
-    const { item } = await runFrames([
-      { finish: "stop", completed: 1, text: "Early answer", newerBusy: true },
-      { finish: "stop", completed: 2, text: "Actual answer", write: true },
-    ]);
-    expect(item.deliverablesFound).not.toContain('"relativePath":null');
+  const created = await runner.createRun(workspace, {
+    tasks: ["native-usage"],
+    models: [{ providerID: "prov", modelID: "model-a" }],
   });
-
-  test("successful empty native status map proves idle for the current answer", async () => {
-    const { item } = await runFrames([{ finish: "stop", completed: 1, text: "Done", write: true }], true);
-    expect(item.status).toBe("passed");
-    expect(item.deliverablesFound).not.toContain('"relativePath":null');
-  });
-
-  test("an answer cannot precede observed current user acceptance", async () => {
-    const { item, stats } = await runFrames([{ finish: "stop", completed: 1, text: "Unbound", userVisible: false }]);
-    expect(item.status).toBe("error");
-    expect(item.error).toBe("agent session timed out");
-    expect(stats.judgeStarts).toBe(0);
-  });
-
-  test("a newer user message prevents borrowing its reply", async () => {
-    const { item, stats } = await runFrames([{ finish: "stop", completed: 1, text: "Superseded", laterUser: true }]);
-    expect(item.status).toBe("error");
-    expect(item.error).toBe("agent session timed out");
-    expect(stats.judgeStarts).toBe(0);
-  });
-
-  test("late tool rounds reset the empty idle observation", async () => {
-    const { item } = await runFrames([
-      { completed: 1 }, { finish: "tool-calls", completed: 2 },
-      { finish: "stop", completed: 3, text: "Finished after tools", write: true },
-    ]);
-    expect(item.status).toBe("passed");
-    expect(item.deliverablesFound).not.toContain('"relativePath":null');
-  });
-
-  test("empty stable idle is a harness error rather than a scored missing deliverable", async () => {
-    const { item, stats } = await runFrames([{ completed: 1 }]);
-    expect(item.status).toBe("error");
-    expect(item.error).toContain("EMPTY_TERMINAL_RESULT");
-    expect(item.score).toBeNull();
-    expect(stats.judgeStarts).toBe(0);
-  });
-
-  test("a model interruption remains distinct from a model failure", async () => {
-    const { item } = await runFrames([{ error: "MessageAbortedError" }]);
-    expect(item.status).toBe("interrupted");
-    expect(item.score).toBeNull();
+  await waitFor(() => store.getRun(String(created.id))?.status === "completed");
+  const item = store.listItems(String(created.id))[0]!;
+  expect(stats.agentPrompts).toHaveLength(1);
+  expect(item.status).toBe("error");
+  const settings = JSON.parse(
+    readFileSync(
+      join(item.workDir!, ".benchmark-evidence", "scenario.json"),
+      "utf8",
+    ),
+  );
+  expect(settings.permissions).toEqual([]);
+  expect(settings.itemTimeoutMs).toBeNull();
+  expect(settings.outputLimitRecoveryAttempts).toBe(0);
+  expect(
+    JSON.parse(store.getRun(String(created.id))!.scenarioJson!),
+  ).toMatchObject({
+    permissionMode: "normal",
+    judgeAttempts: 1,
+    outputCaps: false,
+    extractionCaps: false,
   });
 });
 
+test("all native assistant steps contribute usage even when history arrives one message per page", async () => {
+  await seedCustomTask("native-pages", 1);
+  const { client } = createFake({
+    cutOffTurns: 1,
+    historyPageSize: 1,
+    writeDeliverables: ["memo.docx"],
+  });
+  const runner = makeRunner(client);
+  const created = await runner.createRun(workspace, {
+    tasks: ["native-pages"],
+    models: [{ providerID: "prov", modelID: "model-a" }],
+  });
+  await waitFor(() => store.getRun(String(created.id))?.status === "completed");
+  const item = store.listItems(String(created.id))[0]!;
+  expect(item.status).toBe("passed");
+  expect(item.cost).toBe(0.5);
+  expect(JSON.parse(item.tokensJson!)).toMatchObject({ input: 10, output: 18 });
+  const history = JSON.parse(
+    readFileSync(
+      join(item.workDir!, ".benchmark-evidence", "agent-history.json"),
+      "utf8",
+    ),
+  );
+  expect(history.messages).toHaveLength(2);
+  const judge = JSON.parse(
+    readFileSync(
+      join(item.workDir!, ".benchmark-evidence", "judge-0.json"),
+      "utf8",
+    ),
+  );
+  expect(judge.messages).toHaveLength(1);
+  expect(history.messages[0].id).not.toBe(judge.messages[0].id);
+});
+
+test("benchmark transcript membership rejects another run, project and scratch directory", async () => {
+  await seedCustomTask("transcript-member", 1);
+  const { client } = createFake({ writeDeliverables: ["memo.docx"] });
+  const runner = makeRunner(client);
+  const created = await runner.createRun(workspace, {
+    tasks: ["transcript-member"],
+    models: [{ providerID: "prov", modelID: "model-a" }],
+  });
+  const runId = String(created.id);
+  await waitFor(() => store.getRun(runId)?.status === "completed");
+  const item = store.listItems(runId)[0]!;
+  expect(
+    await runner.getItemSessionIdentity(workspace, runId, item.id),
+  ).toEqual({ sessionID: item.sessionId!, workDir: item.workDir! });
+  await expect(
+    runner.getItemSessionIdentity(
+      { ...workspace, id: "another-project" },
+      runId,
+      item.id,
+    ),
+  ).rejects.toThrow("not found");
+  await expect(
+    runner.getItemSessionIdentity(workspace, runId, "another-item"),
+  ).rejects.toThrow("no agent transcript");
+  store.updateItem(item.id, { workDir: join(dir, "outside-project") });
+  await expect(
+    runner.getItemSessionIdentity(workspace, runId, item.id),
+  ).rejects.toThrow("does not belong");
+  store.updateItem(item.id, {
+    workDir: join(
+      workspace.path,
+      ".legalwork",
+      "benchmarks",
+      runId,
+      "another-item",
+    ),
+  });
+  await expect(
+    runner.getItemSessionIdentity(workspace, runId, item.id),
+  ).rejects.toThrow("does not belong");
+});
+
+// ---- LAWOSS scenario grading (lawoss/benchmark-scenarios.ts) ----
 
 describe("LAWOSS deterministic scenario grading", () => {
   test("strict JSON failure cannot be overridden by a passing semantic judge", async () => {
@@ -918,20 +1064,6 @@ describe("LAWOSS deterministic scenario grading", () => {
     expect(store.listVerdicts(item.id).find(v => v.criterionId === "LAWOSS-FORMAT")?.verdict).toBe("fail");
     expect(store.listVerdicts(item.id).find(v => v.criterionId === "C-001")?.verdict).toBe("fail");
   });
-});
-
-
-test("an unacknowledged transport failure never submits a second prompt", async () => {
-  await seedCustomTask("unacknowledged");
-  const { client } = createFake({ writeDeliverables: ["memo.docx"] });
-  client.session.promptAsync = async () => ({ error: { status: 503, message: "temporarily unavailable" } });
-  const run = await makeRunner(client).createRun(workspace, {
-    tasks: ["unacknowledged"], models: [{ providerID: "prov", modelID: "model-a" }],
-  });
-  await waitFor(() => store.getRun(String(run.id))?.status === "completed");
-  const item = store.listItems(String(run.id))[0]!;
-  expect(item.status).toBe("error");
-  expect(item.score).toBeNull();
 });
 
 
@@ -973,26 +1105,8 @@ test("a deterministic format pass cannot turn a broken semantic judge into a sco
   const item = store.listItems(String(run.id))[0]!;
   expect(item.status).toBe("error");
   expect(item.score).toBeNull();
-  expect(item.error).toContain("no parseable verdicts");
-});
-
-
-test("submitted message IDs preserve the native chronological message boundary", async () => {
-  await seedCustomTask("native-message-id");
-  const { client } = createFake({ writeDeliverables: ["memo.docx"] });
-  const prompt = client.session.promptAsync;
-  client.session.promptAsync = async params => {
-    const id = String(params.messageID);
-    // The real engine sorts message IDs; a UUID prefix can sort a user's
-    // prompt after its native assistant and break the current-user boundary.
-    const shape = /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/.test(id);
-    const timestamp = shape ? Number(BigInt(`0x${id.slice(4, 16)}`) / 4096n) : 0;
-    if (!shape || Math.abs((Date.now() % 0x1000000000) - timestamp) > 1000) return { error: { status: 400 } };
-    return prompt(params);
-  };
-  const run = await makeRunner(client).createRun(workspace, { tasks: ["native-message-id"], models: [{ providerID: "prov", modelID: "model-a" }] });
-  await waitFor(() => store.getRun(String(run.id))?.status === "completed");
-  expect(store.listItems(String(run.id))[0]!.status).toBe("passed");
+  // Engine v2 judge path reports an unparseable answer as a missing verdict per criterion.
+  expect(item.error).toContain("exactly one verdict per known criterion");
 });
 
 
@@ -1076,24 +1190,15 @@ test("case 08 keeps two unverified tool-behavior checks LIMITED despite a passin
 test.each(["rewrite", "create", "replace", "session-create"])("agent %s of cited input cannot become independent source proof", async mutation => {
   await seedCitedScenario("scenario-source-mutation", "evidence.md", "Original synthetic draft; not completion.");
   const cited = mutation === "create" ? "fabricated.md" : "evidence.md";
-  const { client } = createFake({ writeDeliverables: ["scenario.json"], deliverableContents: { "scenario.json": citedScenario(`documents/${cited}`) } });
-  const prompt = client.session.promptAsync;
+  const behavior: Parameters<typeof createFake>[0] = { writeDeliverables: ["scenario.json"], deliverableContents: { "scenario.json": citedScenario(`documents/${cited}`) } };
+  const { client } = createFake(behavior);
   const mutate = (directory: string) => {
     const path = join(directory, "documents", cited);
     if (mutation === "replace") renameSync(path, `${path}.old`);
     writeFileSync(path, mutation === "replace" ? "Original synthetic draft; not completion." : "Agent-fabricated confirmation of completion.");
   };
-  if (mutation === "session-create") {
-    const create = client.session.create;
-    client.session.create = async params => {
-      if (String(params.title).startsWith("Benchmark:")) mutate(String(params.directory));
-      return create(params);
-    };
-  }
-  client.session.promptAsync = async params => {
-    if (mutation !== "session-create") mutate(String(params.directory));
-    return prompt(params);
-  };
+  if (mutation === "session-create") behavior.beforeAgentSession = mutate;
+  else behavior.beforeAgentPrompt = mutate;
   const run = await makeRunner(client).createRun(workspace, { tasks: ["scenario-source-mutation"], models: [{ providerID: "prov", modelID: "model-a" }] });
   await waitFor(() => store.getRun(String(run.id))?.status === "completed");
   const item = store.listItems(String(run.id))[0]!;
@@ -1108,14 +1213,10 @@ test.each(["rewrite", "create", "replace", "session-create"])("agent %s of cited
 test("a truncated malformed scenario remains the first attempt without automatic repair", async () => {
   await seedCitedScenario("scenario-first-truncated", "evidence.md", "Original synthetic draft.");
   const outputs = { "scenario.json": "{" };
-  const { client, stats } = createFake({ cutOffTurns: 1, cutOffAfterWriting: true,
-    writeDeliverables: ["scenario.json"], deliverableContents: outputs });
-  const prompt = client.session.promptAsync;
   let submissions = 0;
-  client.session.promptAsync = async params => {
-    outputs["scenario.json"] = ++submissions === 1 ? "{" : citedScenario("documents/evidence.md");
-    return prompt(params);
-  };
+  const { client, stats } = createFake({ cutOffTurns: 1, cutOffAfterWriting: true,
+    writeDeliverables: ["scenario.json"], deliverableContents: outputs,
+    beforeAgentPrompt: () => { outputs["scenario.json"] = ++submissions === 1 ? "{" : citedScenario("documents/evidence.md"); } });
   const run = await makeRunner(client).createRun(workspace, { tasks: ["scenario-first-truncated"], models: [{ providerID: "prov", modelID: "model-a" }] });
   await waitFor(() => store.getRun(String(run.id))?.status === "completed");
   const item = store.listItems(String(run.id))[0]!;

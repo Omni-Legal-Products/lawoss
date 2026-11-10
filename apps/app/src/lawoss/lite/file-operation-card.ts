@@ -15,7 +15,9 @@
  */
 import { t } from "@/i18n";
 import type { PendingPermission } from "@/app/types";
+import { browserLoginCard } from "./browser-login-card";
 import { memoryWriteCard } from "./memory-write-card";
+import { nestedClientCardFolder } from "./nested-client-card";
 
 type Operation = "move" | "copy" | "create_folder" | "delete";
 type PlannedChange = { operation: Operation; kind: "file" | "folder"; from?: string; to?: string; entries?: number; entriesCapped?: boolean; similar?: string[] };
@@ -112,7 +114,8 @@ export type FileOperationDetails = { reason: string | null; lines: string[] };
 export function fileOperationCard(metadata: Record<string, unknown>): { title: string; message: string; permissionLabel: string; scopeLabel: string; scopeValue: string; details: FileOperationDetails } | null {
   const changes = plannedChanges(metadata);
   // `lawoss_memory_write` asks with the same permission: one card "what and where" (memory-write-card.ts).
-  if (!changes) return memoryWriteCard(metadata);
+  // `legalwork_browser_add_website` asks `lawoss_browser_login`: login, website, password domain (browser-login-card.ts).
+  if (!changes) return memoryWriteCard(metadata) ?? browserLoginCard(metadata);
   const reason = typeof metadata.description === "string" && metadata.description.trim() ? t("lawoss.files.reason", undefined, { text: metadata.description.trim() }) : null;
   return {
     details: { reason, lines: changes.flatMap((change) => [detailLine(change), ...warnings(change)]) },
@@ -125,7 +128,9 @@ export function fileOperationCard(metadata: Record<string, unknown>): { title: s
 }
 
 /** Whether the card may offer "Allow for the conversation". */
-export function offersRememberedApproval(permission: Pick<PendingPermission, "protocol" | "permission" | "always" | "host">): boolean {
+export function offersRememberedApproval(permission: Pick<PendingPermission, "protocol" | "permission" | "always" | "host"> & Partial<Pick<PendingPermission, "message">>): boolean {
+  // #264: karta iného klienta vnoreného v klientovi sa vždy pýta znova.
+  if (nestedClientCardFolder({ message: permission.message, host: permission.host })) return false;
   if (permission.protocol === "host") return !permission.host || (permission.host.canRemember === true && permission.host.hostWide !== true);
   if (permission.permission === "external_directory" || permission.permission === "edit") return false;
   return !(Array.isArray(permission.always) && permission.always.length === 0);

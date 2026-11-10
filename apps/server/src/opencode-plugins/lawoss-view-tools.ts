@@ -1,5 +1,7 @@
-import { LegalWorkWikiTools } from "./legalwork-wiki-tools.js";
-import type { OpenCodeContext } from "./office-plugin-shared.js";
+import { Plugin } from "@opencode/plugin";
+import type { Info, ToolEditor } from "@opencode/plugin/promise/tool";
+import WikiTools from "./legalwork-wiki-tools.js";
+import { registerPrimaryContext } from "./native-review-worker.js";
 import { z } from "zod";
 import { ViewInputSchema } from "@legalwork/types/views";
 
@@ -76,36 +78,62 @@ export function viewProgramIssues(input: unknown): ViewProgramIssue[] {
   return issues.slice(0, 8);
 }
 
-export const LawossViewTools = async (initial: OpenCodeContext = {}) => {
-  const upstream = await LegalWorkWikiTools(initial);
-  const tools = {
-    view_catalog: upstream.tool.view_catalog,
-    view_list: upstream.tool.view_list,
-    view_read: upstream.tool.view_read,
-    view_create: upstream.tool.view_create,
-    view_update: upstream.tool.view_update,
-  };
-  return {
-    "chat.headers": upstream["chat.headers"],
-    "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => { output.system.push(RULES); },
-    tool: Object.fromEntries(Object.entries(tools).map(([name, tool]) => [name, {
-      ...tool,
-      async execute(raw: unknown, context: OpenCodeContext = {}) {
-        if (!ownerScope.safeParse(raw ?? {}).success) return JSON.stringify({ ok: false, code: "view_workspace_required", error: "Use the current client's workspace for this view." });
-        if (name !== "view_create" && name !== "view_update") return tool.execute(raw, context);
-        const args = normalizeViewArgs(raw);
-        const programIssues = viewProgramIssues(isRecord(args) ? args.input : undefined);
-        if (programIssues.length) return JSON.stringify({ ok: false, code: "view_program_invalid", issues: programIssues,
-          error: "The view program cannot render. Fix the listed issues and call the tool again." });
-        const result = await tool.execute(args, context);
-        // Upstream vracia reťazec alebo `{ output }`; tvar odpovede sa zachová.
-        const text = typeof result === "string" ? result : isRecord(result) && typeof result.output === "string" ? result.output : "";
-        if (!text.includes('"wiki_invalid_data"')) return result;
-        const issues = invalidInputDetail(args);
-        if (!issues.length) return result;
-        const detailed = JSON.stringify({ ...JSON.parse(text), issues, hint: "Arguments are {owner?, input:{version:1,title,mode,catalog,program,queries,datasets?}}; program goes inside input." });
-        return typeof result === "string" ? detailed : { ...result, output: detailed };
-      },
-    }])),
-  };
-};
+const VIEW_TOOLS = new Set(["view_catalog", "view_list", "view_read", "view_create", "view_update"]);
+type ViewResult = Awaited<ReturnType<Info["execute"]>>;
+const failure = (body: Record<string, unknown>): ViewResult => ({ content: JSON.stringify(body), output: body });
+
+/** LAWOSS checks around one upstream view tool; everything else is the upstream preview/stream/save protocol. */
+export function lawossViewTool(tool: Info): Info {
+  return { ...tool, async execute(raw, call) {
+    if (!ownerScope.safeParse(raw ?? {}).success) return failure({ ok: false, code: "view_workspace_required", error: "Use the current client's workspace for this view." });
+    if (tool.name !== "view_create" && tool.name !== "view_update") return tool.execute(raw, call);
+    const args = normalizeViewArgs(raw);
+    const programIssues = viewProgramIssues(isRecord(args) ? args.input : undefined);
+    if (programIssues.length) return failure({ ok: false, code: "view_program_invalid", issues: programIssues,
+      error: "The view program cannot render. Fix the listed issues and call the tool again." });
+    try {
+      return await tool.execute(args, call);
+    } catch (error) {
+      // The native tool parses its schema before executing; name the failing field instead of a bare schema error.
+      if (!(error instanceof z.ZodError)) throw error;
+      const issues = invalidInputDetail(args);
+      return failure({ ok: false, code: "wiki_invalid_data", error: "The view arguments are invalid.", ...(issues.length ? { issues } : {}),
+        hint: "Arguments are {owner?, input:{version:1,title,mode,catalog,program,queries,datasets?}}; program goes inside input." });
+    }
+  } };
+}
+
+/** Only the five view tools pass; wiki tools, wiki guidance and wiki reminders never register. */
+function viewOnlyEditor(editor: ToolEditor): ToolEditor {
+  return new Proxy(editor, { get(target, key) {
+    if (key === "add") return (tool: Info) => { if (VIEW_TOOLS.has(tool.name)) target.add(lawossViewTool(tool)); };
+    const value: unknown = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  } });
+}
+
+const inert = async () => ({ dispose: async () => {} });
+function bound<T extends object>(target: T, overrides: Record<PropertyKey, unknown>): T {
+  return new Proxy(target, { get(object, key) {
+    if (Object.hasOwn(overrides, key)) return overrides[key];
+    const value: unknown = Reflect.get(object, key);
+    return typeof value === "function" ? value.bind(object) : value;
+  } });
+}
+
+// Reuse the upstream preview/stream/save protocol without enabling wiki tools, wiki guidance,
+// wiki reminders, project discovery on every file access, or a second knowledge store.
+export default Plugin.define({
+  id: "lawoss.view-tools",
+  async setup(ctx) {
+    const tool = bound(ctx.tool, {
+      hook: inert,
+      transform: (callback: (editor: ToolEditor) => void) => ctx.tool.transform((editor) => callback(viewOnlyEditor(editor))),
+    });
+    // The wiki plugin's prompt and context hooks carry only wiki guidance and wiki reminders.
+    const session = bound(ctx.session, { hook: inert });
+    const cleanup = await WikiTools.setup(bound(ctx, { tool, session }));
+    const rules = await registerPrimaryContext(ctx, (event) => { event.system.push({ type: "text", text: RULES }); });
+    return async () => { await rules.dispose(); await cleanup?.(); };
+  },
+});

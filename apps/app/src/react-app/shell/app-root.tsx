@@ -1,5 +1,6 @@
 import { desktopBridge } from "../../app/lib/desktop";
 import { isDesktopRuntime } from "../../app/utils";
+import { LegalMemoryPermissions } from "../domains/connections/legalmemory-permissions";
 import { DocumentRuntimeProvider } from "../domains/session/artifacts/document-runtime";
 /** @jsxImportSource react */
 
@@ -15,6 +16,7 @@ import { NewProvidersListener } from "./new-providers-listener";
 import { OrgPolicyRoot } from "../domains/connections/org-policy-ui";
 import { useDesktopFontZoomBehavior } from "./font-zoom";
 import { LoadingOverlay } from "./loading-overlay";
+import { useEngineStartup } from "./engine-startup";
 import { DevProfiler, DevProfilerOverlay } from "./dev-profiler";
 import { ReactRenderWatchdogOverlay } from "./react-render-watchdog-overlay";
 import { AppMenuProvider } from "./app-menu";
@@ -24,6 +26,7 @@ import { SettingsRoute } from "./settings-route";
 import { ShellConfigProvider } from "./shell-config";
 import { StealthMode } from "./stealth-mode";
 import { TaskNotificationsListener } from "./task-notifications-listener";
+import { AssistantNotificationsListener } from "./assistant-notifications-listener";
 import { WelcomeRoute } from "./welcome-route";
 import { LAWOSS_ROUTES, upstreamRoute } from "../../lawoss/shell/routes";
 import { LawossLanding } from "../../lawoss/lite/landing";
@@ -39,6 +42,7 @@ export function AppRoot() {
   useEffect(() => {
     if (isDesktopRuntime()) void desktopBridge.setUiLocale(locale).catch(() => undefined);
   }, [locale]);
+  const startup = useEngineStartup();
 
   // Module-level dedupe keeps StrictMode double-mounts from double-counting.
   useEffect(() => {
@@ -61,6 +65,7 @@ export function AppRoot() {
   return (
     <AppErrorBoundary>
     <>
+      {startup.status === "ready" ? <>
       <DocumentDiscardDialog />
       <DevProfiler id="AppRoot">
         <ShellConfigProvider>
@@ -68,6 +73,7 @@ export function AppRoot() {
         <LegalworkControlProvider>
           <DocumentRuntimeProvider>
           <LegalworkRouteControlActions />
+          <LegalMemoryPermissions />
           <Routes>
               <Route
                 path="/welcome"
@@ -180,7 +186,6 @@ export function AppRoot() {
         </LegalworkControlProvider>
         </AppMenuProvider>
         </ShellConfigProvider>
-        <LoadingOverlay />
       </DevProfiler>
       {/*
         DevProfilerOverlay sits OUTSIDE the AppRoot <Profiler> zone on
@@ -194,9 +199,12 @@ export function AppRoot() {
       <NewProvidersListener />
       <TaskNotificationsListener />
       <OrgPolicyRoot />
+      <AssistantNotificationsListener />
       <StealthMode />
       <DevProfilerOverlay />
       <ReactRenderWatchdogOverlay />
+      </> : null}
+      <LoadingOverlay startup={startup} />
     </>
     </AppErrorBoundary>
   );

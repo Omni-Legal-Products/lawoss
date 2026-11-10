@@ -18,16 +18,17 @@ export function legalworkPluginPath(name: string, here = dirname(fileURLToPath(i
   const resourcesPath = resourcesPathFromAppAsarPath(here);
   if (resourcesPath) {
     const electronResourcesPath = process.resourcesPath?.includes("app.asar") ? resourcesPath : process.resourcesPath?.trim();
-    return join(electronResourcesPath || resourcesPath, "opencode-plugins", `${name}.js`);
+    return join(electronResourcesPath || resourcesPath, "opencode-plugins", name, "index.js");
   }
 
-  const extension = basename(here) === "dist" ? "js" : "ts";
-  return join(here, "opencode-plugins", `${name}.${extension}`);
+  const dist = basename(here) === "dist" ? here : join(here, "..", "dist");
+  return join(dist, "opencode-plugins", name, "index.js");
 }
 
 export const legalworkExtensionsPreviewPluginPath = () => legalworkPluginPath("legalwork-extensions-preview");
-export const legalworkChromeDevtoolsPluginPath = () => legalworkPluginPath("legalwork-chrome-devtools");
 export const legalworkSandboxPluginPath = () => legalworkPluginPath("legalwork-sandbox");
+export const legalworkCommandsPluginPath = () => legalworkPluginPath("legalwork-commands");
+export const legalworkProjectAdmissionPluginPath = () => legalworkPluginPath("legalwork-project-admission");
 export const legalworkCapabilitiesKnowledgePluginPath = () => legalworkPluginPath("legalwork-capabilities-knowledge");
 export const legalworkLegalMemoryKnowledgePluginPath = () => legalworkPluginPath("legalwork-legalmemory-knowledge");
 export const legalworkAnthropicAdaptiveThinkingPluginPath = () => legalworkPluginPath("legalwork-anthropic-adaptive-thinking");
@@ -42,6 +43,7 @@ export const legalworkSkillToolsPluginPath = () => legalworkPluginPath("legalwor
 export const legalworkStorageToolsPluginPath = () => legalworkPluginPath("legalwork-storage-tools");
 export const legalworkTaskToolsPluginPath = () => legalworkPluginPath("legalwork-task-tools");
 export const legalworkToolOutputPluginPath = () => legalworkPluginPath("legalwork-tool-output");
+export const legalworkToolRecoveryPluginPath = () => legalworkPluginPath("legalwork-tool-recovery");
 export const legalworkProjectToolsPluginPath = () => legalworkPluginPath("legalwork-project-tools");
 export const legalworkReviewToolsPluginPath = () => legalworkPluginPath("legalwork-review-tools");
 export const legalworkOrgPolicyGuardPluginPath = () => legalworkPluginPath("legalwork-org-policy-guard");
@@ -53,3 +55,6 @@ export const legalworkCalendarToolsPluginPath = () => legalworkPluginPath("legal
 export const legalworkScheduledTaskToolsPluginPath = () => legalworkPluginPath("legalwork-scheduled-task-tools");
 export const legalworkWikiToolsPluginPath = () => legalworkPluginPath("legalwork-wiki-tools");
 export const lawossViewToolsPluginPath = () => legalworkPluginPath("lawoss-view-tools");
+
+export const legalworkAssistantToolsPluginPath = () => legalworkPluginPath("legalwork-assistant-tools");
+export const legalworkLegalMemoryAccessPluginPath = () => legalworkPluginPath("legalwork-legalmemory");

@@ -1,10 +1,11 @@
 import { createServer } from 'node:http';
 
+// LAWOSS v2: completed spans that engine 2.1.4 exports while starting and building a location
+// (observed from the derivative over OTLP: server start, project, config, plugins, MCP, catalogue).
 const names=new Set([
-  'EffectFlock.tryAcquire','EffectFlock.acquire',
-  'Npm.checkNodeModules','Npm.checkDirty','Npm.reify','Npm.install','Npm.add',
-  'Config.loadInstanceState','Config.get','Config.waitForDependencies',
-  'Plugin.state','Plugin.init','InstanceBootstrap','InstanceBootstrap.init','InstanceStore.boot',
+  'ServerProcess.start','Project.resolve','Project.activate','Config.load','Config.reload',
+  'ConfigPluginSource.scan','PluginSupervisor.resolve','PluginSupervisor.activate','Plugin.activate','PluginHost.make',
+  'Npm.reify','MCP.servers','MCP.tools','Provider.snapshot','Model.snapshot',
 ]);
 const bodyLimit=2*1024*1024;
 

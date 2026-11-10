@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import { t } from "@/i18n";
 import { withoutLawossHome } from "../../home-workspace";
 import { useLocale } from "@/i18n/use-locale";
@@ -147,7 +148,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
     } : undefined), [effectiveForm, probe, dir, rows, locale]);
   const set = <K extends keyof NovySpisForm>(key: K, value: NovySpisForm[K]) => setForm((current) => ({ ...current, [key]: value }));
 
-  const canAct = Boolean(connection.client && canWrite && workspace.workspaceType !== "remote" && workspace.path && !rootOutsideWorkspace && form.title.trim() && form.mode === "okf");
+  const canAct = Boolean(connection.client && canWrite && !isRetiredRemoteWorkspace(workspace) && workspace.path && !rootOutsideWorkspace && form.title.trim() && form.mode === "okf");
   // Plán platí len pre cestu, pre ktorú sa zisťoval. Premenovaním veci sa schová
   // a „Potvrdiť“ zhasne — advokát nepotvrdí plán, ktorý sa medzitým zmenil.
   const planShown = isCurrentCreationPlan(probe, effectiveForm);
@@ -158,7 +159,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
    * súbory vznikajú nanovo. Neexistujúci priečinok nie je chyba, len prázdny výsledok.
    */
   async function showPlan() {
-    if (!connection.client || rootOutsideWorkspace || workspace.workspaceType === "remote") return;
+    if (!connection.client || rootOutsideWorkspace || isRetiredRemoteWorkspace(workspace)) return;
     setBusy("plan"); setStatus(null); setResult(null);
     const relative = workspace ? workspaceRelativePath(dir.replaceAll("\\", "/"), workspace.path.replaceAll("\\", "/")) : null;
     let names: string[] = [];
@@ -368,7 +369,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
       {status ? <div className={`lw-status ${status.tone}`}>{notice(status)}</div> : null}
 
       <div className="lw-actions">
-        <button type="button" className="lw-btn-secondary" disabled={!connection.client || rootOutsideWorkspace || workspace.workspaceType === "remote" || !form.title.trim() || busy !== null} onClick={() => void showPlan()}>
+        <button type="button" className="lw-btn-secondary" disabled={!connection.client || rootOutsideWorkspace || isRetiredRemoteWorkspace(workspace) || !form.title.trim() || busy !== null} onClick={() => void showPlan()}>
           {busy === "plan" ? text("wizard.checking") : text("wizard.showPlan")}
         </button>
         {result ? (
@@ -409,7 +410,7 @@ export function NovySpisPage() {
     });
     return () => { cancelled = true; };
   }, []);
-  const workspaces = withoutLawossHome(connection?.workspaces.filter((item) => item.workspaceType !== "remote" && item.path) ?? []);
+  const workspaces = withoutLawossHome(connection?.workspaces.filter((item) => !isRetiredRemoteWorkspace(item) && item.path) ?? []);
   const workspace = workspaces.find((item) => item.id === workspaceId) ?? workspaces[0];
   return <LawossLayout>
     {error ? <p role="alert">{error}</p> : null}

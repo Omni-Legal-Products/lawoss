@@ -76,7 +76,7 @@ export function registerLawossMarketplaceRoutes(options: {
     let workspace: Awaited<ReturnType<typeof listInstalled>> = [];
     if (workspaceId) {
       const info = await options.resolveWorkspace(workspaceId).catch(() => null);
-      if (info && info.workspaceType !== "remote") workspace = (await listInstalled(config, info.id)).filter(isMarketplacePlugin);
+      if (info) workspace = (await listInstalled(config, info.id)).filter(isMarketplacePlugin);
     }
     return {
       global,
@@ -128,8 +128,7 @@ export function registerLawossMarketplaceRoutes(options: {
   route("POST", "/lawoss/marketplace/plugins/move", async (ctx) => {
     const input = await body(ctx);
     const workspace = await options.resolveWorkspace(requiredText(input.workspaceId, "workspaceId"));
-    if (workspace.workspaceType === "remote") throw new ApiError(400, "remote_workspace", "Plugins in a remote workspace cannot be moved here.");
-    const result = await moveWorkspacePlugin(
+      const result = await moveWorkspacePlugin(
       config,
       workspaceTarget(workspace.id, workspaceAppFilesRoot(config, workspace)),
       requiredText(input.pluginId, "pluginId"),

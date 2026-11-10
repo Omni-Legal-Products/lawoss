@@ -1,15 +1,16 @@
 import { isProjectView, type ProjectView } from "../domains/session/panel/project-view";
 import type { SettingsTab } from "../../app/types";
 
-export type ComposerToolSection = "workflows" | "plugins" | "connectors" | "skills";
-export type ComposerSettingsSection = ComposerToolSection | "providers";
+export type ComposerToolSection = "workflows" | "skills" | "integrations";
+export type ComposerSettingsSection = ComposerToolSection | "plugins" | "connectors" | "providers";
 
 export function composerSettingsPath(section: ComposerSettingsSection) {
   switch (section) {
     case "workflows": return "/workflows";
+    case "integrations": return "/settings/extensions";
     case "plugins": return "/settings/extensions/plugins";
     case "connectors": return "/settings/extensions/mcp";
-    case "skills": return "/settings/extensions/skills";
+    case "skills": return "/settings/workflows/skills";
     case "providers": return "/settings/ai";
   }
 }
@@ -34,6 +35,12 @@ export function workspaceSessionRoute(workspaceId: string, sessionId?: string | 
 export function wikiWorkspaceRoute(workspaceId: string, sessionId?: string | null) {
   const root = `/wikis/${encodeURIComponent(workspaceId.trim())}`;
   return sessionId?.trim() ? `${root}/session/${encodeURIComponent(sessionId.trim())}` : root;
+}
+
+/** Only concrete in-app chat routes may be navigated from agent Markdown. */
+export function parseWorkspaceSessionLink(href: string) {
+  const match = /^#?(\/workspace\/[\w-]+\/session\/[\w-]+)$/.exec(href.trim());
+  return match?.[1] ?? null;
 }
 
 /** Last-session restoration belongs only to an empty chat route, never a project page. */

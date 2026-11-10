@@ -41,9 +41,12 @@ describe("N-A5-2: komentár modelu nie je odpoveď", () => {
     const input = { workspaceId: "commentary-project", baseUrl: "http://127.0.0.1:1234", legalworkToken: "token" };
     const cleanup = __createWorkspaceSessionSyncForTest(input);
     const release = trackWorkspaceSessionSync(input, "ses_c1");
+    // LAWOSS v2: engine 2.1.4 posiela fázu poskytovateľa v `native` udalosti `session.text.ended`.
+    const event = (type: string, data: Record<string, unknown>) => ({ id: `evt_${type}`, created: 1, type, durable: { aggregateID: "ses_c1", seq: 1, version: 1 }, data: { sessionID: "ses_c1", ...data } }) as never;
     try {
-      __applySessionSyncEventForTest(input, { type: "message.updated", properties: { info: { id: "msg_c1", role: "assistant", sessionID: "ses_c1", time: { created: 1 } } } } as never);
-      __applySessionSyncEventForTest(input, { type: "message.part.updated", properties: { part: commentary } } as never);
+      __applySessionSyncEventForTest(input, event("session.step.started", { assistantMessageID: "msg_c1", model: { id: "gpt-6-luna", providerID: "openai" } }));
+      __applySessionSyncEventForTest(input, event("session.text.started", { assistantMessageID: "msg_c1", ordinal: 0 }));
+      __applySessionSyncEventForTest(input, event("session.text.ended", { assistantMessageID: "msg_c1", ordinal: 0, text: COMMENTARY, native: commentary.metadata.openai }));
       const transcript = getReactQueryClient().getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, "ses_c1")) ?? [];
       const parts = transcript.find((message) => message.id === "msg_c1")?.parts ?? [];
       expect(parts.map((part) => part.type)).toEqual(["reasoning"]);

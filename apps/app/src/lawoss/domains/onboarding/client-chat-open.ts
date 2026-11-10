@@ -4,6 +4,7 @@
  * priečinka klienta, balík skillov OKF s overením /novy-spis (ako Roztriedenie pred /roztried-spis)
  * a `openSessionWithPrompt`, ktorý správu len pripraví do poľa správy, nič neodosiela.
  */
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import type { Language } from "@/i18n";
 import type { ModelRef } from "@/app/types";
 import { createClient } from "@/app/lib/opencode";
@@ -26,7 +27,7 @@ export function clientChatTarget(connection: OkfConnection, request: Pick<Client
   const client = connection.client;
   const directory = normalizeDirectoryPath(request.directory);
   const workspace = connection.workspaces.find(item => item.id === request.workspaceId) ?? connection.workspaces.find(item => normalizeDirectoryPath(item.path) === directory);
-  if (!client || !workspace || workspace.workspaceType === "remote") return null;
+  if (!client || !workspace || isRetiredRemoteWorkspace(workspace)) return null;
   const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token });
   return endpoint?.token ? { client, workspace, endpoint } : null;
 }

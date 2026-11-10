@@ -1,3 +1,5 @@
+import { readTodos } from "@/app/lib/opencode-read";
+import { projectMessage } from "@/app/lib/opencode-view";
 // Requests from the selected chat and its descendants share the composer.
 // Each request retains its owning session for replies and cache removal.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,7 +19,7 @@ import { acknowledgeInteraction, seedTodoState, todoKey } from "./session-sync";
 import { answeredByApp, autoReplyDue, claimPermissionReply, leavePermissionToLawyer, releasePermissionReply, rememberSessionApproval } from "@/lawoss/lite/session-approvals";
 import {
   permissionKey, questionKey, interactionSessionsKey, emptyInteractionSessions,
-  interactionSessionIds, sortInteractionRequests, replyToPermission, replyToQuestion, permissionToolInput,
+  interactionSessionIds, sortInteractionRequests, replyToPermission, replyToQuestion, cancelQuestion as cancelNativeQuestion, permissionToolInput,
   type InteractionSessions,
 } from "./interaction-state";
 
@@ -92,7 +94,7 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
     if (!client || !workspaceId || !sessionId) return;
     let cancelled = false;
     const snapshotStartedAt = Date.now();
-    void client.session.todo({ sessionID: sessionId, directory: workspaceRoot || undefined }).then((result) => {
+    void readTodos(client,sessionId).then((result) => {
       if (!cancelled) seedTodoState(workspaceId, sessionId, unwrap(result), snapshotStartedAt);
     }).catch(() => { /* Keep the event-synced plan on a failed read. */ });
     return () => { cancelled = true; };
@@ -114,11 +116,12 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
     retry: 1,
     queryFn: async ({ signal }) => {
       if (!client || !permissionRequest?.tool) throw new Error("Permission tool request is unavailable.");
-      const message = unwrap(await client.session.message({
+      const message = unwrap(await client.session.message.get({
         sessionID: permissionRequest.sessionID, messageID: permissionRequest.tool.messageID,
-        directory: workspaceRoot || undefined,
       }, { signal }));
-      return permissionToolInput(permissionRequest, message);
+      const projected=projectMessage(permissionRequest.sessionID,message)[0];
+      if(!projected)throw new Error("Permission tool message is unavailable.");
+      return permissionToolInput(permissionRequest,projected);
     },
   });
   const activePermission: PendingPermission | null = permissionRequest ? {
@@ -173,14 +176,15 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
 
   const activeQuestion = permissionFirst ? null : firstQuestion ?? null;
   const respondQuestion = useCallback(
-    async (requestID: string, answers: string[][]) => {
+    async (requestID: string, answers: string[][] | null) => {
       if (!client || !workspaceId || !sessionId) return;
       const pendingQuestion = pendingQuestions.find((question) => question.id === requestID);
       if (!pendingQuestion || questionReplyBusyRef.current) return;
       questionReplyBusyRef.current = true;
       setQuestionReplyBusy(true);
       try {
-        await replyToQuestion(client, pendingQuestion, answers, workspaceRoot);
+        if (answers === null) await cancelNativeQuestion(client, pendingQuestion);
+        else await replyToQuestion(client, pendingQuestion, answers, workspaceRoot);
         acknowledgeInteraction(workspaceId, pendingQuestion.sessionID, requestID, "question");
       } catch (error) {
         toast.error(t("app.error_request_failed"), {
@@ -193,6 +197,7 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
     },
     [client, pendingQuestions, sessionId, workspaceId, workspaceRoot],
   );
+  const cancelQuestion = useCallback((requestID: string) => respondQuestion(requestID, null), [respondQuestion]);
 
   return {
     pendingInteractionSessionIds,
@@ -203,6 +208,7 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
     activeQuestion,
     questionReplyBusy,
     respondQuestion,
+    cancelQuestion,
     todos,
   };
 }

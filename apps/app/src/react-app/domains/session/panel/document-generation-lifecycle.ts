@@ -1,7 +1,8 @@
-import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
-import type { LegalworkSessionSnapshot, LawossDocumentSummary } from "@/app/lib/legalwork-server";
+import type { SessionStatus } from "@opencode/client";
+import type { LegalworkServerClient, LegalworkSessionSnapshot, LawossDocumentSummary } from "@/app/lib/legalwork-server";
 import { useSessionActivityStore } from "../status/session-activity-store";
 import { t } from "@/i18n";
+import { isFreeModelRequest } from "@/lawoss/shell/free-models";
 
 export const PROTECTED_DOCUMENT_GENERATION_TRANSPORT: "protected-documents-v1" = "protected-documents-v1";
 export type DocumentGenerationMetadata = {
@@ -45,6 +46,37 @@ function createMessageId() {
   const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
   const random = crypto.getRandomValues(new Uint8Array(14));
   return `msg_${timestamp}${Array.from(random, value => alphabet[value % 62]).join("")}`;
+}
+
+/** LAWOSS: the server delivers a queued protected turn as engine message `msg_<queue UUID hex>`
+ * (lawoss/protected-ai/runtime.ts `submitQueued`), so the binding and the queue share one identity. */
+export function protectedQueueMessageId(queueId: string) {
+  return `msg_${queueId.replaceAll("-", "")}`;
+}
+function protectedQueueEntryId(messageId: string) {
+  const hex = /^msg_([0-9a-f]{32})$/.exec(messageId)?.[1];
+  if (!hex) throw new Error("A protected document task needs its queued message identity.");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** LAWOSS: a protected document chat accepts work only through its message queue; its direct
+ * dispatch is refused (409 `protected_session_dispatch`). The queued intent is the selected task
+ * text and model only: no agents, skills, files, reminders or other ambient context. The confined
+ * engine knows only the fixed `high` behaviour, so another selected behaviour uses the model default. */
+export async function sendProtectedDocumentTask(input: {
+  client: Pick<LegalworkServerClient, "updateSessionMessageQueue">; workspaceId: string; sessionId: string; messageId: string;
+  text: string; model: { providerID: string; modelID: string }; variant?: string | null;
+}) {
+  const text = input.text.trim();
+  if (!text) throw new Error("This document session accepts only the selected document task.");
+  // 🟡 LAWOSS (#231): an upstream free model never receives client data.
+  if (isFreeModelRequest(input.model)) throw new Error(t("session_route.model_unavailable"));
+  return input.client.updateSessionMessageQueue(input.workspaceId, input.sessionId, {
+    type: "enqueue", id: protectedQueueEntryId(input.messageId),
+    draft: { mode: "prompt", text, parts: [{ type: "text", text }], attachments: [], editor: { mentions: {}, pasteParts: [] } },
+    execution: { kind: "prompt", text, files: [], agents: [], skills: [], metadata: { legalworkPrompt: { visibleText: text, reminders: [] } },
+      model: { providerID: input.model.providerID, id: input.model.modelID, ...(input.variant === "high" ? { variant: "high" } : {}) }, agent: "legalwork" },
+  });
 }
 
 function loadBindings() {
@@ -149,9 +181,12 @@ export function reconcileDocumentGeneration(key: string, result: DocumentGenerat
   if (!envelope || !isDocumentGenerationSnapshotCurrent(binding, envelope)) return;
   const snapshot = envelope.snapshot;
   // Historical/legacy bindings without a persisted engine-visible ID remain conservative.
-  const currentTurn = binding.messageId
-    ? snapshot.messages.filter(({ info }) => info.role === "assistant" && info.parentID === binding.messageId && !info.summary)
-    : [];
+  // Engine v2 has no assistant `parentID`: the turn is every assistant message after the
+  // engine-visible user message, up to the next user message.
+  const userIndex = binding.messageId ? snapshot.messages.findIndex(({ info }) => info.role === "user" && info.id === binding.messageId) : -1;
+  const nextUser = userIndex < 0 ? -1 : snapshot.messages.findIndex(({ info }, index) => index > userIndex && info.role === "user");
+  const currentTurn = userIndex < 0 ? []
+    : snapshot.messages.slice(userIndex + 1, nextUser < 0 ? undefined : nextUser).filter(({ info }) => info.role === "assistant" && !info.summary);
   const failed = currentTurn.find(message => message.info.role === "assistant" && message.info.error);
   if (failed?.info.role === "assistant") {
     saveBinding(key, { ...binding, phase: "error", error: JSON.stringify(failed.info.error) });
@@ -191,7 +226,8 @@ export async function submitBoundDocumentGeneration(input: {
   try {
     await input.preflight();
     const sessionId = !binding || input.newGeneration ? await input.create() : binding.sessionId;
-    binding = { ...input.metadata, sessionId, startedAt: Date.now(), phase: "accepted", error: null, nativeRunObserved: false, messageId: createMessageId(), nativeRevision: 0 };
+    const messageId = input.metadata.transport === PROTECTED_DOCUMENT_GENERATION_TRANSPORT ? protectedQueueMessageId(crypto.randomUUID()) : createMessageId();
+    binding = { ...input.metadata, sessionId, startedAt: Date.now(), phase: "accepted", error: null, nativeRunObserved: false, messageId, nativeRevision: 0 };
     saveBinding(input.key, binding);
     submitted = true;
     useSessionActivityStore.getState().setRunStatus(input.metadata.projectId, sessionId, { type: "busy" });

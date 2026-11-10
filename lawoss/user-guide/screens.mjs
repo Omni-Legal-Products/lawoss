@@ -44,6 +44,7 @@ export const lawossRouteGuides = {
 };
 
 export const lawossSettingGuides = {
+  "assistant": null, // skrytý upstream Asistent (vyžaduje účet Eigenwelt), v0.3.x
   general: "nastavenia.md",
   ai: "ai-a-modely.md",
   extensions: "integracie.md",

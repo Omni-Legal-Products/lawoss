@@ -1,190 +1,237 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { join, resolve } from "node:path";
+import { randomBytes, randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import { z } from "zod";
-import { ScheduledTaskInputSchema, type ScheduledTaskInput } from "@legalwork/types/scheduled-tasks";
+import { OpenCode } from "@opencode/client";
+import { ScheduledTaskInputSchema, ScheduledTaskSchema, type ScheduledTaskInput } from "@legalwork/types/scheduled-tasks";
 import { ALL_PROJECTS_TASK_AGENT, PROJECT_TASK_AGENT, hasProjectTaskBoundary, projectTaskPermissions, allProjectTaskPermissions } from "./access.js";
-import { createOpencodeClient } from "@opencode-ai/sdk/v2";
+import { nativePermissions } from "../native-opencode-config.js";
 import { TaskStore } from "../task-store.js";
 import { readProjectContent, type ProjectContentSources } from "../project-contents.js";
 import { nextOccurrence } from "./schedule.js";
 import { WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PATH } from "../lawoss/engine-agent-contract.js";
 
-// Opt-in integration with the shipped engine. No live model/account is used.
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-test.skipIf(!binary)("real engine enforces project scope and supplies local scheduling defaults", async () => {
-  if (!binary) return;
+const jsonObject = z.record(z.string(), z.unknown());
+const requestSchema = z.object({
+  instructions: z.string().optional(), input: z.array(jsonObject),
+  tools: z.array(z.object({ name: z.string() })).optional(),
+});
+// Discovery runs inside the real native interpreter and follows every page.
+const catalogCode = 'const names = []; let offset = 0; while (true) { const page = search({limit: 200, offset}); for (const item of page.items) names.push(item.path); if (!page.next) break; offset = page.next.offset; }';
+
+// Uses only an isolated engine, loopback provider and fake service. No live account or model.
+test.skipIf(!binary)("real native engine preserves scheduled project scope, full chat paging and local scheduling defaults", async () => {
+  if (!binary) throw new Error("An isolated OpenCode binary is required");
   const root = await realpath(await mkdtemp(join(tmpdir(), "schedule-engine-")));
-  const folder = join(root, "matter"), otherFolder = join(root, "other"); await mkdir(folder); await mkdir(otherFolder);
+  for (const name of ["matter", "other", "home", "config", "data", "cache", "state", "tmp"]) await mkdir(join(root, name));
+  const folder = join(root, "matter"), otherFolder = join(root, "other");
   const tasks = await TaskStore.open(join(root, "tasks.sqlite"), join(root, "attachments"));
   let transcriptSources: ProjectContentSources | undefined;
   let sourceSessionId = "";
-  let uiActions = 0;
-  let documentReads = 0;
-  const modelRequests: { tools: string[]; toolDefinitions: string; toolResults: string[]; system: string; users: string[] }[] = [];
+  let scenario: "project" | "all" | "morning" | "followup" = "project";
+  let stage = 0, responseId = 0, uiActions = 0, documentReads = 0;
+  const modelRequests: Array<{ tools: string[]; definitions: string; results: string[]; system: string; users: string[] }> = [];
   const created: ScheduledTaskInput[] = [];
   const sourceReads: string[] = [];
+  const token = randomBytes(32).toString("hex");
   const serverAuth: Array<{ authorization: string | null; session: string | null }> = [];
   const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
-    if (new URL(request.url).pathname === WIKI_AGENT_TICKET_PATH) return Response.json({ secret: "fixture" });
-    const path = new URL(request.url).pathname;
+    const url = new URL(request.url), path = url.pathname;
+    if (path === WIKI_AGENT_TICKET_PATH) return Response.json({ secret: "fixture" });
     // LAWOSS: the engine reaches the server only with its chat-bound credential.
     if (path.startsWith("/workspace") || path.startsWith("/scheduled-tasks"))
       serverAuth.push({ authorization: request.headers.get("authorization"), session: request.headers.get("x-legalwork-wiki-agent-session") });
+    if (path === "/assistant") return Response.json({ workspace: null });
     if (path === "/snapshot") return Response.json({ ok: true, route: "/unrelated-chat" });
     if (path === "/execute") {
       const input = z.object({ actionId: z.string(), args: z.unknown().optional() }).parse(await request.json());
-      // Task document inventory is a background read, even though the bridge
-      // dispatches it through the action endpoint. All other actions still fail
-      // the no-foreground-actions assertion below.
       if (input.actionId === "documents.list") {
         expect(z.object({ sessionId: z.string().min(1) }).safeParse(input.args).success).toBe(true);
         documentReads++;
         return Response.json({ ok: true, result: { openFiles: [], surfaces: [], activeSurface: null } });
       }
-      uiActions++; return Response.json({ ok: true });
+      uiActions++;
+      return Response.json({ ok: true });
     }
-    if (path === "/workspaces") return Response.json({ items: [{ id: "matter", path: folder }, { id: "other", path: join(root, "other") }] });
-    if (path === "/scheduled-tasks/projects") return Response.json({ projects: [{ id: "matter", name: "Matter", path: folder }, { id: "other", name: "Other", path: join(root, "other") }] });
+    if (path === "/workspaces") return Response.json({ items: [{ id: "matter", path: folder }, { id: "other", path: otherFolder }] });
+    if (path === "/scheduled-tasks/projects") return Response.json({ projects: [{ id: "matter", name: "Matter", path: folder }, { id: "other", name: "Other", path: otherFolder }] });
     if (path === "/workspace/matter/scheduled-tasks" && request.method === "POST") {
       const input = ScheduledTaskInputSchema.parse(await request.json());
       created.push(input);
-      return Response.json({ task: { ...input, nextRunAt: nextOccurrence(input.schedule, Date.parse("2026-10-24T12:00:00Z")) } });
+      return Response.json({ task: ScheduledTaskSchema.parse({ ...input, id: randomUUID(), workspaceId: "matter", revision: 1, status: "active", createdAt: "2026-10-24T12:00:00Z", updatedAt: "2026-10-24T12:00:00Z", nextRunAt: nextOccurrence(input.schedule, Date.parse("2026-10-24T12:00:00Z")) }) });
     }
-    if (path === "/workspace/other/project/content" && transcriptSources) { sourceReads.push(path); return Response.json(await readProjectContent(transcriptSources, Object.fromEntries(new URL(request.url).searchParams))); }
-    const input = z.object({ messages: z.array(z.object({ role: z.string(), content: z.unknown().optional() })), tools: z.array(z.object({ function: z.object({ name: z.string(), description: z.string().optional(), parameters: z.unknown().optional() }) })).optional() }).parse(await request.json());
-    const tools = input.tools?.map(tool => tool.function.name) ?? [];
-    const toolResults = input.messages.filter(message => message.role === "tool").map(message => JSON.stringify(message.content));
-    const system = input.messages.filter(message => message.role === "system").map(message => JSON.stringify(message.content)).join(" ");
-    const users = input.messages.filter(message => message.role === "user").map(message => JSON.stringify(message.content));
-    if (tools.length) modelRequests.push({ tools, toolDefinitions: JSON.stringify(input.tools), toolResults, system, users });
-    const morning = input.messages.some(message => message.role === "user" && JSON.stringify(message.content).includes("every morning"));
-    const callTool = tools.length > 0 && toolResults.length < (morning ? 2 : 1);
-    const call = morning
-      ? toolResults.length === 0
-        ? { name: "legalwork_schedule_clock", arguments: "{}" }
-        : { name: "legalwork_schedule_create", arguments: JSON.stringify({ title: "Morning deadlines", prompt: "Review this project's deadlines.", schedule: { kind: "rrule", startAt: "2026-10-25T06:00:00", rrule: "FREQ=DAILY" } }) }
-      : { name: "legalwork_schedule_project_read", arguments: JSON.stringify({ projectId: "other", kind: "sessions", id: sourceSessionId }) };
-    // Let the live engine clock advance before its next model step.
-    if (callTool && call.name === "legalwork_schedule_clock") await Bun.sleep(1100);
-    const delta = callTool ? { tool_calls: [{ index: 0, id: "call_fixture", type: "function", function: call }] } : { content: "Finished the fixture check." };
-    const chunk = (delta: unknown, finish_reason: string | null) => `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
-    return new Response(chunk({ role: "assistant", ...delta }, null) + chunk({}, callTool ? "tool_calls" : "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
-  } });
-  const reservation = Bun.serve({ port: 0, fetch: () => new Response() }), port = reservation.port;
-  reservation.stop(true);
-  const config = join(root, "config.json");
-  await writeFile(config, JSON.stringify({
-    enabled_providers: ["fixture"], model: "fixture/fixture", small_model: "fixture/fixture", share: "disabled", autoupdate: false,
-    provider: { fixture: { npm: "@ai-sdk/openai-compatible", name: "Fixture", options: { baseURL: fixture.url.origin + "/v1", apiKey: "fixture" }, models: { fixture: { name: "Fixture", limit: { context: 100000, output: 4000 } } } } },
-    plugin: ["legalwork-scheduled-task-tools", "legalwork-extensions-preview"].map(name => pathToFileURL(join(import.meta.dir, `../../dist/opencode-plugins/${name}.js`)).href),
-    permission: { "*": "allow" }, lsp: false, formatter: false,
-    agent: { [PROJECT_TASK_AGENT]: { mode: "primary", hidden: true, permission: projectTaskPermissions() }, [ALL_PROJECTS_TASK_AGENT]: { mode: "primary", hidden: true, permission: allProjectTaskPermissions() } },
-  }));
-  const discovery = join(root, "ui-bridge.json");
-  await writeFile(discovery, JSON.stringify({ baseUrl: fixture.url.origin, token: "fixture" }));
-  const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: folder, env: {
-    ...process.env, XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"),
-    XDG_STATE_HOME: join(root, "state"), OPENCODE_TEST_HOME: root, OPENCODE_CONFIG: config, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-    LEGALWORK_UI_CONTROL_DISCOVERY: discovery, LEGALWORK_SERVER_URL: fixture.url.origin, [WIKI_AGENT_TICKET_ENV]: "synthetic-ticket", TZ: "Europe/Berlin",
-  }, stdout: "ignore", stderr: "pipe" });
-  const logs = new Response(engine.stderr).text();
-  const base = `http://127.0.0.1:${port}`;
-  try {
-    let ready = false;
-    const startupDeadline = Date.now() + 20000;
-    while (Date.now() < startupDeadline) {
-      try { ready = (await fetch(base + "/global/health", { signal: AbortSignal.timeout(1000) })).ok; } catch { /* Startup. */ }
-      if (ready || engine.exitCode !== null) break;
-      await Bun.sleep(100);
+    if (path === "/workspace/other/project/content" && transcriptSources) {
+      sourceReads.push(path);
+      return Response.json(await readProjectContent(transcriptSources, Object.fromEntries(url.searchParams)));
     }
-    if (!ready) throw new Error("Engine did not start: " + (engine.exitCode !== null ? await logs : "timed out"));
-    // LAWOSS: global health does not initialize a directory's instance; the first
-    // directory-scoped request does, cold. Await both instances under their own
-    // startup deadline so the 10s limits below bound only the operations.
-    const instanceDeadline = Date.now() + 90000;
-    for (const directory of [otherFolder, folder]) {
-      const response = await fetch(`${base}/mcp?directory=${encodeURIComponent(directory)}`, { signal: AbortSignal.timeout(Math.max(1, instanceDeadline - Date.now())) });
-      expect(response.status).toBe(200);
-      z.record(z.string(), z.unknown()).parse(await response.json());
-    }
-    const client = createOpencodeClient({ baseUrl: base, directory: otherFolder });
-    // Health only confirms the listener. The first request in each directory
-    // also loads plugins and installs their dependencies on a cold CI runner.
-    // Finish that read-only bootstrap before applying the 10s write deadline.
-    for (const directory of [otherFolder, folder]) {
-      try {
-        await client.app.agents({ directory }, { throwOnError: true, signal: AbortSignal.timeout(60_000) });
-      } catch (error) {
-        engine.kill("SIGKILL");
-        await engine.exited;
-        throw new Error(`Engine bootstrap failed for ${directory}: ${await logs}`, { cause: error });
+    const input = requestSchema.parse(await request.json());
+    const tools = input.tools?.map(tool => tool.name) ?? [];
+    const primary = tools.includes("execute");
+    if (primary) modelRequests.push({
+      tools, definitions: JSON.stringify(input.tools),
+      results: input.input.filter(item => item.type === "function_call_output").map(item => String(item.output)),
+      system: [input.instructions, ...input.input.filter(item => item.role === "system" || item.role === "developer").map(item => JSON.stringify(item.content))].filter(Boolean).join("\n"),
+      users: input.input.filter(item => item.role === "user").map(item => JSON.stringify(item.content)),
+    });
+    let code: string | undefined;
+    if (primary && scenario !== "followup") {
+      if (scenario === "morning") {
+        if (stage === 0) {
+          await Bun.sleep(1100); // Verify the on-demand clock can advance beyond admission.
+          code = `${catalogCode} return {catalog:names, clock:await tools.legalwork_schedule_clock({})};`;
+        } else if (stage === 1) {
+          code = 'return await tools.legalwork_schedule_create({title:"Morning deadlines",prompt:"Review this project deadlines.",schedule:{kind:"rrule",startAt:"2026-10-25T06:00:00",rrule:"FREQ=DAILY"}});';
+        }
+      } else if (stage === 0) {
+        code = `${catalogCode} return {catalog:names, source:await tools.legalwork_schedule_project_read({projectId:"other",kind:"sessions",id:${JSON.stringify(sourceSessionId)}})};`;
       }
+      stage++;
     }
-    const { data: sourceSession } = await client.session.create({ title: "Other project chat" }, { throwOnError: true, signal: AbortSignal.timeout(10000) });
+    const id = `resp_fixture_${++responseId}`;
+    const item = code
+      ? { type: "function_call", id: `fc_${responseId}`, call_id: `call_${responseId}`, name: "execute", arguments: JSON.stringify({ code }), status: "completed" }
+      : { type: "message", id: `msg_${responseId}`, role: "assistant", content: [{ type: "output_text", text: "Finished the fixture check." }], status: "completed" };
+    const events = [
+      { type: "response.created", response: { id, status: "in_progress", output: [] } },
+      { type: "response.output_item.added", output_index: 0, item: code ? { ...item, arguments: "" } : item },
+      ...(code ? [
+        { type: "response.function_call_arguments.delta", item_id: item.id, output_index: 0, delta: item.arguments },
+        { type: "response.function_call_arguments.done", item_id: item.id, output_index: 0, arguments: item.arguments },
+      ] : []),
+      { type: "response.output_item.done", output_index: 0, item },
+      { type: "response.completed", response: { id, status: "completed", output: [item], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } },
+    ];
+    return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+  } });
+  let child: ReturnType<typeof spawn> | undefined;
+  let exited: Promise<unknown> | undefined;
+  let logs = "";
+  try {
+    const plugins: string[] = [];
+    for (const name of ["legalwork-scheduled-task-tools", "legalwork-extensions-preview"]) {
+      const outdir = join(root, "plugins", name);
+      await mkdir(outdir, { recursive: true });
+      // Build in a clean Bun process: the test runner's loaded schema modules can
+      // otherwise collide with Bun's in-process bundler cache.
+      const build = Bun.spawn([process.execPath, "build", resolve(import.meta.dir, "../opencode-plugins", `${name}.ts`), "--outfile", join(outdir, "index.mjs"), "--target", "node", "--format", "esm", "--external", "@opencode/plugin", "--external", "@opencode/plugin/*", "--external", "effect", "--external", "effect/*"], { stdout: "pipe", stderr: "pipe" });
+      const [code, output, errors] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+      if (code !== 0) throw new Error(`Plugin build failed: ${output}\n${errors}`);
+      plugins.push(outdir);
+    }
+    const discovery = join(root, "ui-bridge.json");
+    await writeFile(discovery, JSON.stringify({ baseUrl: fixture.url.origin, token }));
+    const engineConfig = {
+      plugins, model: "openai/fixture", share: "disabled", update: "disable",
+      providers: { openai: { settings: { baseURL: `${fixture.url.origin}/v1`, apiKey: "fixture", transport: "http" }, models: { fixture: { modelID: "fixture", limit: { context: 200000, output: 32000 }, capabilities: { tools: true } } } } },
+      permissions: nativePermissions("allow"),
+      agents: {
+        [PROJECT_TASK_AGENT]: { mode: "primary", hidden: true, permissions: projectTaskPermissions() },
+        [ALL_PROJECTS_TASK_AGENT]: { mode: "primary", hidden: true, permissions: allProjectTaskPermissions([{ action: "*", resource: "*", effect: "allow" }]) },
+        legalwork: { mode: "primary", permissions: nativePermissions("allow") },
+      },
+    };
+    const password = randomBytes(32).toString("hex");
+    const running = spawn(binary, ["serve", "--hostname", "127.0.0.1", "--port", "0"], { cwd: folder, env: {
+      PATH: process.env.PATH, HOME: join(root, "home"), USERPROFILE: join(root, "home"), TMPDIR: join(root, "tmp"), LANG: "en_US.UTF-8", TZ: "Europe/Berlin",
+      XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
+      OPENCODE_CONFIG_DIR: join(root, "config"), OPENCODE_DB: join(root, "data", "engine.db"), OPENCODE_PASSWORD: password, OPENCODE_CONFIG_CONTENT: JSON.stringify(engineConfig),
+      OPENCODE_CONFIG_PROJECT_DISABLE: "1", OPENCODE_DISABLE_CLAUDE_CODE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1",
+      LEGALWORK_UI_CONTROL_DISCOVERY: discovery, LEGALWORK_SERVER_URL: fixture.url.origin, [WIKI_AGENT_TICKET_ENV]: "synthetic-ticket",
+    }, stdio: ["ignore", "pipe", "pipe"] });
+    child = running;
+    exited = new Promise(resolve => running.once("exit", resolve));
+    running.stdout.on("data", data => logs += data);
+    running.stderr.on("data", data => logs += data);
+    let base: string | undefined;
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline) {
+      base = /^server listening on (https?:\/\/[^\s]+)/m.exec(logs)?.[1];
+      if (base) break;
+      if (running.exitCode !== null) throw new Error(`Engine exited: ${logs}`);
+      await Bun.sleep(30);
+    }
+    if (!base) throw new Error(`Engine did not start: ${logs}`);
+    const client = OpenCode.make({ baseUrl: base, headers: { authorization: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}` } });
+    // Match scheduledRunner.send: model discovery awaits native plugin activation;
+    // agent metadata alone can return before configured agents are registered.
+    for (const directory of [otherFolder, folder]) await client.model.list({ location: { directory } }, { signal: AbortSignal.timeout(15000) });
+    const empty = await client.session.create({ location: { directory: otherFolder }, title: "Other project chat" });
+    await client.session.remove({ sessionID: empty.id });
+    const sourceSession = await client.session.import({ info: empty, location: { directory: otherFolder }, messages: Array.from({ length: 23 }, (_, index) => ({ type: "user", id: `msg_source_${index}`, time: { created: index + 1 }, text: `Source message ${index}: Continue the contract review.` })) });
     sourceSessionId = sourceSession.id;
-    for (let i = 0; i < 23; i++) await client.session.prompt({ sessionID: sourceSession.id, noReply: true, parts: [{ type: "text", text: `Source message ${i}: Continue the contract review.` }] }, { throwOnError: true, signal: AbortSignal.timeout(10000) });
     transcriptSources = {
       workspace: { id: "other", name: "Other", path: otherFolder, preset: "default", workspaceType: "local" }, tasks, orgId: null, scope: "owner",
       sessions: async () => [],
-      session: async id => (await client.session.get({ sessionID: id }, { throwOnError: true, signal: AbortSignal.timeout(10000) })).data,
-      sessionMessages: async (id, limit, before) => { const result = await client.session.messages({ sessionID: id, limit, before }, { throwOnError: true, signal: AbortSignal.timeout(10000) }); return { messages: result.data, nextBefore: result.response.headers.get("x-next-cursor") }; },
+      session: id => client.session.get({ sessionID: id }),
+      sessionMessages: async (id, limit, before) => {
+        const page = await client.message.list({ sessionID: id, limit, ...(before ? { cursor: before } : { order: "desc" }) });
+        return { sessionID: id, messages: [...page.data].reverse(), nextBefore: page.cursor.next ?? null };
+      },
     };
     const recent = await readProjectContent(transcriptSources, { kind: "sessions", id: sourceSession.id });
     expect(recent.content).toContain("Source message 22");
     expect(recent.content).not.toContain("Source message 0:");
     expect(recent.nextBefore).not.toBeNull();
     const older = await readProjectContent(transcriptSources, { kind: "sessions", id: sourceSession.id, before: recent.nextBefore });
-    expect(older.content).toContain("Source message 0:"); expect(older.nextBefore).toBeNull();
-    expect(recent.content.split("\n").length + older.content.split("\n").length).toBe(23);
-    const agentsResponse = await fetch(base + "/agent", { signal: AbortSignal.timeout(10000) });
-    const agents = z.array(z.object({ name: z.string(), permission: z.array(z.object({ permission: z.string(), pattern: z.string(), action: z.enum(["allow", "deny", "ask"]) })) })).parse(await agentsResponse.json());
-    expect(hasProjectTaskBoundary(agents.find(agent => agent.name === PROJECT_TASK_AGENT)), JSON.stringify(agents.find(agent => agent.name === PROJECT_TASK_AGENT)?.permission.slice(-20))).toBe(true);
-    for (const agent of [PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, "build"]) {
+    expect(older.content).toContain("Source message 0:");
+    // Native cursors can point to a final empty page; follow the cursor instead
+    // of assuming a short page means the engine has omitted history.
+    const end = await readProjectContent(transcriptSources, { kind: "sessions", id: sourceSession.id, before: older.nextBefore });
+    expect(end.nextBefore).toBeNull();
+    expect(end.content).toBe("");
+    expect([recent.content, older.content, end.content].flatMap(text => text.split("\n").filter(Boolean))).toHaveLength(23);
+    const agents = (await client.agent.list({ location: { directory: folder } })).data;
+    const projectAgent = agents.find(agent => agent.id === PROJECT_TASK_AGENT);
+    expect(hasProjectTaskBoundary(projectAgent), JSON.stringify({ projectAgent, availableAgentIds: agents.map(agent => agent.id) })).toBe(true);
+    for (const agent of [PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, "legalwork"]) {
+      scenario = agent === PROJECT_TASK_AGENT ? "project" : agent === ALL_PROJECTS_TASK_AGENT ? "all" : "morning";
+      stage = 0;
       const requestStart = modelRequests.length;
-      const session = z.object({ id: z.string() }).parse(await (await fetch(base + "/session", { method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(10000) })).json());
-      const response = await fetch(`${base}/session/${session.id}/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent, model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: agent === "build" ? "Remind me of this project's deadlines every morning." : "Run the scope fixture." }] }), signal: AbortSignal.timeout(25000) });
-      const result = await response.text();
-      expect(response.status, result).toBe(200);
+      const session = await client.session.create({ location: { directory: folder }, title: "Scheduling fixture", agent, model: { providerID: "openai", id: "fixture" } });
+      await client.session.prompt({ sessionID: session.id, text: scenario === "morning" ? "Remind me of this project's deadlines every morning." : "Run the scope fixture." });
+      await client.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(25000) });
       const requests = modelRequests.slice(requestStart), first = requests[0], last = requests.at(-1);
-      expect(first?.tools).toContain("legalwork_schedule_project_read");
-      expect(first?.tools).toContain("legalwork_schedule_clock");
-      expect(first?.users.join(" ")).toContain('topic=\\"scheduling-clock\\"');
+      expect(first?.tools).toContain("execute");
+      expect(first?.users.join(" ")).toContain("scheduling-clock");
       expect(first?.users.join(" ")).toContain("time zone Europe/Berlin");
       expect(first?.system).not.toContain("Scheduling clock at the start of this user turn");
       expect(last?.system).toBe(first?.system);
-      expect(last?.toolDefinitions).toBe(first?.toolDefinitions);
+      expect(last?.definitions).toBe(first?.definitions);
       expect(last?.users).toEqual(first?.users);
-      if (agent !== "build") {
-        expect(first?.tools).not.toContain("legalwork_ui_execute_action");
-        expect(first?.tools).not.toContain("legalwork_ui_snapshot");
-        expect(first?.tools).not.toContain("legalwork_ui_list_actions");
-      }
-      if (agent === "build") {
-        expect(first?.tools).toContain("legalwork_schedule_create");
+      const output = z.object({ catalog: z.array(z.string()) }).passthrough().parse(JSON.parse(last?.results[0] ?? "null"));
+      expect(output.catalog).toContain("tools.legalwork_schedule_project_read");
+      expect(output.catalog).toContain("tools.legalwork_schedule_clock");
+      if (agent !== "legalwork") for (const name of ["legalwork_ui_execute_action", "legalwork_ui_snapshot", "legalwork_ui_list_actions"]) expect(output.catalog).not.toContain(`tools.${name}`);
+      if (agent === "legalwork") {
+        expect(output.catalog).toContain("tools.legalwork_schedule_create");
         expect(requests).toHaveLength(3);
-        expect(last?.toolResults.join(" ")).toContain("currentTime");
-        expect(last?.toolResults.join(" ")).toContain("Europe/Berlin");
+        expect(last?.results.join(" ")).toContain("currentTime");
+        expect(last?.results.join(" ")).toContain("Europe/Berlin");
         expect(first?.system).toContain("Do not ask the user for their time zone");
         expect(first?.system).toContain("use 06:00, starting at the next future morning");
         expect(created).toHaveLength(1);
-        expect(created[0]).toMatchObject({ sessionId: session.id, reuseChat: true, projectAccess: "project", model: { providerID: "fixture", modelID: "fixture" }, schedule: { timeZone: "Europe/Berlin", startAt: "2026-10-25T06:00:00" } });
-        expect(last?.toolResults.join(" ")).toContain("2026-10-25T05:00:00.000Z");
-        const followUp = await fetch(`${base}/session/${session.id}/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent, model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: "Continue." }] }), signal: AbortSignal.timeout(25000) });
-        expect(followUp.status, await followUp.text()).toBe(200);
+        expect(created[0]).toMatchObject({ sessionId: session.id, reuseChat: true, projectAccess: "project", model: { providerID: "openai", modelID: "fixture" }, schedule: { timeZone: "Europe/Berlin", startAt: "2026-10-25T06:00:00" } });
+        expect(last?.results.join(" ")).toContain("2026-10-25T05:00:00.000Z");
+        scenario = "followup";
+        await client.session.prompt({ sessionID: session.id, text: "Continue." });
+        await client.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(25000) });
         const next = modelRequests.at(-1);
         expect(next?.system).toBe(first?.system);
-        expect(next?.toolDefinitions).toBe(first?.toolDefinitions);
+        expect(next?.definitions).toBe(first?.definitions);
         expect(next?.users.slice(0, first.users.length)).toEqual(first.users);
-        expect(next?.users.at(-1)).toContain('topic=\\"scheduling-clock\\"');
+        expect(next?.users.at(-1)).toContain("scheduling-clock");
         expect(next?.users.at(-1)).not.toBe(first.users.at(-1));
       } else if (agent === PROJECT_TASK_AGENT) {
-        expect(first?.tools).not.toContain("bash"); expect(first?.tools).not.toContain("read"); expect(first?.tools).not.toContain("task");
-        expect(last?.toolResults.join(" ")).toContain("cannot access that project"); expect(sourceReads).toEqual([]);
+        for (const name of ["shell", "read", "subagent"]) { expect(output.catalog).not.toContain(`tools.${name}`); expect(first?.tools).not.toContain(name); }
+        expect(last?.results.join(" ")).toContain("cannot access that project");
+        expect(sourceReads).toEqual([]);
       } else {
-        expect(first?.tools).toContain("bash"); expect(last?.toolResults.join(" ")).toContain("Source message 22");
+        expect(first?.tools).toContain("shell");
+        expect(last?.results.join(" ")).toContain("Source message 22");
         expect(sourceReads).toEqual(["/workspace/other/project/content"]);
       }
     }
@@ -192,6 +239,15 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
     expect(documentReads).toBeGreaterThan(0);
     expect(serverAuth.length).toBeGreaterThan(0);
     expect(serverAuth.every(entry => entry.authorization === null && Boolean(entry.session))).toBe(true);
-  } finally { engine.kill("SIGKILL"); await engine.exited; fixture.stop(true); await rm(root, { recursive: true, force: true }); }
-  // 20s engine start + 90s cold instances + the bounded operations above.
-}, 180000);
+  } catch (error) {
+    throw new Error("Native scheduled-task fixture failed", { cause: error });
+  } finally {
+    if (child) {
+      child.kill("SIGTERM");
+      await Promise.race([exited, Bun.sleep(3000)]);
+      if (child.exitCode === null && child.signalCode === null) { child.kill("SIGKILL"); await exited; }
+    }
+    fixture.stop(true);
+    await rm(root, { recursive: true, force: true });
+  }
+}, 90000);

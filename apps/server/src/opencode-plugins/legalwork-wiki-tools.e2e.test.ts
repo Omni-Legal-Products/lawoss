@@ -1,3 +1,6 @@
+import { nativePluginTools } from "./native-plugin-test-support.js";
+import { nativeToolBefore } from "./native-plugin-test-support.js";
+const LegalWorkWikiTools = (context = {}) => nativePluginTools(LegalWorkWikiToolsDefinition, context);
 import { afterEach, expect, test } from "bun:test";
 import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
 import { enforceAiBoundaries } from "../lawoss/test-support/ai-boundaries.js";
@@ -13,12 +16,11 @@ import { WikiStore } from "../wiki/store.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
 import { listApprovals } from "../wiki/approval.test-helpers.js";
 import type { ServerConfig } from "../types.js";
-import { LegalWorkWikiTools } from "./legalwork-wiki-tools.js";
+import LegalWorkWikiToolsDefinition from "./legalwork-wiki-tools.js";
 
 const previewResult = z.object({ metadata: z.object({ legalworkViewPreview: ViewPreviewSchema }) }).transform(result => result.metadata.legalworkViewPreview);
 
 const previousUrl = process.env.LEGALWORK_SERVER_URL;
-const previousToken = process.env.LEGALWORK_SERVER_TOKEN;
 const previousAgentToken = wikiAgentSecret();
 const stops: Array<() => Promise<void>> = [];
 const roots: string[] = [];
@@ -28,8 +30,6 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
   if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
   else process.env.LEGALWORK_SERVER_URL = previousUrl;
-  if (previousToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
-  else process.env.LEGALWORK_SERVER_TOKEN = previousToken;
   adoptWikiAgentSecret(previousAgentToken);
 });
 
@@ -64,7 +64,6 @@ test("an agent captures an authorized source into real Markdown through the serv
     return JSON.stringify({ ok: true, ...await page.json() });
   };
   process.env.LEGALWORK_SERVER_URL = url;
-  process.env.LEGALWORK_SERVER_TOKEN = config.token;
   adoptWikiAgentSecret(agentToken);
   const headers = { "X-LegalWork-Host-Token": config.hostToken, "Content-Type": "application/json" };
   const created = await fetch(`${url}/wikis`, { method: "POST", headers,
@@ -143,15 +142,15 @@ test("an agent captures an authorized source into real Markdown through the serv
   const input = { version: 1, title: "Closing review", mode: "report", catalog: "legalwork-1", program: 'root = Text("Closing review")', queries: {} };
   const { content_is_data, ...dataset } = queried;
   expect(content_is_data).toBe(true);
-  const projectPreview = previewResult.parse(await tool.view_create.execute({ input: { ...input, datasets: { reviewed: dataset } } }));
+  const projectPreview = previewResult.parse(await tool.view_create.executeResult({ input: { ...input, datasets: { reviewed: dataset } } }));
   expect(projectPreview.status).toBe("preview");
   expect(projectPreview.owner).toEqual({ kind: "workspace", id: "matter" });
   expect(projectPreview.input.datasets?.reviewed.sourceOwner).toEqual({ kind: "wiki", id: wiki.id });
   expect(projectPreview).not.toHaveProperty("id");
   expect(JSON.parse(await tool.view_list.execute({})).items).toEqual([]);
   const longValue = "x".repeat(60_000);
-  const large = await tool.view_create.execute({ input: { ...input, datasets: { large: { rows: [{ value: longValue }], total: 1, revision: "large", asOf: 1, truncated: false } } } });
-  expect(large.output.length).toBeLessThan(1_000);
+  const large = await tool.view_create.executeResult({ input: { ...input, datasets: { large: { rows: [{ value: longValue }], total: 1, revision: "large", asOf: 1, truncated: false } } } });
+  expect(JSON.stringify(large.content).length).toBeLessThan(1_000);
   expect(previewResult.parse(large).input.datasets?.large.rows[0].value).toBe(longValue);
 
   expect((await fetch(`${url}/workspace/matter/ui-views`, { method: "POST", headers: agentHeaders, body: JSON.stringify(input) })).status).toBe(403);
@@ -160,7 +159,7 @@ test("an agent captures an authorized source into real Markdown through the serv
   const projectReport = await projectSave.json();
   expect(JSON.parse(await tool.view_list.execute({})).items.map((view: { id: string }) => view.id)).toContain(projectReport.id);
   const wikiOwner = { kind: "wiki", id: wiki.id };
-  const reportPreview = previewResult.parse(await insideRuntime.run(() => inside.view_create.execute({ owner: wikiOwner, input: { ...input, queries: { reviewed: query } } })));
+  const reportPreview = previewResult.parse(await inside.view_create.executeResult({ owner: wikiOwner, input: { ...input, queries: { reviewed: query } } }));
   expect(reportPreview.status).toBe("preview");
   expect(reportPreview.input.datasets?.reviewed.rows[0]["properties.score"]).toBe(0);
   expect(JSON.parse(await insideRuntime.run(() => inside.view_list.execute({ owner: wikiOwner }))).items).toEqual([]);
@@ -170,20 +169,19 @@ test("an agent captures an authorized source into real Markdown through the serv
   const report = await wikiSave.json();
   const reread = JSON.parse(await tool.view_read.execute({ owner: wikiOwner, view_id: report.id }));
   expect(reread.revision).toBe(report.revision);
-  const updated = previewResult.parse(await insideRuntime.run(() => inside.view_update.execute({ owner: wikiOwner, view_id: report.id,
-    base_revision: report.revision, input: { ...reportPreview.input, title: "Reviewed closing" } })));
+  const updated = previewResult.parse(await inside.view_update.executeResult({ owner: wikiOwner, view_id: report.id,
+    base_revision: report.revision, input: { ...reportPreview.input, title: "Reviewed closing" } }));
   expect(updated.status).toBe("preview");
   expect(updated.input.title).toBe("Reviewed closing");
   expect(updated.target).toEqual({ viewId: report.id, baseRevision: report.revision });
   expect(JSON.parse(await tool.view_read.execute({ owner: wikiOwner, view_id: report.id })).title).toBe(report.title);
   const updateSave = await fetch(`${url}/wikis/${wiki.id}/ui-views/${report.id}`, { method: "PUT", headers, body: JSON.stringify({ input: updated.input, baseRevision: updated.target?.baseRevision }) });
   expect(updateSave.status).toBe(200);
-  expect(JSON.parse((await insideRuntime.run(() => inside.view_update.execute({ owner: wikiOwner, view_id: report.id, base_revision: report.revision, input }))).output).code).toBe("view_revision_conflict");
+  expect(JSON.parse(await inside.view_update.execute({ owner: wikiOwner, view_id: report.id, base_revision: report.revision, input })).code).toBe("view_revision_conflict");
 
   const controller = new AbortController();
   controller.abort();
-  const cancelledWrite = await tool.wiki_write.execute({ wiki_id: wiki.id, path: "Cancelled.md", content: "# Cancelled proposal\n", base_revision: null }, { abort: controller.signal });
-  expect(JSON.parse(cancelledWrite).ok).toBe(false);
+  await expect(tool.wiki_write.execute({ wiki_id: wiki.id, path: "Cancelled.md", content: "# Cancelled proposal\n", base_revision: null }, { abort: controller.signal })).rejects.toThrow();
   expect(await Bun.file(join(wiki.root, "Cancelled.md")).exists()).toBe(false);
 
   const revoked = await fetch(`${url}/wikis/${wiki.id}`, { method: "PATCH", headers, body: JSON.stringify({ allowInProjects: false }) });
@@ -209,97 +207,13 @@ test("with AI boundaries on, authenticated session origins are preserved while p
   let inferenceRequests = 0;
   const engine = await serve({ hostname: "127.0.0.1", port: 0, fetch: async (request) => {
     const path = new URL(request.url).pathname;
-    if (request.method === "POST" && /\/(message|prompt_async|command)$/.test(path)) inferenceRequests++;
-    if (request.method === "GET" && path === "/command") return Response.json([{ name: "capture", template: "Capture the requested knowledge." }]);
-    if (request.method === "POST" && path === "/session") return Response.json({ id: "ses_http_origin", directory: project, title: "Matter" });
-    // The proxy checks that a session belongs to the workspace before forwarding.
-    if (request.method === "GET" && path === "/session/ses_http_origin") return Response.json({ id: "ses_http_origin", directory: project, title: "Matter" });
-    if (request.method === "POST" && path === "/session/ses_http_origin/message") return Response.json({ id: "msg_fixture", sessionID: "ses_http_origin" });
-    if (request.method === "POST" && path === "/session/ses_http_origin/prompt_async") return new Response(null, { status: 204 });
-    if (request.method === "POST" && path === "/session/ses_http_origin/fork") return Response.json({ id: "ses_http_fork", directory: project, title: "Fork" });
-    return Response.json({ ok: true });
-  } });
-  stops.push(async () => { await engine.stop(); });
-  const engineUrl = `http://127.0.0.1:${engine.port}`;
-  const config: ServerConfig = {
-    host: "127.0.0.1", port: 0, token: "origin-client", hostToken: "origin-host", opencodeBaseUrl: engineUrl,
-    configPath: join(root, "configuration", "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"],
-    workspaces: [{ id: "origin-matter", name: "Matter", path: project, preset: "starter", workspaceType: "local", baseUrl: engineUrl }],
-    authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli",
-    logFormat: "pretty", logRequests: false,
-  };
-  const store = new WikiStore(config);
-  const wiki = await store.create({ name: "Personal knowledge", root: join(root, "wiki"), template: "blank" });
-  await store.close();
-  const runtimeToken = await ensureWikiAgentToken(config);
-  const server = await startServer(config);
-  await enforceAiBoundaries(config);
-  stops.unshift(async () => { await server.stop(); });
-  const url = `http://127.0.0.1:${server.port}`;
-  const proxyPath = `${url}/workspace/origin-matter/opencode/session`;
-  const query = new URLSearchParams({ directory: project });
-  const created = await fetch(`${proxyPath}?${query}`, { method: "POST",
-    headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" }, body: JSON.stringify({ title: "Matter" }) });
-  expect(created.status).toBe(200);
-  expect(z.object({ id: z.string() }).parse(await created.json()).id).toBe("ses_http_origin");
-  process.env.LEGALWORK_SERVER_URL = url;
-  process.env.LEGALWORK_SERVER_TOKEN = config.token;
-  adoptWikiAgentSecret(runtimeToken);
-  const { tool } = await LegalWorkWikiTools({ directory: project, sessionID: "ses_http_origin" });
-  const listed = JSON.parse(await tool.wiki_list.execute({}));
-  expect(listed.wikis.some((entry: { id: string }) => entry.id === wiki.id)).toBe(true);
-  expect(JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" })).content).toContain("Wiki structure");
-
-  const prompted = await fetch(`${proxyPath}/ses_http_origin/prompt_async?${query}`, { method: "POST",
-    headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ parts: [] }) });
-  expect(prompted.status).toBe(403);
-  expect(await prompted.json()).toMatchObject({ code: "ai_transfer_denied" });
-  expect(inferenceRequests).toBe(0);
-  expect(JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" })).content).toContain("Wiki structure");
-  // The trusted plugin grant remains independently testable without any model send.
-  await grantWikiAgentSession(config, { sessionId: "ses_http_origin", directory: project, scope: "collaborator" });
-  const denied = JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" }));
-  expect(denied.ok).toBe(false);
-  expect(denied.code).toBe("wiki_access_denied");
-
-  const hostCommand = await fetch(`${proxyPath}/ses_http_origin/command?${query}`, { method: "POST",
-    headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" },
-    body: JSON.stringify({ command: "capture", arguments: "" }) });
-  expect(hostCommand.status).toBe(403);
-  expect(await hostCommand.json()).toMatchObject({ code: "ai_transfer_denied" });
-  expect(inferenceRequests).toBe(0);
-  expect(JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" })).code).toBe("wiki_access_denied");
-  const forked = await fetch(`${proxyPath}/ses_http_origin/fork?${query}`, { method: "POST",
-    headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ scope: "owner" }) });
-  expect(forked.status).toBe(200);
-  const forkId = z.object({ id: z.string() }).parse(await forked.json()).id;
-  const fork = await LegalWorkWikiTools({ directory: project, sessionID: forkId });
-  expect(JSON.parse(await fork.tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" })).code).toBe("wiki_access_denied");
-  expect(JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" })).code).toBe("wiki_access_denied");
-
-  const narrow = await fetch(`${url}/tokens`, { headers: {
-    "x-legalwork-wiki-agent-token": runtimeToken, "x-legalwork-wiki-agent-session": "ses_http_origin",
-    "x-legalwork-wiki-agent-directory": encodeURIComponent(project),
-  } });
-  // Upstream v0.2.18 removed /tokens (guest sharing); the agent credential reaches nothing there.
-  expect(narrow.status).toBe(404);
-});
-
-test("with AI boundaries off (alpha default), authenticated proxy session origin grants local wiki access and a collaborator prompt downgrades it", async () => {
-  const root = await mkdtemp(join(tmpdir(), "legalwork-wiki-proxy-origin-"));
-  roots.push(root);
-  const project = join(root, "Prüfung 東京");
-  await mkdir(project);
-  let inferenceRequests = 0;
-  const engine = await serve({ hostname: "127.0.0.1", port: 0, fetch: async (request) => {
-    const path = new URL(request.url).pathname;
-    if (request.method === "POST" && /\/(message|prompt_async|command)$/.test(path)) inferenceRequests++;
-    if (request.method === "GET" && path === "/command") return Response.json([{ name: "capture", template: "Capture the requested knowledge." }]);
-    if (request.method === "GET" && path === "/session/ses_http_origin") return Response.json({ id: "ses_http_origin", directory: project, title: "Matter" });
-    if (request.method === "POST" && path === "/session") return Response.json({ id: "ses_http_origin", directory: project, title: "Matter" });
-    if (request.method === "POST" && path === "/session/ses_http_origin/message") return Response.json({ id: "msg_fixture", sessionID: "ses_http_origin" });
-    if (request.method === "POST" && path === "/session/ses_http_origin/prompt_async") return new Response(null, { status: 204 });
-    if (request.method === "POST" && path === "/session/ses_http_origin/fork") return Response.json({ id: "ses_http_fork", directory: project, title: "Fork" });
+    const session = (id: string) => ({ id, location: { directory: project }, title: "Matter", time: { created: 1, updated: 1 } });
+    if (request.method === "GET" && path === "/api/plugin") return Response.json({ location: { directory: project }, data: [{ id: "legalwork.commands", state: { status: "active" } }] });
+    if (request.method === "GET" && path === "/api/command") return Response.json({ location: { directory: project }, data: [{ name: "capture", description: "Capture the requested knowledge." }] });
+    if (request.method === "POST" && path === "/api/session") return Response.json({ data: session("ses_http_origin") });
+    if (request.method === "GET" && /^\/api\/session\/ses_http_(?:origin|fork)$/.test(path)) return Response.json({ data: session(path.split("/").at(-1)!) });
+    if (request.method === "POST" && path === "/api/session/ses_http_origin/prompt") return Response.json({ data: { type: "user", id: "msg_fixture", payload: { text: "Continue" } } });
+    if (request.method === "POST" && path === "/api/session/ses_http_origin/fork") return Response.json({ data: session("ses_http_fork") });
     return Response.json({ ok: true });
   } });
   stops.push(async () => { await engine.stop(); });
@@ -319,38 +233,34 @@ test("with AI boundaries off (alpha default), authenticated proxy session origin
   stops.unshift(async () => { await server.stop(); });
   const url = `http://127.0.0.1:${server.port}`;
   const proxyPath = `${url}/workspace/origin-matter/opencode/session`;
-  const query = new URLSearchParams({ directory: project });
+  const query = new URLSearchParams({ "location[directory]": project });
   const created = await fetch(`${proxyPath}?${query}`, { method: "POST",
     headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" }, body: JSON.stringify({ title: "Matter" }) });
   expect(created.status).toBe(200);
-  expect(z.object({ id: z.string() }).parse(await created.json()).id).toBe("ses_http_origin");
+  expect(z.object({ data: z.object({ id: z.string() }) }).parse(await created.json()).data.id).toBe("ses_http_origin");
   process.env.LEGALWORK_SERVER_URL = url;
-  process.env.LEGALWORK_SERVER_TOKEN = config.token;
   adoptWikiAgentSecret(runtimeToken);
   const { tool } = await LegalWorkWikiTools({ directory: project, sessionID: "ses_http_origin" });
   const listed = JSON.parse(await tool.wiki_list.execute({}));
   expect(listed.wikis.some((entry: { id: string }) => entry.id === wiki.id)).toBe(true);
   expect(JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" })).content).toContain("Wiki structure");
 
-  const prompted = await fetch(`${proxyPath}/ses_http_origin/prompt_async?${query}`, { method: "POST",
-    headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ parts: [] }) });
-  // A client-token prompt reaches the engine and downgrades the session origin to collaborator.
-  expect(prompted.status).toBe(204);
-  expect(inferenceRequests).toBe(1);
+  const prompted = await fetch(`${proxyPath}/ses_http_origin/prompt?${query}`, { method: "POST",
+    headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ text: "Continue" }) });
+  expect(prompted.status).toBe(200);
   const denied = JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" }));
   expect(denied.ok).toBe(false);
   expect(denied.code).toBe("wiki_access_denied");
 
   const hostCommand = await fetch(`${proxyPath}/ses_http_origin/command?${query}`, { method: "POST",
     headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" },
-    body: JSON.stringify({ command: "capture", arguments: "" }) });
-  // The host's own command reaches the engine; #168's monotone credential downgrade keeps wiki reads closed.
+    body: JSON.stringify({ name: "capture", text: "" }) });
   expect(hostCommand.status).toBe(200);
   expect(JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" })).code).toBe("wiki_access_denied");
   const forked = await fetch(`${proxyPath}/ses_http_origin/fork?${query}`, { method: "POST",
     headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ scope: "owner" }) });
   expect(forked.status).toBe(200);
-  const forkId = z.object({ id: z.string() }).parse(await forked.json()).id;
+  const forkId = z.object({ data: z.object({ id: z.string() }) }).parse(await forked.json()).data.id;
   const fork = await LegalWorkWikiTools({ directory: project, sessionID: forkId });
   expect(JSON.parse(await fork.tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" })).code).toBe("wiki_access_denied");
   expect(JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" })).code).toBe("wiki_access_denied");

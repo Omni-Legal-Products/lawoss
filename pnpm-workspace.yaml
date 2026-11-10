@@ -1,6 +1,13 @@
 minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
-  - "@opencode-ai/sdk"
+  # Exact OpenCode v2 packages reviewed for the engine migration.
+  - "@opencode/client@2.1.4"
+  - "@opencode/plugin@2.1.4"
+  - "@opencode/plugin-browser@2.1.4"
+  - "@opencode/schema@2.1.4"
+  - "@opencode/protocol@2.1.4"
+  - "@opencode/ai@2.1.4"
+  - "@opencode/util@2.1.4"
   # Explicitly allow the reviewed Electron security update.
   - "electron@43.8.3"
   # Pinned standalone OpenUI runtime reviewed for the reversible wiki prototype.
@@ -62,5 +69,6 @@ patchedDependencies:
   '@eigenpal/docx-editor-agents@1.8.3': patches/@eigenpal__docx-editor-agents@1.8.3.patch
   '@eigenpal/docx-editor-core@1.8.3': patches/@eigenpal__docx-editor-core@1.8.3.patch
   '@eigenpal/docx-editor-react@1.8.3': patches/@eigenpal__docx-editor-react@1.8.3.patch
+  electron-updater@6.8.3: patches/electron-updater@6.8.3.patch
   pptx-react-viewer@3.5.4: patches/pptx-react-viewer@3.5.4.patch
   smb3-client@0.2.0: patches/smb3-client@0.2.0.patch

@@ -3,6 +3,8 @@ import { rm } from "node:fs/promises";
 import { startServer } from "../../server.js";
 import { closeOrgPolicyRuntime } from "../../org-policy.js";
 import { syntheticHostConfig } from "../test-support/host-config.js";
+import { nativeRow } from "../test-support/native-config.js";
+import { fakeProtectedGuest, guestSession } from "../test-support/protected-guest.js";
 
 test("the installed generation endpoint requires the native host and rejects browser supplied approval or foreign workspace authority", async () => {
   const {root, config} = await syntheticHostConfig();
@@ -35,8 +37,7 @@ test("HTTP queue admission routes only an owned protected chat through the docum
   const ocr = new OcrManager(join(root, "ocr")), preparation = new DocumentPreparation(ocr), documents = new LawossDocuments(config, preparation);
   const approvals = new ApprovalService(config.approval, async () => "allow");
   const measurement = {engineSha256: "a".repeat(64), runtimeManifestSha256: "b".repeat(64), pluginSha256: "c".repeat(64), configSha256: "d".repeat(64), launcherSha256: "e".repeat(64)};
-  const messages: unknown[] = [];
-  let receipt: "valid" | "foreign-parent" | "nonterminal" = "valid";
+  let receipt: "succeeded" | "foreign-message" | "nonterminal" = "succeeded";
   const {Database} = await import("bun:sqlite");
   const {readFile} = await import("node:fs/promises");
   const dbPath = join(root, "protocol-fixture.sqlite"), db = new Database(dbPath, {create: true});
@@ -44,36 +45,29 @@ test("HTTP queue admission routes only an owned protected chat through the docum
   const checkpointBytes = await readFile(dbPath);
   const {createHash} = await import("node:crypto");
   const checkpointHash = createHash("sha256").update(checkpointBytes).digest("hex");
-  let eventController: ReadableStreamDefaultController<Uint8Array> | undefined;
-  // Protocol-only constructor seam: proves real HTTP/queue routing, not VM safety.
+  // Protocol-only constructor seam (engine v2 guest): proves real HTTP/queue routing, not VM safety.
+  const guest = fakeProtectedGuest({sessionId: "ses_protectedQueue", checkpoint: {bytes: checkpointBytes, sha256: checkpointHash}, receipt: () => receipt});
+  const messages = guest.prompts;
   const runtime = new ProtectedDocumentRuntime({config, approvals, documents, getGuestBundle: async () => ({directory: root, emptyDirectory: root, measurements: measurement, currentBinding: async () => measurement}),
-    openEngine: async () => ({stop: async () => {eventController?.close();}, fetch: async request => {
-      const path = new URL(request.url).pathname;
-      if (path === "/_protected/checkpoint") return new Response(checkpointBytes, {headers: {"x-protected-sha256": checkpointHash}});
-      if (request.method === "GET" && ["/session/ses_protected_queue/message", "/session/ses_protected_queue/children", "/session/ses_protected_queue/todo"].includes(path)) return Response.json([]);
-      if (path === "/event") return new Response(new ReadableStream({start(controller) {eventController = controller;}}));
-      if (path === "/session/status") return Response.json({});
-      if (path === "/session" || path === "/session/ses_protected_queue") return Response.json({id: "ses_protected_queue", directory: "/tmp/home/protected-engine/workspace", title: "Synthetic", time: {created: 1, updated: 1}});
-      if (path === "/session/ses_protected_queue/message" && request.method === "POST") {const sent = await request.json() as {messageID: string}; messages.push(sent); return Response.json({info: {id: "msg_actual", role: "assistant", sessionID: "ses_protected_queue", parentID: receipt === "foreign-parent" ? "msg_foreign" : sent.messageID, ...(receipt !== "nonterminal" ? {finish: "stop", time: {created: 1, completed: 2}} : {})}, parts: [{type: "text", text: "ACTUAL-PROTOCOL-RESPONSE"}]});}
-      return new Response(null, {status: 204});
-    }})});
+    openEngine: async () => guest.engine});
   const release = registerProtectedRuntime(config, runtime);
   const server = await startServer(config);
   try {
     await mkdir(join(root, "case")); await writeFile(join(root, "case", "selected.txt"), "SYNTHETIC-QUEUE-SOURCE");
-    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: "http://127.0.0.1:47831/v1"}, models: {fixture: {}}}}}));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () =>nativeRow({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: "http://127.0.0.1:47831/v1"}, models: {fixture: {}}}}}));
     const [source] = await documents.prepare(workspace, ["case/selected.txt"]);
     for (let i = 0; i < 200; i++) {if ((await documents.list(workspace))[0]?.status === "readable") break; await Bun.sleep(10);}
     await runtime.open({workspaceId: workspace.id, caseDirectory: "case", providerId: "fixture", modelId: "fixture", sources: [{id: source.id, hash: source.hash}]}, AbortSignal.timeout(3000));
-    const endpoint = `http://127.0.0.1:${server.port}/workspace/synthetic/sessions/ses_protected_queue/queue`;
-    const execution = {kind: "prompt", model: {providerID: "fixture", modelID: "fixture"}, agent: "legalwork", variant: "high", parts: [{type: "text", text: "SYNTHETIC-QUEUED-PROMPT"}]};
+    const endpoint = `http://127.0.0.1:${server.port}/workspace/synthetic/sessions/ses_protectedQueue/queue`;
+    // Native v2 queued intent, as the application sends it.
+    const execution = {kind: "prompt", text: "SYNTHETIC-QUEUED-PROMPT", model: {providerID: "fixture", id: "fixture", variant: "high"}, agent: "legalwork"};
     const payload = {type: "enqueue", id: "114edff9-437d-45f1-85f0-66edab760a53", execution,
       draft: {mode: "prompt", text: "SYNTHETIC-QUEUED-PROMPT", parts: [], attachments: [], editor: {mentions: {}, pasteParts: []}}};
     const response = await fetch(endpoint, {method: "POST", headers: {"x-legalwork-host-token": config.hostToken!, "content-type": "application/json"}, body: JSON.stringify(payload)});
     expect({status: response.status, body: await response.json()}).toMatchObject({status: 200});
     for (let i = 0; i < 200 && !messages.length; i++) await Bun.sleep(10);
     expect(messages).toHaveLength(1);
-    expect(messages[0]).toMatchObject({messageID: "msg_114edff9437d45f185f066edab760a53", parts: execution.parts});
+    expect(messages[0]).toMatchObject({id: "msg_114edff9437d45f185f066edab760a53", text: "SYNTHETIC-QUEUED-PROMPT"});
     const shell = await fetch(endpoint, {method: "POST", headers: {"x-legalwork-host-token": config.hostToken!, "content-type": "application/json"}, body: JSON.stringify({...payload, id: "94b4490a-a836-4b5a-8888-7a96d2f05fab", execution: {kind: "shell", command: "pwd"}})});
     expect(shell.status).toBe(403);
     expect(await shell.json()).toMatchObject({code: "protected_prompt_invalid"});
@@ -82,7 +76,7 @@ test("HTTP queue admission routes only an owned protected chat through the docum
     let queue: {revision?: number; completedIds: string[]; entries: Array<{id: string; status: string}>} = {completedIds: [], entries: []};
     for (let i = 0; i < 200; i++) {queue = await (await fetch(endpoint, {headers})).json(); if (queue.completedIds.includes(payload.id)) break; await Bun.sleep(10);}
     expect(queue.completedIds).toContain(payload.id);
-    receipt = "foreign-parent";
+    receipt = "foreign-message";
     const foreignId = "9aa472c0-1d12-44aa-a778-c0d75946225e";
     expect((await fetch(endpoint, {method: "POST", headers, body: JSON.stringify({...payload, id: foreignId})})).status).toBe(200);
     for (let i = 0; i < 200; i++) {queue = await (await fetch(endpoint, {headers})).json(); if (queue.completedIds.includes(foreignId) || queue.entries.some(item => item.status === "uncertain")) break; await Bun.sleep(10);}
@@ -131,33 +125,24 @@ test.each([false, true])("HTTP admits a verified historical queue intent before 
   const dbPath = join(root, "owned-checkpoint.sqlite"), db = new Database(dbPath, {create: true});
   db.exec("CREATE TABLE protocol_fixture(value TEXT)"); db.close();
   const checkpoint = await readFile(dbPath), checkpointHash = createHash("sha256").update(checkpoint).digest("hex");
-  const sessionId = "ses_historical_queue";
+  const sessionId = "ses_historicalQueue";
   // Real HTTP/store/lifecycle, constructor-controlled engine protocol only.
   const makeRuntime = () => new ProtectedDocumentRuntime({config, approvals, documents,
     getGuestBundle: async () => ({directory: root, emptyDirectory: root, measurements: measurement, currentBinding: async () => measurement}),
     openEngine: async () => {
       opens++;
       if (opens > 1) {engineEntered(); await engineGate;}
-      let events: ReadableStreamDefaultController<Uint8Array> | undefined;
-      return {stop: async () => {events?.close();}, fetch: async request => {
-        const path = new URL(request.url).pathname;
-        if (path === "/event") return new Response(new ReadableStream<Uint8Array>({start(controller) {events = controller;}}));
-        if (path === "/_protected/checkpoint") return new Response(checkpoint, {headers: {"x-protected-sha256": checkpointHash}});
-        if (path === "/session/status") return Response.json({});
-        if (request.method === "GET" && /\/(message|children|todo)$/.test(path)) return Response.json([]);
-        if (request.method === "POST" && path.endsWith("/message")) {
-          const payload = await request.json() as {messageID: string}; sent++; messageEntered(); await messageGate;
-          return Response.json({info: {id: "msg_terminal", role: "assistant", sessionID: sessionId, parentID: payload.messageID, finish: "stop", time: {created: 1, completed: 2}}, parts: []});
-        }
-        return Response.json({id: sessionId, directory: "/tmp/home/protected-engine/workspace", title: "Retained actual identity"});
-      }};
+      return fakeProtectedGuest({sessionId, title: "Retained actual identity", checkpoint: {bytes: checkpoint, sha256: checkpointHash},
+        intercept: (request, path) => { if (request.method === "POST" && path.endsWith("/prompt")) sent++; return undefined; },
+        // The model response is held inside the guest turn until the test releases it.
+        beforeTerminal: async () => {messageEntered(); await messageGate;}}).engine;
     }});
   let runtime = makeRuntime(), release = registerProtectedRuntime(config, runtime);
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   let pending: Promise<Response> | undefined;
   try {
     await mkdir(join(root, "case")); await writeFile(join(root, "case", "selected.txt"), "SYNTHETIC-HISTORICAL-QUEUE");
-    const provider = (baseURL: string) => ({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL}, models: {fixture: {}}}}});
+    const provider = (baseURL: string) =>nativeRow({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL}, models: {fixture: {}}}}});
     await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => provider("http://127.0.0.1:47831/v1"));
     const target = await protectedAiTarget(config, "fixture", "fixture");
     const profilePatch = {state: "approved" as const, scope: {workspaceId: workspace.id, matterId: "synthetic-queue-matter", jurisdictions: ["CZ" as const]}, targetFingerprint: target.fingerprint,
@@ -174,7 +159,7 @@ test.each([false, true])("HTTP admits a verified historical queue intent before 
     const base = `http://127.0.0.1:${server.port}/workspace/synthetic`, endpoint = `${base}/sessions/${sessionId}/queue`;
     const headers = {"x-legalwork-host-token": config.hostToken!, "content-type": "application/json"};
     const id = "de24fbec-ac3a-4d05-b9d2-1c93ca1794d4";
-    const payload = {type: "enqueue", id, execution: {kind: "prompt", model: {providerID: "fixture", modelID: "fixture"}, parts: [{type: "text", text: "Reread the selected evidence"}]},
+    const payload = {type: "enqueue", id, execution: {kind: "prompt", text: "Reread the selected evidence", model: {providerID: "fixture", id: "fixture"}},
       draft: {mode: "prompt", text: "Reread the selected evidence", parts: [], attachments: [], editor: {mentions: {}, pasteParts: []}}};
     const metadata = async () => {
       const response = await fetch(`${base}/opencode/session/${sessionId}/protected-transport`, {headers});
@@ -200,7 +185,7 @@ test.each([false, true])("HTTP admits a verified historical queue intent before 
     let fallbackReads = 0, fallbackWrites = 0;
     const ordinaryFixture = Bun.serve({hostname: "127.0.0.1", port: 0, fetch(request) {
       if (request.method === "GET") fallbackReads++; else fallbackWrites++;
-      return Response.json({id: sessionId, directory: original.directoryMapping.hostDirectory});
+      return Response.json({data: guestSession(sessionId, "Ordinary fixture", original.directoryMapping.hostDirectory)});
     }});
     const ordinaryBase = config.opencodeBaseUrl; config.opencodeBaseUrl = ordinaryFixture.url.origin;
     try {
@@ -210,11 +195,11 @@ test.each([false, true])("HTTP admits a verified historical queue intent before 
       expect(opens).toBe(1); expect(allowedReviews).toBe(previousReviews);
     } finally {config.opencodeBaseUrl = ordinaryBase; config.workspaces.pop(); await ordinaryFixture.stop(true);}
     await expectDenied(403, "protected_prompt_invalid", {kind: "shell", command: "pwd"});
-    await expectDenied(403, "protected_prompt_invalid", {...payload.execution, model: {providerID: "foreign", modelID: "foreign"}});
-    await expectDenied(403, "protected_attachment_unselected", {...payload.execution, parts: [{type: "file", url: pathToFileURL(join(root, "case", "selected.txt")).href, mime: "text/plain"}]});
+    await expectDenied(403, "protected_prompt_invalid", {...payload.execution, model: {providerID: "foreign", id: "foreign"}});
+    await expectDenied(403, "protected_attachment_unselected", {...payload.execution, files: [{uri: pathToFileURL(join(root, "case", "selected.txt")).href}]});
     const uploadPath = join(root, ".legalwork", "attachments", "c1e58c8d-83b6-4354-8fb1-6ec9b39a91f8", "copy.txt");
     await mkdir(join(uploadPath, ".."), {recursive: true}); await writeFile(uploadPath, "FOREIGN-UPLOADED-CONTENT");
-    await expectDenied(403, "protected_attachment_unselected", {...payload.execution, parts: [{type: "file", url: pathToFileURL(uploadPath).href, mime: "text/plain"}]});
+    await expectDenied(403, "protected_attachment_unselected", {...payload.execution, files: [{uri: pathToFileURL(uploadPath).href}]});
     config.readOnly = true;
     try {await expectDenied(403, "read_only");} finally {config.readOnly = false;}
     profile = await compareAndSetGovernanceProfile(config, {id: profile.id, expectedRevision: profile.revision, patch: {...profilePatch, state: "suspended"}}, {type: "host"});
@@ -223,18 +208,18 @@ test.each([false, true])("HTTP admits a verified historical queue intent before 
     await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => provider("http://127.0.0.1:47832/v1"));
     try {await expectDenied(403, "protected_ai_profile_missing");} finally {await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => provider("http://127.0.0.1:47831/v1"));}
     await writeFile(join(root, "case", "selected.txt"), "CHANGED-SELECTED-SOURCE");
-    // queueClient performs the owning SDK read first; that existing SDK seam
-    // maps typed historical read failures to its unavailable response.
-    try {await expectDenied(503, "opencode_unavailable");} finally {await writeFile(join(root, "case", "selected.txt"), "SYNTHETIC-HISTORICAL-QUEUE");}
+    // Engine v2: the protected owner validates the captured history directly and
+    // returns its typed refusal (the ordinary engine is never consulted).
+    try {await expectDenied(409, "document_stale");} finally {await writeFile(join(root, "case", "selected.txt"), "SYNTHETIC-HISTORICAL-QUEUE");}
     await rename(join(root, "case"), join(root, "former-case")); await mkdir(join(root, "case")); await writeFile(join(root, "case", "selected.txt"), "SYNTHETIC-HISTORICAL-QUEUE");
-    try {await expectDenied(503, "opencode_unavailable");} finally {await rm(join(root, "case"), {recursive: true}); await rename(join(root, "former-case"), join(root, "case"));}
+    try {await expectDenied(409, "protected_source_stale");} finally {await rm(join(root, "case"), {recursive: true}); await rename(join(root, "former-case"), join(root, "case"));}
     const historyDirectory = join(runtimeStorageDir(config), "protected-document-sessions"), checkpointName = (await readdir(historyDirectory)).find(name => name.endsWith(".sqlite"))!;
     const checkpointPath = join(historyDirectory, checkpointName), originalCheckpoint = await readFile(checkpointPath);
     await writeFile(checkpointPath, "corrupt-private-checkpoint");
-    try {await expectDenied(503, "opencode_unavailable");} finally {await writeFile(checkpointPath, originalCheckpoint);}
+    try {await expectDenied(409, "protected_history_invalid");} finally {await writeFile(checkpointPath, originalCheckpoint);}
     await queueEmpty();
     await writeFile(uploadPath, "SYNTHETIC-HISTORICAL-QUEUE");
-    const executionWithUpload = {...payload.execution, parts: [...payload.execution.parts, {type: "file", url: pathToFileURL(uploadPath).href, mime: "text/plain"}]};
+    const executionWithUpload = {...payload.execution, files: [{uri: pathToFileURL(uploadPath).href, name: "copy.txt"}]};
     pending = fetch(endpoint, {method: "POST", headers, body: JSON.stringify({...payload, execution: executionWithUpload})});
     const admission = await Promise.race([pending, Bun.sleep(3000).then(() => undefined)]);
     expect(admission?.status).toBe(200);

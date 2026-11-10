@@ -78,7 +78,7 @@ async function existingDirectory(path: string): Promise<string | null> {
 
 /** Je to priečinok, ktorý ešte nepatrí inému zaregistrovanému priestoru? */
 const registeredElsewhere = (config: ServerConfig, folder: string, owner: string): boolean =>
-  config.workspaces.some((workspace) => workspace.id !== owner && workspace.workspaceType !== "remote" && workspace.path && resolve(workspace.path) === folder);
+  config.workspaces.some((workspace) => workspace.id !== owner && workspace.path && resolve(workspace.path) === folder);
 
 /** Cesty zo značky appky v priečinku (`.opencode/legalwork.json`, `authorizedRoots`); bez odkazov, malý súbor. */
 async function markerRoots(folder: string): Promise<string[]> {
@@ -106,7 +106,7 @@ const notNested = (config: ServerConfig, folder: string): Promise<boolean> => as
 
 export async function previewMovedFolder(config: ServerConfig, practiceRoot: string | undefined, input: { workspaceId: string; folderPath: string }): Promise<MovedFolderPreview> {
   const target = config.workspaces.find((workspace) => workspace.id === input.workspaceId);
-  if (!target || target.workspaceType === "remote" || !target.path) throw new ApiError(404, "workspace_not_found", "Workspace not found");
+  if (!target || !target.path) throw new ApiError(404, "workspace_not_found", "Workspace not found");
   if (!(await folderGone(target.path))) throw new ApiError(409, "project_folder_available", "The original project folder is still present");
   const folder = await existingDirectory(input.folderPath);
   if (!folder) throw new ApiError(400, "invalid_path", "Choose an existing canonical directory.");
@@ -151,9 +151,11 @@ const ruleDirectory = (pattern: string): string | null => {
   const directory = pattern.endsWith("/*") ? pattern.slice(0, -2) : null;
   return directory && isAbsolute(directory) ? directory : null;
 };
-const permissionOf = (current: Record<string, unknown>): Record<string, unknown> => isRecord(current.permission) ? current.permission : {};
-async function writeExternalDirectory(config: ServerConfig, workspaceId: string, next: Record<string, unknown>): Promise<void> {
-  await writeRuntimeOpencodeConfig(config, workspaceId, (current) => ({ ...current, permission: { ...permissionOf(current), external_directory: next } }));
+type FolderRule = ReturnType<typeof runtimeExternalDirectory>[number];
+/** Engine v2: folder grants are ordered native `external_directory` rules; other rules stay as they are. */
+async function writeExternalDirectory(config: ServerConfig, workspaceId: string, next: readonly FolderRule[]): Promise<void> {
+  await writeRuntimeOpencodeConfig(config, workspaceId, (current) => ({ ...current,
+    permissions: [...(current.permissions ?? []).filter((rule) => rule.action !== "external_directory"), ...next] }));
 }
 
 /** Platný priečinok pamäte kancelárie praxe (`Office` alebo `_kancelaria`), inak `null`. */
@@ -173,20 +175,20 @@ async function officeMemoryDir(officeRoot: string | undefined): Promise<string |
  */
 export async function syncOfficeGrant(config: ServerConfig, workspaceId: string, officeRoot: string | undefined): Promise<boolean> {
   const workspace = config.workspaces.find((entry) => entry.id === workspaceId);
-  if (!workspace || workspace.workspaceType === "remote" || !workspace.path) throw new ApiError(404, "workspace_not_found", "Workspace not found");
+  if (!workspace || !workspace.path) throw new ApiError(404, "workspace_not_found", "Workspace not found");
   const rules = runtimeExternalDirectory(await readRuntimeOpencodeConfig(config, workspace.id));
-  const next: Record<string, unknown> = {};
-  let stale: unknown;
-  for (const [pattern, value] of Object.entries(rules)) {
-    const directory = ruleDirectory(pattern);
-    if (directory && OFFICE_DIRS.includes(basename(directory)) && !isPathWithin(workspace.path, directory) && await goneQuietly(directory)) { stale = value; continue; }
-    next[pattern] = value;
+  const next: FolderRule[] = [];
+  let stale: FolderRule["effect"] | undefined;
+  for (const rule of rules) {
+    const directory = ruleDirectory(rule.resource);
+    if (directory && OFFICE_DIRS.includes(basename(directory)) && !isPathWithin(workspace.path, directory) && await goneQuietly(directory)) { stale = rule.effect; continue; }
+    next.push(rule);
   }
   if (stale === undefined) return false;
   // Prax z profilu, alebo kým presun praxe nie je dokončený, jej nový koreň odvodený z prepojených klientov.
   const root = officeRoot && !(await goneQuietly(officeRoot)) ? officeRoot : (await inferPracticeMove(config, officeRoot))?.folderPath;
   const office = root && isPathWithin(root, workspace.path) ? await officeMemoryDir(root) : null;
-  if (office) next[`${office}/*`] = stale;
+  if (office) next.push({ action: "external_directory", resource: `${office}/*`, effect: stale });
   await writeExternalDirectory(config, workspace.id, next);
   return true;
 }
@@ -198,17 +200,17 @@ export async function syncOfficeGrant(config: ServerConfig, workspaceId: string,
 export async function rebaseOfficeGrants(config: ServerConfig, previousRoot: string, folder: string): Promise<number> {
   let changed = 0;
   for (const workspace of config.workspaces) {
-    if (workspace.workspaceType === "remote" || !workspace.path) continue;
+    if (!workspace.path) continue;
     const moved = isPathWithin(folder, workspace.path);
     const rules = runtimeExternalDirectory(await readRuntimeOpencodeConfig(config, workspace.id));
-    const next: Record<string, unknown> = {};
+    const next: FolderRule[] = [];
     let touched = false;
-    for (const [pattern, value] of Object.entries(rules)) {
-      const directory = ruleDirectory(pattern);
-      if (!directory || !isPathWithin(previousRoot, directory)) { next[pattern] = value; continue; }
+    for (const rule of rules) {
+      const directory = ruleDirectory(rule.resource);
+      if (!directory || !isPathWithin(previousRoot, directory)) { next.push(rule); continue; }
       touched = true;
       const target = moved ? await existingDirectory(join(folder, relative(previousRoot, directory))) : null;
-      if (target) next[`${target}/*`] = value;
+      if (target) next.push({ ...rule, resource: `${target}/*` });
     }
     if (!touched) continue;
     await writeExternalDirectory(config, workspace.id, next);
@@ -244,7 +246,7 @@ export async function inferPracticeMove(config: ServerConfig, officeRoot: string
  */
 export async function movedClientOf(config: ServerConfig, folder: string): Promise<MovedClient | null> {
   const candidate = resolve(folder);
-  if (config.workspaces.some((workspace) => workspace.workspaceType !== "remote" && workspace.path && resolve(workspace.path) === candidate)) return null;
+  if (config.workspaces.some((workspace) => workspace.path && resolve(workspace.path) === candidate)) return null;
   const title = await clientCardTitle(candidate);
   for (const workspace of await clientWorkspaces(config)) {
     // Nedostupný iný klient (napr. bez prístupu) pridanie nového klienta neblokuje; rozhoduje len chýbajúci priečinok.

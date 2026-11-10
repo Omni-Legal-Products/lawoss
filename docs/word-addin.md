@@ -89,7 +89,7 @@ registration covers Word, Excel, and PowerPoint).
 3. Start the server with the add-in enabled:
 
    ```sh
-   bun apps/server/src/cli.ts --workspace <path> --word-addin
+   pnpm --filter legalwork-server dev -- --workspace <path> --word-addin
    ```
 
    You should see:

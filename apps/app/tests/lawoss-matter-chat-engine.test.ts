@@ -1,10 +1,11 @@
-// LAWOSS: chat prípadu v appke so skutočným enginom (voliteľné, LEGALWORK_TEST_OPENCODE_BIN = pribalený 1.18.29).
-// Skutočný server LAWOSS, skutočný engine v dočasnom HOME/XDG, model na skúšku. Appka si priečinok chatu
-// prípadu odvodí z jeho metadát (`effectiveSessionDirectory`), jej synchronizácia (`ensureWorkspaceSessionSync`)
-// dostane udalosti chatu a otázku enginu na úpravu súboru, a odpoveď cez `replyToPermission` ju vybaví:
-// zamietnutie → súbor nevznikne, povolenie → súbor vznikne. Odber s koreňom klienta tento chat nevidí.
-//   LEGALWORK_TEST_OPENCODE_BIN=/Applications/LAWOSS.app/Contents/Resources/sidecars/opencode \
-//     pnpm --filter @legalwork/app exec bun test tests/lawoss-matter-chat-engine.test.ts
+// LAWOSS: chat prípadu v appke so skutočným enginom v2 (voliteľné, LEGALWORK_TEST_OPENCODE_BIN = engine 2.1.4).
+// Skutočný server LAWOSS, skutočný engine v dočasnom HOME/XDG (heslo, lístok LAWOSS), model na skúšku. Appka chat
+// prípadu založí s priečinkom v rozsahu požiadavky (lawoss/okf/connection.ts), priečinok si odvodí z jeho metadát
+// (`effectiveSessionDirectory`), jej synchronizácia (`ensureWorkspaceSessionSync`) dostane udalosti chatu a otázku
+// enginu na úpravu súboru, a odpoveď cez `replyToPermission` ju vybaví: zamietnutie → súbor nevznikne, povolenie →
+// súbor vznikne. Engine v2 má jeden prúd udalostí pre všetky lokácie; proxy ho zúži na priečinky klientov, takže
+// odber s koreňom klienta chat prípadu vidí (v1 mal prúd za každú inštanciu). Iný klient priečinok prípadu nedostane.
+//   LEGALWORK_TEST_OPENCODE_BIN=<engine 2.1.4> pnpm --filter @legalwork/app exec bun test tests/lawoss-matter-chat-engine.test.ts
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,12 +14,13 @@ import type { UIMessage } from "ai";
 import { startServer } from "../../server/src/server";
 import type { ServerConfig } from "../../server/src/types";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
-import { createClient, unwrap } from "../src/app/lib/opencode";
+import { createClient } from "../src/app/lib/opencode";
 import type { PendingPermission } from "../src/app/types";
 import { effectiveSessionDirectory } from "../src/lawoss/shell/session-directory";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import { replyToPermission } from "../src/react-app/domains/session/sync/interaction-state";
 import { ensureWorkspaceSessionSync, permissionKey, trackWorkspaceSessionSync, transcriptKey } from "../src/react-app/domains/session/sync/session-sync";
+import { startEngineForServer } from "../../server/src/lawoss/test-support/scripted-engine";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 
@@ -36,15 +38,12 @@ test.skipIf(!binary)("chat prípadu: appka dostane udalosti a kartu povolenia z 
   if (!binary) return;
   const root = await realpath(await mkdtemp(join(tmpdir(), "lawoss-app-matter-chat-")));
   const clientA = join(root, "prax", "Klient_A"), matterA = join(clientA, "Spisy", "M001-Úhrada"), clientB = join(root, "prax", "Klient-A");
-  for (const folder of [matterA, clientB, join(root, "engine")]) await mkdir(folder, { recursive: true });
+  for (const folder of [matterA, clientB]) await mkdir(folder, { recursive: true });
   const target = join(matterA, "zmena.txt");
 
   const env = { data: process.env.LEGALWORK_DATA_DIR, tokens: process.env.LEGALWORK_TOKEN_STORE, db: process.env.LEGALWORK_RUNTIME_DB };
   process.env.LEGALWORK_DATA_DIR = join(root, "data"); process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json"); process.env.LEGALWORK_RUNTIME_DB = join(root, "private", "runtime.sqlite");
-  const reservation = Bun.serve({ port: 0, fetch: () => new Response() }), enginePort = reservation.port;
-  reservation.stop(true);
-  const engineUrl = `http://127.0.0.1:${enginePort}`;
-  const workspace = (id: string, path: string) => ({ id, name: id, preset: "starter", path, workspaceType: "local" as const, baseUrl: engineUrl });
+  const workspace = (id: string, path: string) => ({ id, name: id, preset: "starter", path, workspaceType: "local" as const });
   const config: ServerConfig = {
     host: "127.0.0.1", port: 0, configPath: join(root, "private", "server.json"), token: "synthetic-client", hostToken: "synthetic-host",
     approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [workspace("klient-a", clientA), workspace("klient-b", clientB)],
@@ -57,50 +56,37 @@ test.skipIf(!binary)("chat prípadu: appka dostane udalosti a kartu povolenia z 
     const last: unknown = messages.at(-1);
     const write = typeof last === "object" && last !== null && "role" in last && last.role === "user";
     const chunk = (delta: unknown, finish: string | null) => `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
-    const call = { tool_calls: [{ index: 0, id: `call_${Date.now()}`, type: "function", function: { name: "write", arguments: JSON.stringify({ filePath: "zmena.txt", content: "ZMENA-PRIPADU" }) } }] };
+    const call = { tool_calls: [{ index: 0, id: `call_${Date.now()}`, type: "function", function: { name: "write", arguments: JSON.stringify({ path: "zmena.txt", content: "ZMENA-PRIPADU" }) } }] };
     return new Response(chunk({ role: "assistant", ...(write ? call : { content: "Hotovo." }) }, null) + chunk({}, write ? "tool_calls" : "stop") + "data: [DONE]\n\n",
       { headers: { "content-type": "text/event-stream" } });
   } });
   const server = await startServer(config);
-  const engineConfig = join(root, "engine", "opencode.json");
+  const cleanups: (() => Promise<unknown> | unknown)[] = [];
   // Ako predvolenie úlohy A1: úprava súborov sa pýta.
-  await writeFile(engineConfig, JSON.stringify({
-    enabled_providers: ["fixture"], model: "fixture/fixture", small_model: "fixture/fixture", share: "disabled", autoupdate: false, lsp: false, formatter: false,
-    provider: { fixture: { npm: "@ai-sdk/openai-compatible", name: "Fixture", options: { baseURL: model.url.origin + "/v1", apiKey: "fixture" }, models: { fixture: { name: "Fixture", limit: { context: 100000, output: 4000 } } } } },
-    permission: { "*": "allow", edit: "ask" },
-  }));
-  const home = join(root, "engine");
-  const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(enginePort)], { cwd: home, env: {
-    PATH: process.env.PATH ?? "", HOME: join(home, "home"), OPENCODE_TEST_HOME: join(home, "home"),
-    XDG_CONFIG_HOME: join(home, "config"), XDG_DATA_HOME: join(home, "data"), XDG_CACHE_HOME: join(home, "cache"), XDG_STATE_HOME: join(home, "state"),
-    OPENCODE_CONFIG: engineConfig, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-  }, stdout: "ignore", stderr: "ignore" });
+  await startEngineForServer({ binary, config, serverPort: server.port, home: join(root, "engine"), cleanups, plugins: [], modelUrl: model.url.origin + "/v1",
+    permissions: [{ action: "*", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "ask" }] });
   const baseUrl = `http://127.0.0.1:${server.port}`, opencodeBaseUrl = `${baseUrl}/workspace/klient-a/opencode`, token = "synthetic-client";
   const legalwork = createLegalworkServerClient({ baseUrl, token });
   const releases: (() => void)[] = [];
   const abort = new AbortController();
   try {
-    for (let i = 0; i < 300; i++) {
-      try { if ((await fetch(`${engineUrl}/global/health`, { signal: AbortSignal.timeout(1000) })).ok) break; } catch { /* Engine štartuje. */ }
-      await Bun.sleep(100);
-    }
-
     // Chat prípadu založený ako v appke (openMatterSession): priečinok prípadu, workspace klienta.
-    const session = unwrap(await createClient(opencodeBaseUrl, matterA, { token, mode: "legalwork" }).session.create({ directory: matterA }));
+    const session = await createClient(opencodeBaseUrl, matterA, { token, mode: "legalwork" }).session.create({ location: { directory: matterA } },
+      { headers: { "x-opencode-directory": encodeURIComponent(matterA) } });
     const loaded = (await legalwork.getSessionSnapshot("klient-a", session.id)).item.session;
     const directory = effectiveSessionDirectory({ path: clientA, workspaceType: "local" }, loaded);
     expect(directory).toBe(matterA);
     const client = createClient(opencodeBaseUrl, directory, { token, mode: "legalwork" });
 
-    // Synchronizácia appky v priečinku chatu; kontrolný odber s koreňom klienta (doterajšie správanie).
-    const input = { workspaceId: "klient-a", baseUrl: opencodeBaseUrl, legalworkToken: token, directory };
+    // Synchronizácia appky pre klienta; kontrolný odber prúdu udalostí cez proxy s koreňom klienta.
+    const input = { workspaceId: "klient-a", baseUrl: opencodeBaseUrl, legalworkToken: token };
     releases.push(ensureWorkspaceSessionSync(input), trackWorkspaceSessionSync(input, session.id));
     let rootEvents = "";
-    const rootStream = await fetch(`${opencodeBaseUrl}/event?${new URLSearchParams({ directory: clientA })}`, { headers: { authorization: `Bearer ${token}` }, signal: abort.signal });
+    const rootStream = await fetch(`${opencodeBaseUrl}/api/event?${new URLSearchParams({ "location[directory]": clientA })}`, { headers: { authorization: `Bearer ${token}` }, signal: abort.signal });
     expect(rootStream.status).toBe(200);
     void (async () => { const reader = rootStream.body!.getReader(); try { for (;;) { const chunk = await reader.read(); if (chunk.done) break; rootEvents += new TextDecoder().decode(chunk.value); } } catch { /* zrušené */ } })();
-    // Kontrolný odber je pripojený, keď engine pošle `server.connected`, nie po pevnej pauze (#221): inak by jeho
-    // negatívna kontrola nižšie prešla aj bez odberu. Synchronizácia appky si otázky enginu načíta pri pripojení sama.
+    // Kontrolný odber je pripojený, keď engine pošle `server.connected`, nie po pevnej pauze (#221).
+    // Synchronizácia appky si otázky enginu načíta pri pripojení sama.
     await until(() => rootEvents.includes("server.connected") || undefined, "root event stream connected");
 
     const cache = getReactQueryClient();
@@ -108,7 +94,7 @@ test.skipIf(!binary)("chat prípadu: appka dostane udalosti a kartu povolenia z 
       const id = crypto.randomUUID();
       await legalwork.updateSessionMessageQueue("klient-a", session.id, { type: "enqueue", id,
         draft: { mode: "prompt", text: "Zapíš zmenu.", parts: [], attachments: [], editor: { mentions: {}, pasteParts: [] } },
-        execution: { kind: "prompt", agent: "build", model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: "Zapíš zmenu." }] } });
+        execution: { kind: "prompt", text: "Zapíš zmenu.", agent: "build", model: { providerID: "fixture", id: "fixture" } } });
       // Karta povolenia: otázka enginu príde do stavu appky cez jej synchronizáciu.
       const permission = await until(() => cache.getQueryData<PendingPermission[]>(permissionKey("klient-a", session.id))?.find((item) => item.protocol !== "host"), `permission (${reply})`);
       expect(permission.permission).toBe("edit");
@@ -129,18 +115,17 @@ test.skipIf(!binary)("chat prípadu: appka dostane udalosti a kartu povolenia z 
       return text.includes("Hotovo.") && text.includes("zmena.txt") ? messages : undefined;
     }, "streamed transcript");
     expect(transcript.some((message) => message.role === "assistant")).toBe(true);
-    // Odber s koreňom klienta tento chat nevidel (preto appka musí odoberať priečinok chatu).
-    expect(rootEvents).not.toContain(session.id);
+    // Engine v2: jeden prúd udalostí; proxy klienta ho púšťa aj pre chat prípadu v jeho podpriečinku.
+    expect(rootEvents).toContain(session.id);
 
     // Iný klient chat prípadu A neovláda ani cez priečinok prípadu.
-    const foreign = await fetch(`${baseUrl}/workspace/klient-b/opencode/event?${new URLSearchParams({ directory: matterA })}`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000) });
-    expect(foreign.status).toBe(400);
+    const foreign = await fetch(`${baseUrl}/workspace/klient-b/opencode/api/event?${new URLSearchParams({ "location[directory]": matterA })}`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000) });
+    expect(foreign.status).toBe(403);
     await foreign.body?.cancel();
   } finally {
     abort.abort();
     for (const release of releases.reverse()) release();
-    engine.kill("SIGKILL");
-    await engine.exited;
+    for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
     await server.stop();
     model.stop(true);
     for (const [key, value] of Object.entries({ LEGALWORK_DATA_DIR: env.data, LEGALWORK_TOKEN_STORE: env.tokens, LEGALWORK_RUNTIME_DB: env.db }))

@@ -1,3 +1,6 @@
+import { matchesSearch } from "../search-schema.js";
+import { searchFingerprint } from "../assistant-session-search.js";
+import { isMainAssistant } from "../main-assistant.js";
 import { readSessionInbox } from "../session-inbox.js";
 import { resolve } from "node:path";
 import { z } from "zod";
@@ -15,7 +18,9 @@ export function registerScheduledTaskRoutes(options: {
   ensureWritable: (config: ServerConfig) => void;
   requireClientScope: (ctx: RequestContext, scope: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
+  resolveWorkspaceMetadata?: (config: ServerConfig, id: string) => WorkspaceInfo;
   listSessions: (workspace: WorkspaceInfo, search?: string) => Promise<{ id: string; title: string; directory: string; time: { archived?: number } }[]>;
+  getStatuses: (workspace: WorkspaceInfo) => Promise<Record<string, { type: "idle" | "busy" | "retry" }>>;
   getSession: (workspace: WorkspaceInfo, id: string) => Promise<{ directory: string; time: { archived?: number } } | null>;
 }) {
   const { config, store } = options;
@@ -27,11 +32,13 @@ export function registerScheduledTaskRoutes(options: {
       // Task records stay manageable when the project's drive is disconnected.
       const workspace = config.workspaces.find(item => item.id === ctx.params.id);
       if (!workspace) throw new ApiError(404, "workspace_not_found", "Workspace not found.");
-      if (workspace.workspaceType === "remote") throw new ApiError(400, "local_schedule_only", "Scheduled tasks run in a local project on this computer.");
+
       try { return options.jsonResponse(await action(ctx, workspace)); }
       catch (error) { if (error instanceof z.ZodError) throw new ApiError(400, "scheduled_task_input", "Check the task title, instructions and schedule.", { issues: error.issues }); throw error; }
     });
   };
+  const assistantTarget = (workspace: WorkspaceInfo): Partial<z.infer<typeof ScheduledTaskInputSchema>> => isMainAssistant(workspace)
+    ? { sessionId: null, reuseChat: false, pinSession: false, projectAccess: "all" } : {};
   const checkSession = async (workspace: WorkspaceInfo, id: string | null | undefined) => {
     const available = await options.resolveWorkspace(config, workspace.id);
     if (!id) return;
@@ -40,13 +47,29 @@ export function registerScheduledTaskRoutes(options: {
   };
   addRoute(options.routes, "GET", "/scheduled-tasks", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
-    const local = new Set(config.workspaces.filter(workspace => workspace.workspaceType !== "remote").map(workspace => workspace.id));
-    return options.jsonResponse({ tasks: store.list().filter(task => local.has(task.workspaceId)) });
+    const local = new Set(config.workspaces.map(workspace => workspace.id));
+    const tasks = store.list().filter(task => local.has(task.workspaceId));
+    if (!ctx.url.searchParams.has("limit")) return options.jsonResponse({ tasks });
+    const input = z.object({ limit: z.coerce.number().int().min(1).max(50), query: z.string().max(300).default(""), cursor: z.string().optional(), status: z.enum(["active", "paused", "completed"]).optional() }).safeParse(Object.fromEntries(ctx.url.searchParams));
+    if (!input.success) throw new ApiError(400, "schedule_query", "Check schedule search and pagination.");
+    const fingerprint = searchFingerprint([input.data.query, input.data.status]);
+    let after = "";
+    if (input.data.cursor) {
+      try {
+        const cursor = z.object({ fingerprint: z.string(), after: z.string() }).parse(JSON.parse(Buffer.from(input.data.cursor, "base64url").toString()));
+        if (cursor.fingerprint !== fingerprint) throw new Error("filters changed");
+        after = cursor.after;
+      } catch { throw new ApiError(400, "schedule_cursor", "Keep the same filters with a valid cursor."); }
+    }
+    const matches = tasks.filter(task => (!input.data.status || task.status === input.data.status) && matchesSearch(`${task.title} ${task.prompt}`, input.data.query) && task.id.localeCompare(after) > 0).sort((a, b) => a.id.localeCompare(b.id));
+    const page = matches.slice(0, input.data.limit);
+    return options.jsonResponse({ tasks: page.map(({ id, workspaceId, title, status, revision, nextRunAt, schedule }) => ({ id, workspaceId, title, status, revision, nextRunAt, schedule })),
+      nextCursor: matches.length > page.length ? Buffer.from(JSON.stringify({ fingerprint, after: page.at(-1)?.id })).toString("base64url") : null });
   });
   addRoute(options.routes, "GET", "/scheduled-tasks/projects", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const projects = [];
-    for (const item of config.workspaces.filter(workspace => workspace.workspaceType !== "remote")) {
+    for (const item of config.workspaces) {
       try { const workspace = await options.resolveWorkspace(config, item.id); projects.push({ id: workspace.id, name: workspace.name, path: workspace.path }); }
       catch { /* Unavailable or unauthorized projects are not accessible to scheduled work. */ }
     }
@@ -55,10 +78,20 @@ export function registerScheduledTaskRoutes(options: {
   addRoute(options.routes, "GET", "/session-inbox", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const workspaces = [];
-    for (const item of config.workspaces.filter(workspace => workspace.workspaceType !== "remote")) {
-      try { workspaces.push(await options.resolveWorkspace(config, item.id)); } catch { /* Not accessible. */ }
+    ctx.request.signal.throwIfAborted();
+    for (const item of config.workspaces) {
+      ctx.request.signal.throwIfAborted();
+      try { workspaces.push(await (options.resolveWorkspaceMetadata ?? options.resolveWorkspace)(config, item.id)); } catch { /* Not accessible. */ }
     }
-    return options.jsonResponse({ sessions: await readSessionInbox(config, workspaces, store.sessionActivity()) });
+    const entries = await readSessionInbox(config, workspaces, store.sessionActivity(), ctx.request.signal);
+    const snapshots = new Map(await Promise.all(workspaces.filter(workspace => entries.some(entry => entry.workspaceId === workspace.id)).map(async workspace => {
+      const statuses = await options.getStatuses(workspace).catch(() => null);
+      return [workspace.id, statuses] satisfies [string, Record<string, { type: "idle" | "busy" | "retry" }> | null];
+    })));
+    return options.jsonResponse({ sessions: entries.map(entry => {
+      const statuses = snapshots.get(entry.workspaceId);
+      return { ...entry, status: statuses ? statuses[entry.sessionId]?.type ?? "idle" : "unknown" };
+    }) });
   });
   route("GET", "", async (_ctx, workspace) => ({ tasks: store.list(workspace.id) }));
   route("GET", "/chats", async (ctx, workspace) => ({ sessions: (await options.listSessions(await options.resolveWorkspace(config, workspace.id), ctx.url.searchParams.get("search")?.slice(0, 200)))
@@ -70,7 +103,7 @@ export function registerScheduledTaskRoutes(options: {
     return { occurrences };
   });
   route("POST", "", async (ctx, workspace) => {
-    const input = ScheduledTaskInputSchema.parse(await body(ctx));
+    const input = ScheduledTaskInputSchema.parse({ ...await body(ctx), ...assistantTarget(workspace) });
     await checkSession(workspace, input.sessionId);
     return { task: store.create(workspace.id, input, Date.now(), ctx.actor?.type === "host" || ctx.actor?.scope === "owner" ? "owner" : "collaborator") };
   });
@@ -79,7 +112,7 @@ export function registerScheduledTaskRoutes(options: {
     const { revision, ...patch } = ScheduledTaskInputSchema.partial().extend({ reuseChat: ScheduledTaskInputSchema.shape.reuseChat.removeDefault().optional(), pinSession: ScheduledTaskInputSchema.shape.pinSession.removeDefault().optional(), model: ScheduledTaskInputSchema.shape.model.removeDefault().optional(), projectAccess: ScheduledTaskInputSchema.shape.projectAccess.removeDefault().optional(), revision: z.number().int().positive(), status: z.enum(["active", "paused"]).optional() }).parse(await body(ctx));
     const current = store.get(workspace.id, ctx.params.task);
     if (patch.sessionId !== undefined || patch.status === "active") await checkSession(workspace, patch.sessionId === undefined ? current.sessionId : patch.sessionId);
-    return { task: store.update(workspace.id, ctx.params.task, revision, patch, Date.now(), ctx.actor?.type === "host" || ctx.actor?.scope === "owner" ? "owner" : "collaborator") };
+    return { task: store.update(workspace.id, ctx.params.task, revision, { ...patch, ...assistantTarget(workspace) }, Date.now(), ctx.actor?.type === "host" || ctx.actor?.scope === "owner" ? "owner" : "collaborator") };
   });
   route("DELETE", "/:task", async (ctx, workspace) => {
     const { revision } = z.object({ revision: z.number().int().positive() }).parse(await body(ctx));

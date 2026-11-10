@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { access, mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig } from "../types.js";
@@ -20,24 +20,21 @@ async function fixture(pathStatus: number, ...laterStatuses: number[]) {
   const statuses = [pathStatus, ...laterStatuses];
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
     const url = new URL(request.url);
-    seen.push({ method: request.method, path: url.pathname, directory: url.searchParams.get("directory"), authorization: request.headers.get("authorization") });
-    return Response.json({}, { status: url.pathname === "/path" ? statuses.shift() ?? pathStatus : 200 });
+    seen.push({ method: request.method, path: url.pathname, directory: url.searchParams.get("location[directory]"), authorization: request.headers.get("authorization") });
+    return Response.json({}, { status: url.pathname === "/api/model" ? statuses.shift() ?? pathStatus : 200 });
   } });
   cleanup.push(() => engine.stop(true));
-  return { config, seen, directory: join(root, "probe"), engine: { url: engine.url.origin, username: "synthetic-user", password: "synthetic-password" } };
+  // LAWOSS v2: the opened client's location, not a scratch folder (a v2 location starts its MCP).
+  return { config, seen, directory: join(root, "Klient"), engine: { url: engine.url.origin, username: "synthetic-user", password: "synthetic-password" } };
 }
 const authorization = `Basic ${Buffer.from("synthetic-user:synthetic-password").toString("base64")}`;
 
-test("after the engine answers from a scratch instance, the window closes and the instance is released", async () => {
+test("after the opened client's plugins answer, the window closes; the location stays loaded and nothing else is touched", async () => {
   const { config, seen, directory, engine } = await fixture(200);
   const ticket = issueWikiAgentTicket(config);
   const secret = redeemWikiAgentTicket(config, ticket);
   await settleEngineAgentTicket(config, engine, directory);
-  await access(directory);
-  expect(seen).toEqual([
-    { method: "GET", path: "/path", directory, authorization },
-    { method: "POST", path: "/instance/dispose", directory, authorization },
-  ]);
+  expect(seen).toEqual([{ method: "GET", path: "/api/model", directory, authorization }]);
   expect(() => redeemWikiAgentTicket(config, ticket)).toThrow(expect.objectContaining({ status: 403 }));
   expect(await ensureWikiAgentToken(config)).toBe(secret);
 });
@@ -54,7 +51,7 @@ test("a slow engine is asked again, and the window closes once it answers", asyn
   const ticket = issueWikiAgentTicket(config);
   const secret = redeemWikiAgentTicket(config, ticket);
   await settleEngineAgentTicket(config, engine, directory);
-  expect(seen.map(item => item.path)).toEqual(["/path", "/path", "/instance/dispose"]);
+  expect(seen.map(item => item.path)).toEqual(["/api/model", "/api/model"]);
   expect(() => redeemWikiAgentTicket(config, ticket)).toThrow(expect.objectContaining({ status: 403 }));
   expect(await ensureWikiAgentToken(config)).toBe(secret);
 });
@@ -63,7 +60,7 @@ test("an engine that never answers leaves the window open only until its ten-min
   const { config, seen, directory, engine } = await fixture(500);
   const ticket = issueWikiAgentTicket(config);
   await expect(settleEngineAgentTicket(config, engine, directory)).rejects.toThrow("HTTP 500");
-  expect(seen.map(item => item.path)).toEqual(Array.from({ length: 6 }, () => "/path"));
+  expect(seen.map(item => item.path)).toEqual(Array.from({ length: 6 }, () => "/api/model"));
   const secret = redeemWikiAgentTicket(config, ticket);
   expect(() => redeemWikiAgentTicket(config, ticket, "", Date.now() + 601_000)).toThrow(expect.objectContaining({ status: 403 }));
   expect(await ensureWikiAgentToken(config)).toBe(secret);

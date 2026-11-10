@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { runtimeEngineConfiguration } from "./runtime-config-upgrade.js";
 
 import {
   containsSecretKey,
@@ -41,6 +42,14 @@ describe("isSecretKey", () => {
 });
 
 describe("sanitizeIntegrationMcp", () => {
+  test("native sharing keeps a paused connector and its explicit sign-in scope without sharing credentials", () => {
+    const result = sanitizeIntegrationMcp({ type: "remote", url: "https://fixture.invalid/mcp", disabled: true, timeout: { execution: 75000 }, protocol: "auto", codemode: true,
+      oauth: { client_id: "private-registration", client_secret: "synthetic-secret", scope: "documents:read" } });
+    expect(result).toEqual({ type: "remote", url: "https://fixture.invalid/mcp", disabled: true, timeout: { execution: 75000 }, protocol: "auto", codemode: true, oauth: { scope: "documents:read" } });
+    expect(() => runtimeEngineConfiguration({ mcp: { servers: { fixture: result } } })).not.toThrow();
+    expect(JSON.stringify(result)).not.toContain("private-registration");
+    expect(JSON.stringify(result)).not.toContain("synthetic-secret");
+  });
   test("drops top-level and nested secret keys", () => {
     const clean = sanitizeIntegrationMcp({
       type: "remote",
@@ -96,6 +105,26 @@ describe("sanitizeIntegrationMcp", () => {
 });
 
 describe("sanitizePresetFragment", () => {
+  test("native presets keep canonical choices and typed controls without private transport definitions", () => {
+    const fixtureURL = new URL("https://example.invalid/v1");
+    fixtureURL.username = "private"; fixtureURL.password = "secret";
+    const clean = sanitizePresetFragment({ providers: { custom: {
+      canonical: "openai", name: "Firm connection", package: "@opencode/ai/providers/openai-compatible", env: ["FIRM_KEY"],
+      settings: { baseURL: fixtureURL.href, apiKey: "synthetic-secret" }, headers: { "X-Private": "synthetic-header" },
+      models: { reasoning: { modelID: "exact-model", name: "Firm Model", limit: { context: 900_000, output: 80_000 },
+        settings: { temperature: 0.2 }, body: { reasoningEffort: "high", private_transport: "synthetic-body" },
+        variants: [{ id: "Careful", body: { reasoningEffort: "high" }, headers: { "X-Mode": "synthetic-variant" } }] } },
+    } }, providerSetup: { custom: true, ignored: false }, model: "custom/reasoning", default_agent: "not-shared", $legalworkReadOnlyProjection: true });
+    expect(clean).toMatchObject({ providerSetup: { custom: true }, model: "custom/reasoning", providers: { custom: {
+      canonical: "openai", name: "Firm connection", package: "@opencode/ai/providers/openai-compatible",
+      models: { reasoning: { modelID: "exact-model", limit: { context: 900_000, output: 80_000 }, body: { reasoningEffort: "high" }, variants: [{ id: "Careful", body: { reasoningEffort: "high" } }] } },
+    } } });
+    expect(JSON.stringify(clean)).not.toContain("synthetic-");
+    expect(JSON.stringify(clean)).not.toContain("example.invalid");
+    expect(clean).not.toHaveProperty("$legalworkReadOnlyProjection");
+    expect(clean).not.toHaveProperty("default_agent");
+    expect(() => runtimeEngineConfiguration({ providers: clean.providers, model: clean.model })).not.toThrow();
+  });
   test("keeps only provider/model/small_model and strips provider secrets", () => {
     const clean = sanitizePresetFragment({
       model: "anthropic/claude-opus",

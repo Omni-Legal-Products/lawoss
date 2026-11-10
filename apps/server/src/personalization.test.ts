@@ -1,3 +1,5 @@
+import { nativePluginTools } from "./opencode-plugins/native-plugin-test-support.js";
+const LegalWorkProjectTools = (context = {}) => nativePluginTools(LegalWorkProjectToolsDefinition, context);
 import { afterEach, describe, expect, test } from "bun:test";
 import { wikiAgentSecret } from "./opencode-plugins/wiki-agent-secret.js";
 import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
@@ -18,8 +20,9 @@ import { buildLegalworkRuntimeConfigObject } from "./legalwork-runtime-config.js
 import { startServer } from "./server.js";
 import { projectSyncStore } from "./project-sync-store.js";
 import type { ServerConfig } from "./types.js";
-import { LegalWorkCapabilitiesKnowledge } from "./opencode-plugins/legalwork-capabilities-knowledge.js";
-import { LegalWorkProjectTools } from "./opencode-plugins/legalwork-project-tools.js";
+import capabilitiesDefinition from "./opencode-plugins/legalwork-capabilities-knowledge.js";
+const LegalWorkCapabilitiesKnowledge = (context = {}) => nativePluginTools(capabilitiesDefinition, context);
+import LegalWorkProjectToolsDefinition from "./opencode-plugins/legalwork-project-tools.js";
 import type { OpenCodeContext } from "./opencode-plugins/office-plugin-shared.js";
 import { scopedWikiRuntime } from "./wiki/scoped-runtime.test-helper.js";
 import { engineAgentSession } from "./lawoss/test-support/engine-agent.js";
@@ -104,11 +107,11 @@ describe("Personalisation", () => {
       expect((await readRuntimeOpencodeConfig(config, GLOBAL_PERSONALIZATION_ID)).personalization).toEqual(settings);
 
       const runtime = await buildLegalworkRuntimeConfigObject(config, "ws_1");
-      expect(JSON.stringify(runtime.plugin)).not.toContain("agent-memory");
-      const agents = runtime.agent as Record<string, Record<string, unknown>>;
-      expect(agents.legalwork?.prompt).toContain("Use numbered recommendations.");
-      expect(agents.legalwork?.prompt).toContain("Use a professional tone");
-      expect(agents.legalwork?.prompt).not.toContain("Local memory policy");
+      expect(JSON.stringify(runtime.plugins)).not.toContain("agent-memory");
+      const agents = runtime.agents as Record<string, Record<string, unknown>>;
+      expect(agents.legalwork?.system).toContain("Use numbered recommendations.");
+      expect(agents.legalwork?.system).toContain("Use a professional tone");
+      expect(agents.legalwork?.system).not.toContain("Local memory policy");
     } finally {
       await server.stop();
     }
@@ -166,10 +169,10 @@ describe("Personalisation", () => {
     // What an existing chat knows: the latest project prompt reminder it received.
     const known = new Map<typeof firstPlugin, string>();
     const prompt = async (plugin: typeof firstPlugin) => {
-      const message: { message: { id: string }; parts: object[] } = { message: { id: "msg_test" }, parts: [] };
-      const turn = () => plugin["chat.message"]({ sessionID: plugins.get(plugin) ?? "ses_unrecorded" }, message);
+      const message = { sessionID: plugins.get(plugin) ?? "ses_unrecorded", messageID: "msg_test", prompt: { text: "" } };
+      const turn = () => plugin.runtime.hook("session", "prompt", message);
       if (plugin === secondPlugin) await secondRuntime.run(turn); else await turn();
-      const reminder = message.parts.map((part) => String(Reflect.get(part, "text"))).join("\n");
+      const reminder = message.prompt.text;
       if (reminder) known.set(plugin, reminder);
       return known.get(plugin) ?? "";
     };
@@ -313,15 +316,14 @@ describe("Personalisation", () => {
       expect(JSON.parse(await pending)).toEqual({ revision: 2, customInstructions: "Prefer short paragraphs." });
       expect((await readProjectDetails(workspace)).personalizationPrompt).toBe("Parent preferences");
       expect((await readGlobalPersonalizationSettings(config)).customInstructions).toBe("");
-      const message: { message: { id: string }; parts: object[] } = { message: { id: "msg_test" }, parts: [] };
-      await (await LegalWorkCapabilitiesKnowledge(context))["chat.message"]({ sessionID: "ses_test" }, message);
-      expect(message.parts.map((part) => String(Reflect.get(part, "text"))).join("\n")).toContain("Prefer short paragraphs.");
+      // LAWOSS: the reminder reads the project prompt with this chat's own credential (workspaceToolHeaders).
+      const message = {sessionID:"ses_test",messageID:"msg_test",prompt:{text:""}};
+      await (await LegalWorkCapabilitiesKnowledge(context)).runtime.hook("session", "prompt", message);
+      expect(message.prompt.text).toContain("Prefer short paragraphs.");
 
       const args = { revision: 2, customInstructions: "Not approved" };
-      const rejected = await tool.execute(args, { ...context, ask: async () => { throw new Error("Permission rejected by the user"); } });
-      expect(JSON.parse(rejected).error).toContain("Permission rejected");
-      const unavailable = await tool.execute(args, agent.context);
-      expect(JSON.parse(unavailable).error).toContain("User approval is required");
+      await expect(tool.execute(args, { ...context, ask: async () => { throw new Error("Permission rejected by the user"); } })).rejects.toThrow("Permission rejected");
+      expect(plugin.runtime.permissions.at(-1)).toMatchObject({action:"legalwork_project_set_instructions",resources:[nested],save:[]});
       expect((await readProjectDetails(nested)).personalizationPrompt).toBe("Prefer short paragraphs.");
       let asked = false;
       const stale = await tool.execute({ ...args, revision: 1 }, { ...context, ask: async () => { asked = true; } });
@@ -331,7 +333,7 @@ describe("Personalisation", () => {
       // The chat's recorded folder is the nested project; the server refuses another folder outright.
       expect(JSON.parse(outside).error).toContain("HTTP 403");
       expect(asked).toBe(false);
-      expect(() => tool.execute({ ...args, customInstructions: "x".repeat(12_001) }, context)).toThrow();
+      await expect(tool.execute({ ...args, customInstructions: "x".repeat(12_001) }, context)).rejects.toThrow();
 
       const conflict = await tool.execute(args, { ...context, ask: async () => {
         await updateProjectPersonalization(nested, { revision: 2, customInstructions: "Saved in settings while approval was pending." });

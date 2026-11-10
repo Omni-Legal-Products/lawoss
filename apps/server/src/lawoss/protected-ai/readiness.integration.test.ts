@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VmSandbox } from "../../agent-sandbox/vm.js";
 import { ProtectedVmEngine } from "./vm-engine.js";
+import pins from "./engine-pins.json" with {type: "json"};
 
 const enabled = process.env.LAWOSS_PROTECTED_VM_TEST === "1";
 
@@ -17,7 +18,7 @@ const fixture = JSON.parse(readFileSync('/authorized/0/fixture.json', 'utf8'));
 const port = Number(process.argv[process.argv.indexOf('--port') + 1]);
 const directory = process.cwd();
 const completed = [];
-const authorization = 'Basic ' + Buffer.from('opencode:' + process.env.OPENCODE_SERVER_PASSWORD).toString('base64');
+const authorization = 'Basic ' + Buffer.from('opencode:' + process.env.OPENCODE_PASSWORD).toString('base64');
 const names = ['lawoss_documents_list', 'lawoss_documents_read', 'lawoss_documents_export', 'lawoss_documents_validate'];
 const argumentsByTool = {
   lawoss_documents_list: ['offset', 'limit'],
@@ -25,23 +26,31 @@ const argumentsByTool = {
   lawoss_documents_export: ['path', 'kind', 'outputLanguage', 'documentIds', 'expectedHash', 'entries'],
   lawoss_documents_validate: ['paths', 'documentIds', 'outputLanguage'],
 };
+// Engine v2 shapes: instance-free /api/info, then location-scoped model, default model,
+// agent and the document plugin's tool-registry RPC (POST).
+const version = JSON.parse(readFileSync('/authorized/0/config.json', 'utf8')).engineVersion;
 const server = createServer((request, response) => {
   if (request.headers.authorization !== authorization) { response.writeHead(401); response.end(); return; }
   const url = new URL(request.url, 'http://127.0.0.1');
-  if (url.pathname === '/global/health') { response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ healthy: true, version: '1.18.29' })); return; }
-  if (url.pathname === '/path') { response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ directory, completed })); return; }
-  if (request.method !== 'GET' || url.searchParams.get('directory') !== directory) { response.writeHead(400); response.end(); return; }
+  if (url.pathname === '/api/info') { response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ version, pid: process.pid, urls: [] })); return; }
+  // Fixture-only proof through an allowed bridge read; a real engine returns active sessions here.
+  if (url.pathname === '/api/session/active') { response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ data: {}, proof: { directory, completed } })); return; }
+  if (url.searchParams.get('location[directory]') !== directory) { response.writeHead(400); response.end(); return; }
+  const location = { directory };
+  const model = { id: fixture.mode === 'wrong-model' ? 'different-model' : 'synthetic', providerID: 'protected-documents', enabled: true };
   let payload;
-  if (url.pathname === '/provider') payload = { all: [{ id: 'protected-documents', models: { synthetic: { id: fixture.mode === 'wrong-model' ? 'different-model' : 'synthetic', providerID: 'protected-documents' } } }], default: { 'protected-documents': 'synthetic' }, connected: ['protected-documents'] };
-  if (url.pathname === '/agent') payload = [{ name: 'legalwork', mode: 'primary', description: 'Synthetic readiness fixture' }];
-  if (url.pathname === '/experimental/tool' && url.searchParams.get('provider') === 'protected-documents' && url.searchParams.get('model') === 'synthetic') payload = names.map(id => ({ id, description: 'Synthetic readiness fixture', parameters: { type: 'object', properties: Object.fromEntries(argumentsByTool[id].map(name => [name, {}])) } }));
-  if (Array.isArray(payload) && url.pathname === '/experimental/tool' && fixture.mode === 'missing-tool-schema') delete payload.find(tool => tool.id === 'lawoss_documents_validate').parameters.properties.paths;
+  if (request.method === 'GET' && url.pathname === '/api/model') payload = { location, data: [model] };
+  if (request.method === 'GET' && url.pathname === '/api/model/default') payload = { location, data: model };
+  if (request.method === 'GET' && url.pathname === '/api/agent') payload = { location, data: [{ id: 'legalwork', name: 'legalwork', mode: 'primary', hidden: false, description: 'Synthetic readiness fixture' }] };
+  if (request.method === 'POST' && url.pathname === '/api/rpc/lawoss.protected-documents/schema') payload = { output: { tools: names.map(id => ({ id, name: id, description: 'Synthetic readiness fixture', codemode: false, input: { type: 'object', properties: Object.fromEntries(argumentsByTool[id].map(name => [name, {}])) } })) } };
+  if (payload && url.pathname.startsWith('/api/rpc/') && fixture.mode === 'missing-tool-schema') delete payload.output.tools.find(tool => tool.id === 'lawoss_documents_validate').input.properties.paths;
   if (!payload) { response.writeHead(404); response.end(); return; }
+  request.resume();
   response.writeHead(200, { 'content-type': 'application/json' });
   response.write(' ');
-  // Headers alone are insufficient. /path records only completed bodies and
+  // Headers alone are insufficient. The proof records only completed bodies and
   // therefore exposes early publication through the returned public SDK API.
-  setTimeout(() => { completed.push(url.pathname); response.end(JSON.stringify(payload)); }, 60);
+  setTimeout(() => { completed.push(request.method + ' ' + url.pathname); response.end(JSON.stringify(payload)); }, 60);
 });
 server.listen(port, '127.0.0.1');
 `;
@@ -59,9 +68,10 @@ for (const mode of ["ready", "wrong-model", "missing-tool-schema"]) {
     await copyFile(new URL("../../../resources/agent-sandbox/protected-engine.mjs", import.meta.url), join(bundleDirectory, "protected-engine.mjs"));
     await writeFile(join(bundleDirectory, "opencode"), fixtureEngine);
     await chmod(join(bundleDirectory, "opencode"), 0o500);
-    await writeFile(join(bundleDirectory, "plugin.mjs"), "export default async () => ({ tool: {} });\n");
+    await mkdir(join(bundleDirectory, "plugin"));
+    await writeFile(join(bundleDirectory, "plugin", "index.js"), "export default { id: 'synthetic', setup() {} };\n");
     await writeFile(join(bundleDirectory, "fixture.json"), JSON.stringify({ mode }));
-    await writeFile(join(bundleDirectory, "config.json"), JSON.stringify({ model: { id: "synthetic", context: 100000, output: 4000 } }));
+    await writeFile(join(bundleDirectory, "config.json"), JSON.stringify({ engineVersion: pins.engineVersion, model: { id: "synthetic", context: 100000, output: 4000 } }));
     const opening = ProtectedVmEngine.open({ bundleDirectory, emptyDirectory, signal: AbortSignal.timeout(150_000),
       handleOutbound: async () => { modelCalls++; throw new Error("Readiness must not request a model"); },
       handleTool: async () => { toolCalls++; throw new Error("Readiness must not execute a document tool"); },
@@ -74,10 +84,11 @@ for (const mode of ["ready", "wrong-model", "missing-tool-schema"]) {
       return;
     }
     engine = await opening;
-    const response = await engine.fetch(new Request("http://private-engine/path", { signal: AbortSignal.timeout(5000) }));
+    const response = await engine.fetch(new Request("http://private-engine/api/session/active", { signal: AbortSignal.timeout(5000) }));
     expect(response.status).toBe(200);
-    const proof: { directory: string; completed: string[] } = await response.json();
-    expect({ ...proof, completed: [...proof.completed].sort() }).toEqual({ directory: "/tmp/home/protected-engine/workspace", completed: ["/provider", "/agent", "/experimental/tool"].sort() });
+    const { proof }: { proof: { directory: string; completed: string[] } } = await response.json();
+    expect({ ...proof, completed: [...proof.completed].sort() }).toEqual({ directory: "/tmp/home/protected-engine/workspace",
+      completed: ["GET /api/model", "GET /api/model/default", "GET /api/agent", "POST /api/rpc/lawoss.protected-documents/schema"].sort() });
     expect(modelCalls).toBe(0);
     expect(toolCalls).toBe(0);
   } finally {

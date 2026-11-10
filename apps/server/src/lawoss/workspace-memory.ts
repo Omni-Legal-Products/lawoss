@@ -1,3 +1,4 @@
+import { externalDirectoryMap } from "./linked-folders.js";
 import { ApiError } from "../errors.js";
 import { realpathSync, readFileSync } from "node:fs";
 import { dirname, join, isAbsolute, relative, sep } from "node:path";
@@ -34,9 +35,8 @@ function hostProfileOptions(config: ServerConfig, workspace: WorkspaceInfo) {
 
 // Never merge workspace-authored opencode.json: only the existing host runtime row grants access.
 export async function getWorkspaceMemoryGrants(config: ServerConfig, workspace: WorkspaceInfo) {
-  if (workspace.workspaceType === "remote") throw new ApiError(400, "memory_local_workspace_required", "File memory requires a local workspace.");
   const runtime = await readRuntimeOpencodeConfig(config, workspace.id);
-  return { ...runtimeMemoryGrants(workspace.path, runtimeExternalDirectory(runtime)), authority: "runtime" as const, workspaceId: workspace.id };
+  return { ...runtimeMemoryGrants(workspace.path, externalDirectoryMap(runtimeExternalDirectory(runtime))), authority: "runtime" as const, workspaceId: workspace.id };
 }
 export async function getWorkspaceMemoryStatus(config: ServerConfig, workspace: WorkspaceInfo) {
   const grants = await getWorkspaceMemoryGrants(config, workspace);

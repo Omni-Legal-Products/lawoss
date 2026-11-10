@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { ModelRef } from "@/app/types";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { unwrap, preflightOpencodeDirectory, type createClient } from "@/app/lib/opencode";
+import { invalidateNativeCatalogReady } from "@/app/lib/opencode-catalog-ready";
 import { ensureProviderListQuery } from "@/react-app/infra/provider-list-query";
 import { modelReadiness } from "@/lawoss/shell/model-readiness";
 import { isAgentCapableModel } from "@/lawoss/shell/default-model-pick";
@@ -18,6 +19,8 @@ export async function preflightDocumentGeneration(input: {
   queryClient: QueryClient; sdk: ReturnType<typeof createClient>; baseUrl: string; directory: string; relative: string;
   legalwork: LegalworkServerClient; workspaceId: string; model: ModelRef | null | undefined; request: DocumentGenerationRequest;
 }): Promise<void> {
+  // Engine v2 caches the native model catalogue per location; generation needs the current one (tool capability).
+  invalidateNativeCatalogReady(input.sdk, input.directory);
   const catalog = await ensureProviderListQuery(input.queryClient, { client: input.sdk, baseUrl: input.baseUrl, directory: input.directory, force: true });
   if (!input.model) throw new Error(t("session_route.no_model"));
   if (!modelReadiness({ defaultModel: input.model, providerList: catalog }).hasUsableModel) throw new Error(t("session_route.model_unavailable"));

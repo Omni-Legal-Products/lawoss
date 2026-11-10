@@ -64,7 +64,6 @@ on:
       - apps/server/src/lawoss-*
       - apps/server/src/server.ts
       - apps/server/src/routes/sessions.ts
-      - apps/server/src/engine-warmup-*
       - apps/server/src/reload-watcher.ts
       - apps/server/src/reload-watcher.test.ts
       - apps/server/src/routes/workspaces.ts
@@ -161,7 +160,6 @@ on:
       - apps/server/src/lawoss-*
       - apps/server/src/server.ts
       - apps/server/src/routes/sessions.ts
-      - apps/server/src/engine-warmup-*
       - apps/server/src/reload-watcher.ts
       - apps/server/src/reload-watcher.test.ts
       - apps/server/src/routes/workspaces.ts
@@ -252,6 +250,9 @@ jobs:
       - name: LAWOSS app logic (OKF views, onboarding, Lite)
         working-directory: apps/app
         run: bun test lawoss- okf- document-processing native-document-generation project-folder-recovery workspace-attachment home-submission fusion-routing session-sync-permissions session-sync-tool-parts message-queue-runner session-sync-retention session-render-boundary
+      # 🟡 LAWOSS (engine v2): runtime konfigurácia odkazuje na zostavené balíky pluginov (dist/opencode-plugins).
+      - name: Build native engine plugins for server tests
+        run: pnpm --filter legalwork-server build:plugins
       # Server s onboardingom, registráciou existujúceho priečinka, roztriedením,
       # pamäťou a kanonickými cestami. Explicitné ./src cesty fungujú aj
       # na Windows a nevložia Node helpery do Bun; dist zostavujeme až potom.
@@ -273,8 +274,6 @@ jobs:
           ./src/eigenwelt-hub-installs-store.test.ts
           ./src/eigenwelt-refresh.test.ts
           ./src/eigenwelt-sync-events.test.ts
-          ./src/engine-warmup-gate.test.ts
-          ./src/engine-warmup-routes.e2e.test.ts
           ./src/lawoss-engine-mcp-budget.e2e.test.ts
           ./src/lawoss/engine-mcp-budget.test.ts
           ./src/isir-case-attachments.e2e.test.ts

@@ -77,8 +77,8 @@ function startMockOpencode() {
       const url = new URL(request.url);
       requests.push({ pathname: url.pathname, search: url.search });
 
-      if (url.pathname === "/instance/dispose") {
-        return Response.json({ disposed: true });
+      if (url.pathname === "/api/rpc/legalwork.managed-settings/refresh") {
+        return Response.json({ refreshed: true });
       }
 
       // 🟡 LAWOSS: aktivácia sa pred uvoľnením opýta, či v priečinku nebeží chat.
@@ -184,7 +184,29 @@ async function startLegalworkServerWithWorkspaces(input: {
 }
 
 describe("workspace activation", () => {
-  test("reloads the bound OpenCode engine on activate", async () => {
+  test("keeps engine credentials out of client workspace and status metadata", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const legalwork = await startLegalworkServerWithWorkspaces({
+      configPath: join(workspaceRoot, "server.json"),
+      workspaces: [{ id: "private-engine", name: "Private engine", path: workspaceRoot, preset: "starter", workspaceType: "local",
+        baseUrl: "http://127.0.0.1:49999", directory: workspaceRoot,
+        opencodeUsername: "private-native-user", opencodePassword: "private-native-password",
+        opencode: { username: "nested-private-user", password: "nested-private-password" } }],
+      authorizedRoots: [workspaceRoot],
+    });
+    const base = `http://127.0.0.1:${legalwork.server.port}`;
+    for (const route of ["/workspaces", "/status", "/w/private-engine/workspaces", "/w/private-engine/status"]) {
+      const response = await fetch(`${base}${route}`, { headers: { Authorization: "Bearer owt_test_token" } });
+      expect(response.status).toBe(200);
+      const body = await response.text();
+      for (const secret of ["private-native-user", "private-native-password", "nested-private-user", "nested-private-password"])
+        expect(body).not.toContain(secret);
+      expect(body).not.toContain('"opencodeUsername"');
+      expect(body).not.toContain('"opencodePassword"');
+    }
+  });
+
+  test("activation preserves an already running engine without reloading it", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const mock = startMockOpencode();
     const legalwork = await startLegalworkServer({
@@ -202,13 +224,8 @@ describe("workspace activation", () => {
     const body = await response.json();
     expect(body.activeId).toBe("ws_1");
 
-    const reloadRequest = mock.requests.find(
-      (request) => request.pathname === "/instance/dispose",
-    );
-    expect(reloadRequest).toBeDefined();
-    expect(reloadRequest?.search).toContain(
-      `directory=${encodeURIComponent(workspaceRoot)}`,
-    );
+    expect(mock.requests).toEqual([]);
+
   });
 
   test("retries activation while the engine listener is starting", async () => {
@@ -227,7 +244,7 @@ describe("workspace activation", () => {
         const engine = Bun.serve({
           hostname: "127.0.0.1",
           port,
-          fetch: () => Response.json({ disposed: true }),
+          fetch: () => Response.json({ refreshed: true }),
         });
         stops.push(() => engine.stop(true));
         resolve();
@@ -242,7 +259,53 @@ describe("workspace activation", () => {
     expect(response.status).toBe(200);
   });
 
-  test("reports an engine that stays unreachable as unavailable", async () => {
+  test.each([400, 500])("explicit reload initializes a fresh location when native managed settings RPC is unavailable (HTTP %s)", async status => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const requests: string[] = [];
+    let ready = false;
+    const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+      const url = new URL(request.url);
+      requests.push(url.pathname);
+      expect(url.searchParams.get("location[directory]")).toBe(workspaceRoot);
+      if (url.pathname === "/api/model") {
+        ready = true;
+        return Response.json({ location: { directory: workspaceRoot }, data: [] });
+      }
+      if (url.pathname === "/api/rpc/legalwork.managed-settings/refresh") {
+        return ready ? Response.json({ refreshed: true })
+          : Response.json({ _tag: "RpcError", type: "rpc.unavailable", message: "RPC is unavailable: legalwork.managed-settings" }, { status });
+      }
+      return new Response(null, { status: 404 });
+    } });
+    stops.push(() => engine.stop(true));
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: engine.url.origin });
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/engine/reload`, {
+      method: "POST", headers: hostAuth(legalwork.hostToken),
+    });
+    expect(response.status).toBe(200);
+    // LAWOSS (RAM 2 GB): prijatie lokácie do rozpočtu MCP ju najprv aktivuje (server.ts activateEngineDirectory),
+    // takže RPC je dostupné hneď a záložné čítanie modelov pred druhým pokusom netreba.
+    expect(requests).toEqual(["/api/model", "/api/rpc/legalwork.managed-settings/refresh"]);
+  });
+
+  test("does not retry an admitted settings handler that reports a different engine error", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const requests: string[] = [];
+    const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+      requests.push(new URL(request.url).pathname);
+      return Response.json({ _tag: "RpcError", type: "settings.invalid", message: "Invalid saved settings" }, { status: 400 });
+    } });
+    stops.push(() => engine.stop(true));
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: engine.url.origin });
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/engine/reload`, {
+      method: "POST", headers: hostAuth(legalwork.hostToken),
+    });
+    expect(response.status).toBe(400);
+    // LAWOSS (RAM 2 GB): aktivácia lokácie pri prijatí do rozpočtu MCP (server.ts activateEngineDirectory).
+    expect(requests).toEqual(["/api/model", "/api/rpc/legalwork.managed-settings/refresh"]);
+  });
+
+  test("navigation remains available when its engine is unreachable", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });
     const port = probe.port;
@@ -260,11 +323,11 @@ describe("workspace activation", () => {
       method: "POST",
       headers: hostAuth(legalwork.hostToken),
     });
-    expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toMatchObject({ code: "opencode_unavailable" });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ activeId: "ws_1" });
   });
 
-  test("does not repeat a reload after the engine accepts and drops the connection", async () => {
+  test("activation does not contact or restart the engine", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     let attempts = 0;
     const engine = createServer((request) => {
@@ -286,8 +349,8 @@ describe("workspace activation", () => {
       method: "POST",
       headers: hostAuth(legalwork.hostToken),
     });
-    expect(response.status).toBe(503);
-    expect(attempts).toBe(1);
+    expect(response.status).toBe(200);
+    expect(attempts).toBe(0);
   });
 
   test("persists activation order only when requested", async () => {
@@ -414,105 +477,23 @@ describe("workspace lifecycle registry", () => {
     expect(workspace?.opencodePassword).toBeUndefined();
   });
 
-  test("creates and persists remote LegalWork workspace records", async () => {
+  test("retired remote registration returns a diagnostic without discovery or persistence", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const configPath = join(workspaceRoot, "server.json");
-    await writeFile(configPath, `${JSON.stringify({ workspaces: [], authorizedRoots: [] }, null, 2)}\n`, "utf8");
+    const original = JSON.stringify({ workspaces: [], authorizedRoots: [] });
+    await writeFile(configPath, original);
     const remote = startMockRemoteLegalwork();
-    const legalwork = await startLegalworkServerWithWorkspaces({
-      configPath,
-      workspaces: [],
-      authorizedRoots: [],
+    const legalwork = await startLegalworkServerWithWorkspaces({ configPath, workspaces: [], authorizedRoots: [] });
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspaces/remote`, {
+      method: "POST", headers: { ...hostAuth(legalwork.hostToken), "Content-Type": "application/json" },
+      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${remote.server.port}` }),
     });
-
-    const base = `http://127.0.0.1:${legalwork.server.port}`;
-    const response = await fetch(`${base}/workspaces/remote`, {
-      method: "POST",
-      headers: { ...hostAuth(legalwork.hostToken), "Content-Type": "application/json" },
-      body: JSON.stringify({
-        baseUrl: `http://127.0.0.1:${remote.server.port}`,
-        legalworkHostUrl: `http://127.0.0.1:${remote.server.port}`,
-        legalworkToken: "remote_token",
-        directory: "/remote/project",
-        remoteType: "legalwork",
-        sandboxRunId: "run_1",
-      }),
-    });
-
-    expect(response.status).toBe(201);
-    const body = await response.json();
-    expect(body.activeId).toBe("rem_ws_remote");
-    expect(body.workspaces[0].legalworkWorkspaceId).toBe("ws_remote");
-    expect(body.workspaces[0].legalworkWorkspaceName).toBe("Remote Project");
-    expect(remote.requests[0]).toEqual({ pathname: "/workspaces", authorization: "Bearer remote_token" });
-
-    const persisted = await readPersistedConfig(configPath);
-    const workspaces = workspacesFromConfig(persisted);
-    expect(workspaces[0]?.id).toBe("rem_ws_remote");
-    expect(workspaces[0]?.workspaceType).toBe("remote");
-    expect(workspaces[0]?.remoteType).toBe("legalwork");
-    expect(workspaces[0]?.sandboxRunId).toBe("run_1");
-    expect(authorizedRootsFromConfig(persisted)).toEqual([]);
+    expect(response.status).toBe(410);
+    expect((await response.json()).code).toBe("remote_workspaces_retired");
+    expect(remote.requests).toEqual([]);
+    expect(await readFile(configPath, "utf8")).toBe(original);
   });
 
-  test("renames activates and deletes remote records without authorized roots", async () => {
-    const workspaceRoot = await createWorkspaceRoot();
-    const configPath = join(workspaceRoot, "server.json");
-    const workspaces: ServerConfig["workspaces"] = [
-      {
-        id: "rem_ws_one",
-        name: "One",
-        path: "/remote/one",
-        preset: "remote",
-        workspaceType: "remote",
-        remoteType: "legalwork",
-        baseUrl: "http://127.0.0.1:9",
-        legalworkWorkspaceId: "ws_one",
-      },
-      {
-        id: "rem_ws_two",
-        name: "Two",
-        path: "/remote/two",
-        preset: "remote",
-        workspaceType: "remote",
-        remoteType: "legalwork",
-        baseUrl: "http://127.0.0.1:9",
-        legalworkWorkspaceId: "ws_two",
-      },
-    ];
-    await writeFile(configPath, `${JSON.stringify({ workspaces, authorizedRoots: [] }, null, 2)}\n`, "utf8");
-    const legalwork = await startLegalworkServerWithWorkspaces({
-      configPath,
-      workspaces,
-      authorizedRoots: [],
-    });
-    const base = `http://127.0.0.1:${legalwork.server.port}`;
-
-    const renameResponse = await fetch(`${base}/workspaces/rem_ws_one/display-name`, {
-      method: "PATCH",
-      headers: { ...hostAuth(legalwork.hostToken), "Content-Type": "application/json" },
-      body: JSON.stringify({ displayName: "Renamed One" }),
-    });
-    expect(renameResponse.status).toBe(200);
-    let persisted = await readPersistedConfig(configPath);
-    expect(workspacesFromConfig(persisted)[0]?.displayName).toBe("Renamed One");
-
-    const activateResponse = await fetch(`${base}/workspaces/rem_ws_two/activate?persist=true`, {
-      method: "POST",
-      headers: hostAuth(legalwork.hostToken),
-    });
-    expect(activateResponse.status).toBe(200);
-    expect(await readPersistedWorkspaceIds(configPath)).toEqual(["rem_ws_two", "rem_ws_one"]);
-
-    const deleteResponse = await fetch(`${base}/workspaces/rem_ws_one`, {
-      method: "DELETE",
-      headers: hostAuth(legalwork.hostToken),
-    });
-    expect(deleteResponse.status).toBe(200);
-    persisted = await readPersistedConfig(configPath);
-    expect(workspaceIdsFromConfig(persisted)).toEqual(["rem_ws_two"]);
-    expect(authorizedRootsFromConfig(persisted)).toEqual([]);
-  });
 });
 
 test("selected-folder project preserves files, persists metadata and rejects stale writes", async () => {

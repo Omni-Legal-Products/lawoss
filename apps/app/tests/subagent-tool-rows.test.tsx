@@ -1,7 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { DynamicToolUIPart, UIMessage } from "ai";
-import type { ToolPart } from "@opencode-ai/sdk/v2/client";
+import type { ToolPart } from "../src/app/lib/opencode-view";
+import type { OpenCodeEvent } from "@opencode/client";
+import { projectTool } from "../src/app/lib/opencode-view";
 import type { WorkspaceSessionGroup } from "../src/app/types";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import { SubagentRow } from "../src/components/chat/subagent-tool-row";
@@ -98,6 +100,27 @@ test("waiting and failed agents remain distinct, and a background launch does no
   expect(subagentStatus({ ...completed, callProviderMetadata: { opencode: { sessionId: "child-1", background: true } } }, undefined, false)).toBe("thinking");
 });
 
+test("native v2 subagent launches show clickable child rows and stay running after background admission", () => {
+  for (const background of [false, true]) {
+    const part = parseDynamicToolUIPart(projectTool("parent", "assistant", {
+      type: "tool", name: "subagent", id: "native-child", time: { created: 1, ran: 1, completed: 2 },
+      state: { status: "completed", input: { agent: "general", description: "Create a Word file", background },
+        content: [{ type: "text", text: background ? "Working in the background" : "Finished" }],
+        metadata: { sessionID: "child-v2", status: background ? "running" : "completed" } },
+    }));
+    if (!part) throw new Error("Missing native subagent part");
+    expect(getAssistantRenderGroups([part], false)).toEqual([{ kind: "subagents", parts: [part] }]);
+    expect(subagentSessionId(part)).toBe("child-v2");
+    expect(subagentDescription(part)).toBe("Create a Word file");
+    expect(subagentStatus(part, undefined, false)).toBe(background ? "thinking" : "idle");
+  }
+  const resumed = parseDynamicToolUIPart({
+    type: "tool", id: "resume", callID: "resume", messageID: "assistant", sessionID: "parent", tool: "subagent",
+    state: { status: "running", input: { sessionID: "resumed-child" }, time: { start: 1 } },
+  });
+  expect(resumed && subagentSessionId(resumed)).toBe("resumed-child");
+});
+
 test("session ids survive both the tool mapper and live updates, so rows can open the child before and after completion", () => {
   const input = { workspaceId: "inline-agent-tests", baseUrl: "http://127.0.0.1:1", legalworkToken: "fixture" };
   const dispose = __createWorkspaceSessionSyncForTest(input);
@@ -111,8 +134,16 @@ test("session ids survive both the tool mapper and live updates, so rows can ope
     for (const part of [running, completed]) {
       const mapped = parseDynamicToolUIPart(part)!;
       expect(subagentSessionId(mapped)).toBe("child-1");
-      __applySessionSyncEventForTest(input, { type: "message.updated", properties: { info: { id: "assistant", role: "assistant", sessionID: "parent" } } });
-      __applySessionSyncEventForTest(input, { type: "message.part.updated", properties: { part } });
+      const common = { id: "event", created: 1, location: { directory: "/fixture" }, durable: { aggregateID: "parent", seq: 1, version: 1 } };
+      const emit = (event: OpenCodeEvent) => __applySessionSyncEventForTest(input, event);
+      if (part.state.status === "running") {
+        emit({ ...common, type: "session.step.started", data: { sessionID: "parent", assistantMessageID: "assistant", agent: "legalwork", model: { providerID: "fixture", id: "model" }, started: 1 } });
+        emit({ ...common, type: "session.tool.input.started", data: { sessionID: "parent", assistantMessageID: "assistant", id: part.callID, name: part.tool } });
+        emit({ ...common, type: "session.tool.called", data: { sessionID: "parent", assistantMessageID: "assistant", id: part.callID, input: part.state.input, executed: true } });
+        emit({ ...common, type: "session.tool.progress", data: { sessionID: "parent", assistantMessageID: "assistant", id: part.callID, metadata: part.state.metadata } });
+      } else if (part.state.status === "completed") {
+        emit({ ...common, durable: { ...common.durable, version: 2 }, type: "session.tool.success", data: { sessionID: "parent", assistantMessageID: "assistant", id: part.callID, content: [{ type: "text", text: part.state.output }], metadata: part.state.metadata, executed: true } });
+      }
       const transcript = getReactQueryClient().getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, "parent")) ?? [];
       const livePart = transcript[0].parts.find(part => part.type === "dynamic-tool");
       expect(livePart && subagentSessionId(livePart)).toBe("child-1");

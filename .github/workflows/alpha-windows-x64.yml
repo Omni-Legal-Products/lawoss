@@ -137,6 +137,17 @@ jobs:
           echo "signed=false" >> "$GITHUB_OUTPUT"
           echo "draft=true" >> "$GITHUB_OUTPUT"
 
+  # 🟡 LAWOSS (ADR 0016, MČ 8. 11. 2026): engine 2.1.4-legalwork.http-policy.4 zo zdrojov
+  # vývojovou cestou s ad-hoc podpisom. Ostrá príprava s podpisovateľom Eigenwelt sa nespúšťa.
+  opencode-engine:
+    needs: signing
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/ci-opencode-derivative.yml
+    with:
+      build-mode: development
+      ref: ${{ github.sha }}
   sandbox-runtime:
     needs: signing
     uses: ./.github/workflows/sandbox-runtime.yml
@@ -145,7 +156,7 @@ jobs:
       run_tests: ${{ inputs.sandbox_tests }}
 
   publish-alpha-windows:
-    needs: [signing, sandbox-runtime]
+    needs: [signing, sandbox-runtime, opencode-engine]
     name: Build + Publish alpha (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -208,10 +219,23 @@ jobs:
         with:
           node-version: 24.22.1
 
+      - name: Download the same-run source-built engine
+        uses: actions/download-artifact@v4
+        with:
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative
+      # 🟡 LAWOSS: vývojová (ad-hoc) príprava enginu, bez podpisovateľa Eigenwelt.
+      - name: Verify and prepare the development engine
+        uses: ./.github/actions/setup-opencode
+        with:
+          build-mode: development
+          archive-directory: ${{ runner.temp }}/opencode-derivative/archives
+          manifest-sha256: ${{ needs.opencode-engine.outputs.manifest-sha256 }}
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
 
       - name: Get pnpm store path
         id: pnpm-store

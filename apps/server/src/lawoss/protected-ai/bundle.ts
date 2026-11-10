@@ -43,8 +43,8 @@ export function protectedGuestBundleFactory(config: ServerConfig, options: {runt
       if (architecture !== process.arch) throw new Error("The protected guest architecture does not match this application.");
       const engineManifest = JSON.parse(await readFile(join(directory, "protected-opencode-manifest.json"), "utf8"));
       if (engineManifest.schemaVersion !== 1 || engineManifest.engineVersion !== pins.engineVersion || engineManifest.architecture !== architecture
-        || engineManifest.repository !== pins.repository || engineManifest.releaseId !== pins.releaseId
-        || engineManifest.asset?.id !== pin.id || engineManifest.asset?.sha256 !== pin.sha256
+        || engineManifest.repository !== pins.repository || engineManifest.releaseTag !== pins.releaseTag || engineManifest.releaseId !== pins.releaseId
+        || engineManifest.asset?.name !== pin.name || engineManifest.asset?.sha256 !== pin.sha256
         || engineManifest.binary?.sha256 !== pin.binarySha256 || engineManifest.binary?.size !== pin.binarySize
         || engineManifest.versionProof?.version !== pins.engineVersion || engineManifest.versionProof?.binarySha256 !== pin.binarySha256
         || engineManifest.versionProof?.environment !== "linux-bookworm-guest") throw new Error("The reviewed guest engine or execution proof is missing.");
@@ -61,7 +61,9 @@ export function protectedGuestBundleFactory(config: ServerConfig, options: {runt
       await mkdir(bundleDirectory, {mode: 0o700}); await mkdir(emptyDirectory, {mode: 0o700});
       await copyFile(join(directory, "protected-opencode"), join(bundleDirectory, "opencode"));
       await copyFile(join(directory, "protected-engine.mjs"), join(bundleDirectory, "protected-engine.mjs"));
-      await copyFile(plugin, join(bundleDirectory, "plugin.mjs"));
+      // Engine v2 loads a configured plugin from its directory entrypoint.
+      await mkdir(join(bundleDirectory, "plugin"), {mode: 0o700});
+      await copyFile(plugin, join(bundleDirectory, "plugin", "index.js"));
       if (input.checkpoint) {
         const info = await lstat(input.checkpoint.path);
         if (!info.isFile() || info.size > 16 * 1024 * 1024 || !hashSchema.safeParse(input.checkpoint.sha256).success
@@ -70,10 +72,11 @@ export function protectedGuestBundleFactory(config: ServerConfig, options: {runt
         await chmod(join(bundleDirectory, "snapshot.sqlite"), 0o400);
         if (await hashFile(join(bundleDirectory, "snapshot.sqlite")) !== input.checkpoint.sha256) throw new Error("The checkpoint changed while being copied.");
       }
-      await writeFile(join(bundleDirectory, "config.json"), JSON.stringify({...(input.checkpoint ? {checkpointSha256: input.checkpoint.sha256} : {}), model: {id: input.modelId, context: 100000, output: 8000, variants: {high: {}}}}), {mode: 0o400});
-      for (const name of ["opencode", "protected-engine.mjs", "plugin.mjs"]) await chmod(join(bundleDirectory, name), 0o400);
+      await writeFile(join(bundleDirectory, "config.json"), JSON.stringify({...(input.checkpoint ? {checkpointSha256: input.checkpoint.sha256} : {}), engineVersion: pins.engineVersion, model: {id: input.modelId, context: 100000, output: 8000, variants: {high: {}}}}), {mode: 0o400});
+      for (const name of ["opencode", "protected-engine.mjs", join("plugin", "index.js")]) await chmod(join(bundleDirectory, name), 0o400);
+      await chmod(join(bundleDirectory, "plugin"), 0o500);
       const readers = { engineSha256: measuredFile(join(bundleDirectory, "opencode")), runtimeManifestSha256: measuredFile(manifestPath),
-        pluginSha256: measuredFile(join(bundleDirectory, "plugin.mjs")), configSha256: measuredFile(join(bundleDirectory, "config.json")),
+        pluginSha256: measuredFile(join(bundleDirectory, "plugin", "index.js")), configSha256: measuredFile(join(bundleDirectory, "config.json")),
         launcherSha256: measuredFile(join(bundleDirectory, "protected-engine.mjs")) };
       const checkpointReader = input.checkpoint ? measuredFile(join(bundleDirectory, "snapshot.sqlite")) : undefined;
       const currentBinding = async () => ({ ...(checkpointReader ? {checkpointSha256: await checkpointReader()} : {}), engineSha256: await readers.engineSha256(), runtimeManifestSha256: await readers.runtimeManifestSha256(),

@@ -173,6 +173,13 @@
       "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
     },
     {
+      "id": "assistant",
+      "scope": "global",
+      "guide": "index.md",
+      "hidden": true,
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
       "id": "debug",
       "scope": "global",
       "guide": "riesenie-problemov.md",

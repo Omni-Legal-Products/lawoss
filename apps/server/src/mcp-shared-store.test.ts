@@ -7,11 +7,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  buildLegalworkRuntimeConfig,
+  buildLegalworkRuntimeSettings,
   keepLegalworkRuntimeConfigFileFresh,
   legalworkRuntimeConfigFilePath,
+  managedEngineSettingsFilePath,
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
+import { readManagedEngineSettings } from "./managed-engine-settings.js";
 import { addMcp, listMcp, removeMcp, setMcpEnabled } from "./mcp.js";
 import { installCloudPlugin } from "./cloud-plugins.js";
 import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
@@ -23,7 +25,9 @@ import {
   readRuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
+import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
+import type { NativeMcpDefinition } from "./native-mcp-config.js";
 
 /**
  * One connector store for every workspace. A desktop connector is saved into
@@ -56,8 +60,8 @@ afterEach(async () => {
   if (errors.length) throw new AggregateError(errors, "Fixture cleanup failed");
 });
 
-const FIBERY = { type: "remote", url: "https://mcp.fibery.io/mcp", enabled: true, oauth: {} };
-const NOTION = { type: "remote", url: "https://mcp.notion.com/mcp", enabled: true, oauth: {} };
+const FIBERY = { type: "remote", url: "https://mcp.fibery.io/mcp", disabled: false, oauth: {} } satisfies NativeMcpDefinition;
+const NOTION = { type: "remote", url: "https://mcp.notion.com/mcp", disabled: false, oauth: {} } satisfies NativeMcpDefinition;
 
 async function setup() {
   const root = await mkdtemp(join(tmpdir(), "legalwork-shared-mcp-"));
@@ -99,10 +103,7 @@ async function setup() {
 }
 
 async function engineMcp(config: ServerConfig, workspaceId: string) {
-  const parsed = JSON.parse(await buildLegalworkRuntimeConfig(config, workspaceId)) as {
-    mcp?: Record<string, Record<string, unknown>>;
-  };
-  return parsed.mcp ?? {};
+  return (await buildLegalworkRuntimeSettings(config, workspaceId)).configuration.mcp?.servers ?? {};
 }
 
 async function waitFor(check: () => Promise<boolean>, label: string) {
@@ -119,14 +120,14 @@ describe("shared connector store", () => {
     const { wsA, config, root } = await setup();
     const runtimeConfigFile = join(root, "runtime-opencode-config.json");
     const globalOpencodeConfigFile = join(root, "global", "opencode.jsonc");
-    const replacement = { type: "local", command: ["open-computer-use", "mcp"], enabled: true };
-    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: {
+    const replacement = { type: "local", command: ["open-computer-use", "mcp"], disabled: false } satisfies NativeMcpDefinition;
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { servers: {
       "computer-use": { type: "local", command: ["npx", "-y", "@legalwork/handsfree", "mcp"] },
       "open-computer-use": replacement,
-    } }));
-    await writeRuntimeOpencodeConfig(config, "ws_a", () => ({ mcp: {
+    } } }));
+    await writeRuntimeOpencodeConfig(config, "ws_a", () => ({ mcp: { servers: {
       "computer-use": { type: "local", command: ["/Applications/LegalWork.app/Contents/Resources/helpers/LegalWork Computer Use.app/Contents/MacOS/ComputerUse", "mcp"] },
-    }, plugin: ["keep-me"] }));
+    } }, plugins: ["keep-me"] }));
     await mkdir(join(root, "global"));
     await writeFile(globalOpencodeConfigFile, '// Keep this comment\n{"mcp":{"computer-use":{"type":"local","command":["node","/repo/packages/handsfree/bin/legalwork-handsfree-computer-use.mjs","mcp"]}}}\n');
     const projectConfig = opencodeConfigPaths(wsA)[0];
@@ -136,8 +137,8 @@ describe("shared connector store", () => {
 
     expect((await importConnectorsIntoSharedRow(config, { runtimeConfigFile, globalOpencodeConfigFile })).imported).toEqual([]);
     expect(await readGlobalMcpMap(config)).toEqual({ "open-computer-use": replacement });
-    expect(await readRuntimeOpencodeConfig(config, "ws_a")).toMatchObject({ plugin: ["keep-me"] });
-    expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp).toBeUndefined();
+    expect(await readRuntimeOpencodeConfig(config, "ws_a")).toMatchObject({ plugins: ["keep-me"] });
+    expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp?.servers ?? {}).toEqual({});
     for (const path of [projectConfig, globalOpencodeConfigFile]) {
       expect((await readJsoncFile<Record<string, unknown>>(path, {})).data.mcp).toEqual({});
     }
@@ -148,8 +149,8 @@ describe("shared connector store", () => {
 
   test("preserves a custom computer-use MCP with a different command", async () => {
     const { config, root } = await setup();
-    const custom = { type: "local", command: ["/firm/custom-computer-use", "mcp"], enabled: true };
-    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { "computer-use": custom } }));
+    const custom = { type: "local", command: ["/firm/custom-computer-use", "mcp"], disabled: false } satisfies NativeMcpDefinition;
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { servers: { "computer-use": custom } } }));
     await importConnectorsIntoSharedRow(config, {
       runtimeConfigFile: join(root, "runtime.json"), globalOpencodeConfigFile: join(root, "opencode.jsonc"),
     });
@@ -163,10 +164,10 @@ describe("shared connector store", () => {
     for (const [workspaceId, root] of [["ws_a", wsA], ["ws_b", wsB]] as const) {
       const items = await listMcp(config, workspaceId, root);
       expect(items.map((item) => `${item.name}:${item.source}`)).toEqual(["fibery:config.remote"]);
-      expect((await engineMcp(config, workspaceId)).fibery?.url).toBe(FIBERY.url);
+      expect((await engineMcp(config, workspaceId)).fibery).toMatchObject({ type: "remote", url: FIBERY.url });
     }
     // Stored once, in the shared row — not in the workspace that connected it.
-    expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp).toBeUndefined();
+    expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp?.servers ?? {}).toEqual({});
     expect((await readGlobalMcpMap(config)).fibery).toEqual(FIBERY);
   });
 
@@ -176,8 +177,8 @@ describe("shared connector store", () => {
     const own = { ...FIBERY, url: "https://firm.example/fibery-proxy/mcp" };
     expect(await addMcp(config, "ws_a", "fibery", own, "workspace")).toEqual({ action: "updated" });
 
-    expect((await engineMcp(config, "ws_a")).fibery?.url).toBe(own.url);
-    expect((await engineMcp(config, "ws_b")).fibery?.url).toBe(FIBERY.url);
+    expect((await engineMcp(config, "ws_a")).fibery).toMatchObject({ type: "remote", url: own.url });
+    expect((await engineMcp(config, "ws_b")).fibery).toMatchObject({ type: "remote", url: FIBERY.url });
 
     // Disconnecting the app removes every copy, or one would resurrect it.
     expect(await removeMcp(config, "ws_a", "fibery")).toEqual(["workspace", "global"]);
@@ -190,32 +191,32 @@ describe("shared connector store", () => {
     const { config } = await setup();
     await addMcp(config, "ws_a", "fibery", { ...FIBERY, url: "https://old.example/mcp" }, "workspace");
     expect(await addMcp(config, "ws_a", "fibery", FIBERY)).toEqual({ action: "updated" });
-    expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp).toEqual({});
-    expect((await engineMcp(config, "ws_a")).fibery?.url).toBe(FIBERY.url);
+    expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp?.servers).toEqual({});
+    expect((await engineMcp(config, "ws_a")).fibery).toMatchObject({ type: "remote", url: FIBERY.url });
   });
 
-  test("disconnect removes legacy file copies in every workspace and cannot be reimported", async () => {
+  test("disconnect preserves native authored files and never imports their definitions into the shared store", async () => {
     const { root, wsA, wsB, config } = await setup();
     const globalOpencodeConfigFile = join(root, "xdg", "opencode", "opencode.jsonc");
     const files = [globalOpencodeConfigFile, join(root, "xdg", "opencode", "opencode.json"),
       ...opencodeConfigPaths(wsA), ...opencodeConfigPaths(wsB)];
     for (const path of files) {
       await mkdir(join(path, ".."), { recursive: true });
-      await writeFile(path, `// keep this comment\n${JSON.stringify({ mcp: { legalmemory: FIBERY, notion: NOTION }, model: "keep/model" })}`);
+      await writeFile(path, `// keep this comment\n${JSON.stringify({ mcp: { servers: { legalmemory: { type: "remote", url: FIBERY.url }, notion: { type: "remote", url: NOTION.url } } }, model: "keep/model" })}`);
     }
     // Reproduce an upgrade where the shared entry was already removed but
     // an older project file still kept LegalMemory connected.
     expect((await listMcp(config, "ws_a", wsA)).some((item) => item.name === "legalmemory")).toBe(true);
-    expect(await removeMcp(config, "ws_a", "legalmemory")).toEqual(["global"]);
+    expect(await removeMcp(config, "ws_a", "legalmemory")).toEqual([]);
     expect(await removeMcp(config, "ws_a", "legalmemory")).toEqual([]);
     for (const path of files) {
       const { data, raw } = await readJsoncFile(path, {});
-      expect(data).toEqual({ mcp: { notion: NOTION }, model: "keep/model" });
+      expect(data).toEqual({ mcp: { servers: { legalmemory: { type: "remote", url: FIBERY.url }, notion: { type: "remote", url: NOTION.url } } }, model: "keep/model" });
       expect(raw).toContain("// keep this comment");
     }
     await importConnectorsIntoSharedRow(config, { globalOpencodeConfigFile, runtimeConfigFile: join(root, "missing.json") });
     for (const [id, path] of [["ws_a", wsA], ["ws_b", wsB]]) {
-      expect((await listMcp(config, id, path)).map((item) => item.name)).toEqual(["notion"]);
+      expect((await listMcp(config, id, path)).map((item) => item.name)).toEqual(["legalmemory", "notion"]);
       expect((await engineMcp(config, id)).legalmemory).toBeUndefined();
     }
   });
@@ -224,8 +225,8 @@ describe("shared connector store", () => {
     const { config } = await setup();
     await addMcp(config, "ws_a", "fibery", FIBERY, "global");
     expect(await setMcpEnabled(config, "ws_b", "fibery", false)).toBe(true);
-    expect((await readGlobalMcpMap(config)).fibery?.enabled).toBe(false);
-    expect((await engineMcp(config, "ws_a")).fibery?.enabled).toBe(false);
+    expect((await readGlobalMcpMap(config)).fibery?.disabled).toBe(true);
+    expect((await engineMcp(config, "ws_a")).fibery?.disabled).toBe(true);
     expect(await setMcpEnabled(config, "ws_b", "missing", false)).toBe(false);
   });
 
@@ -237,15 +238,14 @@ describe("shared connector store", () => {
     // Saved from another workspace: the file is built for ws_a, and must still update.
     await addMcp(config, "ws_b", "fibery", FIBERY, "global");
     await waitFor(async () => {
-      const raw = await readFile(legalworkRuntimeConfigFilePath(config), "utf8");
-      return (JSON.parse(raw) as { mcp?: Record<string, unknown> }).mcp?.fibery !== undefined;
+      return (await readManagedEngineSettings(managedEngineSettingsFilePath(config), config.workspaces[0]!.path)).configuration.mcp?.servers?.fibery !== undefined;
     }, "the engine config file to carry the shared connector");
   });
 
   test("the shared row's copy stands in for an entry in the user's global opencode config", async () => {
     const { root, wsA, config } = await setup();
     await mkdir(join(root, "xdg", "opencode"), { recursive: true });
-    await writeFile(join(root, "xdg", "opencode", "opencode.jsonc"), JSON.stringify({ mcp: { fibery: FIBERY } }), "utf8");
+    await writeFile(join(root, "xdg", "opencode", "opencode.jsonc"), JSON.stringify({ mcp: { servers: { fibery: FIBERY } } }), "utf8");
 
     expect((await listMcp(config, "ws_a", wsA)).map((item) => `${item.name}:${item.source}`)).toEqual(["fibery:config.global"]);
     await addMcp(config, "ws_a", "fibery", FIBERY, "global");
@@ -269,11 +269,11 @@ describe("importing connectors from earlier builds", () => {
     const runtimeConfigFile = join(root, "runtime-opencode-config.json");
     const globalOpencodeConfigFile = join(root, "opencode.jsonc");
     const notionFromRow = { ...NOTION, url: "https://mcp.notion.com/mcp?row=1" };
-    await writeRuntimeOpencodeConfig(config, "ws_a", (current) => ({ ...current, mcp: { notion: notionFromRow }, plugin: ["keep-me"] }));
-    await writeRuntimeOpencodeConfig(config, "ws_b", (current) => ({ ...current, mcp: { fibery: FIBERY } }));
+    await writeRuntimeOpencodeConfig(config, "ws_a", (current) => ({ ...current, mcp: { servers: { notion: notionFromRow } }, plugins: ["keep-me"] }));
+    await writeRuntimeOpencodeConfig(config, "ws_b", (current) => ({ ...current, mcp: { servers: { fibery: FIBERY } } }));
     await writeFile(
       runtimeConfigFile,
-      JSON.stringify({ mcp: { legalmemory: { type: "remote", url: "https://ki.firm.internal/mcp/", enabled: true }, notion: NOTION } }),
+      JSON.stringify({ mcp: { legalmemory: { type: "remote", url: "https://ki.firm.internal/mcp/", disabled: false }, notion: NOTION } }),
       "utf8",
     );
     const globalFile = [
@@ -298,19 +298,20 @@ describe("importing connectors from earlier builds", () => {
     expect(shared.notion?.url).toBe(notionFromRow.url);
     expect(shared.broken).toBeUndefined();
     // Workspace rows are emptied (moved, not copied) and keep their other state.
-    expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp).toBeUndefined();
-    expect((await readRuntimeOpencodeConfig(config, "ws_a")).plugin).toEqual(["keep-me"]);
-    expect((await readRuntimeOpencodeConfig(config, "ws_b")).mcp).toBeUndefined();
+    expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp?.servers ?? {}).toEqual({});
+    expect((await readRuntimeOpencodeConfig(config, "ws_a")).plugins).toEqual(["keep-me"]);
+    expect((await readRuntimeOpencodeConfig(config, "ws_b")).mcp?.servers ?? {}).toEqual({});
     // The old entry must not remain a second source. Keep unrelated content.
     const migratedFile = await readFile(globalOpencodeConfigFile, "utf8");
     expect(migratedFile).toContain("// written by an earlier desktop build");
     expect(migratedFile).toContain('"broken"');
     expect(migratedFile).not.toContain('"courtlistener"');
-    // The move is one-way for older builds and the standalone CLI, so the file
-    // as it was before the move sits next to it, byte for byte.
-    expect(first.backups).toHaveLength(1);
-    expect(first.backups[0]).toMatch(/^.*opencode\.jsonc\.bak-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/u);
-    expect(await readFile(first.backups[0]!, "utf8")).toBe(globalFile);
+    // The move is one-way for older builds and the standalone CLI. LAWOSS v2: the
+    // upstream private backup store keeps the file as it was, byte for byte.
+    const backups = async () => (await readdir(join(runtimeStorageDir(config), "configuration-import-backups"), { recursive: true }))
+      .filter((name) => name.endsWith(".original"));
+    expect(await backups()).toHaveLength(1);
+    expect(await readFile(join(runtimeStorageDir(config), "configuration-import-backups", (await backups())[0]!), "utf8")).toBe(globalFile);
     // Every workspace's engine config now carries all of them.
     expect(Object.keys(await engineMcp(config, "ws_b")).sort()).toEqual(["courtlistener", "fibery", "legalmemory", "notion"]);
 
@@ -318,8 +319,8 @@ describe("importing connectors from earlier builds", () => {
     expect(second.imported).toEqual([]);
     expect(await readGlobalMcpMap(config)).toEqual(shared);
     // Nothing left to move, so no second backup piles up on every start.
-    expect(second.backups).toEqual([]);
-    expect((await readdir(root)).filter((name) => name.includes(".bak-"))).toHaveLength(1);
+    expect(await backups()).toHaveLength(1);
+    expect((await readdir(root)).filter((name) => name.includes(".bak-"))).toHaveLength(0);
   });
 
   test("moves old project file connectors into the global store without retaining a shadow copy", async () => {
@@ -378,19 +379,19 @@ describe("importing connectors from earlier builds", () => {
       globalOpencodeConfigFile: join(root, "missing.jsonc"),
     });
     expect(result.imported).toEqual(["fibery"]);
-    expect(Object.keys((await readRuntimeOpencodeConfig(config, "ws_a")).mcp ?? {})).toEqual(["brief"]);
+    expect(Object.keys((await readRuntimeOpencodeConfig(config, "ws_a")).mcp?.servers ?? {})).toEqual(["brief"]);
     expect(Object.keys(await readGlobalMcpMap(config))).toEqual(["fibery"]);
     expect(Object.keys(await engineMcp(config, "ws_b"))).toEqual(["fibery"]);
   });
 
   test("does nothing on a read-only server", async () => {
     const { root, config } = await setup();
-    await writeRuntimeOpencodeConfig(config, "ws_a", (current) => ({ ...current, mcp: { fibery: FIBERY } }));
+    await writeRuntimeOpencodeConfig(config, "ws_a", (current) => ({ ...current, mcp: { servers: { fibery: FIBERY } } }));
     const result = await importConnectorsIntoSharedRow(
       { ...config, readOnly: true },
       { runtimeConfigFile: join(root, "missing.json"), globalOpencodeConfigFile: join(root, "missing.jsonc") },
     );
     expect(result.imported).toEqual([]);
-    expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp).toEqual({ fibery: FIBERY });
+    expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp?.servers).toEqual({ fibery: FIBERY });
   });
 });

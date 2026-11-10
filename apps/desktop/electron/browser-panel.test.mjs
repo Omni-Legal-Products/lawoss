@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { EventEmitter } from "node:events";
+import { EventEmitter, once } from "node:events";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -7,14 +7,17 @@ import test from "node:test";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { resolveBrowserProject } from "./browser-project.mjs";
 
-function fixture(resolveDownloadDirectory = async () => null, authorizeBrowserAutomation = async () => {}) {
+/** @param {(contents: EventEmitter, url: string) => Promise<void>} [load] */
+function fixture(resolveDownloadDirectory = async () => null, authorizeBrowserAutomation = async () => {}, load = async () => {}) {
   const views = [];
   class View {
     constructor() {
       const contents = Object.assign(new EventEmitter(), {
         id: views.length + 1, url: "about:blank", closed: false, reloads: 0,
-        debugger: Object.assign(new EventEmitter(), { attach() {}, detach() {}, sendCommand: async () => ({ result: { value: "Example page" } }) }),
-        loadURL: async url => { contents.url = url; },
+        debugger: Object.assign(new EventEmitter(), { attach() {}, detach() {},
+          /** @returns {Promise<Record<string, unknown>>} */
+          sendCommand: async () => ({ result: { value: "Example page" } }) }),
+        loadURL: async url => { contents.url = url; await load(contents, url); },
         getURL: () => contents.url, getTitle: () => "Test page", isLoading: () => false,
         canGoBack: () => false, canGoForward: () => false,
         reload: () => contents.reloads++, setWindowOpenHandler: () => {},
@@ -253,7 +256,7 @@ test("agent browsers load and navigate without adopting the foreground pane", as
   assert.deepEqual(f.first.contentView.children, [f.views[0]]);
 });
 
-test("agent mini tabs are session-owned, survive promotion and close, and clean up independently", async t => {
+test("agent mini tabs retain their chat ownership between turns and close only when dismissed", async t => {
   const f = fixture(); t.after(() => f.controller.destroy());
   const a = await f.call("openUrl", f.first, "https://example.com", "builtin", { workspaceId: "project", sessionId: "a" });
   const b = await f.call("openUrl", f.first, "https://example.org", "builtin", { workspaceId: "project", sessionId: "b" });
@@ -277,13 +280,131 @@ test("agent mini tabs are session-owned, survive promotion and close, and clean 
   assert.equal(f.views[1].webContents.isDestroyed(), false);
   assert.equal(f.call("state", f.first).tabs.every(tab => tab.background), true);
   f.call("releaseSession", f.first, "b");
+  assert.equal(f.views[1].webContents.isDestroyed(), false);
+  assert.deepEqual(f.call("state", f.first).tabs.map(tab => tab.id), [a.tab_id, b.tab_id]);
+  assert.equal(f.call("state", f.first).tabs[1].taskSessionId, "b");
+  await assert.rejects(f.call("connection", f.first, b.tab_id, { workspaceId: "project", sessionId: "a" }), /does not belong/);
+  const continued = await f.call("connection", f.first, b.tab_id, { workspaceId: "project", sessionId: "b" });
+  assert.equal(continued.browser_url, b.browser_url);
+  f.call("releaseSession", f.first, "b");
+  f.call("dismissTab", f.first, b.tab_id);
   assert.equal(f.views[1].webContents.isDestroyed(), true);
-  assert.deepEqual(f.call("state", f.first).tabs.map(tab => tab.id), [a.tab_id]);
   f.call("selectTab", f.first, a.tab_id);
   f.call("show", f.first, f.right, a.tab_id);
   f.call("releaseSession", f.first, "a");
   assert.equal(f.views[0].webContents.isDestroyed(), false);
-  assert.equal(f.call("state", f.first).tabs[0].taskSessionId, undefined);
+  assert.equal(f.call("state", f.first).tabs[0].taskSessionId, "a");
   f.call("closeTab", f.first, a.tab_id);
   assert.equal(f.views[0].webContents.isDestroyed(), true);
+});
+
+test("dismissing an active background tab closes it when the turn finishes", async t => {
+  const f = fixture(); t.after(() => f.controller.destroy());
+  const tab = await f.call("openUrl", f.first, "https://example.org", "builtin", { workspaceId: "project", sessionId: "dismissed-chat" });
+  f.call("dismissTab", f.first, tab.tab_id);
+  assert.equal(f.views[0].webContents.isDestroyed(), false);
+  f.call("releaseSession", f.first, "dismissed-chat");
+  assert.equal(f.views[0].webContents.isDestroyed(), true);
+});
+
+test("normal panel close rejects capture admission before an asynchronous native close finishes", async t => {
+  const f = fixture(); t.after(() => f.controller.destroy());
+  const opened = await f.call("openUrl", f.first, "https://example.com/close", "builtin", { workspaceId: "project", sessionId: "closing-chat" });
+  f.call("selectTab", f.first, opened.tab_id);
+  f.call("releaseSession", f.first, "closing-chat");
+  const contents = f.views[0].webContents;
+  let requested = false;
+  contents.close = () => { requested = true; };
+  f.call("closeTab", f.first, opened.tab_id);
+  assert.equal(requested, true);
+  assert.equal(contents.isDestroyed(), false);
+  const response = await fetch(`${opened.browser_url}/capture`, { method: "POST", headers: { "x-legalwork-browser-session": "closing-chat" }, body: "{}" });
+  assert.equal(response.ok, false);
+  assert.match((await response.json()).error, /closed/);
+});
+
+test("destroying a tab during capture never restores visibility on its destroyed native view", async t => {
+  const f = fixture(); t.after(() => f.controller.destroy());
+  const opened = await f.call("openUrl", f.first, "https://example.com/destroy", "builtin", { workspaceId: "project", sessionId: "destroy-chat" });
+  const view = f.views[0], native = new EventEmitter(), visible = [];
+  view.setVisible = value => {
+    assert.equal(view.webContents.isDestroyed(), false, "setVisible must never touch a destroyed view");
+    visible.push(value);
+  };
+  view.webContents.debugger.sendCommand = async method => {
+    if (method === "Page.getLayoutMetrics") return { cssContentSize: { width: 1200, height: 1400 } };
+    native.emit("started"); await once(native, "release"); native.emit("settled");
+    return { data: "original-image" };
+  };
+  const started = once(native, "started");
+  const request = fetch(`${opened.browser_url}/capture`, { method: "POST", headers: { "x-legalwork-browser-session": "destroy-chat" }, body: "{}" });
+  await started;
+  view.webContents.close();
+  assert.equal((await request).ok, false);
+  const settled = once(native, "settled"); native.emit("release"); await settled;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(visible, [true]);
+});
+
+
+function initialLoadBarrier() {
+  let release = () => {}, started = () => {};
+  /** @type {Promise<void>} */
+  const promise = new Promise(resolve => { release = resolve; });
+  /** @type {Promise<void>} */
+  const entered = new Promise(resolve => { started = resolve; });
+  return { promise, entered, release, load: () => { started(); return promise; } };
+}
+
+test("a thumbnail waits for the tab initial load before entering native capture", async t => {
+  const initial = initialLoadBarrier();
+  const f = fixture(undefined, undefined, initial.load);
+  const opening = f.call("openUrl", f.first, "https://example.org/ready", "builtin", {});
+  t.after(async () => { initial.release(); await opening.catch(() => {}); f.controller.destroy(); });
+  await initial.entered;
+  const tabID = f.call("state", f.first).tabs[0].id;
+  const contents = f.views[0].webContents;
+  let screenshots = 0;
+  contents.debugger.sendCommand = async method => {
+    if (method === "Page.captureScreenshot") { screenshots++; return { data: "complete-owned-thumbnail" }; }
+    return { result: { value: "Example page" } };
+  };
+  // Drain the existing grant microtasks, not a wall-clock readiness delay.
+  await new Promise(resolve => setImmediate(resolve));
+  let settled = false;
+  const preview = f.call("previewTab", f.first, tabID).finally(() => { settled = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false, "preview must still be waiting on the controlled initial load");
+  assert.equal(screenshots, 0, "no screenshot may dispatch before initial readiness");
+  initial.release();
+  await opening;
+  assert.equal(await preview, "data:image/png;base64,complete-owned-thumbnail");
+  assert.equal(screenshots, 1);
+});
+
+test("closing a tab while its initial load is pending never starts a late thumbnail", async t => {
+  const initial = initialLoadBarrier();
+  const f = fixture(undefined, undefined, initial.load);
+  const opening = f.call("openUrl", f.first, "https://example.org/closed-before-ready", "builtin", {});
+  t.after(async () => { initial.release(); await opening.catch(() => {}); f.controller.destroy(); });
+  await initial.entered;
+  const tabID = f.call("state", f.first).tabs[0].id;
+  const contents = f.views[0].webContents;
+  let closeRequested = false, screenshots = 0;
+  // Normal owner close precedes Electron's asynchronous physical destruction.
+  contents.close = () => { closeRequested = true; };
+  contents.debugger.sendCommand = async method => {
+    if (method === "Page.captureScreenshot") { screenshots++; return { data: "must-not-be-captured" }; }
+    return { result: { value: "Example page" } };
+  };
+  await new Promise(resolve => setImmediate(resolve));
+  const preview = f.call("previewTab", f.first, tabID);
+  f.call("closeTab", f.first, tabID);
+  assert.equal(closeRequested, true);
+  assert.equal(contents.isDestroyed(), false, "tab identity must be checked before late native destruction");
+  initial.release();
+  assert.equal(await preview, null);
+  await opening;
+  assert.equal(screenshots, 0);
+  assert.equal(f.call("state", f.first).tabs.length, 0);
 });

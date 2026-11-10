@@ -332,11 +332,10 @@ export function registerOnboardingRoutes(options: {
       if (ticket.officeMemoryRoot && !(await lstat(join(storage, `${input.id}.office-grant.json`)).then(() => true).catch(error => { if (missing(error)) return false; throw error; }))) {
         checkpoint("office-grant-enter");
         const office = await canonicalDirectory(ticket.officeMemoryRoot);
-        await writeRuntimeOpencodeConfig(config, workspace.id, current => {
-          const permission = current.permission && typeof current.permission === "object" && !Array.isArray(current.permission) ? current.permission : {};
-          const grants = permission.external_directory && typeof permission.external_directory === "object" && !Array.isArray(permission.external_directory) ? permission.external_directory : {};
-          return { ...current, permission: { ...permission, external_directory: { ...grants, [`${office}/*`]: "allow" } } };
-        });
+        // Engine v2: an ordered native rule; the grant follows the client's own folder rules.
+        await writeRuntimeOpencodeConfig(config, workspace.id, current => ({ ...current,
+          permissions: [...(current.permissions ?? []).filter(rule => !(rule.action === "external_directory" && rule.resource === `${office}/*`)),
+            { action: "external_directory", resource: `${office}/*`, effect: "allow" }] }));
         await writeJson(join(storage, `${input.id}.office-grant.json`), { fingerprint: input.fingerprint, office });
         checkpoint("office-grant-done");
       }

@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
-import { LegalWorkCalendarTools } from "./legalwork-calendar-tools.js";
+import pluginDefinition from "./legalwork-calendar-tools.js";
+import { nativePluginTools } from "./native-plugin-test-support.js";
+const LegalWorkCalendarTools = (context = {}) => nativePluginTools(pluginDefinition, context);
 
 test("calendar tools use the chat's closest project and link the creating session", async () => {
   const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = wikiAgentSecret();
@@ -60,8 +62,7 @@ test("calendar tools never fall back to the only project for an unrelated or unk
       { directory: "/elsewhere", sessionID },
       { directory: "/matters/current-other", sessionID },
       { directory: "/matters/current/../outside", sessionID },
-      // The right project, but the call does not name its chat.
-      { directory: "/matters/current" },
+      // OpenCode 2 always names the calling chat, so there is no call without one to test.
     ]) {
       const result = JSON.parse(await tool.legalwork_calendar_create.execute({ title: "Response", start: "2026-02-27" }, context));
       expect(result.ok).toBe(false);

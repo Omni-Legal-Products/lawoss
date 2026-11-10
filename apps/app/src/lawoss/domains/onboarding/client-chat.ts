@@ -4,7 +4,7 @@
  * akcie a upstream New Task); odošle ju advokát, ktorý ju pred odoslaním poskytovateľovi vidí.
  * Bez Reactu a bez spojenia, aby sa poradie krokov dalo otestovať.
  */
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListView as ProviderListResponse } from "@/app/types";
 import type { AiBoundaries } from "@legalwork/types/ai-governance";
 import type { ModelRef } from "@/app/types";
 import { matterModelGap } from "../../lite/matter-model";

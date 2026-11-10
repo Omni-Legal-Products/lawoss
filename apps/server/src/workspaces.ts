@@ -11,61 +11,30 @@ export function workspaceIdForPath(path: string): string {
   return workspaceIdForKey(path);
 }
 
-export function workspaceIdForRemote(baseUrl: string, directory?: string | null): string {
-  const normalizedBaseUrl = baseUrl.trim();
-  const normalizedDirectory = directory?.trim() ?? "";
-  const key = normalizedDirectory
-    ? `remote::${normalizedBaseUrl}::${normalizedDirectory}`
-    : `remote::${normalizedBaseUrl}`;
-  return workspaceIdForKey(key);
-}
-
-export function workspaceIdForLegalwork(hostUrl: string, workspaceId?: string | null): string {
-  const normalizedHostUrl = hostUrl.trim();
-  const normalizedWorkspaceId = workspaceId?.trim() ?? "";
-  const key = normalizedWorkspaceId
-    ? `legalwork::${normalizedHostUrl}::${normalizedWorkspaceId}`
-    : `legalwork::${normalizedHostUrl}`;
-  return workspaceIdForKey(key);
-}
-
 export function buildWorkspaceInfos(
   workspaces: WorkspaceConfig[],
   cwd: string,
 ): WorkspaceInfo[] {
-  return workspaces.map((workspace) => {
+  return workspaces.filter(workspace => workspace.workspaceType !== "remote").map((workspace) => {
     const rawPath = workspace.path?.trim() ?? "";
-    const workspaceType = workspace.workspaceType ?? "local";
     const resolvedPath = rawPath ? resolve(cwd, rawPath) : "";
-    const remoteType = workspace.remoteType;
-    const id = workspace.id?.trim()
-      || (workspaceType === "remote"
-        ? remoteType === "legalwork"
-          ? workspaceIdForLegalwork(workspace.legalworkHostUrl ?? workspace.baseUrl ?? "", workspace.legalworkWorkspaceId)
-          : workspaceIdForRemote(workspace.baseUrl ?? "", workspace.directory)
-        : workspaceIdForPath(resolvedPath));
+    const id = workspace.id?.trim() || workspaceIdForPath(resolvedPath);
     const name = workspace.name?.trim()
       || workspace.displayName?.trim()
-      || workspace.legalworkWorkspaceName?.trim()
       || basename(resolvedPath || workspace.directory?.trim() || workspace.baseUrl?.trim() || "Workspace");
     return {
       id,
       name,
       path: resolvedPath,
-      preset: workspace.preset?.trim() || (workspaceType === "remote" ? "remote" : "starter"),
-      workspaceType,
-      remoteType,
+      preset: workspace.preset?.trim() || "starter",
+      workspaceType: "local",
       baseUrl: workspace.baseUrl,
       directory: workspace.directory,
       displayName: workspace.displayName,
       previousPaths: workspace.previousPaths,
       previousSessionIds: workspace.previousSessionIds,
       appFilesStorageKey: workspace.appFilesStorageKey,
-      ...(workspaceType === "local" ? { appFiles: workspace.appFiles === "outside" ? "outside" : "inside" } : {}),
-      legalworkHostUrl: workspace.legalworkHostUrl,
-      legalworkToken: workspace.legalworkToken,
-      legalworkWorkspaceId: workspace.legalworkWorkspaceId,
-      legalworkWorkspaceName: workspace.legalworkWorkspaceName,
+      appFiles: workspace.appFiles === "outside" ? "outside" : "inside",
       sandboxBackend: workspace.sandboxBackend,
       sandboxRunId: workspace.sandboxRunId,
       sandboxContainerName: workspace.sandboxContainerName,

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig } from "../types.js";
@@ -25,6 +25,52 @@ async function fixture() {
 }
 
 describe("Markdown wiki store", () => {
+  test("contributions flatten legacy paths, resolve collisions without overwrites and recover completed publication", async () => {
+    const { store } = await fixture(), wiki = await store.create({ name: "Research", template: "blank" });
+    const assets = [{ path: "Sources/old-draft/a.pdf", data: Buffer.from("A") }, { path: "Sources/old-draft/b.pdf", data: Buffer.from("B") }];
+    await store.writeAsset(wiki.id, "Sources/b.pdf", Buffer.from("Other"), "");
+    const content = "# Finding\n\n## Source files\n\n- [Existing source](Sources/b.pdf)\n";
+    const saved = await store.writeContribution(wiki.id, "Finding.md", content, "", assets);
+    expect(saved.attachments.map(file => file.path)).toEqual(["Sources/a.pdf", "Sources/b (2).pdf"]);
+    expect(saved.content).toContain("Sources/b%20%282%29.pdf");
+    expect(saved.content).toContain("[Existing source](Sources/b.pdf)");
+    expect(saved.content).not.toContain("old-draft");
+    expect(saved.content).not.toContain("<!--");
+    expect(await store.readAsset(wiki.id, "Sources/b.pdf")).toEqual(Buffer.from("Other"));
+    expect(await store.readAsset(wiki.id, "Sources/b (2).pdf")).toEqual(Buffer.from("B"));
+    // A status-write failure may leave a pending project draft after publication.
+    expect((await store.writeContribution(wiki.id, "Finding.md", content, "", assets)).revision).toBe(saved.revision);
+    expect((await store.snapshot(wiki.id)).assets).toHaveLength(3);
+    await expect(store.writeContribution(wiki.id, "Finding.md", "# Stale", "", assets)).rejects.toMatchObject({ code: "wiki_revision_conflict" });
+    const updated = await store.writeContribution(wiki.id, "Finding.md", saved.content.replace("# Finding", "# Updated finding"), saved.revision, []);
+    expect(updated.content).toContain("Sources/b%20%282%29.pdf");
+    const extended = await store.writeContribution(wiki.id, "Finding.md", updated.content, updated.revision, [{ path: "Sources/c.pdf", data: Buffer.from("C") }]);
+    expect(extended.content).toContain("Sources/b%20%282%29.pdf");
+    expect(extended.content).toContain("Sources/c.pdf");
+    expect((extended.content.match(/## Source files/g) ?? [])).toHaveLength(1);
+  });
+  test("agent publication enforces approval even without attachments and rechecks setting changes", async () => {
+    const { store } = await fixture(), wiki = await store.create({ name: "Knowledge", template: "blank" });
+    expect((await store.get(wiki.id)).requireAgentApproval).toBe(true);
+    await expect(store.writeContribution(wiki.id, "Finding.md", "# Finding", "", [], true)).rejects.toMatchObject({ code: "human_review_required" });
+    await store.update(wiki.id, { requireAgentApproval: false });
+    await store.writeContribution(wiki.id, "Finding.md", "# Finding", "", [], true);
+    await store.update(wiki.id, { requireAgentApproval: true });
+    await expect(store.writeContribution(wiki.id, "Next.md", "# Next", "", [], true)).rejects.toMatchObject({ code: "human_review_required" });
+  });
+  test("a failed page write rolls back newly copied sources and permits a later retry", async () => {
+    const { store } = await fixture(), wiki = await store.create({ name: "Research", template: "blank" });
+    const folder = join(wiki.root, "ReadOnly");
+    await mkdir(folder);
+    await chmod(folder, 0o500);
+    const assets = [{ path: "Sources/source.pdf", data: Buffer.from("PDF") }];
+    try {
+      await expect(store.writeContribution(wiki.id, "ReadOnly/Finding.md", "# Finding", "", assets)).rejects.toBeDefined();
+      await expect(store.readAsset(wiki.id, assets[0]!.path)).rejects.toMatchObject({ status: 404 });
+    } finally { await chmod(folder, 0o700); }
+    await store.writeContribution(wiki.id, "ReadOnly/Finding.md", "# Finding", "", assets);
+    expect(await store.readAsset(wiki.id, assets[0]!.path)).toEqual(assets[0]!.data);
+  });
   test("duplicating a dashboard or its folder assigns new IDs but retains same-wiki live queries", async () => {
     const { store } = await fixture(), wiki = await store.create({ name: "Views", template: "blank" });
     const original = StoredViewSchema.parse({ version: 1, id: crypto.randomUUID(), updatedAt: 100, title: "Live overview", mode: "dashboard", catalog: "legalwork-1", program: 'root = Text("Overview")', queries: { rows: { fields: ["title"] } } });

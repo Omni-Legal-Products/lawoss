@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import { nativeProviderClient } from "./lawoss-native-provider-client";
+import type { ProviderListView as ProviderListResponse } from "../src/app/types";
 import type { Client } from "../src/app/types";
 import { t } from "../src/i18n";
 import {
@@ -39,7 +40,7 @@ const provider = (id: string, source: string, keys: string[]) => ({
   env: [],
   source,
   options: {},
-  models: Object.fromEntries(keys.map((key) => [key, { id: key, name: key, api: { id: apiId(key) }, capabilities: { toolcall: true } }])),
+  models: Object.fromEntries(keys.map((key) => [key, { id: key, name: key, modelID: apiId(key) , api: { id: apiId(key) }, capabilities: { tools: true } }])),
 });
 const list = (providers: ReturnType<typeof provider>[], defaults: Record<string, string> = {}): ProviderListResponse =>
   ({ all: providers, connected: providers.map((p) => p.id), default: defaults }) as unknown as ProviderListResponse;
@@ -114,7 +115,7 @@ describe("ChatGPT subscription models", () => {
 
   test("the provider list query applies the filter to every consumer", async () => {
     const raw = list([provider("openai", "custom", OAUTH_KEYS)]);
-    const client = { provider: { list: async () => ({ data: raw }) } } as unknown as Client;
+    const client = nativeProviderClient(raw);
     const value = await fetchProviderList({ client, baseUrl: "http://127.0.0.1:1", directory: "/synthetic" });
     expect(openaiModels(value)).not.toContain("gpt-5.4");
     expect(openaiModels(value)).toContain("gpt-5.6-terra");

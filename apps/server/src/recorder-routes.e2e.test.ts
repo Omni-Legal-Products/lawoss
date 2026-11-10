@@ -6,7 +6,9 @@ import { join } from "node:path";
 import { startServer } from "./server.js";
 import type { RecorderLiveTranscriptStatus, ServerConfig } from "./types.js";
 import { authenticateWikiAgentRequest, ensureWikiAgentToken, grantWikiAgentSession, revokeWikiAgentSession } from "./wiki/agent-access.js";
-import { RECORDING_TOOLS } from "./opencode-plugins/recording-tools.js";
+import { Plugin } from "@opencode/plugin";
+import { recordingTools } from "./opencode-plugins/recording-tools.js";
+import { nativePluginTools } from "./opencode-plugins/native-plugin-test-support.js";
 import { adoptWikiAgentSecret, wikiAgentSecret } from "./opencode-plugins/wiki-agent-secret.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT } from "./scheduled-tasks/access.js";
 import type { AudioRecordingMeta } from "@legalwork/types/audio";
@@ -122,6 +124,7 @@ describe("recording library access", () => {
     process.env.LEGALWORK_SERVER_TOKEN = TOKEN;
     adoptWikiAgentSecret(await ensureWikiAgentToken(config));
     const context = { directory: root, sessionID: "recording-chat" };
+    const {tool: RECORDING_TOOLS} = await nativePluginTools(Plugin.define({id:"recording-fixture",async setup(ctx){await ctx.tool.transform(editor=>{for(const tool of recordingTools(ctx))editor.add(tool);});}}));
     const list = async () => JSON.parse(await RECORDING_TOOLS.legalwork_recordings_list.execute({ period: "yesterday", timeZone: "Europe/Berlin" }, context));
     try {
       expect((await list()).ok).toBe(false);
@@ -225,9 +228,9 @@ test("existing project grants and authorized folders permit transcripts without 
   expect((await f.call("/other")).status).toBe(200);
   // A new generation drops the old grant; an existing folder authorization still applies.
   await f.grant(["ws_1"]); await f.grant();
-  await writeRuntimeOpencodeConfig(f.config, "ws_1", () => ({ permission: { external_directory: { [`${f.other}/*`]: "allow" } } }));
+  await writeRuntimeOpencodeConfig(f.config, "ws_1", () => ({ permissions: [{ action: "external_directory", resource: `${f.other}/*`, effect: "allow" }] }));
   expect((await f.call("/other")).status).toBe(200);
-  await writeRuntimeOpencodeConfig(f.config, "ws_1", () => ({ permission: { external_directory: { [`${f.other}/*`]: "deny" } } }));
+  await writeRuntimeOpencodeConfig(f.config, "ws_1", () => ({ permissions: [{ action: "external_directory", resource: `${f.other}/*`, effect: "deny" }] }));
   expect((await f.call("/other")).status).toBe(403);
   expect(await f.pending()).toEqual([]);
 });
@@ -271,7 +274,7 @@ test("permission changes revoke recording approval and in-flight library reads",
   const f = await libraryFixture();
   const response = f.call("/other"); await f.decide("allow");
   expect((await response).status).toBe(200);
-  await writeRuntimeOpencodeConfig(f.config, "ws_1", () => ({ permission: { external_directory: { [`${f.other}/*`]: "deny" } } }));
+  await writeRuntimeOpencodeConfig(f.config, "ws_1", () => ({ permissions: [{ action: "external_directory", resource: `${f.other}/*`, effect: "deny" }] }));
   expect((await f.call("/other")).status).toBe(403);
   if (!f.config.recorder) throw new Error("Recorder fixture missing");
   f.config.recorder.listRecordings = async () => {

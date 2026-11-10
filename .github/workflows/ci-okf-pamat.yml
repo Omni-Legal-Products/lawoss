@@ -44,7 +44,7 @@ jobs:
 
       # OKF patrí do pnpm workspace; používame koreňový lockfile.
       - name: Install
-        run: pnpm install --frozen-lockfile --ignore-scripts --filter @lawoss/okf-pamat
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter @lawoss/okf-pamat --filter legalwork-server
 
       - name: Typecheck
         run: pnpm typecheck

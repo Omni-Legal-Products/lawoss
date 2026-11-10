@@ -351,7 +351,7 @@ test("encrypted PDF is failed without claiming readable coverage", () => fixture
 }));
 
 test("actual HTTP and registered agent document tools enforce authorization, pagination and read-only", async () => {
-  const { mkdir } = await import("node:fs/promises"), { startServer } = await import("./server.js"), { LegalWorkProjectTools } = await import("./opencode-plugins/legalwork-project-tools.js");
+  const { mkdir } = await import("node:fs/promises"), { startServer } = await import("./server.js"), { default: LegalWorkProjectTools } = await import("./opencode-plugins/legalwork-project-tools.js"), { nativePluginTools } = await import("./opencode-plugins/native-plugin-test-support.js");
   const root = await mkdtemp(join(tmpdir(), "lawoss-documents-http-")), path = join(root, "workspace"); await mkdir(path);
   const old = { db: process.env.LEGALWORK_RUNTIME_DB, url: process.env.LEGALWORK_SERVER_URL };
   const { engineAgentSession } = await import("./lawoss/test-support/engine-agent.js");
@@ -370,7 +370,7 @@ test("actual HTTP and registered agent document tools enforce authorization, pag
     process.env.LEGALWORK_SERVER_URL = base;
     const agent = await engineAgentSession(config, { sessionID: "ses_documents", directory: path });
     restoreAgent = agent.restore;
-    const plugin = await LegalWorkProjectTools(), context = agent.context;
+    const plugin = await nativePluginTools(LegalWorkProjectTools, agent.context), context = agent.context;
     const started = JSON.parse(await plugin.tool.lawoss_documents_prepare.execute({ paths: ["source.txt"] }, context));
     const id = started.documents[0].id;
     for (let i = 0; i < 200; i++) { const list = JSON.parse(await plugin.tool.lawoss_documents_list.execute({ limit: 1 }, context)); if (list.documents[0].status === "readable") break; await new Promise(resolve => setTimeout(resolve, 10)); }
@@ -445,7 +445,8 @@ test("actual HTTP and registered agent document tools enforce authorization, pag
     expect((await fetch(`${endpoint}/prepare`, { headers, method: "POST", body: '{"paths":["source.txt"]}' })).status).toBe(403);
     expect((await fetch(`${endpoint}/${id}`, { headers, method: "DELETE" })).status).toBe(403);
     expect((await fetch(`${endpoint}/${id}/read`, { headers })).status).toBe(200);
-    const output: { system: string[] } = { system: [] }; await plugin["experimental.chat.system.transform"]({}, output); expect(output.system.join(" ")).toContain("prefer lawoss_documents_prepare");
+    // Engine v2: fixed guidance arrives through the native session context hook.
+    const output: { sessionID: string; system: Array<{ type: "text"; text: string }> } = { sessionID: "ses_documents", system: [] }; await plugin.runtime.hook("session", "context", output); expect(output.system.map(item => item.text).join(" ")).toContain("prefer lawoss_documents_prepare");
   } finally {
     await server.stop();
     if (old.db === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = old.db;

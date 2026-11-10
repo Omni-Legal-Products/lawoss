@@ -112,11 +112,13 @@ test("matter sessions retain the client workspace, scope engine calls to each ma
     headers: { Authorization: "Bearer synthetic-client", "Content-Type": "application/json", "x-opencode-directory": escapedLink },
     body: "{}",
   });
-  expect(escaped.status).toBe(400);
+  // LAWOSS v2: the native proxy refuses a location outside the client with 403 before any engine call.
+  expect(escaped.status).toBe(403);
   const queryEscape = await fetch(`${f.baseUrl}/workspace/office/opencode/session?directory=${encodeURIComponent(outside)}`, {
     method: "POST", headers: { Authorization: "Bearer synthetic-client", "Content-Type": "application/json", "x-opencode-directory": f.matter }, body: "{}",
   });
-  expect(queryEscape.status).toBe(400);
+  expect(queryEscape.status).toBe(403);
+  expect(f.engineCalls.filter(call => call.directory === outside)).toEqual([]);
   const queryMatter = await fetch(`${f.baseUrl}/workspace/office/opencode/session?directory=${encodeURIComponent(secondMatter)}`, {
     method: "POST", headers: { Authorization: "Bearer synthetic-client", "Content-Type": "application/json" }, body: "{}",
   });

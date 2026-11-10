@@ -1,6 +1,7 @@
 /** Fixed guest launcher. This file and its bundle are measured by the host.
  * RPC travels through the worker's restricted HTTP proxy, never stdout.
- * Engine storage is guest-local; no host workspace/config/auth is mounted. */
+ * Engine storage is guest-local; no host workspace/config/auth is mounted.
+ * LAWOSS v2: the guest engine is the reviewed OpenCode 2 derivative (`/api/...`). */
 import { spawn } from "node:child_process";
 import { Agent, createServer, request } from "node:http";
 import { copyFile, chmod, lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -12,8 +13,15 @@ const ORIGIN = "http://protected-lawoss.invalid";
 const ROOT = "/tmp/home/protected-engine";
 const BUNDLE = "/authorized/0";
 const MAX_BODY = 4 * 1024 * 1024;
+const WORKSPACE = `${ROOT}/workspace`;
+const LOCATION = `location%5Bdirectory%5D=${encodeURIComponent(WORKSPACE)}`;
+const DOCUMENT_RPC = "lawoss.protected-documents";
 const MAX_RESPONSE = 16 * 1024 * 1024;
 const CHUNK = 32 * 1024;
+// Engine v2 answers location-bound routes with 503 after a fixed 5 s wait for
+// location plugin activation. Slow (emulated) guests retry only that response,
+// within this launcher-start bound that stays inside the host's 240 s budget.
+const INITIALIZATION_DEADLINE = Date.now() + 180_000;
 const tasks = new Map();
 const lifetime = new AbortController();
 // Node 24 can configure its GLOBAL http agent from NODE_USE_ENV_PROXY before
@@ -24,6 +32,10 @@ let server;
 let phase = "bundle";
 let healthState = "unobserved";
 let initializationState = "unobserved";
+// Closed diagnostics for the failing initialization request; never bodies or messages.
+let initializationRequest = "none";
+let initializationOutcome = "none";
+let activationRetries = 0;
 let checkpointing = false;
 // Defense in depth; private engine HTTP below uses direct node:http regardless.
 process.env.NO_PROXY = process.env.no_proxy = "127.0.0.1,localhost";
@@ -74,25 +86,73 @@ async function closePrivateResponse(response) {
   privateResponses.delete(response);
 }
 
-async function privateJson(port, path, authorization, signal) {
-  const response = await privateRequest(port, path, "GET", { authorization }, undefined, signal);
+class PluginActivationPending extends Error {}
+
+function noteInitialization(request, outcome) {
+  if (initializationOutcome !== "none") return;
+  initializationRequest = request; initializationOutcome = outcome;
+}
+
+// Only the engine's own typed plugin-activation 503 is retryable; the bounded body is
+// inspected structurally inside the guest and never published.
+async function pluginActivationPending(response) {
+  if (response.statusCode !== 503) return false;
+  const chunks = []; let size = 0;
+  for await (const chunk of response) { size += chunk.length; if (size > 8192) return false; chunks.push(chunk); }
+  try {
+    const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return isRecord(value) && value._tag === "ServiceUnavailableError" && value.service === "plugin";
+  } catch { return false; }
+}
+
+async function privateJson(port, path, authorization, signal, request, body) {
+  const data = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
+  let response;
+  try { response = await privateRequest(port, path, data ? "POST" : "GET", { authorization, ...(data ? { "content-type": "application/json", "content-length": String(data.length) } : {}) }, data, signal); }
+  catch (error) { noteInitialization(request, "transport"); throw error; }
   const chunks = []; let size = 0;
   try {
     if (response.statusCode !== 200) {
+      if (await pluginActivationPending(response)) { noteInitialization(request, "plugin-activation"); throw new PluginActivationPending("Location plugins are still activating"); }
+      const status = response.statusCode ?? 0;
+      noteInitialization(request, status >= 400 && status < 500 ? "status-4xx" : status >= 500 && status < 600 ? "status-5xx" : "status-other");
       if (initializationState === "pending") initializationState = "http-refused";
       throw new Error("Private initialization request refused");
     }
     for await (const chunk of response) {
       size += chunk.length;
       if (size > MAX_RESPONSE) {
+        noteInitialization(request, "response-bound");
         if (initializationState === "pending") initializationState = "invalid-json";
         throw new Error("Private initialization response exceeds bound");
       }
       chunks.push(chunk);
     }
     try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); }
-    catch (error) { if (initializationState === "pending") initializationState = "invalid-json"; throw error; }
+    catch (error) { noteInitialization(request, "invalid-json"); if (initializationState === "pending") initializationState = "invalid-json"; throw error; }
   } finally { await closePrivateResponse(response); }
+}
+
+// The first location-bound read waits for plugin activation. Retry only its typed
+// activation 503 until the launcher deadline; every other refusal stays final.
+async function activatedModels(port, authorization, signal) {
+  while (true) {
+    const remaining = INITIALIZATION_DEADLINE - Date.now();
+    if (remaining <= 0) { initializationState = "timeout"; throw new Error("Protected plugin activation did not finish"); }
+    const expiry = AbortSignal.timeout(remaining);
+    initializationRequest = "none"; initializationOutcome = "none";
+    try { return await privateJson(port, `/api/model?${LOCATION}`, authorization, AbortSignal.any([signal, expiry]), "model"); }
+    catch (error) {
+      if (expiry.aborted && !signal.aborted) { initializationState = "timeout"; initializationRequest = "model"; initializationOutcome = "deadline"; throw error; }
+      if (!(error instanceof PluginActivationPending)) throw error;
+    }
+    activationRetries++;
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { signal.removeEventListener("abort", aborted); resolve(); }, 200);
+      const aborted = () => { clearTimeout(timer); reject(signal.reason); };
+      if (signal.aborted) aborted(); else signal.addEventListener("abort", aborted, { once: true });
+    });
+  }
 }
 
 function isRecord(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
@@ -101,24 +161,26 @@ async function initializeEngine(port, authorization, modelId) {
   initializationState = "pending";
   const controller = new AbortController();
   const signal = AbortSignal.any([lifetime.signal, controller.signal]);
-  const directory = encodeURIComponent(`${ROOT}/workspace`);
-  // These pinned metadata APIs materialize the confined instance, plugin,
+  // These pinned metadata APIs materialize the confined location, plugin,
   // provider and tool schemas. They neither request a model nor execute tools.
   try {
-    const [providers, agents, definitions] = await Promise.all([
-      privateJson(port, `/provider?directory=${directory}`, authorization, signal),
-      privateJson(port, `/agent?directory=${directory}`, authorization, signal),
-      privateJson(port, `/experimental/tool?directory=${directory}&provider=protected-documents&model=${encodeURIComponent(modelId)}`, authorization, signal),
+    // `GET /api/model` waits for the location's plugin activation; catalog reads
+    // (agents, plugin RPC) do not and would otherwise race it.
+    const models = await activatedModels(port, authorization, signal);
+    const [selected, agents, registry] = await Promise.all([
+      privateJson(port, `/api/model/default?${LOCATION}`, authorization, signal, "model-default"),
+      privateJson(port, `/api/agent?${LOCATION}`, authorization, signal, "agent"),
+      // The document plugin reports the engine's own tool registry after every transform.
+      privateJson(port, `/api/rpc/${DOCUMENT_RPC}/schema?${LOCATION}`, authorization, signal, "tool-schema", { input: {} }),
     ]);
-    const matches = isRecord(providers) && Array.isArray(providers.all) ? providers.all.filter(value => value?.id === "protected-documents") : [];
-    const model = matches.length === 1 && isRecord(matches[0].models) ? matches[0].models[modelId] : undefined;
-    if (!isRecord(model) || model.id !== modelId || model.providerID !== "protected-documents" ||
-        !isRecord(providers.default) || providers.default["protected-documents"] !== modelId ||
-        !Array.isArray(providers.connected) || !providers.connected.includes("protected-documents")) {
+    const fixed = (model) => isRecord(model) && model.id === modelId && model.providerID === "protected-documents" && model.enabled === true;
+    const listed = isRecord(models) && Array.isArray(models.data) ? models.data : [];
+    if (listed.length !== 1 || !fixed(listed[0]) || !isRecord(selected) || !fixed(selected.data) ||
+        !isRecord(models.location) || models.location.directory !== WORKSPACE) {
       initializationState = "provider-invalid";
       throw new Error("Fixed protected provider is not initialized");
     }
-    const legalwork = Array.isArray(agents) ? agents.filter(value => value?.name === "legalwork") : [];
+    const legalwork = isRecord(agents) && Array.isArray(agents.data) ? agents.data.filter(value => value?.id === "legalwork") : [];
     if (legalwork.length !== 1 || legalwork[0].mode !== "primary" || legalwork[0].hidden === true) {
       initializationState = "agent-invalid";
       throw new Error("Fixed protected agent is not initialized");
@@ -129,12 +191,13 @@ async function initializeEngine(port, authorization, modelId) {
       lawoss_documents_export: ["path", "kind", "outputLanguage", "documentIds", "expectedHash", "entries"],
       lawoss_documents_validate: ["paths", "documentIds", "outputLanguage"],
     };
+    const definitions = isRecord(registry) && isRecord(registry.output) && Array.isArray(registry.output.tools) ? registry.output.tools : [];
     for (const [id, names] of Object.entries(argumentsByTool)) {
-      const found = Array.isArray(definitions) ? definitions.filter(value => value?.id === id) : [];
+      const found = definitions.filter(value => value?.id === id);
       const tool = found.length === 1 ? found[0] : undefined;
-      if (!tool || typeof tool.description !== "string" || !tool.description.trim() || !isRecord(tool.parameters) ||
-          tool.parameters.type !== "object" || !isRecord(tool.parameters.properties) ||
-          names.some(name => !Object.hasOwn(tool.parameters.properties, name) || !isRecord(tool.parameters.properties[name]))) {
+      if (!tool || tool.codemode !== false || typeof tool.description !== "string" || !tool.description.trim() || !isRecord(tool.input) ||
+          tool.input.type !== "object" || !isRecord(tool.input.properties) ||
+          names.some(name => !Object.hasOwn(tool.input.properties, name) || !isRecord(tool.input.properties[name]))) {
         initializationState = "tool-schema-invalid";
         throw new Error("Fixed protected tool schema is not initialized");
       }
@@ -146,7 +209,6 @@ async function initializeEngine(port, authorization, modelId) {
     throw error;
   } finally { controller.abort(); }
 }
-
 
 async function fileDigest(file) {
   const hash = createHash("sha256"); let bytes = 0;
@@ -164,13 +226,13 @@ async function checkpoint(command, enginePort, authorization, signal) {
   const file = `${ROOT}/tmp/checkpoint.sqlite`;
   let backup, backupClosed;
   try {
-    const status = await privateRequest(enginePort, "/session/status", "GET", { authorization }, undefined, signal);
+    const status = await privateRequest(enginePort, "/api/session/active", "GET", { authorization }, undefined, signal);
     let statusBytes = 0; const parts = [];
     try { for await (const part of status) { statusBytes += part.length; if (statusBytes > 65536) throw new Error("Session status exceeds its bound"); parts.push(part); } }
     finally { await closePrivateResponse(status); }
-    const sessions = JSON.parse(Buffer.concat(parts).toString("utf8"));
-    if (status.statusCode !== 200 || !sessions || typeof sessions !== "object" || Array.isArray(sessions) ||
-        Object.values(sessions).some(value => !value || value.type !== "idle")) throw new Error("Protected engine is not idle");
+    const active = JSON.parse(Buffer.concat(parts).toString("utf8"));
+    // Engine v2 lists only active sessions; an idle engine returns an empty record.
+    if (status.statusCode !== 200 || !isRecord(active) || !isRecord(active.data) || Object.keys(active.data).length) throw new Error("Protected engine is not idle");
     await rm(file, { force: true });
     const python = `import sqlite3,os
 source=sqlite3.connect('file:${ROOT}/engine.sqlite?mode=ro',uri=True,timeout=5)
@@ -269,6 +331,7 @@ async function execute(command, enginePort, authorization) {
 async function start() {
   const bundle = JSON.parse(await readFile(`${BUNDLE}/config.json`, "utf8"));
   const model = bundle.model;
+  if (typeof bundle.engineVersion !== "string" || !/^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$/.test(bundle.engineVersion)) throw new Error("Invalid pinned protected engine version");
   if (!model || typeof model.id !== "string" || !/^[A-Za-z0-9_.:/-]{1,256}$/.test(model.id) ||
       !Number.isInteger(model.context) || !Number.isInteger(model.output) || model.context < 1 || model.output < 1) throw new Error("Invalid fixed protected model");
   await mkdir(ROOT, { recursive: true, mode: 0o700 });
@@ -286,18 +349,19 @@ async function start() {
     await copyFile(`${BUNDLE}/snapshot.sqlite`, `${ROOT}/engine.sqlite`);
     await chmod(`${ROOT}/engine.sqlite`, 0o600);
   }
-  const tools = Object.fromEntries(["lawoss_documents_list", "lawoss_documents_read", "lawoss_documents_export", "lawoss_documents_validate"].map((name) => [name, true]));
-  const permissions = { "*": "deny", ...Object.fromEntries(Object.keys(tools).map((name) => [name, "allow"])) };
+  const tools = ["lawoss_documents_list", "lawoss_documents_read", "lawoss_documents_export", "lawoss_documents_validate"];
+  // Ordered native rules: deny everything (including Code Mode `execute`), then the four tools.
+  const permissions = [{ action: "*", resource: "*", effect: "deny" }, ...tools.map(action => ({ action, resource: "*", effect: "allow" }))];
+  const variants = model.variants && typeof model.variants === "object" ? Object.keys(model.variants).filter(id => /^[A-Za-z0-9_.-]{1,64}$/.test(id)).map(id => ({ id })) : [];
   const engineConfig = {
-    enabled_providers: ["protected-documents"], model: `protected-documents/${model.id}`, small_model: `protected-documents/${model.id}`,
-    share: "disabled", autoupdate: false, plugin: [`file://${BUNDLE}/plugin.mjs`], mcp: {}, lsp: false, formatter: false,
-    tools: { "*": false, ...tools }, permission: permissions,
-    compaction: { auto: false, prune: false },
-    agent: { legalwork: { mode: "primary", description: "Protected LAWOSS document processing", permission: permissions, tools: { "*": false, ...tools } } },
-    provider: { "protected-documents": { npm: "@ai-sdk/openai-compatible", name: "Protected documents",
-      options: { baseURL: `${ORIGIN}/model`, apiKey: "guest-relay-no-upstream-credential" },
+    model: `protected-documents/${model.id}`, default_agent: "legalwork", share: "disabled", update: "disable", snapshots: false,
+    plugins: [`${BUNDLE}/plugin`], lsp: false, formatter: false, mcp: { servers: {} }, skills: [], instructions: [], permissions,
+    compaction: { auto: false },
+    agents: { legalwork: { mode: "primary", description: "Protected LAWOSS document processing", permissions } },
+    providers: { "protected-documents": { name: "Protected documents", package: "@opencode/ai/providers/openai-compatible",
+      settings: { baseURL: `${ORIGIN}/model`, apiKey: "guest-relay-no-upstream-credential" },
       models: { [model.id]: { name: typeof model.name === "string" ? model.name : model.id, limit: { context: model.context, output: model.output },
-        ...(model.variants && typeof model.variants === "object" ? { variants: model.variants } : {}) } } } },
+        ...(variants.length ? { variants } : {}) } } } },
   };
   await writeFile(`${ROOT}/config/opencode.json`, JSON.stringify(engineConfig), { mode: 0o400 });
   const password = randomBytes(32).toString("hex");
@@ -314,10 +378,9 @@ async function start() {
     env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: ROOT, TMPDIR: `${ROOT}/tmp`, LANG: "C.UTF-8",
       XDG_CONFIG_HOME: `${ROOT}/config`, XDG_DATA_HOME: `${ROOT}/data`, XDG_STATE_HOME: `${ROOT}/state`, XDG_CACHE_HOME: `${ROOT}/cache`,
       OPENCODE_TEST_HOME: ROOT, OPENCODE_DB: `${ROOT}/engine.sqlite`, OPENCODE_CONFIG_DIR: `${ROOT}/config`, OPENCODE_CONFIG: `${ROOT}/config/opencode.json`,
-      OPENCODE_SERVER_USERNAME: "opencode", OPENCODE_SERVER_PASSWORD: password,
-      OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_EXTERNAL_SKILLS: "true",
-      OPENCODE_DISABLE_MODELS_FETCH: "true", OPENCODE_DISABLE_SHARE: "true", OPENCODE_DISABLE_AUTOUPDATE: "true", OPENCODE_DISABLE_AUTOCOMPACT: "true",
-      OPENCODE_DISABLE_LSP_DOWNLOAD: "true", OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: "false",
+      OPENCODE_PASSWORD: password,
+      OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true", OPENCODE_DISABLE_AUTOUPDATE: "true",
+      OPENCODE_DISABLE_FREE_MODELS: "true", OPENCODE_DISABLE_FFF: "true", OPENCODE_DISABLE_FILEWATCHER: "true",
       HTTP_PROXY: "http://127.0.0.1:3128", HTTPS_PROXY: "http://127.0.0.1:3128", http_proxy: "http://127.0.0.1:3128", https_proxy: "http://127.0.0.1:3128",
       NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost", NODE_EXTRA_CA_CERTS: "/tmp/public/ca.pem", SSL_CERT_FILE: "/tmp/public/ca.pem",
     },
@@ -329,12 +392,13 @@ async function start() {
   while (true) {
     lifetime.signal.throwIfAborted();
     try {
-      const health = await privateRequest(port, "/global/health", "GET", { authorization }, undefined, AbortSignal.any([lifetime.signal, AbortSignal.timeout(1000)]));
+      // Engine v2 instance-free readiness: HTTP 200 /api/info with the pinned version.
+      const health = await privateRequest(port, "/api/info", "GET", { authorization }, undefined, AbortSignal.any([lifetime.signal, AbortSignal.timeout(1000)]));
       const chunks = []; let size = 0;
       try { for await (const chunk of health) { size += chunk.length; if (size > 8192) throw new Error("Health body exceeds bound"); chunks.push(chunk); } }
       finally { await closePrivateResponse(health); }
       const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      healthState = health.statusCode !== 200 ? "http-refused" : value.healthy !== true ? "invalid-health" : value.version !== "1.18.29" ? "version-mismatch" : "accepted";
+      healthState = health.statusCode !== 200 ? "http-refused" : !isRecord(value) || typeof value.version !== "string" ? "invalid-health" : value.version !== bundle.engineVersion ? "version-mismatch" : "accepted";
       if (healthState === "accepted") break;
     } catch { healthState = "unreachable"; }
     if (Date.now() >= deadline) throw new Error("Private pinned engine did not become healthy");
@@ -343,7 +407,7 @@ async function start() {
   phase = "engine-initialization";
   await initializeEngine(port, authorization, model.id);
   phase = "publish-ready";
-  await capability("/rpc/ready", { version: 1 });
+  await capability("/rpc/ready", { version: 2, activationRetries: Math.min(activationRetries, 9999) });
   phase = "serve";
   while (!lifetime.signal.aborted) {
     const command = await capability("/rpc/next");
@@ -354,7 +418,8 @@ async function start() {
 }
 process.once("SIGTERM", () => lifetime.abort(new Error("Worker stopped")));
 process.once("SIGINT", () => lifetime.abort(new Error("Worker stopped")));
-try { await start(); } catch { console.error(`Protected engine failed at ${phase}`); console.error(`Protected engine health state ${healthState}`); console.error(`Protected engine initialization state ${initializationState}`); process.exitCode = 1; }
+try { await start(); } catch { console.error(`Protected engine failed at ${phase}`); console.error(`Protected engine health state ${healthState}`); console.error(`Protected engine initialization state ${initializationState}`);
+  console.error(`Protected engine initialization request ${initializationRequest} ${initializationOutcome}`); console.error(`Protected engine initialization activation-retries ${Math.min(activationRetries, 9999)}`); process.exitCode = 1; }
 finally {
   lifetime.abort(); for (const controller of tasks.values()) controller.abort();
   if (child && child.exitCode === null && child.signalCode === null) { child.kill("SIGKILL"); await once(child, "close").catch(() => {}); }

@@ -56,6 +56,7 @@ const routeGuides = {
 
 const settingGuides = {
   general: "settings-privacy.md", permissions: "settings-privacy.md",
+  assistant: "assistant.md",
   account: "settings-privacy.md", ai: "models-fusion.md",
   "tabular-review": "reviews.md", extensions: "integrations.md",
   personalisation: "settings-privacy.md", notifications: "tasks-intake.md",

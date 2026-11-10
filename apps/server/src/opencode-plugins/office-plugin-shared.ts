@@ -8,10 +8,11 @@
  * that relay -> Office.js -> result back through the same chain.
  */
 
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { resolve } from "node:path";
 import { realpath } from "node:fs/promises";
-import { isPathWithin } from "../lawoss/path-within.js";
-import { ENGINE_CONNECTION_REFUSED } from "../lawoss/engine-agent-contract.js";
+import { z } from "zod";
+import { findProjectForDirectory } from "../workspace-path-match.js";
+import { ENGINE_CONNECTION_REFUSED, WIKI_AGENT_LOCATION_HEADER } from "../lawoss/engine-agent-contract.js";
 import { acquireWikiAgentSecret, wikiAgentSecret, wikiAgentSecretFailed } from "./wiki-agent-secret.js";
 
 // LAWOSS: finished before the plugin's factory runs, so its tools see the secret and MCP starts after it.
@@ -66,6 +67,18 @@ export async function workspaceToolHeaders(context?: OpenCodeContext): Promise<R
   };
 }
 
+/**
+ * LAWOSS: a location-level read before any chat exists (the native command plugin's `setup`). The server lets it
+ * find only this location's own workspace and read its command definitions (`wiki/agent-access.ts`).
+ */
+export async function locationToolHeaders(directory: string): Promise<Record<string, string>> {
+  if (wikiAgentSecretFailed()) throw new Error(ENGINE_CONNECTION_REFUSED);
+  const token = wikiAgentSecret();
+  if (!token) return {};
+  return { "x-legalwork-wiki-agent-token": token,
+    [WIKI_AGENT_LOCATION_HEADER]: encodeURIComponent(await realpath(directory).catch(() => resolve(directory))) };
+}
+
 /** The server's `message` from a JSON error body, bounded; empty when there is none. */
 function refusalMessage(text: string): string {
   try {
@@ -74,37 +87,32 @@ function refusalMessage(text: string): string {
   } catch { return ""; }
 }
 
-type WorkspaceListPayload = {
-  items?: Array<{ id?: unknown; path?: unknown }>;
-};
+const workspaceListSchema = z.object({ items: z.array(z.object({ id: z.string(), path: z.string() })) });
 
 // Not cached: the server lists only the chat's own workspace and applies a revoked
 // or downgraded chat at once.
-export async function listWorkspaces(context?: OpenCodeContext): Promise<Array<{ id: string; path: string }>> {
+
+export async function listWorkspaces(context?: OpenCodeContext, options: { location?: boolean } = {}): Promise<Array<{ id: string; path: string }>> {
   const url = serverUrl();
-  const headers = await workspaceToolHeaders(context);
+  // LAWOSS: `location` = the location-level credential for `context.directory`, without a chat.
+  const headers = options.location && context?.directory ? await locationToolHeaders(context.directory) : await workspaceToolHeaders(context);
   const response = await fetch(`${url}/workspaces`, {
     headers,
     signal: context?.abort ? AbortSignal.any([context.abort, AbortSignal.timeout(8_000)]) : AbortSignal.timeout(8_000),
   });
   // LAWOSS (N-A2-2): a refused client keeps the server's explanation for the user, not only the status.
   if (!response.ok) throw new Error(`Workspace lookup failed: HTTP ${response.status}${refusalMessage(await response.text().catch(() => ""))}`);
-  const payload = (await response.json()) as WorkspaceListPayload;
-  const items = (payload.items ?? []).flatMap((item) =>
-    typeof item.id === "string" && typeof item.path === "string" ? [{ id: item.id, path: item.path }] : [],
-  );
+  const { items } = workspaceListSchema.parse(await response.json());
   return items;
 }
 
-export async function resolveWorkspaceId(context: OpenCodeContext, options: { requireDirectory?: boolean } = {}): Promise<string> {
+export async function resolveWorkspaceId(context: OpenCodeContext, options: { requireDirectory?: boolean; location?: boolean } = {}): Promise<string> {
   const directory = context.directory?.trim() ?? "";
-  const items = await listWorkspaces(context);
+  const items = await listWorkspaces(context, { location: options.location });
   if (directory) {
-    const match = [...items].sort((a, b) => b.path.length - a.path.length).find((item) => {
-      if (!item.path) return false;
-      const path = relative(resolve(item.path), resolve(directory));
-      return path === "" || (!isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`));
-    });
+    // Mapped drives (P:\…) and their UNC form (\\server\share\…) are the same
+    // project; a lexical relative() check treats them as unrelated folders.
+    const match = await findProjectForDirectory(items, directory);
     if (match) return match.id;
   }
   if (!options.requireDirectory && items.length === 1) return items[0]!.id;
@@ -125,7 +133,8 @@ export async function callOfficeTool(
     if (!serverConnected(context)) {
       return JSON.stringify({ ok: false, error: "LegalWork server connection is not configured for this engine." });
     }
-    const workspaceId = await resolveWorkspaceId(context);
+    context.abort?.throwIfAborted();
+    const workspaceId = await resolveWorkspaceId(context, { requireDirectory: true });
     const response = await fetch(`${url}/workspace/${encodeURIComponent(workspaceId)}/office-tools/execute`, {
       method: "POST",
       headers: {
@@ -133,7 +142,7 @@ export async function callOfficeTool(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ tool, args, timeoutMs: OFFICE_TOOL_TIMEOUT_MS }),
-      signal: AbortSignal.timeout(OFFICE_TOOL_TIMEOUT_MS + 10_000),
+      signal: context.abort ? AbortSignal.any([context.abort, AbortSignal.timeout(OFFICE_TOOL_TIMEOUT_MS + 10_000)]) : AbortSignal.timeout(OFFICE_TOOL_TIMEOUT_MS + 10_000),
     });
     const text = await response.text();
     try {
@@ -142,7 +151,10 @@ export async function callOfficeTool(
       return JSON.stringify({ ok: false, error: text || `HTTP ${response.status}` });
     }
   } catch (error) {
-    return JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) });
+    // Cancellation is a native engine control signal, never a successful tool result.
+    context.abort?.throwIfAborted();
+    return JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error),
+      nextStep: "An Office action may already have been delivered. Inspect the live document before retrying a change; do not replay it automatically." });
   }
 }
 
@@ -169,7 +181,7 @@ const paneStatusCache = new Map<string, { at: number; status: OfficePaneStatus }
  */
 export async function officePaneStatus(context: OpenCodeContext = {}): Promise<OfficePaneStatus> {
   const normalizedDirectory = context.directory?.trim() ?? "";
-  const cacheKey = `${context.sessionID ?? ""}\0${normalizedDirectory}`;
+  const cacheKey = `${serverUrl()}\0${context.sessionID ?? ""}\0${normalizedDirectory}`;
   const cached = paneStatusCache.get(cacheKey);
   // A disconnected result can become stale as soon as an Office pane starts
   // polling. Cache only positive detection so a just-opened pane is visible to
@@ -186,13 +198,8 @@ export async function officePaneStatus(context: OpenCodeContext = {}): Promise<O
     if (serverConnected(context)) {
       const headers = await workspaceToolHeaders(context);
       const items = await listWorkspaces(context);
-      const candidates = normalizedDirectory
-        ? items.filter(
-            (item) =>
-              item.path === normalizedDirectory ||
-              isPathWithin(item.path, normalizedDirectory),
-          )
-        : items.slice(0, 5);
+      const match = normalizedDirectory ? await findProjectForDirectory(items, normalizedDirectory) : undefined;
+      const candidates = normalizedDirectory ? (match ? [match] : []) : items.slice(0, 5);
       for (const item of candidates) {
         const response = await fetch(
           `${url}/workspace/${encodeURIComponent(item.id)}/office-tools/status`,
@@ -202,15 +209,12 @@ export async function officePaneStatus(context: OpenCodeContext = {}): Promise<O
           status = { connected: false, hosts: [], failed: true };
           continue;
         }
-        const payload = (await response.json()) as {
-          connected?: unknown;
-          hosts?: unknown;
-        };
-        if (payload.connected === true && Array.isArray(payload.hosts)) {
+        const payload = z.object({ connected: z.boolean(), hosts: z.array(z.unknown()) }).parse(await response.json());
+        if (payload.connected) {
           const hosts = payload.hosts.flatMap((entry) => {
             if (!entry || typeof entry !== "object") return [];
-            const host = (entry as { host?: unknown }).host;
-            const documentUrl = (entry as { documentUrl?: unknown }).documentUrl;
+            const host: unknown = Reflect.get(entry, "host");
+            const documentUrl: unknown = Reflect.get(entry, "documentUrl");
             return typeof host === "string" && host
               ? [{ host: host.toLowerCase(), documentUrl: typeof documentUrl === "string" && documentUrl ? documentUrl : null }]
               : [];

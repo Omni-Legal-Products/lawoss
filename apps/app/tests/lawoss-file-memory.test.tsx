@@ -73,15 +73,20 @@ test("native card refuses disconnected, absent and remote workspaces", async () 
     expect(html).toContain("Select a connected local case workspace"); expect(html).not.toContain("Save mapping");
   }
 });
-test("native Integrations entry renders file memory only in Connectors and preserves existing MCP content", async () => {
+test("native Integrations entry renders file memory on the catalogue overview and preserves the native catalogue", async () => {
+  // Upstream v0.3.9: integrations by category (ConnectorBrowser); LAWOSS cards go through `lawossIntro` on the overview only.
   const { ExtensionsView } = await import("../src/react-app/domains/settings/pages/extensions-view");
+  const { McpView } = await import("../src/react-app/domains/settings/pages/mcp-view");
+  const { PlatformProvider, createDefaultPlatform } = await import("../src/react-app/kernel/platform");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
-  const props: ExtensionsViewProps = { busy: false, selectedWorkspaceRoot: "", isRemoteWorkspace: false, canEditPlugins: false, canUseGlobalScope: true, suggestedPlugins: [], mcpConnectedAppsCount: 0, mcpView: <p>Existing native MCP</p>, skillsView: <p>Native skills</p>, onRefresh: () => {}, extensions: {
-    pluginScope: "project", setPluginScope: () => {}, refreshPlugins: () => {}, pluginConfigPath: () => null, pluginConfig: () => null, pluginList: () => [], pluginInput: () => "", setPluginInput: () => {}, pluginStatus: () => null, addPlugin: () => {}, removePlugin: () => {}, isPluginInstalledByName: () => false, activePluginGuide: () => null, setActivePluginGuide: () => {},
-  }, fileMemoryView: <FileMemoryIntegrationCard client={null} workspaceId={null} workspacePath="" workspaceName="" /> };
-  const render = (initialSection: "mcp" | "skills") => renderToStaticMarkup(<QueryClientProvider client={new QueryClient()}><MemoryRouter><ExtensionsView {...props} initialSection={initialSection} /></MemoryRouter></QueryClientProvider>);
-  const html = render("mcp"); expect(html).toContain("Case file memory"); expect(html).toContain("Existing native MCP");
-  expect(render("skills")).not.toContain("Case file memory");
+  const noop = () => {};
+  const props: ExtensionsViewProps = { client: null, storageWorkspaceId: null, busy: false, developerMode: false, selectedWorkspaceRoot: "", isRemoteWorkspace: false, canEditPlugins: false, canUseGlobalScope: true, suggestedPlugins: [], onRefresh: noop, extensions: {
+    pluginScope: "project", setPluginScope: noop, refreshPlugins: noop, pluginConfigPath: () => null, pluginConfig: () => null, pluginList: () => [], pluginInput: () => "", setPluginInput: noop, pluginStatus: () => null, addPlugin: noop, removePlugin: noop, isPluginInstalledByName: () => false, activePluginGuide: () => null, setActivePluginGuide: noop,
+  }, mcpView: <McpView busy={false} selectedWorkspaceRoot="" isRemoteWorkspace={false} mcpServers={[]} mcpStatus={null} mcpStatuses={{}} mcpConnectingName={null} selectedMcp={null} setSelectedMcp={noop} quickConnect={[]} connectMcp={noop} authorizeMcp={noop} logoutMcpAuth={noop} removeMcp={noop} />,
+  lawossIntro: <FileMemoryIntegrationCard client={null} workspaceId={null} workspacePath="" workspaceName="" /> };
+  const render = (connection?: string) => renderToStaticMarkup(<MemoryRouter initialEntries={[`/settings/extensions${connection ? `?connection=${connection}` : ""}`]}><QueryClientProvider client={new QueryClient()}><PlatformProvider value={createDefaultPlatform()}><ExtensionsView {...props} /></PlatformProvider></QueryClientProvider></MemoryRouter>);
+  const html = render(); expect(html).toContain("Case file memory"); expect(html).toContain('data-testid="connector-browser"');
+  expect(render("native:gmail")).not.toContain("Case file memory");
 });
 
 test("oversized draft is rejected before native CAS writes any profile bytes", async () => {

@@ -136,6 +136,7 @@ PY` });
 python3 - <<'PY'
 import docx, openpyxl, pptx, pypdf, reportlab, PIL
 from reportlab.pdfgen import canvas
+assert tuple(map(int, pypdf.__version__.split('.'))) >= (6, 21, 4)
 d = docx.Document(); d.add_paragraph('protected document'); d.save('probe.docx')
 assert docx.Document('probe.docx').paragraphs[0].text == 'protected document'
 w = openpyxl.Workbook(); w.active['A1'] = 42; w.save('probe.xlsx')
@@ -149,6 +150,46 @@ echo approved > allowed.txt`, true);
     expect(result.exitCode).toBe(0);
     expect(result.output).toBe("42\n42\n");
     expect((await readFile(join(workspace, "allowed.txt"), "utf8")).trim()).toBe("approved");
+  }, 180_000);
+
+  test("command expansion preserves complete output without an execution deadline and still supports Stop", async () => {
+    const source = "Complete legal automation output: " + "§".repeat(600_000) + "END-OF-OUTPUT";
+    const result = await sandbox.run({
+      command: "python3 -c \"import sys; sys.stdout.write('Complete legal automation output: ' + '§' * 600000 + 'END-OF-OUTPUT')\"",
+      cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }],
+      timeoutMs: null, capture: "complete", signal: new AbortController().signal, authorizeNetwork: async () => false,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.truncated).toBe(false);
+    expect(result.output).toBe(source);
+
+    const controller = new AbortController();
+    let started: () => void = () => {};
+    const ready = new Promise<void>(resolve => { started = resolve; });
+    const pending = sandbox.run({
+      command: "echo unfinished > complete-command-cancelled.txt; curl -s https://example.com/complete-command-cancelled",
+      cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: true }],
+      timeoutMs: null, capture: "complete", signal: controller.signal,
+      authorizeNetwork: async () => {
+        started();
+        await new Promise<void>(resolve => {
+          controller.signal.addEventListener("abort", () => resolve(), { once: true });
+          if (controller.signal.aborted) resolve();
+        });
+        return false;
+      },
+    });
+    const settled = pending.then(() => null, (error: unknown) => error);
+    try {
+      await Promise.race([ready, settled.then(() => { throw new Error("Command exited before its permission check"); })]);
+      controller.abort(new Error("Stop command expansion"));
+      const error = await settled;
+      expect(error instanceof Error && error.message).toBe("Stop command expansion");
+      expect(await readFile(join(workspace, "complete-command-cancelled.txt")).catch(() => null)).toBeNull();
+    } finally {
+      controller.abort();
+      await settled;
+    }
   }, 180_000);
 
   test("large binary transfers and installed read-only helpers survive transport backpressure", async () => {
@@ -305,16 +346,17 @@ print(json.dumps(results))
     const page = { status: 200, headers: { "content-type": "text/html" }, bodyBase64: Buffer.from("<title>Example Domain</title>").toString("base64") };
     const brokered = new VmSandbox(sandbox.resources, "auto", { maxRequests: 3, request: async (request) => { requests.push(request.url); return page; } });
     const result = await brokered.run({ command: `set -e
-curl --silent --show-error --fail https://example.com/
+curl --silent --show-error --fail https://example.com/ -o /tmp/approved-https-page
+echo "Curl HTTPS passed"
 python3 -c 'import urllib.request; assert b"Example Domain" in urllib.request.urlopen("https://example.com/").read(); print("Python HTTPS passed")'
 node -e 'fetch("https://example.com/").then(r=>r.text()).then(t=>{if(!t.includes("Example Domain")) process.exit(1); console.log("Node HTTPS passed")})'`,
       cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }],
       timeoutMs: 30_000, signal: new AbortController().signal,
       authorizeNetwork: async () => { throw new Error("The recorded broker decides"); },
     });
-    expect(result.exitCode).toBe(0);
+    expect(result.exitCode, `Approved HTTPS exit ${result.exitCode}; combined stdout/stderr:\n${result.output}`).toBe(0);
     expect(requests).toEqual(Array(3).fill("https://example.com/"));
-    expect(result.output).toContain("Example Domain");
+    expect(result.output).toContain("Curl HTTPS passed");
     expect(result.output).toContain("Python HTTPS passed");
     expect(result.output).toContain("Node HTTPS passed");
   }, 180_000);

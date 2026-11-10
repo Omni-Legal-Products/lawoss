@@ -40,6 +40,8 @@ test('Windows runtimes install the reviewed QEMU package by SHA-256, never the r
   }
   const workflow = readFileSync(new URL('../../.github/workflows/sandbox-runtime.yml', import.meta.url), 'utf8');
   assert.doesNotMatch(workflow, /pacman -S[^\n]*-qemu\b/);
-  assert.match(workflow, /\$\{\{ matrix\.qemuSha256 \}\}  \$qemu_package" \| sha256sum -c -/);
-  assert.match(workflow, /pacman -U --noconfirm --needed "\$qemu_package"/);
+  // Upstream v0.3.9 (#363): the workflow installs every QEMU package from the reviewed pin list.
+  assert.match(workflow, /bash scripts\/sandbox\/install-windows-qemu\.sh \$\{\{ matrix\.prefix \}\}/);
+  const pins = readFileSync(new URL('../sandbox/qemu-windows.sha256', import.meta.url), 'utf8');
+  for (const { qemuPackage, qemuSha256 } of windows) assert.ok(pins.includes(`${qemuSha256}  ${qemuPackage}`), qemuPackage);
 });

@@ -1,5 +1,7 @@
 export const ENGINE_FETCH_PREFIX='ISIR_NATIVE_ENGINE_FETCH ';
-const endpoints=['engine.dispose','engine.warmup','engine.mcp'];
+// LAWOSS v2: fixed engine 2.1.4 routes of the embedded server: location eviction (dispose),
+// location MCP status (warm-up of a location), MCP mutations and location reload.
+const endpoints=['engine.dispose','engine.warmup','engine.mcp','engine.reload'];
 const names=['Error','TypeError','TimeoutError','AbortError'];
 const limit=64;
 
@@ -7,7 +9,7 @@ export function observeNativeEngineFetch(original, observe) {
   let emitted=0,next=0;
   // Reserve both records per admitted request. Startup MCP traffic cannot
   // consume disposal's slots, including when requests are concurrent.
-  const remaining=new Map([['engine.dispose',8],['engine.warmup',12],['engine.mcp',12]]);
+  const remaining=new Map([['engine.dispose',8],['engine.warmup',12],['engine.mcp',12],['engine.reload',8]]);
   const emit=record=>{if(emitted>=limit)return;emitted++;try{observe(record);}catch{/* Observation must never change production fetch. */}};
   return async function(...args) {
     let endpoint;
@@ -15,9 +17,10 @@ export function observeNativeEngineFetch(original, observe) {
       const input=args[0],url=new URL(input instanceof Request?input.url:input);
       const method=String(args[1]?.method??(input instanceof Request?input.method:'GET')).toUpperCase();
       if(url.protocol==='http:'&&url.hostname==='127.0.0.1'&&url.port) {
-        if(url.pathname==='/instance/dispose'&&method==='POST')endpoint='engine.dispose';
-        if(url.pathname==='/mcp'&&method==='GET')endpoint='engine.warmup';
-        if(url.pathname==='/mcp'&&method==='POST')endpoint='engine.mcp';
+        if(url.pathname==='/api/debug/location'&&method==='DELETE')endpoint='engine.dispose';
+        if(url.pathname==='/api/mcp'&&method==='GET')endpoint='engine.warmup';
+        if(/^\/api\/experimental\/mcp\/[^/]+(?:\/(?:connect|disconnect))?$/.test(url.pathname)&&['POST','PUT','DELETE'].includes(method))endpoint='engine.mcp';
+        if(url.pathname==='/api/location/reload'&&method==='POST')endpoint='engine.reload';
       }
     } catch {/* Unknown inputs still go to the original fetch unchanged. */}
     if(!endpoint||remaining.get(endpoint)===0)return original.apply(this,args);

@@ -21,10 +21,11 @@ import { describeMemoryWrite, keepsMemoryWriteGate } from "@/lawoss/lite/memory-
 import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
 import { fileOperationCard, offersRememberedApproval, rememberedApprovalKeys, type FileOperationDetails } from "@/lawoss/lite/file-operation-card";
 import { useOtherClientFolderText } from "@/lawoss/lite/other-client-folder";
+import { permissionCardNote } from "@/lawoss/lite/nested-client-card";
 import { offersSessionApproval } from "@/lawoss/lite/session-approvals";
 import { OtherClientWarning } from "@/lawoss/lite/other-client-warning";
 import { useMissingFolderText } from "@/lawoss/lite/missing-folder";
-import { networkApprovalContent } from "./network-approval-content";
+import { networkApprovalContent, rawNetworkApprovalText } from "./network-approval-content";
 import { InteractionSource } from "./interaction-source";
 
 type PermissionPresentation = {
@@ -238,12 +239,13 @@ function describePermissionRequest(permission: PendingPermission): PermissionPre
     scopeLabel: t("session.scope_label"),
     scopeValue: patterns.join(", ") || t("session.permission_scope_empty"),
     isDoomLoop: false,
-    note: null,
+    note: permissionCardNote(permission.message), // LAWOSS (#264): správu pluginu o inom klientovi nahrádza varovanie
   };
 }
 
 export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
   const projectInstructions = props.permission.permission === "legalwork_project_set_instructions";
+  const projectFolder = props.permission.permission === "external_directory" && props.permission.protocol === "v2";
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
   const locale = useLocale();
@@ -393,7 +395,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
 
         <AlertDialogFooter className="flex-col gap-4">
           {!projectInstructions ? <p className="mb-4 text-[12px] leading-5 text-dls-secondary">
-            {t(rememberedApprovalKeys(props.permission).hint)}
+            {t(projectFolder ? "session.permission_folder_decision_hint" : rememberedApprovalKeys(props.permission).hint)}
           </p> : null}
           <div className={`grid grid-cols-1 gap-2.5 ${projectInstructions ? "sm:grid-cols-[1fr_auto]" : "sm:grid-cols-[1fr_auto_auto]"}`}>
             <AlertDialogAction
@@ -430,6 +432,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
 
 export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
   const projectInstructions = props.permission.permission === "legalwork_project_set_instructions";
+  const projectFolder = props.permission.permission === "external_directory" && props.permission.protocol === "v2";
   const locale = useLocale();
   // LAWOSS: the card text is translated while describing it, so the language is a dependency.
   const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission, locale]);
@@ -529,6 +532,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
             <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-dls-secondary">{t("session.permission_detail_command")}</div>
             <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-dls-border bg-dls-hover/55 px-2.5 py-1.5 font-mono text-[12px] leading-5 text-dls-text">{host.command}</pre>
           </div> : null}
+          {projectFolder ? <p className="mb-3 text-[12px] leading-5 text-dls-secondary">{t("session.permission_folder_decision_hint")}</p> : null}
           {input ? <div className="mb-3 text-[12px] leading-5">
             <div className="mb-1.5 font-medium text-dls-secondary">{t("session.permission_review_label")}</div>
             {input.status === "ready" ? <dl className="max-h-48 overflow-auto rounded-lg border border-dls-border divide-y divide-dls-border">
@@ -564,6 +568,16 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               {network.omitted > 0 ? <p className="mt-1.5 text-dls-secondary">{t("sandbox.approval_more_details")}</p> : null}
             </div> : null}
             <p className="text-[11px] leading-5 text-dls-secondary">{network.context} {t("sandbox.approval_once")}</p>
+            {host?.network?.complete ? <div className="space-y-2">
+              <p className="text-dls-secondary">{t("sandbox.approval_complete_review")}</p>
+              <Button type="button" variant="outline" size="sm" onClick={() => {
+                if (!host.network) return;
+                const url = URL.createObjectURL(new Blob([rawNetworkApprovalText(host.network)], { type: "text/plain;charset=utf-8" }));
+                const link = document.createElement("a"); link.href = url; link.download = `http-request-${host.network.sha256}.txt`; link.click();
+                window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+              }}>{t("sandbox.approval_download_request")}</Button>
+              <p className="break-all font-mono text-[11px] text-dls-secondary">SHA-256: {host.network.sha256}</p>
+            </div> : null}
           </div> : <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-dls-secondary">

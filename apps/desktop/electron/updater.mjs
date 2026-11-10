@@ -438,6 +438,8 @@ export function registerUpdaterIpc({
   loadElectronUpdater = defaultLoadElectronUpdater,
   prepareUpdaterInstall = enableSquirrelDirectContentsWrite,
   resolveGitHubFeed = defaultResolveGitHubFeed,
+  // Upstream v0.3.9 (#369): unsaved documents are saved or discarded before the restart.
+  beforeRestart = async () => true,
 }) {
   const preferences = createUpdaterPreferences(app);
   ipcMain.handle("legalwork:updater:getPreferences", (_event, legacy) => preferences.read(legacy));
@@ -678,6 +680,7 @@ export function registerUpdaterIpc({
     const updater = await ensureAutoUpdater();
     if (!updater) return { ok: false, reason: "unavailable" };
     if (!updateReady) return { ok: false, reason: "No update is ready to install. Please download the update again." };
+    if (!await beforeRestart()) return { ok: true, cancelled: true };
     try {
       // Re-assert the in-place-write default right before the swap; the ShipIt
       // defaults domain may have been wiped when stale state was cleaned.

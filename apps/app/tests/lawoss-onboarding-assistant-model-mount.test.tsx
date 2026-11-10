@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { act, useState } from "react";
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListView as ProviderListResponse } from "../src/app/types";
 import type { ModelRef } from "../src/app/types";
 import { useOnboardingModelView, type AiModelView } from "../src/lawoss/domains/onboarding/ai-step";
 
@@ -9,7 +9,7 @@ import { useOnboardingModelView, type AiModelView } from "../src/lawoss/domains/
 // bez efektu, ktorý automatický model uloží, by chat nemal model a tento test zlyhá.
 
 const ONE = {
-  all: [{ id: "openai", name: "OpenAI", env: [], source: "api", models: { "gpt-6-luna": { id: "gpt-6-luna", name: "GPT-6 Luna", capabilities: { toolcall: true } } } }],
+  all: [{ id: "openai", name: "OpenAI", env: [], source: "api", models: { "gpt-6-luna": { id: "gpt-6-luna", name: "GPT-6 Luna", capabilities: { tools: true } } } }],
   connected: ["openai"],
   default: { openai: "gpt-6-luna" },
 } as unknown as ProviderListResponse;

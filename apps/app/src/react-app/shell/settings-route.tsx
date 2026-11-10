@@ -36,6 +36,7 @@ import type {
   WorkspaceSessionGroup,
 } from "@/app/types";
 import { getWorkspaceTaskLoadErrorDisplay } from "@/app/utils";
+import { removeProjectFromSidebar } from "./project-removal";
 import { currentLocale, t } from "@/i18n";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import {
@@ -56,7 +57,6 @@ import {
   workspaceLabel,
 } from "@/react-app/shell/route-workspaces";
 import { createConnectionsStore, useConnectionsStoreSnapshot } from "@/react-app/domains/connections/store";
-import { configuredConnectorState } from "@/react-app/domains/settings/pages/connector-status";
 import type { PluginImportStore } from "@/react-app/domains/settings/pages/plugin-import-dialog";
 import { createLegalworkServerStore, useLegalworkServerStoreSnapshot } from "@/react-app/domains/connections/legalwork-server-store";
 import { createProviderAuthStore, useProviderAuthStoreSnapshot, EIGENWELT_PROVIDER_ID, type CustomProviderEditData } from "@/react-app/domains/connections/provider-auth/store";
@@ -65,6 +65,7 @@ import { SyncProviderSetup } from "@/react-app/domains/connections/provider-auth
 import ConnectionsModals from "@/react-app/domains/connections/modals";
 import { AiSettingsView } from "@/react-app/domains/settings/pages/ai-view";
 import { EigenweltAccountView } from "@/react-app/domains/settings/pages/eigenwelt-account-view";
+import { AssistantSettingsView } from "@/react-app/domains/settings/pages/assistant-view";
 import { HubDownloadSection } from "@/react-app/domains/settings/pages/hub-download-section";
 import { HubShareDialog } from "@/react-app/domains/settings/pages/hub-share-dialog";
 import { SharePresetSection } from "@/react-app/domains/settings/pages/share-preset-section";
@@ -99,15 +100,16 @@ import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-vi
 import { captureAnalyticsEvent, discardPendingAnalytics } from "@/app/lib/analytics";
 import { DebugView } from "@/react-app/domains/settings/pages/debug-view";
 import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-view";
-import { FileStorageView } from "@/react-app/domains/settings/pages/file-storage-view";
 import { STORAGE_CHANGED_EVENT } from "@/react-app/domains/settings/pages/storage-providers";
 import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
 import { FileMemoryIntegrationCard } from "@/lawoss/domains/integrations/file-memory-integration-card";
+import { AiGuidance } from "@/lawoss/domains/ai/guidance";
+import { IntegrationSourcesCard } from "@/lawoss/domains/integrations/integration-sources-card";
+import { Chevron7IntegrationCard } from "@/lawoss/domains/integrations/chevron7-integration-card";
 import { McpView, type McpViewProps } from "@/react-app/domains/settings/pages/mcp-view";
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
 import { OfficeAddinsView } from "@/react-app/domains/settings/pages/office-addins-view";
 import { RecorderSettingsView } from "@/react-app/domains/settings/pages/recorder-view";
-import { SkillsView } from "@/react-app/domains/settings/pages/skills-view";
 import { WorkflowsView } from "@/react-app/domains/settings/pages/workflows-view";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
 import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view-model";
@@ -155,11 +157,6 @@ import {
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 
-import {
-  diagnoseRemoteWorkspaceTaskLoadFailure,
-  getRemoteWorkspaceConnectionKey,
-  testRemoteWorkspaceConnection,
-} from "@/react-app/domains/workspace/remote-workspace-diagnostics";
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
 import type { ModelRef } from "@/app/types";
 import { workspaceSwatchColor } from "@/react-app/domains/session/sidebar/utils";
@@ -203,6 +200,7 @@ const SETTINGS_HIDE_TITLEBAR_KEY = "legalwork.react.settings.hide-titlebar";
 function parseSettingsPath(pathname: string): {
   tab: SettingsTab;
   redirectPath: string | null;
+  workflowsSection?: "workflows" | "prompts" | "skills";
   extensionsSection?: "all" | "mcp" | "skills" | "plugins" | "storage";
   benchmarkRunId?: string;
   benchmarkTaskId?: string;
@@ -223,6 +221,7 @@ function parseSettingsPath(pathname: string): {
     case "ai":
     case "tabular-review":
     case "account":
+    case "assistant":
     case "personalisation":
     case "notifications":
     case "preferences":
@@ -237,9 +236,11 @@ function parseSettingsPath(pathname: string): {
     case "office-addins":
     case "recorder":
     case "debug":
-    case "skills":
-    case "workflows":
       return { tab: head, redirectPath: null };
+    case "skills":
+      return { tab: "workflows", redirectPath: "workflows/skills", workflowsSection: "skills" };
+    case "workflows":
+      return { tab: "workflows", redirectPath: null, workflowsSection: tail === "skills" ? "skills" : tail === "prompts" ? "prompts" : "workflows" };
     case "benchmark": {
       const segments = trimmed.split("/");
       if (tail === "runs" && third) {
@@ -261,7 +262,7 @@ function parseSettingsPath(pathname: string): {
     case "extensions":
       if (tail === "storage") return { tab: "extensions", redirectPath: null, extensionsSection: "storage" };
       if (tail === "mcp") return { tab: "extensions", redirectPath: null, extensionsSection: "mcp" };
-      if (tail === "skills") return { tab: "extensions", redirectPath: null, extensionsSection: "skills" };
+      if (tail === "skills") return { tab: "workflows", redirectPath: "workflows/skills", workflowsSection: "skills" };
       if (tail === "plugins") return { tab: "extensions", redirectPath: null, extensionsSection: "plugins" };
       return { tab: "extensions", redirectPath: null, extensionsSection: "all" };
     default:
@@ -435,8 +436,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const refreshMcpServersRef = useRef<(() => void | Promise<void>) | null>(null);
   const notifyMcpReloadingRef = useRef<(() => void) | null>(null);
   const pollMcpServersAfterReloadRef = useRef<(() => void | Promise<void>) | null>(null);
-  const remoteWorkspaceCheckRunRef = useRef<Record<string, string>>({});
-  const remoteWorkspaceCheckRunCounterRef = useRef(0);
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
   const [providerListLoaded, setProviderListLoaded] = useState(false);
   const [providerDefaults, setProviderDefaults] = useState<Record<string, string>>({});
@@ -506,7 +505,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     opencodeBaseUrl: "",
     selectedWorkspaceId: "",
     selectedWorkspaceRoot: "",
-    selectedWorkspaceType: "local" as "local" | "remote",
+    selectedWorkspaceType: "local" as "local",
     runtimeWorkspaceId: null as string | null,
     legalworkServerClient: null as LegalworkServerClient | null,
     legalworkServerStatus: "disconnected" as "connected" | "disconnected",
@@ -523,20 +522,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? (selectedWorkspaceId ? null : preferRealWorkspace(workspaces) ?? workspaces[0] ?? null),
     [selectedWorkspaceId, workspaces],
   );
-  const workspaceConnectionStateById = useMemo(() => {
-    const next: Record<string, WorkspaceConnectionState> = { ...workspaceConnectionOverrides };
-    for (const workspace of workspaces) {
-      if (workspace.workspaceType !== "remote") continue;
-      const error = errorsByWorkspaceId[workspace.id]?.trim();
-      if (!error || next[workspace.id]?.status === "connecting") continue;
-      next[workspace.id] ??= {
-        status: "error",
-        message: getWorkspaceTaskLoadErrorDisplay(workspace, error).message || error,
-        checkedAt: null,
-      };
-    }
-    return next;
-  }, [errorsByWorkspaceId, workspaceConnectionOverrides, workspaces]);
+  const workspaceConnectionStateById = workspaceConnectionOverrides;
+
   const selectedWorkspaceRoot = selectedWorkspace?.path?.trim() || "";
   const selectedWorkspaceDisplay = useMemo<WorkspaceDisplay>(
     () =>
@@ -548,7 +535,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             preset: "starter",
             workspaceType: selectedWorkspace.workspaceType ?? "local",
             displayName: selectedWorkspace.displayNameResolved,
-            legalworkWorkspaceName: selectedWorkspace.legalworkWorkspaceName,
           }
         : emptyWorkspaceDisplay,
     [emptyWorkspaceDisplay, selectedWorkspace],
@@ -669,7 +655,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             return false;
           }
         },
-        createRemoteWorkspaceFlow: async () => false,
       }),
     [],
   );
@@ -1222,6 +1207,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           try {
             desktopList = await workspaceBootstrap() as WorkspaceList;
             desktopWorkspaces = (desktopList.workspaces ?? []).map(mapDesktopWorkspace);
+            if (desktopList.warnings?.length) notifyAlert({ kind: "system", title: "Remote agent workspaces retired", body: desktopList.warnings.join("\n"), dedupeKey: "retired-remote-workspaces" });
           } catch (error) {
             const message = describeRouteError(error);
             console.error("[settings-route] workspaceBootstrap failed", error);
@@ -1259,6 +1245,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           hostToken: resolvedHostToken || undefined,
         });
         const list = await client.listWorkspaces();
+        if (list.warnings?.length) notifyAlert({ kind: "system", title: "Remote agent workspaces retired", body: list.warnings.join("\n"), dedupeKey: "retired-remote-workspaces" });
         const serverWorkspaceIds = new Set(list.items.map((workspace) => workspace.id));
         const nextWorkspaces = mergeRouteWorkspaces(list.items, desktopWorkspaces);
         // Account/settings navigation needs the registry, not every engine's
@@ -1296,15 +1283,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               };
             } catch (error) {
               const fallback = error instanceof Error ? error.message : t("app.unknown_error");
-              if (workspace.workspaceType === "remote") {
-                const connectionState = await diagnoseRemoteWorkspaceTaskLoadFailure(workspace, fallback);
-                return {
-                  workspaceId: workspace.id,
-                  sessions: [],
-                  error: connectionState.message ?? t("diagnostics.remote_failed"),
-                  connectionState,
-                };
-              }
               return {
                 workspaceId: workspace.id,
                 sessions: [],
@@ -1394,6 +1372,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           ...(options?.force ? { force: true } : {}),
         });
         invalidateEigenweltEntitlements();
+        getReactQueryClient().removeQueries({ queryKey: ["calendar"] });
       }
       // The firm's tasks left this machine: so do the announcements naming them.
       useNotificationStore.getState().removeKind("tasks");
@@ -1436,64 +1415,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       return changed ? next : current;
     });
   }, [workspaces]);
-
-  const runRemoteWorkspaceConnectionCheck = useCallback(
-    async (workspaceId: string, mode: "test" | "recover") => {
-      const workspace = workspacesRef.current.find((item) => item.id === workspaceId);
-      if (!workspace || workspace.workspaceType !== "remote") return false;
-      const connectionKey = getRemoteWorkspaceConnectionKey(workspace);
-      remoteWorkspaceCheckRunCounterRef.current += 1;
-      const runId = String(remoteWorkspaceCheckRunCounterRef.current);
-      remoteWorkspaceCheckRunRef.current[workspaceId] = runId;
-
-      setWorkspaceConnectionOverrides((current) => ({
-        ...current,
-        [workspaceId]: {
-          status: "connecting",
-          message: t("config.testing_connection"),
-          checkedAt: null,
-        },
-      }));
-
-      const result = await testRemoteWorkspaceConnection(workspace);
-      const currentWorkspace = workspacesRef.current.find((item) => item.id === workspaceId);
-      if (
-        remoteWorkspaceCheckRunRef.current[workspaceId] !== runId ||
-        !currentWorkspace ||
-        getRemoteWorkspaceConnectionKey(currentWorkspace) !== connectionKey
-      ) {
-        if (remoteWorkspaceCheckRunRef.current[workspaceId] === runId) {
-          delete remoteWorkspaceCheckRunRef.current[workspaceId];
-        }
-        return false;
-      }
-      setWorkspaceConnectionOverrides((current) => ({
-        ...current,
-        [workspaceId]: result.state,
-      }));
-
-      if (!result.ok) {
-        setErrorsByWorkspaceId((current) => ({
-          ...current,
-          [workspaceId]: result.state.message ?? t("diagnostics.remote_failed"),
-        }));
-        if (remoteWorkspaceCheckRunRef.current[workspaceId] === runId) {
-          delete remoteWorkspaceCheckRunRef.current[workspaceId];
-        }
-        return false;
-      }
-
-      setErrorsByWorkspaceId((current) => ({ ...current, [workspaceId]: null }));
-      if (mode === "recover") {
-        await refreshRouteState();
-      }
-      if (remoteWorkspaceCheckRunRef.current[workspaceId] === runId) {
-        delete remoteWorkspaceCheckRunRef.current[workspaceId];
-      }
-      return true;
-    },
-    [refreshRouteState],
-  );
 
   useEffect(() => {
     if (!isDesktopRuntime()) return;
@@ -1658,16 +1579,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   }));
   const selectedWorkspaceColor = workspaceSwatchColor(selectedWorkspaceId);
   const workspaceType = selectedWorkspace?.workspaceType ?? "local";
-  const isRemoteWorkspace = workspaceType === "remote";
-  const canWriteWorkspaceSkills =
-    !isRemoteWorkspace || legalworkServerSnapshot.legalworkServerCanWriteSkills;
-  const canWriteWorkspacePlugins =
-    !isRemoteWorkspace || legalworkServerSnapshot.legalworkServerCanWritePlugins;
-  const canInstallWorkspaceBundle = canWriteWorkspacePlugins && canWriteWorkspaceSkills &&
-    (!isRemoteWorkspace || (legalworkServerSnapshot.legalworkServerCapabilities?.mcp?.write === true &&
-      legalworkServerSnapshot.legalworkServerCapabilities?.skillResources?.write === true));
-  const canInstallOkfSkills = canWriteWorkspaceSkills &&
-    (!isRemoteWorkspace || legalworkServerSnapshot.legalworkServerCapabilities?.skillResources?.write === true);
+
+  const canWriteWorkspaceSkills = true;
+  const canWriteWorkspacePlugins = true;
+  // LAWOSS: natívny katalóg a OKF skilly (upstream zrušil vzdialené projekty, zápis je vždy lokálny).
+  const canInstallWorkspaceBundle = canWriteWorkspacePlugins && canWriteWorkspaceSkills;
+  const canInstallOkfSkills = canWriteWorkspaceSkills;
   const nativeIntegrations = useNativeIntegrations({
     client: selectedWorkspaceEndpoint?.client ?? legalworkClient,
     endpoint: selectedWorkspaceEndpoint?.baseUrl ?? baseUrl,
@@ -1681,8 +1598,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   });
   const refreshNativeIntegrations = () => {
     window.dispatchEvent(new Event(STORAGE_CHANGED_EVENT));
+    void extensionControllerRefresh.current();
+    void getReactQueryClient().invalidateQueries({ queryKey: ["firm-hub"] });
     void nativeIntegrations.refresh().catch((error) => toast.error(describeRouteError(error)));
   };
+  // Upstream refreshes connector connections too; its controller is created further below.
+  const extensionControllerRefresh = useRef<() => Promise<unknown>>(async () => undefined);
   // LAWOSS: natívny import balíkov po dokončení obnoví aj katalóg a zoznam importovaných
   // balíkov (NativeCatalog). Stabilný odkaz, lebo dialóg importu podľa obchodu znovu načítava zdroje.
   const nativeIntegrationsRefresh = useRef(nativeIntegrations.refresh);
@@ -1696,10 +1617,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       await nativeIntegrationsRefresh.current().catch((error) => toast.error(describeRouteError(error)));
     },
   }), [extensionsStore]);
-  const skillsAccessHint =
-    isRemoteWorkspace && !canWriteWorkspaceSkills ? t("app.skills_hint_readonly") : null;
-  const pluginsAccessHint =
-    isRemoteWorkspace && !canWriteWorkspacePlugins ? t("app.plugins_hint_readonly") : null;
+  const skillsAccessHint = null;
+  const pluginsAccessHint = null;
   const defaultModelLabel = local.prefs.defaultModel
     ? (() => {
         const provider = providers.find((item) => item.id === local.prefs.defaultModel?.providerID);
@@ -1746,10 +1665,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       id: provider.id,
       name: provider.name ?? provider.id,
       source: provider.source,
-      ...lawossProviderRow(provider),
+      editableAsCustom: provider.editableAsCustom === true,
+      configurationReadOnly: provider.configurationReadOnly === true,
+      // LAWOSS: popis predplatného ChatGPT namiesto „Vlastné“ (N-A7-12).
+      sourceLabel: lawossProviderRow(provider).sourceLabel,
     }];
   });
-  const mcpConnectedAppsCount = connectionsSnapshot.mcpServers.length;
 
   // Build enablement context from all available runtime state.
   const enablementContext = useMemo<EnablementContext>(() => {
@@ -1757,13 +1678,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     const connectedProviders = new Set(providerConnectedIds);
     const configuredEnvKeys = new Set(userEnvKeys);
     const loadedPlugins = new Set<string>();
-    // Browser plugin detection: check if any configured plugin matches the chrome-devtools name.
-    // For now, treat it as loaded if the plugin is in the MCP/plugin list — this will
-    // be refined when we add a real plugin-loaded signal from the engine.
-    const browserPluginConfigured = connectionsSnapshot.mcpServers.some(
-      (s) => s.name === "opencode-chrome-devtools" || s.config.command?.some((c: string) => c.includes("chrome-devtools")),
-    );
-    if (browserPluginConfigured) loadedPlugins.add("opencode-chrome-devtools");
 
     return {
       mcpStatuses: connectionsSnapshot.mcpStatuses,
@@ -1802,7 +1716,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     }
   }, [legalworkServerStore, refreshRouteState]);
   const extensionController = useSettingsExtensionController({
-    isRemoteWorkspace: selectedWorkspace?.workspaceType === "remote",
+    isRemoteWorkspace: false,
     legalworkServerClient: selectedWorkspaceEndpoint?.client ?? legalworkClient,
     hostLegalworkServerClient: legalworkClient,
     enablementContext,
@@ -1831,6 +1745,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       onInstall: installLocalProvider,
     },
   });
+  extensionControllerRefresh.current = () => extensionController.refreshConnections();
   const extensionItems = useMemo(
     () => buildExtensionItems({
       quickConnect: connectionsStore.quickConnect,
@@ -1877,7 +1792,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     const workspacePaths = Array.from(
       new Set(
         workspaces.flatMap((workspace) => {
-          const path = workspace.workspaceType !== "remote" ? workspace.path?.trim() ?? "" : "";
+          const path = workspace.path?.trim() ?? "";
           return path ? [path] : [];
         }),
       ),
@@ -1963,25 +1878,18 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       if (!window.confirm(message)) return;
     }
     try {
-      const workspace = workspaces.find(item => item.id === workspaceId);
-      if (workspace?.workspaceType !== "remote") {
-        if (!legalworkClient) throw new Error(t("session_route.create_server_unavailable"));
-        await legalworkClient.deleteWorkspace(workspaceId).catch(error => {
-          if (!(error instanceof LegalworkServerError && error.status === 404 && error.code === "workspace_not_found")) throw error;
-        });
-      }
-      if (isDesktopRuntime()) {
-        await workspaceForget(workspaceId);
-      }
-      if (selectedWorkspaceId === workspaceId) {
-        const nextWorkspace = workspaces.find((workspace) => workspace.id !== workspaceId);
-        const nextId = nextWorkspace?.id ?? "";
-        setLegacySelectedWorkspaceId(nextId);
-        if (nextId) {
-          await workspaceSetSelected(nextId).catch(() => undefined);
+      if (!legalworkClient) throw new Error(t("session_route.create_server_unavailable"));
+      const nextId = workspacesRef.current.find(workspace => workspace.id !== workspaceId)?.id ?? "";
+      await removeProjectFromSidebar(legalworkClient, workspaceId, () => {
+        workspacesRef.current = workspacesRef.current.filter(workspace => workspace.id !== workspaceId);
+        setWorkspaces(workspacesRef.current);
+        if (selectedWorkspaceId === workspaceId) setLegacySelectedWorkspaceId(nextId);
+      }, async () => {
+        if (isDesktopRuntime()) {
+          await workspaceForget(workspaceId);
         }
-      }
-      await refreshRouteState();
+        if (selectedWorkspaceId === workspaceId && nextId) await workspaceSetSelected(nextId).catch(() => undefined);
+      }, refreshRouteState);
     } catch (error) {
       toast.error(t("workspace.remove_failed"), { description: describeRouteError(error) });
     }
@@ -2197,6 +2105,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           />
           </>
         );
+      case "assistant":
+        return <AssistantSettingsView client={legalworkClient} browserModelPicker={{ options: modelPicker.options, open: modelPicker.compactOpen, onOpenChange: modelPicker.setCompactOpen }} onModels={() => navigateSettingsPath("ai")} />;
       case "personalisation":
         return (
           <PersonalisationView
@@ -2206,7 +2116,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? null}
               workspacePath={selectedWorkspace?.path ?? ""}
               workspaceName={selectedWorkspaceDisplay.displayName ?? selectedWorkspaceDisplay.name}
-              remote={selectedWorkspace?.workspaceType === "remote"}
+              remote={false}
             />}
             client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient}
             onSettingsApplied={() => {
@@ -2280,7 +2190,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return <ShellCustomizationView client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient} />;
       case "skills":
       case "workflows": {
-        const View = route.tab === "workflows" ? WorkflowsView : SkillsView;
+        const View = WorkflowsView;
         return (
           <View
             active={props.active}
@@ -2288,7 +2198,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             reviewClient={legalworkClient}
             reviewWorkspaceId={hubWorkspaceId}
             onShareReviewSet={shareReviewSetWithFirm}
+            initialSection={route.workflowsSection}
+            onSectionChange={section => navigateSettingsPath(section === "workflows" ? "workflows" : `workflows/${section}`)}
             onManagePlugins={() => navigate(composerSettingsPath("plugins"))}
+            firmSkillsView={isCommercialSurfaceHidden("firm-hub") ? undefined : <HubDownloadSection legalworkClient={legalworkClient} workspaceId={hubWorkspaceId} kind="skill" readSkill={extensionsStore.readFirmSkill} onConfigApplied={() => { void extensionsStore.refreshSkills({ force: true }); void reloadWorkspaceEngineFromUi(); }} />}
             onOpenReviewSetShare={canShareWithFirm ? () => {
               setTeamShareKinds(["review_set"]);
               setTeamShareInitial(null);
@@ -2310,7 +2223,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             busy={busy}
             showHeader={props.singleView === true}
             canInstallSkillCreator={canWriteWorkspaceSkills}
-            canUseDesktopTools={!isRemoteWorkspace}
+            canUseDesktopTools={true}
             accessHint={skillsAccessHint}
             extensions={extensionsStore}
             canShareWithFirm={canShareWithFirm}
@@ -2376,9 +2289,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             busy={busy}
             workspaceKey={selectedWorkspace?.id}
             selectedWorkspaceRoot={selectedWorkspaceRoot}
-            isRemoteWorkspace={isRemoteWorkspace}
+            isRemoteWorkspace={false}
             mcpServers={connectionsSnapshot.mcpServers}
-            mcpStatus={connectionsSnapshot.mcpStatus}
+            mcpStatus={extensionController.connectionError ?? connectionsSnapshot.mcpStatus}
             mcpStatuses={connectionsSnapshot.mcpStatuses}
             mcpConnectingName={connectionsSnapshot.mcpConnectingName}
             selectedMcp={connectionsSnapshot.selectedMcp}
@@ -2394,9 +2307,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             isExtensionConnected={extensionController.isConnected}
             authorizeMcp={connectionsStore.authorizeMcp}
             logoutMcpAuth={(name) => connectionsStore.logoutMcpAuth(name)}
-            removeMcp={(name) => {
-              void connectionsStore.removeMcp(name);
-            }}
+            removeMcp={name => connectionsStore.removeMcp(name)}
             setMcpEnabled={
               routeLegalworkStatus === "connected" && routeLegalworkCapabilities?.mcp?.write
                 ? (name, enabled) => connectionsStore.setMcpEnabled(name, enabled)
@@ -2415,101 +2326,60 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             } : undefined}
           />
         );
-        return (
-          <ExtensionsView
-            key={`${selectedWorkspaceEndpoint?.baseUrl ?? baseUrl}:${runtimeWorkspaceId}`}
-            busy={busy}
-            fileMemoryView={<FileMemoryIntegrationCard
+        // LAWOSS: lokálna pamäť vybraného priečinka v úvode katalógu integrácií.
+        const fileMemoryView = <FileMemoryIntegrationCard
               client={selectedWorkspaceEndpoint?.client ?? legalworkClient}
               workspaceId={runtimeWorkspaceId}
               workspacePath={selectedWorkspaceRoot}
               workspaceName={selectedWorkspaceName}
-              remote={isRemoteWorkspace}
-            />}
+              remote={false}
+            />;
+        return (
+          <ExtensionsView
+            key={`${selectedWorkspaceEndpoint?.baseUrl ?? baseUrl}:${runtimeWorkspaceId}`}
+            client={legalworkClient}
+            storageWorkspaceId={runtimeWorkspaceId || selectedWorkspaceId || null}
+            busy={busy}
             workspaceKey={selectedWorkspace?.id}
-            showHeader
             selectedWorkspaceRoot={selectedWorkspaceRoot}
-            isRemoteWorkspace={isRemoteWorkspace}
+            isRemoteWorkspace={false}
             developerMode={developerMode}
             canEditPlugins={canWriteWorkspacePlugins}
-            canUseGlobalScope={!isRemoteWorkspace}
+            canUseGlobalScope={true}
             accessHint={pluginsAccessHint}
             suggestedPlugins={SUGGESTED_PLUGINS}
             extensions={extensionsStore}
             pluginImports={lawossPluginImports}
-            pluginCreation={extensionsStore}
-            skillImports={extensionsStore}
             skillTools={extensionsStore}
             libraryConnection={selectedWorkspaceEndpoint?.client ?? legalworkClient}
-            canImportSkills={canWriteWorkspaceSkills}
-            canAddConnector={!isRemoteWorkspace || (routeLegalworkStatus === "connected" && Boolean(routeLegalworkCapabilities?.mcp?.write))}
             canAddSkill={canWriteWorkspaceSkills}
-            canAddStorage={Boolean((isRemoteWorkspace ? selectedWorkspaceEndpoint?.client ?? legalworkClient : legalworkClient) && (runtimeWorkspaceId || selectedWorkspaceId))}
-            mcpConnectedAppsCount={mcpConnectedAppsCount}
             initialSection={route.extensionsSection}
-            setSectionRoute={(section) => {
-              const path = `extensions/${section}`;
-              navigateSettingsPath(path);
-            }}
             onRefresh={refreshNativeIntegrations}
-            catalogView={<NativeCatalog
-              workspaceId={runtimeWorkspaceId ?? ""}
-              workspaceName={selectedWorkspaceName}
-              busy={busy}
-              loading={nativeIntegrations.loading}
-              error={nativeIntegrations.error}
-              plugins={nativeIntegrations.plugins}
-              skills={extensionsStore.skills()}
-              canInstallPlugin={Boolean(legalworkClient) && canInstallWorkspaceBundle}
-              canInstallSkills={Boolean(legalworkClient) && canInstallOkfSkills}
-              installPlugin={(url) => extensionsStore.installClaudePlugin(url)}
-              previewPlugin={(url) => extensionsStore.previewClaudePlugin(url)}
-              installOkf={nativeIntegrations.installOkf}
-              refresh={nativeIntegrations.refresh}
-            />}
-            storageView={<FileStorageView client={isRemoteWorkspace ? selectedWorkspaceEndpoint?.client ?? legalworkClient : legalworkClient} workspaceId={runtimeWorkspaceId || selectedWorkspaceId || null} />}
-            mcpView={<>
+            lawossIntro={<div className="space-y-4">
+              <AiGuidance locale={currentLocale()} />
+              <IntegrationSourcesCard />
               {nativeIntegrations.error ? <p role="alert" className="text-sm text-red-11">{describeRouteError(nativeIntegrations.error)}</p> : null}
-              {mcpView}
-            </>}
-            skillDetails={extensionsStore}
-            renderPluginConnector={(name, onClose, pluginName) => cloneElement(mcpView, { detailsOnly: true, pluginName, selectedMcp: name, setSelectedMcp: next => { if (next === null) onClose(); } })}
-            connectorState={name => {
-              const entry = connectionsSnapshot.mcpServers.find(entry => entry.name === name);
-              if (entry) return configuredConnectorState(entry, connectionsSnapshot.mcpStatuses[name]);
-              return connectionsSnapshot.mcpLastUpdatedAt === null ? undefined : "disconnected";
-            }}
-            skillsView={
-              <SkillsView
+              <NativeCatalog
+                workspaceId={runtimeWorkspaceId ?? ""}
                 workspaceName={selectedWorkspaceName}
                 busy={busy}
-                showHeader={false}
-                canInstallSkillCreator={canWriteWorkspaceSkills}
-                canUseDesktopTools={!isRemoteWorkspace}
-                accessHint={skillsAccessHint}
-                extensions={extensionsStore}
-                canShareWithFirm={canShareWithFirm}
-                onShareWithFirm={shareWorkflowWithFirm}
-                firmDownloadView={hubWorkspaceId ?
-                  <HubDownloadSection
-                    legalworkClient={legalworkClient}
-                    workspaceId={hubWorkspaceId}
-                    kind="skill"
-                    readSkill={extensionsStore.readFirmSkill}
-                    onConfigApplied={() => {
-                      void extensionsStore.refreshSkills({ force: true });
-                      void reloadWorkspaceEngineFromUi();
-                    }}
-                  /> : undefined
-                }
-                onOpenLink={(url) => platform.openLink(url)}
-                createSessionAndOpen={async (_command?: string): Promise<string | undefined> => {
-                  props.onClose?.();
-                  navigate(sessionReturnRoute);
-                  return undefined;
-                }}
+                loading={nativeIntegrations.loading}
+                error={nativeIntegrations.error}
+                plugins={nativeIntegrations.plugins}
+                skills={extensionsStore.skills()}
+                canInstallPlugin={Boolean(legalworkClient) && canInstallWorkspaceBundle}
+                canInstallSkills={Boolean(legalworkClient) && canInstallOkfSkills}
+                installPlugin={(url) => extensionsStore.installClaudePlugin(url)}
+                previewPlugin={(url) => extensionsStore.previewClaudePlugin(url)}
+                installOkf={nativeIntegrations.installOkf}
+                refresh={nativeIntegrations.refresh}
               />
-            }
+              {fileMemoryView}
+              <Chevron7IntegrationCard />
+            </div>}
+            mcpView={mcpView}
+            skillDetails={extensionsStore}
+            renderPluginConnector={(name, onClose, pluginName) => cloneElement(mcpView, { detailsOnly: true, pluginName, selectedMcp: name, setSelectedMcp: next => { if (next === null) onClose(); } })}
           />
         );
       }
@@ -2591,8 +2461,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return (
           <EnvironmentView
             client={legalworkServerSnapshot.legalworkServerClient}
-            isRemoteWorkspace={isRemoteWorkspace}
-            onApplyChanges={isDesktopRuntime() && !isRemoteWorkspace ? handleApplyEnvironmentChanges : undefined}
+            isRemoteWorkspace={false}
+            onApplyChanges={isDesktopRuntime() ? handleApplyEnvironmentChanges : undefined}
             applyBlocked={activeReloadBlockingSessions.length > 0}
             applyBlockedReason={
               activeReloadBlockingSessions.length > 0
@@ -2710,7 +2580,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         workspaceKey={selectedWorkspace?.id}
         reloadBlocked={activeReloadBlockingSessions.length > 0}
         activeSessions={activeReloadBlockingSessions}
-        isRemoteWorkspace={selectedWorkspace?.workspaceType === "remote"}
+        isRemoteWorkspace={false}
         onForceStopSession={async (sessionId) => {
           if (!activeClient) return;
           await abortSessionSafe(activeClient, sessionId);
@@ -2790,7 +2660,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         open={teamShareOpen}
         initialSelection={teamShareInitial}
         kinds={teamShareKinds}
-        includeGlobalSkills={(selectedWorkspace?.workspaceType ?? "local") !== "remote"}
+        includeGlobalSkills={true}
         onOpenChange={(open) => {
           setTeamShareOpen(open);
           if (!open) {

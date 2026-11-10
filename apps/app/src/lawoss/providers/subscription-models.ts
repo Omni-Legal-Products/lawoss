@@ -1,4 +1,4 @@
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListView as ProviderListResponse } from "@/app/types";
 import {
   isChatgptSubscription,
   recommendedSubscriptionModel,
@@ -10,6 +10,7 @@ export {
   CHATGPT_SUBSCRIPTION_MODELS,
   isChatgptSubscription,
   isSubscriptionModel,
+  nativeConnectionSource,
 } from "../../../../../lawoss/providers/chatgpt-subscription.mjs";
 
 type Provider = ProviderListResponse["all"][number];

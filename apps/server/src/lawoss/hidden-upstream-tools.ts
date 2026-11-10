@@ -37,3 +37,8 @@ export function appendLawossToolDenials(permission: Record<string, unknown>): vo
     permission[tool] = "deny";
   }
 }
+
+/** Engine v2: the same denials as native rules, after the user's and firm's rules (the last matching rule wins). */
+export function lawossToolDenialRules(): Array<{ action: string; resource: string; effect: "deny" }> {
+  return LAWOSS_DENIED_UPSTREAM_TOOLS.map(action => ({ action, resource: "*", effect: "deny" as const }));
+}

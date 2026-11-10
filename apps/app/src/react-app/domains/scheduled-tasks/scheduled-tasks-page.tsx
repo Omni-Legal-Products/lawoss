@@ -1,3 +1,4 @@
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Search } from "lucide-react";
@@ -18,6 +19,7 @@ export function ScheduledTasksPage({ client, projects, defaultModel, openTaskId,
   client: ScheduleClient | null; projects: ScheduleProject[]; defaultModel?: ScheduledTaskInput["model"];
   openTaskId?: string | null; onOpenSession: (workspaceId: string, sessionId: string) => void;
 }) {
+  const metadataInterval = useMetadataPolling(client?.baseUrl, 15000);
   const cache = useQueryClient();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -28,9 +30,9 @@ export function ScheduledTasksPage({ client, projects, defaultModel, openTaskId,
   const [deleting, setDeleting] = useState<ScheduledTask | null>(null);
   const [busy, setBusy] = useState(false);
   const [initial, setInitial] = useState<ScheduledTaskDraft>();
-  const tasks = useQuery({ queryKey: ["scheduled-tasks", client?.baseUrl], enabled: Boolean(client), queryFn: () => client!.scheduledTasks(), refetchInterval: 15000 });
+  const tasks = useQuery({ queryKey: ["scheduled-tasks", client?.baseUrl], enabled: Boolean(client), queryFn: () => client!.scheduledTasks(), refetchInterval: metadataInterval });
   const selected = tasks.data?.tasks.find(task => task.id === selectedId);
-  const detail = useQuery({ queryKey: ["scheduled-task", client?.baseUrl, selected?.workspaceId, selectedId], enabled: Boolean(client && selected), queryFn: () => client!.scheduledTask(selected!.workspaceId, selected!.id), refetchInterval: 15000 });
+  const detail = useQuery({ queryKey: ["scheduled-task", client?.baseUrl, selected?.workspaceId, selectedId], enabled: Boolean(client && selected), queryFn: () => client!.scheduledTask(selected!.workspaceId, selected!.id), refetchInterval: metadataInterval });
   const current = selected ? detail.data?.task ?? selected : undefined;
   const projectName = (task: ScheduledTask) => projects.find(project => project.id === task.workspaceId)?.name ?? task.workspaceId;
   useEffect(() => { if (openTaskId) { setSelectedId(openTaskId); setEditing(null); setDirty(false); } }, [openTaskId]);
@@ -76,9 +78,9 @@ export function ScheduledTasksPage({ client, projects, defaultModel, openTaskId,
       </aside>
       <main key={current?.id ?? "welcome"} className={cn("min-h-0 min-w-0 flex-1 overflow-y-auto px-6 @3xl:px-10", !(editing && client) && "py-6 @3xl:py-10")}>
         {editing && client ? <ScheduledTaskEditor key={editing.id} client={client} projects={projects} task={editing} onClose={closeEditor} onSaved={saved} onBusyChange={setBusy} onDirtyChange={setDirty} />
-          : current ? <ScheduledTaskDetail key={current.id} task={current} projectName={projectName(current)} runs={detail.data?.runs} loading={detail.isLoading} error={detail.isError} busy={busy}
+          : current ? <ScheduledTaskDetail key={current.id} task={current} assistant={projects.find(project => project.id === current.workspaceId)?.assistant} projectName={projectName(current)} runs={detail.data?.runs} loading={detail.isLoading} error={detail.isError} busy={busy}
           onEdit={() => edit(current)} onToggle={() => void toggle(current)} onDelete={() => setDeleting(current)} onOpenSession={onOpenSession} />
-          : <ScheduledTasksWelcome connected={Boolean(client)} hasProjects={Boolean(projects.length)} onCreate={create} />}
+          : <ScheduledTasksWelcome connected={Boolean(client)} hasProjects={Boolean(projects.length)} assistantWorkspaceId={projects.find(project => project.assistant)?.id} onCreate={create} />}
       </main>
     </div>
     {deleting && client && <DeleteScheduledTaskDialog client={client} task={deleting} onClose={() => setDeleting(null)} onDeleted={() => {

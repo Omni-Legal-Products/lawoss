@@ -9,7 +9,7 @@ import { syntheticHostConfig } from "../test-support/host-config.js";
 import { ProtectedDocumentRuntime } from "./runtime.js";
 import { protectedEngineFetch, registerProtectedRuntime } from "./dispatch.js";
 
-test("a completed native engine event stream ends the multiplexed SDK connection instead of waiting for an empty protected source", async () => {
+test.each(["/event", "/api/event"])("a completed native engine event stream (%s) ends the multiplexed SDK connection instead of waiting for an empty protected source", async path => {
   const {root, config} = await syntheticHostConfig();
   const approvals = new ApprovalService(config.approval);
   const ocr = new OcrManager(join(root, "ocr")), preparation = new DocumentPreparation(ocr);
@@ -19,7 +19,7 @@ test("a completed native engine event stream ends the multiplexed SDK connection
   const receiver = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response('data: {"type":"ORIGINAL-NATIVE-EVENT"}\n\n', {headers: {"content-type": "text/event-stream"}})});
   try {
     const signal = AbortSignal.timeout(2000);
-    const response = await protectedEngineFetch(config, "synthetic", fetch)(new Request(receiver.url.origin + "/event", {signal}));
+    const response = await protectedEngineFetch(config, "synthetic", fetch)(new Request(receiver.url.origin + path, {signal}));
     const reader = response.body!.getReader();
     expect(new TextDecoder().decode((await reader.read()).value)).toContain("ORIGINAL-NATIVE-EVENT");
     expect((await reader.read()).done).toBe(true);

@@ -22,9 +22,11 @@ export type ComposerSessionState = {
 
 export type QueuedComposerDraft = ComposerDraft & {
   id: string;
-  status?: "queued" | "sending" | "failed" | "uncertain";
+  status?: "queued" | "sending" | "accepted" | "failed" | "uncertain";
   error?: string;
   locked?: boolean;
+  canSteer?: boolean;
+  steering?: boolean;
   editor: ComposerSessionState;
 };
 
@@ -201,6 +203,30 @@ export const useComposerStateStore = create<ComposerStateStore>((set) => ({
   }),
 }));
 
+export class QueuedEditRecoveredError extends Error {}
+
+/** Keep the submitted editor until admission succeeds, without blocking the next draft. */
+export async function submitComposerDraft(sessionId: string, editor: ComposerSessionState, submit: () => Promise<void>, onChange: () => void) {
+  try {
+    useComposerStateStore.getState().clearSession(sessionId);
+    onChange();
+    await submit();
+  } catch (error) {
+    const restored = { ...editor };
+    if (error instanceof QueuedEditRecoveredError) delete restored.queuedDraftId;
+    useComposerStateStore.setState(state => {
+      const current = state.sessions[sessionId];
+      const keepCurrent = current && current !== editor && (current.draft.trim() || current.attachments.length || current.pasteParts.length || current.queuedDraftId);
+      return {
+        sessions: { ...state.sessions, [sessionId]: restored },
+        stashedDrafts: { ...state.stashedDrafts, [sessionId]: [...(state.stashedDrafts[sessionId] ?? []), ...(keepCurrent ? [current] : [])] },
+      };
+    });
+    onChange();
+    throw error;
+  }
+}
+
 export function getComposerDraft(state: ComposerStateStore, sessionId: string): string {
   return state.sessions[sessionId]?.draft ?? "";
 }
@@ -243,3 +269,15 @@ useComposerStateStore.subscribe((state, previous) => {
     if (history !== previous.history[id] && history.length) retainSessionInLists(id);
   }
 });
+/** Preserve unsent input when the assistant moves to a fresh daily context. */
+export function carryAssistantDraft(from: string, to: string) {
+  if (from === to) return;
+  useComposerStateStore.setState(state => {
+    const draft = state.sessions[from];
+    const target = state.sessions[to];
+    if (!draft || draft.queuedDraftId || (!draft.draft && !draft.attachments.length && !draft.pasteParts.length) || target?.draft || target?.attachments.length || target?.pasteParts.length) return state;
+    const sessions = { ...state.sessions, [to]: draft };
+    delete sessions[from];
+    return { sessions };
+  });
+}

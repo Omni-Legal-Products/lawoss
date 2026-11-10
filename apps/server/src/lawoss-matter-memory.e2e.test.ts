@@ -8,7 +8,8 @@ import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 import { engineAgentSession } from "./lawoss/test-support/engine-agent.js";
-import { LawossMemoryTools } from "./opencode-plugins/lawoss-memory-tools.js";
+import LawossMemoryTools from "./opencode-plugins/lawoss-memory-tools.js";
+import { nativePluginTools } from "./opencode-plugins/native-plugin-test-support.js";
 
 const priorData = process.env.LEGALWORK_DATA_DIR, priorTokens = process.env.LEGALWORK_TOKEN_STORE, priorDb = process.env.LEGALWORK_RUNTIME_DB;
 const roots: string[] = [], stops: (() => void | Promise<void>)[] = [];
@@ -58,7 +59,7 @@ test("only the chat's tool reads its case and linked-folder memory; another clie
   process.env.LEGALWORK_SERVER_URL = base_;
   const agent = await engineAgentSession(config, { sessionID: "ses_memory", directory: client });
   stops.push(() => { agent.restore(); if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl; });
-  const tool = (await LawossMemoryTools()).tool.lawoss_memory;
+  const tool = (await nativePluginTools(LawossMemoryTools)).tool.lawoss_memory;
   const read = async (matter: string) => JSON.parse(await tool.execute({ action: "read", matter }, { ...agent.context, ask: async () => { throw new Error("no card expected"); } }));
 
   expect(await read("Spisy/M001")).toMatchObject({ complete: true, text: expect.stringContaining("SYN vlastný 1101"), untrusted: true });

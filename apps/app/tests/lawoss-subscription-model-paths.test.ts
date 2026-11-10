@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import { nativeProviderClient } from "./lawoss-native-provider-client";
+import type { ProviderListView as ProviderListResponse } from "../src/app/types";
 import type { Client, ModelRef } from "../src/app/types";
 import { matterModelGap } from "../src/lawoss/lite/matter-model";
 import { composerModelState, modelReadiness, onboardingModelReadiness } from "../src/lawoss/shell/model-readiness";
@@ -24,8 +25,8 @@ const baseId = (key: string) => key.replace(/-(fast|flex|ultrafast)$/, "");
 const engineList = (extra: Array<{ id: string; models: string[] }> = []): ProviderListResponse =>
   ({
     all: [
-      { id: "openai", name: "OpenAI", env: [], source: "custom", options: {}, models: Object.fromEntries(KEYS.map((key) => [key, { id: key, name: key, api: { id: baseId(key) }, capabilities: { toolcall: true } }])) },
-      ...extra.map((p) => ({ id: p.id, name: p.id, env: [], source: "api", options: {}, models: Object.fromEntries(p.models.map((key) => [key, { id: key, name: key, api: { id: key }, capabilities: { toolcall: true } }])) })),
+      { id: "openai", name: "OpenAI", env: [], source: "custom", options: {}, models: Object.fromEntries(KEYS.map((key) => [key, { id: key, name: key, modelID: baseId(key) , api: { id: baseId(key) }, capabilities: { tools: true } }])) },
+      ...extra.map((p) => ({ id: p.id, name: p.id, env: [], source: "api", options: {}, models: Object.fromEntries(p.models.map((key) => [key, { id: key, name: key, modelID: key , api: { id: key }, capabilities: { tools: true } }])) })),
     ],
     connected: ["openai", ...extra.map((p) => p.id)],
     // OpenCode's own default for the subscription (observed on 1.18.29).
@@ -33,7 +34,7 @@ const engineList = (extra: Array<{ id: string; models: string[] }> = []): Provid
   }) as unknown as ProviderListResponse;
 
 const load = (raw: ProviderListResponse) => {
-  const client = { provider: { list: async () => ({ data: raw }) } } as unknown as Client;
+  const client = nativeProviderClient(raw);
   return fetchProviderList({ client, baseUrl: "http://127.0.0.1:1", directory: "/synthetic" });
 };
 

@@ -1,4 +1,4 @@
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListView as ProviderListResponse } from "@/app/types";
 import type { ModelRef } from "@/app/types";
 import {
   countConnectedProviders,

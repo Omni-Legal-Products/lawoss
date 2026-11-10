@@ -279,6 +279,8 @@ test('real server stop drains an accepted scheduled send and persists sent befor
   const engine = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
     const path = new URL(request.url).pathname; requests.push(path);
     if (path === '/session/status') return Response.json({});
+    // Engine v2: the scheduler asks the process-wide running chats before admitting a run.
+    if (path === '/api/session/active') return Response.json({ data: {} });
     if (path === '/agent') return Response.json([{ name: 'legalwork-scheduled-all', permission: [] }]);
     if (path === '/session/synthetic-chat') return Response.json({ id: 'synthetic-chat', directory: folder, time: {} });
     if (path === '/session/synthetic-chat/prompt_async') { await request.json(); entered(); await delivery; return new Response(null, { status: 204 }); }

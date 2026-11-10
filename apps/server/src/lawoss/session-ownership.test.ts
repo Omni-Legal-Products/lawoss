@@ -28,7 +28,7 @@ test("priečinok chatu pod koreňom klienta: prípad, koreň, súrodenec, odkaz,
   expect(await sessionFolder(local(client), { directory: sibling })).toEqual([]);
   expect(await sessionFolder(local(client), { directory: join(client, "..", "Klient-A") })).toEqual([]);
   expect(await sessionFolder(local(client), { directory: null })).toEqual([]);
-  expect(await sessionFolder({ ...local(client), workspaceType: "remote" }, { directory: matter })).toEqual([]);
+  // LAWOSS v2: upstream removed remote workspaces.
 });
 
 test("jeden základ pre priečinok chatu: počíta sa aj pripája k `directory || path`; koreňový chat ponechá doterajší zápis", async () => {

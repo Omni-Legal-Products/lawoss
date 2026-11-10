@@ -29,8 +29,8 @@ test.skipIf(!process.env.LAWOSS_PROTECTED_TEST_ENGINE)("restored document bundle
   const snapshot = join(root, "saved.sqlite"), checkpointBytes = Buffer.from("SQLite format 3\0SYNTHETIC-CHECKPOINT");
   await writeFile(snapshot, checkpointBytes);
   await copyFile(process.env.LAWOSS_PROTECTED_TEST_ENGINE!, join(runtime, "protected-opencode"));
-  const manifest = {schemaVersion: 1, engineVersion: pins.engineVersion, architecture, repository: pins.repository, releaseId: pins.releaseId,
-    asset: {id: pin.id, sha256: pin.sha256}, binary: {sha256: pin.binarySha256, size: pin.binarySize},
+  const manifest = {schemaVersion: 1, engineVersion: pins.engineVersion, architecture, repository: pins.repository, releaseTag: pins.releaseTag, releaseId: pins.releaseId,
+    asset: {name: pin.name, sha256: pin.sha256}, binary: {sha256: pin.binarySha256, size: pin.binarySize},
     versionProof: {version: pins.engineVersion, binarySha256: pin.binarySha256, environment: "linux-bookworm-guest"}};
   await writeFile(join(runtime, "protected-opencode-manifest.json"), JSON.stringify(manifest));
   for (const name of ["kernel", "initrd.gz", "protected-engine.mjs", "plugin.mjs"]) await writeFile(join(runtime, name), `SYNTHETIC LOADER FIXTURE ${name}`);

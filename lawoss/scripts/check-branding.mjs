@@ -117,6 +117,8 @@ export const BUILDER_ALLOWED_LINES = [
   /^\s*- "LegalWork Computer Use\.app\/\*\*"$/,
   /^\s*- LegalWorkAudioTap$/,
   /^\s*- LegalWorkKeyMonitor$/,
+  // Upstream v0.3.0: názov súboru pribaleného natívneho pomocníka notifikácií, nie text pre advokáta.
+  /^\s*- (?:Contents\/Resources\/helpers\/)?LegalWorkNotifications\.node$/,
 ];
 
 /** Slovníky, ktoré advokát číta. `minEntries` chráni pred tichým nulovým rozborom. */

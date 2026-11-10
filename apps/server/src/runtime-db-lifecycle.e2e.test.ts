@@ -188,7 +188,8 @@ test("standalone async configuration calls release handles and reopening a repla
   expect((await readRuntimeOpencodeConfig(f.config, "stable")).default_agent).toBe("before");
   expect(await runtimeDbHandles(f.db)).toBe(0);
   await rm(f.root, { recursive: true }); await mkdir(f.root);
-  expect(await readRuntimeOpencodeConfig(f.config, "stable")).toEqual({});
+  // Engine v2: an empty native row still declares its configuration version.
+  expect(await readRuntimeOpencodeConfig(f.config, "stable")).toEqual({ configurationVersion: 2 });
   expect(await runtimeDbHandles(f.db)).toBe(0);
 }, 20_000);
 
@@ -217,12 +218,19 @@ test("freshness unsubscribe drains accepted writes and ignores another runtime's
   const { keepLegalworkRuntimeConfigFileFresh, writeLegalworkRuntimeConfigFile, legalworkRuntimeConfigFilePath } = await import("./legalwork-runtime-config.js");
   const { readFile } = await import("node:fs/promises");
   await writeLegalworkRuntimeConfigFile(f.config, "stable");
+  // Engine v2: an outside workspace's own settings are published per location in the managed settings file
+  // (lawoss/outside-engine-config.ts); nothing is written into its folder.
+  const { managedEngineSettingsFilePath } = await import("./legalwork-runtime-config.js");
+  const published = async () => JSON.stringify(JSON.parse(await readFile(managedEngineSettingsFilePath(f.config), "utf8")).workspaces.stable);
+  const before = await published();
   const stop = keepLegalworkRuntimeConfigFileFresh(f.config, "stable");
   cleanups.push(async () => { await stop(); });
-  await writeRuntimeOpencodeConfig(other.config, "stable", () => ({ default_agent: "foreign" }));
-  await writeRuntimeOpencodeConfig(f.config, "stable", () => ({ default_agent: "accepted" }));
+  await writeRuntimeOpencodeConfig(other.config, "stable", () => ({ permissions: [{ action: "edit", resource: "foreign/*", effect: "deny" }] }));
+  await writeRuntimeOpencodeConfig(f.config, "stable", () => ({ permissions: [{ action: "edit", resource: "accepted/*", effect: "deny" }] }));
   await stop();
-  expect(JSON.parse(await readFile(legalworkRuntimeConfigFilePath(f.config), "utf8")).default_agent).toBe("accepted");
+  // The accepted local write was drained into a fresh publication before unsubscribe resolved.
+  expect(await published()).not.toBe(before);
+  expect(await published()).toContain("accepted/*");
   expect(await access(legalworkRuntimeConfigFilePath(other.config)).then(() => true, () => false)).toBe(false);
   await server.stop(); await otherServer.stop();
 }, 20_000);

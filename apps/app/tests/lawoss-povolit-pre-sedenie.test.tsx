@@ -57,7 +57,7 @@ test("karta ukáže tlačidlo pri úprave súboru, nie pri karte, ktorá si „a
   setLocale("sk");
   const edit = renderToStaticMarkup(<PermissionApprovalPanel permission={card("e1", "edit", [`${P}/C001/zmluva.docx`])} respondPermission={() => {}} />);
   expect(edit).toContain("data-lawoss-session-approval");
-  expect(edit).toContain("Povoliť do konca konverzácie");
+  expect(edit).toContain("Povoliť pre tento chat"); // v0.3.0: upstream „Allow for this chat“ (engine v2 si to pamätá pre chat)
   const webfetch = renderToStaticMarkup(<PermissionApprovalPanel permission={{ ...card("w1", "webfetch", ["https://www.slov-lex.sk/*"]), always: ["https://www.slov-lex.sk/*"] }} respondPermission={() => {}} />);
   expect(webfetch).not.toContain("data-lawoss-session-approval");
 });
@@ -117,16 +117,17 @@ const seed = (session: string, ...requests: PendingPermission[]) => act(async ()
 });
 const pending = (session = CHAT) => (getReactQueryClient().getQueryData<PendingPermission[]>(permissionKey(WS, session)) ?? []).map((item) => item.id);
 
-/** Odpovede enginu; cast: hook používa len tieto dve metódy `Client`. */
+/** Odpovede enginu; cast: hook používa len tieto metódy `Client` (engine v2). */
 function fakeEngine(answer: () => Promise<void> = async () => {}) {
   const replies: string[] = [];
+  // LAWOSS v2: `permission.reply` s `decision`; zoznam správ pre plán úloh je prázdny.
   const client = {
-    session: { todo: async () => ({ data: [] }) },
-    v2: { session: { permission: { reply: async (input: { requestID: string; reply: string }) => {
-      replies.push(`${input.requestID}:${input.reply}`);
+    message: { list: async () => ({ data: [], cursor: { next: null } }) },
+    permission: { reply: async (input: { requestID: string; decision: string }) => {
+      replies.push(`${input.requestID}:${input.decision}`);
       await answer();
-      return { data: true };
-    } } } },
+      return true;
+    } },
   } as unknown as Client;
   return { client, replies };
 }

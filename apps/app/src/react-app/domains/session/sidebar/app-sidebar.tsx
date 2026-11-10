@@ -5,6 +5,8 @@ import { projectViewFromPath, workspaceProjectRoute, workspaceViewRoute } from "
 import { PanelsTopLeft } from "lucide-react";
 import { projectViewTab, usePanelTabStore, workspacePanelKey } from "../panel/panel-tab-store";
 import { projectViewLabel } from "../panel/side-panel";
+import type { AssistantProfile } from "@legalwork/types/main-assistant";
+import { AssistantNavigation } from "./assistant-appearance";
 /** @jsxImportSource react */
 import * as React from "react";
 import legalworkMarkDark from "../../../../../../../lawoss/brand/lawoss-mark.svg";
@@ -36,7 +38,7 @@ import {
   Inbox,
   Loader2,
   Mic,
-  PenLine,
+  SquarePen,
   Workflow,
   MoreHorizontal,
   Pencil,
@@ -62,7 +64,6 @@ import type {
 } from "../../../../app/types";
 import {
   getWorkspaceTaskLoadErrorDisplay,
-  isRemoteConnectionWorkspace,
   isWindowsPlatform,
   isMacPlatform,
 } from "../../../../app/utils";
@@ -152,7 +153,8 @@ import { EigenweltAccountMenu } from "./eigenwelt-account-menu";
 import { ProjectFolderIcon } from "../../workspace/project-sync";
 import { projectSectionGroups, reorderProjectSection } from "./project-sections";
 import { useProjectSyncStore } from "../../workspace/project-sync-store";
-import { unreadSession, useSessionInboxStore } from "./session-inbox-store";
+import { unreadSession, unreadWorkspace, runningWorkspace, useSessionInboxStore } from "./session-inbox-store";
+import { workspaceServerId } from "@/app/lib/workspace-endpoint";
 import { useProjectFavoritesStore } from "../../workspace/project-favorites-store";
 
 function UnreadDot({ unread, className }: { unread: boolean; className?: string }) {
@@ -174,7 +176,7 @@ function SessionInboxIndicators({ unread, status, isStreaming, isActive }: Sessi
   if (!unread && !isStreaming && !isActive) return null;
   return <span className="pointer-events-none flex shrink-0 items-center gap-2">
     <SessionStatusIndicator status={status} isStreaming={isStreaming} isActive={isActive} />
-    {unread && <span className="flex size-3.5 shrink-0 items-center justify-center"><UnreadDot unread /></span>}
+    {unread && !isStreaming && !isActive && <span className="flex size-3.5 shrink-0 items-center justify-center"><UnreadDot unread /></span>}
   </span>;
 }
 
@@ -567,6 +569,12 @@ export type AppSidebarProps = {
   onOpenSearch?: () => void;
   onShowChats?: () => void;
   onNewChat?: () => void;
+  onOpenAssistant?: () => void;
+  assistantProfile?: AssistantProfile;
+  assistantWorkspaceId?: string;
+  assistantActive?: boolean;
+  assistantGreetingUnread?: boolean;
+  assistantDisabled?: boolean;
   onShowProjects?: () => void;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   showInitialLoading?: boolean;
@@ -743,19 +751,16 @@ function AppSidebarContent(props: AppSidebarProps) {
   const sidebarBrandAlt = sidebarBrandName || DEFAULT_SHELL_CONFIG.sidebarBrandName;
 
   const newChatSection = shellConfig.navNewChat ? <SidebarMenuItem key="navNewChat" className="mb-1 flex items-center gap-1">
-            <SidebarMenuButton className="min-w-0 flex-1 gap-3 font-medium text-foreground [&_svg]:size-[18px]" disabled={Boolean(openProjectId) && props.newChatDisabled} onClick={() => {
+            <SidebarMenuButton className="min-w-0 flex-1 text-sm leading-5 font-medium text-foreground [&_svg]:size-4" disabled={Boolean(openProjectId) && props.newChatDisabled} onClick={() => {
               if (lawossNewChat(openProjectId || null, props.onCreateChatInWorkspace)) return;
               if (openProjectId) props.onCreateChatInWorkspace(openProjectId);
               else if (props.onNewChat) props.onNewChat();
               else if (props.onShowChats) props.onShowChats();
               else navigate("/home");
             }}>
-              <PenLine className="size-[18px]" strokeWidth={1.5} />
-              <span>{t("projects.new_chat")}</span>
+              <span aria-hidden="true" className="inline-flex size-5 shrink-0 items-center justify-center"><SquarePen className="size-4" strokeWidth={1.5} /></span>
+              <span className="min-w-0 flex-1 truncate">{t("projects.new_chat")}</span>
             </SidebarMenuButton>
-            <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon" className="h-8 w-[10%] min-w-8 shrink-0 text-muted-foreground hover:text-foreground" aria-label={t("content_search.title")} aria-keyshortcuts={isMacPlatform() ? "Meta+k" : "Control+k"} onClick={props.onOpenSearch} />}>
-              <Search className="size-[18px]" strokeWidth={1.5} />
-            </TooltipTrigger><TooltipContent side="bottom">{t("content_search.title")}<kbd className="rounded bg-background/20 px-1.5 py-0.5 font-sans">{isMacPlatform() ? "⌘ K" : "Ctrl K"}</kbd></TooltipContent></Tooltip>
           </SidebarMenuItem> : null;
   const projectRoles = useProjectSyncStore((state) => state.roles);
   const pinned = usePinnedSessionIds();
@@ -879,14 +884,21 @@ function AppSidebarContent(props: AppSidebarProps) {
                 <div className="truncate text-[15px] font-semibold leading-tight tracking-[-0.02em]">{sidebarBrandName === "LAWOSS" ? <LawossWordmark className="w-28 max-w-full text-foreground" /> : sidebarBrandName}</div>
               </div>
             ) : null}
-            <Button ref={customizationButtonRef} variant="ghost" size="icon" className="pointer-events-none ml-auto size-6 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/project-sidebar:opacity-100 group-hover/project-sidebar:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto [@media(hover:none)]:opacity-100 [@media(hover:none)]:pointer-events-auto" aria-label={t("projects.customize_nav")} title={t("projects.customize_nav")} aria-expanded={customizingNavigation} onClick={() => setCustomizingNavigation(true)}>
-              <Settings className="size-3.5" />
-            </Button>
+            <div className="ml-auto flex shrink-0 items-center gap-0.5">
+              <Button ref={customizationButtonRef} variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-foreground" aria-label={t("projects.customize_nav")} title={t("projects.customize_nav")} aria-expanded={customizingNavigation} onClick={() => setCustomizingNavigation(true)}>
+                <Settings className="size-4" strokeWidth={1.5} />
+              </Button>
+              <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-foreground" aria-label={t("content_search.title")} aria-keyshortcuts={isMacPlatform() ? "Meta+k" : "Control+k"} onClick={props.onOpenSearch} />}>
+                <Search className="size-[18px]" strokeWidth={1.5} />
+              </TooltipTrigger><TooltipContent side="bottom">{t("content_search.title")}<kbd className="rounded bg-background/20 px-1.5 py-0.5 font-sans">{isMacPlatform() ? "⌘ K" : "Ctrl K"}</kbd></TooltipContent></Tooltip>
+            </div>
           </div>
         </div>
         <LawossNav activePane={Boolean(props.activeNav)} newChat={newChatSection} />
         <OkfWorkspaceSkillSync workspaceId={props.selectedWorkspaceId} />
         <SidebarWorkflowGenerationBadge onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))} />
+        {/* 🟡 LAWOSS: nový chat je v LawossNav; Asistent upstreamu je platená plocha Eigenwelt (isCommercialSurfaceHidden("assistant")). */}
+        {!isCommercialSurfaceHidden("assistant") && shellConfig.navAssistant !== false && props.onOpenAssistant && <SidebarMenu className="px-2 pb-3 pt-1"><AssistantNavigation profile={props.assistantProfile} active={props.assistantActive} disabled={props.assistantDisabled} unread={props.assistantGreetingUnread || unreadWorkspace(inbox, props.assistantWorkspaceId)} onOpen={props.onOpenAssistant} /></SidebarMenu>}
         </div>
         <LazyMotion features={domMax}><m.div layoutScroll data-slot="sidebar-content" data-sidebar="content" className="no-scrollbar min-h-0 flex-1 overflow-y-auto pt-1 mac:titlebar-no-drag">
           {hideCommercialSidebarItems(shellConfig.chatSectionOrder).filter(key => key !== "navNewChat").filter(key => chatSections.shown(key, shellConfig[key])).map(key => {
@@ -1065,13 +1077,13 @@ function WorkspaceSidebarGroup({
   const ctx = useSidebarContext();
   const workspace = group.workspace;
   const unread = useUnreadChats(group.sessions);
+  const backgroundRunning = useSessionInboxStore(state => runningWorkspace(state, workspaceServerId(workspace)));
   const isConnecting = ctx.connectingWorkspaceId === workspace.id;
   const connectionState: WorkspaceConnectionState = ctx.workspaceConnectionStateById[workspace.id] ?? {
     status: "idle",
     message: null,
   };
   const isConnectionActionBusy = isConnecting || connectionState.status === "connecting";
-  const isRemoteWorkspace = isRemoteConnectionWorkspace(workspace);
   const taskLoadError = getWorkspaceTaskLoadErrorDisplay(workspace, group.error);
   const isExpanded = ctx.expandedWorkspaceIds.has(workspace.id);
   const isSelected = ctx.selectedWorkspaceId === workspace.id;
@@ -1089,7 +1101,6 @@ function WorkspaceSidebarGroup({
     if (connectionState.status === "error") return connectionState.message?.trim() || taskLoadError.message;
     if (group.status === "error") return taskLoadError.label;
     if (isConnectionActionBusy) return t("workspace_list.connecting");
-    if (isRemoteWorkspace && connectionState.status === "connected") return connectionState.message?.trim() || t("workspace_list.connected");
     if (!ctx.developerMode) return "";
     if (isSelected) return t("workspace.selected");
     return workspaceKindLabel(workspace);
@@ -1116,7 +1127,7 @@ function WorkspaceSidebarGroup({
                 statusLabel={statusLabel}
                 isError={group.status === "error"}
                 isLoading={group.status === "loading" || isConnecting}
-                isRunning={group.sessions.some((session) => isStreamingSessionStatus(ctx.sessionStatusById?.[session.id]))}
+                isRunning={backgroundRunning || group.sessions.some((session) => isStreamingSessionStatus(ctx.sessionStatusById?.[session.id]))}
                 onTitlePointerDown={onWorkspaceTitlePointerDown}
               /></ProjectFileDropTarget>
               <div data-workspace-actions className="group/workspace-actions absolute right-16 top-1/2 flex -translate-y-1/2 items-center gap-1">
@@ -1132,7 +1143,7 @@ function WorkspaceSidebarGroup({
                   aria-label={t("session.new_task")}
                   title={t("session.new_task")}
                 >
-                  <MessageSquare className="size-3.5" strokeWidth={1.5} />
+                  <SquarePen className="size-3.5" strokeWidth={1.5} />
                 </Button>}
                 <WorkspaceActionsMenu
                   workspace={workspace}
@@ -1197,7 +1208,7 @@ function WorkspaceSidebarGroup({
                       <DropdownMenu>
                         <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" className={cn("absolute top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 data-popup-open:opacity-100 [@media(hover:none)]:opacity-100", config.collapseProjectSessions ? "right-7" : "right-0.5")} aria-label={t("projects.session_actions")}><MoreHorizontal className="size-3.5" /></Button>} />
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem disabled={ctx.newChatDisabled} onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}><MessageSquare />{t("session.new_task")}</DropdownMenuItem>
+                          <DropdownMenuItem disabled={ctx.newChatDisabled} onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}><SquarePen />{t("session.new_task")}</DropdownMenuItem>
                           {ctx.onOpenCreateGroupModal && <DropdownMenuItem onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}><FolderPlus />{t("session_management.create_group")}</DropdownMenuItem>}
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -1821,11 +1832,12 @@ function PinnedProjectRow({ workspace }: { workspace: WorkspaceInfo }) {
   const location = useLocation();
   const toggleFavorite = useProjectFavoritesStore(state => state.toggleFavorite);
   const active = location.pathname === workspaceProjectRoute(workspace.id);
+  const backgroundRunning = useSessionInboxStore(state => runningWorkspace(state, workspaceServerId(workspace)));
   const unread = useUnreadChats(ctx.workspaceSessionGroups.find(group => group.workspace.id === workspace.id)?.sessions ?? []);
   const clientRow = useClientProjectRow(workspace, workspaceLabel(workspace));
   return <SidebarMenuItem className="group/project-row">
     <ContextMenu>
-      <ContextMenuTrigger render={<SidebarMenuButton className="h-8 gap-2 pr-10 text-[13px]" isActive={active} aria-current={active ? "page" : undefined} onClick={() => void ctx.onOpenProjectPage(workspace.id, "home")} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}><span className="min-w-0 flex-1 truncate" title={clientRow.tooltip}>{clientRow.label}</span><span className="flex size-3.5 shrink-0 items-center justify-center"><UnreadDot unread={unread} /></span></SidebarMenuButton>} />
+      <ContextMenuTrigger render={<SidebarMenuButton className="h-8 gap-2 pr-10 text-[13px]" isActive={active} aria-current={active ? "page" : undefined} onClick={() => void ctx.onOpenProjectPage(workspace.id, "home")} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}><span className="min-w-0 flex-1 truncate" title={clientRow.tooltip}>{clientRow.label}</span><SessionInboxIndicators unread={unread} status={backgroundRunning ? "thinking" : "idle"} isStreaming={backgroundRunning} isActive={backgroundRunning} /></SidebarMenuButton>} />
       <ContextMenuContent className="w-56">
         <ContextMenuItem onClick={() => void ctx.onOpenProjectPage(workspace.id, "home")}><FolderOpen className="size-4" />{t("projects.open_project")}</ContextMenuItem>
         {ctx.onOpenProjectWindow && <ContextMenuItem onClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}><AppWindowMac className="size-4" />{t("sidebar.open_in_new_window")}</ContextMenuItem>}

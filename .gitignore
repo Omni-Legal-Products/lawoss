@@ -21,6 +21,10 @@ apps/desktop/resources/sidecars/
 apps/desktop/resources/actaport-mcp/
 apps/desktop/server/
 
+# Browser JavaScript is compiled from the pinned TypeScript sources.
+apps/desktop/electron/browser-native/runtime/*.mjs
+!apps/desktop/electron/browser-native/runtime/ipc.mjs
+
 # SwiftPM build output (native audiotap helper)
 apps/desktop/native/audiotap/.build/
 
@@ -75,6 +79,9 @@ apps/desktop/resources/node/
 /apps/desktop/resources/.engine-dependencies-build/
 # Built, checksum-verified sandbox runtime
 apps/server/resources/agent-sandbox/runtime/
+# APNs provider credentials stay in private server configuration.
+*.p8
+apns.json
 
 # Generated for each target after version stamping.
 apps/desktop/resources/build-info.json
@@ -85,3 +92,11 @@ apps/desktop/resources/opencode-sdk/
 # Full help translations are generated from the app's locale tables at build time.
 docs/user-guide/i18n.json
 apps/server/src/help-i18n.generated.ts
+
+# Digest-verified OpenCode download archives used by local builds/tests.
+/.cache/opencode/
+/.cache/opencode-v2-release/
+
+# Engine source-build outputs; reviewed source policy stays tracked.
+/packages/opencode-release/generated/
+/.legalwork/opencode-build/

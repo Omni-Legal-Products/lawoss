@@ -1,4 +1,5 @@
-import type { FilePartInput } from "@opencode-ai/sdk/v2/client";
+import { parseIntegrationMention, integrationDisplayText, integrationInstruction } from "./integration-mention";
+import type { FilePartInput } from "@/app/lib/opencode-view";
 import type { ComposerAttachment, ComposerDraft, ComposerPart } from "@/app/types";
 import type { ComposerPastePart } from "../composer-state-store";
 import {
@@ -42,6 +43,7 @@ export function buildComposerDraft(
 ): ComposerDraft {
   const effectiveMentions = { ...mentions };
   const modelContexts: string[] = [];
+  let hasIntegrationSelection = false;
   const parts: ComposerPart[] = text.split(/(\[pasted text [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/).flatMap<ComposerPart>((segment) => {
     if (!segment) return [];
     const pasteMatch = segment.match(/^\[pasted text (.+)\]$/);
@@ -57,8 +59,13 @@ export function buildComposerDraft(
     }
     if (segment.startsWith("@")) {
       const value = decodeComposerMentionValue(segment.slice(1));
-      const kind = effectiveMentions[value] ?? (parsePluginComposerMention(value) ? "plugin" : undefined);
-      if (kind === "plugin") effectiveMentions[value] = kind;
+      const kind = effectiveMentions[value] ?? (parsePluginComposerMention(value) ? "plugin" : parseIntegrationMention(value) ? "integration" : undefined);
+      if (kind === "plugin" || kind === "integration") effectiveMentions[value] = kind;
+      if (kind === "integration" && parseIntegrationMention(value)) {
+        hasIntegrationSelection = true;
+        modelContexts.push(integrationInstruction(value));
+        return [{ type: "text", text: integrationDisplayText(value) }];
+      }
       if (kind === "agent") return [{ type: "agent", name: value } satisfies ComposerDraft["parts"][number]];
       if (kind === "plugin") {
         const plugin = parsePluginComposerMention(value);
@@ -105,7 +112,9 @@ export function buildComposerDraft(
   for (const [value, kind] of Object.entries(effectiveMentions)) {
     resolved = resolved.replaceAll(
       `@${encodeComposerMentionValue(value)}`,
-      kind === "plugin"
+      kind === "integration"
+        ? integrationDisplayText(value)
+        : kind === "plugin"
         ? pluginComposerDisplayText(value)
         : kind === "memory"
         ? legalMemoryComposerDisplayText(value)
@@ -122,10 +131,19 @@ export function buildComposerDraft(
               : `@${value}`,
     );
   }
-  const slashCommand = parts.some(part => part.type === "plugin") ? null : parseSlashCommandInvocation(resolved);
+  const slashCommand = (parts.some(part => part.type === "plugin") || hasIntegrationSelection) ? null : parseSlashCommandInvocation(resolved);
+  // Inline references are text fragments, not separate paragraphs. Keep their
+  // original whitespace when the native transport joins prompt text parts.
+  const mergedParts: ComposerPart[] = [];
+  for (const part of parts) {
+    const previous = mergedParts.at(-1);
+    // 🟡 LAWOSS: an upload reference keeps its own part, so its provenance check above still matches.
+    if (previous?.type === "text" && part.type === "text" && !uploadParts.has(previous) && !uploadParts.has(part)) previous.text += part.text;
+    else mergedParts.push(part);
+  }
   return {
     mode: "prompt",
-    parts,
+    parts: mergedParts,
     attachments: nextAttachments,
     text,
     resolvedText: resolved,

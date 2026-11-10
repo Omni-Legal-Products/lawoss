@@ -23,7 +23,7 @@ type Scope = { config: ServerConfig; entry: Entry; active: boolean };
 const entries = new Map<string, Entry>();
 const context = new AsyncLocalStorage<Scope>();
 // Path metadata for callers outside ALS; entries remain the sole resource owners.
-const liveConfigLifetimes = new WeakMap<ServerConfig, { entry: Entry; owners: number }>();
+const liveConfigLifetimes = new WeakMap<Pick<ServerConfig, "configPath">, { entry: Entry; owners: number }>();
 
 /** Recovery always targets the captured failed resource/generation, never the current path. */
 export class RuntimeDbCleanupError extends AggregateError {
@@ -49,7 +49,7 @@ function canonicalPath(path: string): string {
   }
 }
 
-export function runtimeDbPath(config: ServerConfig): string {
+export function runtimeDbPath(config: Pick<ServerConfig, "configPath">): string {
   const scope = context.getStore();
   if (scope?.config === config) {
     if (!scope.active && !scope.entry.owners) throw new Error("Runtime database scope has been released");

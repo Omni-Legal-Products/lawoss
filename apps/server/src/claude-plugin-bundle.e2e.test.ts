@@ -99,6 +99,7 @@ function startMockOpencode() {
     fetch(request) {
       const url = new URL(request.url);
       requests.push({ method: request.method, pathname: url.pathname });
+      if (url.pathname === "/api/config" && request.method === "GET") return Response.json([]);
       return Response.json({});
     },
   }) as Served;
@@ -110,6 +111,7 @@ async function startLegalwork(options?: { branch?: string; files?: Record<string
   const workspaceRoot = await mkdtemp(join(tmpdir(), "legalwork-claude-plugin-"));
   roots.push(workspaceRoot);
   setEnv("LEGALWORK_RUNTIME_DB", join(workspaceRoot, "runtime.sqlite"));
+  setEnv("XDG_CONFIG_HOME", join(workspaceRoot, "global"));
 
   const github = startMockGithub(options);
   setEnv("LEGALWORK_GITHUB_API_BASE", `http://127.0.0.1:${github.port}`);
@@ -148,6 +150,7 @@ async function startLegalwork(options?: { branch?: string; files?: Record<string
     headers: { Authorization: "Bearer owt_test_token", "Content-Type": "application/json" },
     workspaceRoot,
     engine,
+    config,
   };
 }
 
@@ -240,11 +243,7 @@ describe("claude plugin bundles use the shared import lifecycle", () => {
     const connectorName = preview.review.connectors?.find(item => item.name === "slack")?.installedName;
     const list = await (await fetch(`${legalwork.base}/workspace/ws_1/mcp`, { headers: legalwork.headers })).json();
     expect(list.items.some((item: { name: string }) => item.name === connectorName)).toBe(true);
-    // LAWOSS (RAM 2 GB, issue #367): the engine gets the MCP once the client is
-    // open, not while the client stays unopened.
-    expect(legalwork.engine.requests.some((entry) => entry.method === "POST" && entry.pathname === "/mcp")).toBe(false);
-    await (await fetch(`${legalwork.base}/workspace/ws_1/opencode/mcp`, { headers: legalwork.headers })).arrayBuffer();
-    expect(legalwork.engine.requests.some((entry) => entry.method === "POST" && entry.pathname === "/mcp")).toBe(true);
+    expect(legalwork.engine.requests).toContainEqual({ method: "GET", pathname: "/api/config" });
     const removal = await fetch(`${legalwork.base}/workspace/ws_1/cloud-plugins/${encodeURIComponent(body.item.pluginId)}`, { method: "DELETE", headers: legalwork.headers });
     expect(removal.status).toBe(200);
     expect(existsSync(skillPath)).toBe(false);
@@ -269,10 +268,14 @@ test("bundled Node MCP installs runtime and runs outside plugin cwd", async () =
   const mcpResponse = await fetch(`${app.base}/workspace/ws_1/mcp`, { headers: app.headers });
   const mcps = await mcpResponse.json();
   const config = mcps.items.find((item: { name: string }) => item.name.startsWith("registry")).config;
-  expect(config.timeout).toBe(300000);
+  // Engine v2 keeps a native startup budget per connector.
+  expect(config.timeout?.startup ?? config.timeout).toBe(300000);
   // Upstream v0.2.11: imported declarations stay off until the lawyer finishes setup and enables them.
-  expect(config.enabled).toBe(false);
-  const command = config.command;
+  expect(config.disabled === true || config.enabled === false).toBe(true);
+  // Upstream v0.3.0 keeps commands out of the public connector list; read the saved native definition.
+  const { runtimeMcpMapForWorkspace } = await import("./mcp.js");
+  const saved = (await runtimeMcpMapForWorkspace(app.config, "ws_1"))[mcps.items.find((item: { name: string }) => item.name.startsWith("registry")).name];
+  const command = Array.isArray(saved?.command) ? saved.command.map(String) : [];
   const execution = Bun.spawnSync(command, { cwd: tmpdir(), stdout: "pipe", stderr: "pipe" });
   expect(execution.exitCode).toBe(0);
   expect(execution.stdout.toString()).toBe('{"ok":true}');

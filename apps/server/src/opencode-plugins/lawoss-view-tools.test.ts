@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { LawossViewTools } from "./lawoss-view-tools.js";
+import ViewTools from "./lawoss-view-tools.js";
+import { lawossNativePlugin } from "./lawoss-native-test-support.js";
+import type { OpenCodeContext } from "./office-plugin-shared.js";
+
+const LawossViewTools = (initial: OpenCodeContext = {}) => lawossNativePlugin(ViewTools, initial);
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -9,12 +13,13 @@ import type { ServerConfig } from "../types.js";
 test("LAWOSS exposes the five local view tools without wiki tools or native file hooks", async () => {
   const plugin = await LawossViewTools();
   expect(Object.keys(plugin.tool).sort()).toEqual(["view_catalog", "view_create", "view_list", "view_read", "view_update"]);
-  expect(Object.keys(plugin).sort()).toEqual(["chat.headers", "experimental.chat.system.transform", "tool"]);
-  const output = { system: [] as string[] };
-  await plugin["experimental.chat.system.transform"]({}, output);
+  // Only the LAWOSS view rules: no wiki rules, wiki tools or wiki reminders.
+  const output = { system: await plugin.system() };
+  expect(output.system).toHaveLength(1);
+  expect(output.system.join("\n")).not.toContain("## Markdown wikis");
   expect(output.system.join("\n")).toContain("queries: {}");
   expect(output.system.join("\n")).toContain("user chooses Save");
-  const catalog = await plugin.tool.view_catalog!.execute({}, {});
+  const catalog = await plugin.tool.view_catalog!.execute({});
   expect(String(catalog)).toContain("Stack");
 });
 
@@ -31,15 +36,15 @@ test("workspace preview works through the real authenticated server; another cli
     await runtime.run(async () => {
       const plugin = await LawossViewTools({ sessionID: "syn-session", directory });
       const input = { version: 1, title: "SYN report", mode: "report", catalog: "legalwork-1", program: 'root = Text("SYN overview")', queries: {} };
-      const output = await plugin.tool.view_create!.execute({ input }, {});
-      const preview = JSON.parse(typeof output === "string" ? output : output.output);
+      const output = await plugin.tool.view_create!.execute({ input });
+      const preview = JSON.parse(output);
       expect(preview.status).toBe("preview");
       expect(preview.owner).toEqual({ kind: "workspace", id: "syn" });
-      const deniedRaw = await plugin.tool.view_create!.execute({ owner: { kind: "workspace", id: "other" }, input }, {});
-      const denied = JSON.parse(typeof deniedRaw === "string" ? deniedRaw : deniedRaw.output);
+      const deniedRaw = await plugin.tool.view_create!.execute({ owner: { kind: "workspace", id: "other" }, input });
+      const denied = JSON.parse(deniedRaw);
       expect(denied.ok).toBe(false);
-      const listRaw = await plugin.tool.view_list!.execute({}, {});
-      const list = JSON.parse(typeof listRaw === "string" ? listRaw : listRaw.output);
+      const listRaw = await plugin.tool.view_list!.execute({});
+      const list = JSON.parse(listRaw);
       expect(list.items).toEqual([]);
     });
   } finally { await runtime.close(); await rm(root, { recursive: true, force: true }); }
@@ -48,12 +53,12 @@ test("workspace preview works through the real authenticated server; another cli
 test("wiki owners are rejected before any API request; scoped workspace errors stay errors", async () => {
   const plugin = await LawossViewTools();
   for (const tool of Object.values(plugin.tool)) {
-    const raw = await tool.execute({ owner: { kind: "wiki", id: "private" } }, {});
-    const result = JSON.parse(typeof raw === "string" ? raw : raw.output);
+    const raw = await tool.execute({ owner: { kind: "wiki", id: "private" } });
+    const result = JSON.parse(raw);
     expect(result.code).toBe("view_workspace_required");
   }
-  const raw = await plugin.tool.view_list!.execute({}, {});
-  const result = JSON.parse(typeof raw === "string" ? raw : raw.output);
+  const raw = await plugin.tool.view_list!.execute({});
+  const result = JSON.parse(raw);
   expect(result.ok).toBe(false);
 });
 
@@ -71,8 +76,8 @@ test("N-A11-24: polia pohľadu mimo input sa presunú dovnútra, ostatné argume
 
 test("N-A11-24: neplatný vstup povie, ktoré pole chýba", async () => {
   const plugin = await LawossViewTools();
-  const raw = await plugin.tool.view_create!.execute({ input: { version: 1, title: "SYN", mode: "report", catalog: "legalwork-1", queries: {} } }, {});
-  const result = JSON.parse(typeof raw === "string" ? raw : raw.output);
+  const raw = await plugin.tool.view_create!.execute({ input: { version: 1, title: "SYN", mode: "report", catalog: "legalwork-1", queries: {} } });
+  const result = JSON.parse(raw);
   expect(result.ok).toBe(false);
   expect(result.code).toBe("wiki_invalid_data");
   expect(result.issues.map((issue: { path: string }) => issue.path)).toContain("input.program");
@@ -109,7 +114,7 @@ test("N-A11-24: view_create s chybným programom vráti view_program_invalid, ni
   const plugin = await LawossViewTools();
   const raw = await plugin.tool.view_create!.execute({ input: { version: 1, title: "SYN", mode: "report", catalog: "legalwork-1", queries: {},
     datasets: { rows: { rows: [], total: 0, revision: "r", asOf: 1, truncated: false } }, program: 'root = Stack([Table(rows, [{field:"a",label:"A"}], true)])' } }, {});
-  const result = JSON.parse(typeof raw === "string" ? raw : raw.output);
+  const result = JSON.parse(raw);
   expect(result.ok).toBe(false);
   expect(result.code).toBe("view_program_invalid");
 });

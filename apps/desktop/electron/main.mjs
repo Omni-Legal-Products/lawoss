@@ -1,7 +1,9 @@
 import { nativeBundledDisplayId } from "./bundled-workflow-presentation.mjs";
 import { acceptUiLocaleReport, createNativeLocaleState, nativeCopy, preferredSystemLocale, systemLanguageList, systemLanguagesArgument } from "./native-locale.mjs";
 import { getAppBuildInfo } from './build-info.mjs';
+import { createShutdownGuard } from "./shutdown-guard.mjs";
 import { execFileSync, spawn } from "node:child_process";
+import { boundedShutdown } from "./bounded-shutdown.mjs";
 import { createServer } from "node:http";
 import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { Readable } from "node:stream";
@@ -24,6 +26,8 @@ import { parse as parseYaml } from "yaml";
 
 import { app, autoUpdater, BaseWindow, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, safeStorage, session, shell, systemPreferences } from "electron";
 import { createActaportConnection, prepareActaportRuntime } from "./actaport.mjs";
+import { notificationIcon, showNativeNotification } from "./desktop-notifications.mjs";
+import { CommunicationNotifications } from "./communication-notifications.mjs";
 import { configureRemoteDebugging } from "./remote-debugging.mjs";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
@@ -35,6 +39,7 @@ import { DictationHud } from "./audio/dictation-hud.mjs";
 import { MeetingMonitor } from "./audio/meeting-monitor.mjs";
 import { DictationMicrophones } from "./audio/dictation-microphones.mjs";
 import { RecorderService } from "./audio/recorder-service.mjs";
+import { requestRecorderServer } from "./audio/recorder-server-request.mjs";
 import { SystemDictationService } from "./audio/system-dictation.mjs";
 import { SystemKeyMonitor, resolveKeyMonitorPath } from "./audio/system-key-monitor.mjs";
 import { PowerLifecycle, PowerSessions } from "./power-lifecycle.mjs";
@@ -52,10 +57,12 @@ import {
 } from "./updater.mjs";
 import { createUiControlServer } from "./ui-control-server.mjs";
 import { createOpenComputerUseIntegration } from "./open-computer-use.mjs";
+import { assistantRecorderLibrary } from "./audio/assistant-recorder.mjs";
 import { createApplicationMenu } from "./app-menu.mjs";
 import { windowAppearanceOptions, windowsTitleBarOverlay } from "./window-chrome.mjs";
+import { createHttpRequests } from "./http-requests.mjs";
 import { createEventStreams } from "./event-streams.mjs";
-import { createBrowserPanel } from "./browser-panel.mjs";
+import { BROWSER_PRELOAD_CHANNELS, createBrowserPanel } from "./browser-panel.mjs";
 import { resolveBrowserProject } from "./browser-project.mjs";
 import { requireBrowserNetwork } from "./browser-network-policy.mjs";
 import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
@@ -148,11 +155,11 @@ const uiLocales = createNativeLocaleState(() => preferredSystemLocale(systemLang
 const chevron7Signing = createChevron7Signing({ platform: process.platform, roots: ["/Applications", path.join(os.homedir(), "Applications")] });
 app.on("will-quit", () => chevron7Signing.dispose());
 
-// Only LegalWork's own pages may use the desktop bridge. Browser tabs send
-// menu-overlay:dismiss so a click in a web page closes an open menu.
+// Browser preload events are validated by the owning panel; other desktop
+// bridge channels remain restricted to LegalWork's own pages.
 const ipcMain = guardIpcMain(electronIpcMain, {
   isTrustedUrl: isAppUrl,
-  openChannels: ["legalwork:menu-overlay:dismiss"],
+  openChannels: BROWSER_PRELOAD_CHANNELS,
   onRejected: (channel, event) => console.warn(`[security] refused ${channel} from ${event?.senderFrame?.url ?? "an unknown page"}`),
 });
 
@@ -417,8 +424,7 @@ async function collectSupportLogsAndReveal(technical = false, days = 7) {
       shell.showItemInFolder(filePath);
       return filePath;
     }
-    // Give the progress window one paint before the synchronous diagnostics
-    // snapshot starts probing binaries and reading log tails.
+    // Give the progress window one paint before collecting diagnostics.
     await new Promise((resolve) => setTimeout(resolve, 80));
     // The embedded server's own requests (e.g. to GitHub) ignore the system
     // proxy that the app window uses, so record it to tell a proxy network
@@ -434,7 +440,7 @@ async function collectSupportLogsAndReveal(technical = false, days = 7) {
       ),
     };
     // Build after the dialog so the diagnostics snapshot is as fresh as possible.
-    writeFileSync(filePath, buildSupportBundleText({ app, runtimeManager, network }), "utf8");
+    writeFileSync(filePath, await buildSupportBundleText({ app, runtimeManager, network }), "utf8");
   } finally {
     if (!progressWindow.isDestroyed()) progressWindow.close();
   }
@@ -724,6 +730,7 @@ const IDLE_ROUTER_INFO = Object.freeze({
 let mainWindow = null;
 const secondaryWindows = new Set();
 const eventStreams = createEventStreams();
+const httpRequests = createHttpRequests();
 const pendingDeepLinks = [];
 
 // Relay a content-free error signal to the renderer, which turns it into an
@@ -761,6 +768,9 @@ process.on("unhandledRejection", (reason) => {
 
 const browserPanel = createBrowserPanel({
   app, BaseWindow, WebContentsView, clipboard, session,
+  loadBrowserPasswords: async () => (await runtimeManager.credentialVault()).browserPasswords,
+  resolveEngine: () => runtimeManager.engineInfo(),
+  resolveLegalworkServer: () => runtimeManager.legalworkServerInfo(),
   authorizeBrowserAutomation: async (context) => requireBrowserNetwork(context, await runtimeManager.legalworkServerInfo()),
   resolveDownloadDirectory: async (context, windowUrl) => resolveBrowserProject(
     context, await workspaceStore.readWorkspaceState(), await runtimeManager.legalworkServerInfo(), windowUrl,
@@ -809,17 +819,7 @@ function recorderService() {
 }
 
 async function recorderServerRequest(route, body, signal = AbortSignal.timeout(10_000)) {
-  const info = assertLegalworkServerReady(await runtimeManager.legalworkServerInfo());
-  const response = await fetch(`${info.baseUrl}${route}`, {
-    method: body ? "POST" : "GET",
-    headers: { Authorization: `Bearer ${info.ownerToken || info.clientToken}`,
-      ...(info.hostToken ? { "X-LegalWork-Host-Token": info.hostToken } : {}),
-      ...(body ? { "Content-Type": "application/json" } : {}) },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-    signal, redirect: "error",
-  });
-  if (!response.ok) throw new Error("Cloud transcription is unavailable. Sign in and check your organisation’s model settings.");
-  return response.json();
+  return requestRecorderServer(await runtimeManager.legalworkServerInfo(), route, body, signal);
 }
 
 const callOverlay = new CallOverlay({
@@ -912,6 +912,8 @@ async function healDictationMonitor(readiness) {
 }
 const systemDictation = new SystemDictationService({
   userDataDir: app.getPath("userData"),
+  // 🟡 LAWOSS: the recorder is hidden (MČ 8. 11. 2026), so the floating dictation and meeting bar never shows.
+  miniBarAvailable: false,
   platform: process.platform,
   globalShortcut,
   clipboard,
@@ -950,10 +952,12 @@ const systemDictation = new SystemDictationService({
 // destroying it, and a tray icon keeps the app reachable.
 
 let appIsQuitting = false;
+let shutdownApproved = false;
 // Native update installation closes windows before app's before-quit event.
 // Mark the quit intent now so close-to-hide cannot block the installation.
-autoUpdater.on("before-quit-for-update", () => { appIsQuitting = true; });
+autoUpdater.on("before-quit-for-update", () => { appIsQuitting = true; shutdownApproved = true; });
 let windowsCloseHintShown = false;
+const shutdownGuard = createShutdownGuard({ getWindows: () => [mainWindow, ...secondaryWindows], isQuitting: () => appIsQuitting });
 // --hidden comes from the login-item registration (Windows args); macOS
 // login-item launches are detected via wasOpenedAtLogin in whenReady.
 let startHiddenPending = process.argv.includes("--hidden");
@@ -1025,29 +1029,44 @@ function syncBackgroundPresence() {
 const DESKTOP_NOTIFICATION_CLICK_EVENT = "legalwork:desktop-notification-click";
 const MAX_LIVE_NOTIFICATIONS = 50;
 const liveNotifications = new Map();
+const communicationNotifications = new CommunicationNotifications({
+  load: () => createRequire(import.meta.url)(app.isPackaged
+    ? path.join(process.resourcesPath, "helpers/LegalWorkNotifications.node")
+    : fileURLToPath(new URL("../resources/helpers/LegalWorkNotifications.node", import.meta.url))),
+  onClick: openNotificationTarget,
+});
 
-function showDesktopNotification(input) {
+function openNotificationTarget(id) {
+  void createMainWindow().then(win => {
+    if (win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    if (process.platform === "darwin") app.focus({ steal: true });
+    if (!win.webContents.isLoading()) win.webContents.send(DESKTOP_NOTIFICATION_CLICK_EVENT, { id });
+  });
+}
+
+async function showDesktopNotification(input) {
   if (!Notification.isSupported()) return false;
+  if (input?.backgroundOnly && BrowserWindow.getFocusedWindow()) return false;
   const id = String(input?.id ?? "").trim().slice(0, 200);
   const title = String(input?.title ?? "").trim().slice(0, 200);
   if (!id || !title) return false;
   const body = String(input?.body ?? "").slice(0, 500);
-  const notification = new Notification({ title, body });
+  const icon = notificationIcon(input?.iconDataUrl, nativeImage);
+  if (process.platform === "darwin" && icon && input?.conversationId) {
+    const result = await communicationNotifications.show({ id, title, body,
+      conversationId: String(input.conversationId).slice(0, 200), avatarBase64: icon.toPNG().toString("base64") });
+    if (result !== null) return result;
+  }
+  const notification = new Notification({ title, body, icon });
   const forget = () => {
     if (liveNotifications.get(id) === notification) liveNotifications.delete(id);
   };
   notification.on("click", () => {
     forget();
-    void createMainWindow().then((win) => {
-      if (win.isDestroyed()) return;
-      if (win.isMinimized()) win.restore();
-      win.show();
-      win.focus();
-      if (process.platform === "darwin") app.focus({ steal: true });
-      if (!win.webContents.isLoading()) {
-        win.webContents.send(DESKTOP_NOTIFICATION_CLICK_EVENT, { id });
-      }
-    });
+    openNotificationTarget(id);
   });
   notification.on("close", forget);
   liveNotifications.set(id, notification);
@@ -1055,8 +1074,7 @@ function showDesktopNotification(input) {
     const oldest = liveNotifications.keys().next().value;
     liveNotifications.delete(oldest);
   }
-  notification.show();
-  return true;
+  return showNativeNotification(notification, { onFailure: forget });
 }
 
 function normalizePlatform(value) {
@@ -1211,6 +1229,17 @@ const runtimeManager = createRuntimeManager({
       .map((workspace) => ({ path: workspace.path, appFiles: workspace.appFiles }));
   },
   recorder: {
+    library: assistantRecorderLibrary({
+      service: recorderService,
+      trashItem: (file) => shell.trashItem(file),
+      control: async (input) => {
+        if (!mainWindow || mainWindow.isDestroyed()) throw new Error("Open LegalWork to control recording.");
+        return mainWindow.webContents.executeJavaScript(`(async () => {
+          if (!window.__legalworkRecorder) return { ok: false, error: "Recorder is not ready yet." };
+          return window.__legalworkRecorder(${JSON.stringify(input)});
+        })()`);
+      },
+    }),
     listRecordings: () => recorderService().listRecordings(),
     readRecording: async (id) => {
       if (!/^[a-zA-Z0-9_-]+$/.test(id)) return null;
@@ -1313,11 +1342,11 @@ function assertLegalworkServerReady(info) {
 // log and (partly) display. We also drop the same payload into a log file so a
 // failing machine can be diagnosed by sending one file — the on-screen message
 // alone is a generic catch-all that hides the real cause.
-function describeRuntimeBootFailure(error) {
+async function describeRuntimeBootFailure(error) {
   const message = error instanceof Error ? error.message : String(error);
   let diagnostics = null;
   try {
-    diagnostics = runtimeManager.collectRuntimeDiagnostics();
+    diagnostics = await runtimeManager.collectRuntimeDiagnostics();
   } catch {
     /* diagnostics are best-effort */
   }
@@ -1842,6 +1871,7 @@ async function openAppWindow(event, route, title = "") {
       additionalArguments: [systemLanguagesArgument(systemLanguageList(app))],
     },
   });
+  shutdownGuard.protect(sessionWindow);
   secondaryWindows.add(sessionWindow);
   applicationMenu.applyVisibility(sessionWindow);
   recorderServiceInstance?.subscribe(sessionWindow.webContents);
@@ -1909,12 +1939,6 @@ const desktopCommandHandlers = {
       const server = await runtimeManager.legalworkServerInfo();
       const root = await resolveProjectFolder(input.workspaceId, state.workspaces, server);
       return copyFilesIntoProject(root, input.paths, undefined, input.folder, dashboardFileImporter(server, input.workspaceId));
-  },
-  "workspaceCreateRemote": async (event, ...args) => {
-      return workspaceStore.createRemoteWorkspace(args[0] ?? {});
-  },
-  "workspaceUpdateRemote": async (event, ...args) => {
-      return workspaceStore.updateRemoteWorkspace(args[0] ?? {});
   },
   "workspaceUpdateDisplayName": async (event, ...args) => {
       return workspaceStore.updateWorkspaceDisplayName(args[0] ?? {});
@@ -2893,24 +2917,8 @@ const desktopCommandHandlers = {
         return String(err?.message ?? err);
       }
   },
-  "__fetch": async (event, ...args) => {
-      const url = String(args[0] ?? "").trim();
-      const init = args[1] ?? {};
-      if (!url) throw new Error("URL is required.");
-      const timeoutMs = Number(init.timeoutMs);
-      const response = await fetch(url, {
-        method: typeof init.method === "string" ? init.method : undefined,
-        headers: init.headers && typeof init.headers === "object" ? init.headers : undefined,
-        body: typeof init.body === "string" ? init.body : undefined,
-        signal: Number.isFinite(timeoutMs) && timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined,
-      });
-      return {
-        status: response.status,
-        statusText: response.statusText,
-        headers: Array.from(response.headers.entries()),
-        body: await response.text(),
-      };
-  },
+  "__fetch": async (event, url, init) => httpRequests.fetch(event.sender, url, init),
+  "__fetchCancel": async (event, id) => httpRequests.cancel(event.sender, id),
   "__homeDir": async (event, ...args) => {
       return os.homedir();
   },
@@ -3087,7 +3095,9 @@ async function createMainWindow() {
   // While dictation is armed (or a recording is finishing), closing the
   // window would kill the renderer that hosts the capture pipeline — hide it
   // instead. Quit and update installation close for real via the quit flag.
+  shutdownGuard.protect(mainWindow);
   mainWindow.on("close", (event) => {
+    if (event.defaultPrevented) return;
     if (appIsQuitting || !keepAliveOnClose()) return;
     const status = systemDictation.status();
     appTray.ensure({
@@ -3156,8 +3166,10 @@ ipcMain.handle("legalwork:shell:openExternal", async (_event, url) => {
   }
 });
 ipcMain.handle("legalwork:shell:relaunch", async () => {
+  if (!await shutdownGuard.confirm("restart")) return;
+  shutdownApproved = true;
   app.relaunch();
-  app.exit(0);
+  app.quit();
 });
 ipcMain.handle("legalwork:system:architecture", async () => resolveArchitectureInfo());
 ipcMain.handle("legalwork:system:architecture-download", async () => findArchitectureDownload({
@@ -3276,12 +3288,21 @@ ipcMain.on("legalwork:audio:overlay-hide", () => {
 });
 
 registerMigrationIpc({ app, ipcMain });
-const { ensureAutoUpdater } = registerUpdaterIpc({ app, ipcMain, getMainWindow: () => mainWindow });
+const { ensureAutoUpdater } = registerUpdaterIpc({ app, ipcMain, getMainWindow: () => mainWindow, beforeRestart: () => shutdownGuard.confirm("restart") });
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("before-quit", (event) => {
+    if (!shutdownApproved) {
+      event.preventDefault();
+      void shutdownGuard.confirm("close").then(approved => {
+        if (!approved) return;
+        shutdownApproved = true;
+        app.quit();
+      });
+      return;
+    }
     // Lets the window 'close' handler distinguish quit from close-to-hide.
     appIsQuitting = true;
     chevron7Signing.dispose();
@@ -3297,7 +3318,11 @@ if (!app.requestSingleInstanceLock()) {
     meetingMonitor.dispose();
     appTray.destroy();
     powerSessions.releaseAll();
-    void Promise.all([disposeRuntimeBeforeQuit(), uiControlServer.stop()]).finally(() => app.quit());
+    void boundedShutdown(() => Promise.all([disposeRuntimeBeforeQuit(), uiControlServer.stop()]), () => {
+      console.warn("[shutdown] Graceful shutdown exceeded 10 seconds; terminating owned workers.");
+      try { runtimeManager.forceStopOwnedChildren(); }
+      finally { app.exit(1); }
+    }).finally(() => app.quit());
   });
 
   app.on("second-instance", async (_event, argv) => {

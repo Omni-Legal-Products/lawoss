@@ -11,6 +11,7 @@ import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-acces
 import { auditLogPath } from "../audit.js";
 import { fileOperationReport } from "../opencode-plugins/lawoss-file-operations-text.js";
 import { applyFileOperations, confusableNames, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, moveAcrossVolumes, LAWOSS_TRASH_FOLDER, linkedFolderLabels, planFileOperations, systemTrashReliable, treeDigest, visibleName, type PlannedFileOperation } from "./file-operations.js";
+import { nativeRow } from "./test-support/native-config.js";
 
 const roots: string[] = [];
 const stops: Array<() => void | Promise<void>> = [];
@@ -55,7 +56,7 @@ async function office() {
   stops.push(() => closeRuntimeOpencodeConfig(config));
   // No desktop host in these tests unless a test installs one: deleted items go to `.lawoss-kos/`.
   config.trashItem = null;
-  await writeRuntimeOpencodeConfig(config, "ws_c001", () => ({ permission: { external_directory: { [`${linked}/*`]: "allow" } } }));
+  await writeRuntimeOpencodeConfig(config, "ws_c001", () => nativeRow({ permission: { external_directory: { [`${linked}/*`]: "allow" } } }));
   return { root, config, client, other, linked, workspace: config.workspaces[0] };
 }
 
@@ -331,7 +332,7 @@ test.skipIf(!otherVolumeReady)("a move to a linked folder on another volume copi
   const { config, client, workspace } = await office();
   const remote = await realpath(await mkdtemp(join(otherVolume ?? tmpdir(), "lawoss-files-nas-")));
   roots.push(remote);
-  await writeRuntimeOpencodeConfig(config, "ws_c001", () => ({ permission: { external_directory: { [`${remote}/*`]: "allow" } } }));
+  await writeRuntimeOpencodeConfig(config, "ws_c001", () => nativeRow({ permission: { external_directory: { [`${remote}/*`]: "allow" } } }));
   const operations = [
     { operation: "move", from: join(client, "poznamky.txt"), to: join(remote, "poznamky.txt") },
     { operation: "move", from: join(client, "Pripady"), to: join(remote, "Pripady") },
@@ -544,7 +545,7 @@ test("names cannot forge card lines, same-named linked folders are told apart, l
   // Two linked folders called "Podklady".
   const first = join(root, "A", "Podklady"), second = join(root, "B", "Podklady");
   for (const folder of [first, second]) { await mkdir(folder, { recursive: true }); await writeFile(join(folder, "x.pdf"), "SYN"); }
-  await writeRuntimeOpencodeConfig(config, "ws_c001", () => ({ permission: { external_directory: { [`${first}/*`]: "allow", [`${second}/*`]: "allow" } } }));
+  await writeRuntimeOpencodeConfig(config, "ws_c001", () => nativeRow({ permission: { external_directory: { [`${first}/*`]: "allow", [`${second}/*`]: "allow" } } }));
   const both = await planFileOperations(config, workspace, [{ operation: "delete", path: join(first, "x.pdf") }, { operation: "delete", path: join(second, "x.pdf") }]);
   expect(both.operations.map((item) => item.from)).toEqual(["A/Podklady/x.pdf", "B/Podklady/x.pdf"]);
   // More items than the survey counts: shown as a lower bound.

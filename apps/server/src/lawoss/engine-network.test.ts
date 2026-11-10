@@ -8,6 +8,7 @@ import {
   CHATGPT_SUBSCRIPTION_MODELS,
 } from "../../../../lawoss/providers/chatgpt-subscription.mjs";
 import { createManagedOpencodeServer } from "../managed-opencode.js";
+import { verifiedTestEngine } from "../opencode-candidate.test-support.js";
 import {
   CATALOG_FILE,
   LAWOSS_MODELS_CATALOG_ENV,
@@ -77,29 +78,29 @@ describe("LAWOSS: engine bez Eigenweltu", () => {
     expect(bundledModelsCatalogPath({ [LAWOSS_MODELS_CATALOG_ENV]: own })).toBe(own);
   });
 
-  test.each([undefined, false])("spustený engine zachová poistky pri zdedenom aj prázdnom prostredí: %s", async inheritEnvironment => {
+  // LAWOSS v2: the managed engine must be a verified candidate of the pinned derivative (shebang fixture, POSIX only).
+  test.skipIf(process.platform === "win32").each([undefined, false])("spustený engine zachová poistky pri zdedenom aj prázdnom prostredí: %s", async inheritEnvironment => {
     const dir = await tempDir("lawoss-engine-env-");
     const envPath = join(dir, "engine-env.json");
-    // Podvrhnutý engine: Node spustí súbor `serve` z pracovného priečinka, lebo engine
-    // dostáva argumenty `serve --hostname … --port …`. Skript so shebangom Windows
-    // nespustí (EFTYPE), takto test beží rovnako na Windows, Linuxe aj macOS.
-    const node = Bun.which("node");
-    if (!node) throw new Error("Test potrebuje Node.js v PATH.");
-    await writeFile(join(dir, "serve"), `const fs = require("node:fs");
+    const { bin, candidateBuild } = await verifiedTestEngine(dir, (version) => `#!${process.execPath}
+const fs = require("node:fs");
 const http = require("node:http");
-const keys = ["OPENCODE_MODELS_URL", "OPENCODE_MODELS_PATH", "OPENCODE_DISABLE_MODELS_FETCH", "OPENCODE_DISABLE_SHARE", "OPENCODE_DISABLE_AUTOUPDATE", "LAWOSS_SYNTHETIC_INHERIT_CANARY"];
+const keys = ["OPENCODE_MODELS_URL", "OPENCODE_MODELS_PATH", "OPENCODE_DISABLE_MODELS_FETCH", "OPENCODE_DISABLE_SHARE", "OPENCODE_DISABLE_AUTOUPDATE", "OPENCODE_DISABLE_FFF", "LAWOSS_SYNTHETIC_INHERIT_CANARY", "LEGALWORK_SERVER_TOKEN"];
 fs.writeFileSync(${JSON.stringify(envPath)}, JSON.stringify(Object.fromEntries(keys.map((key) => [key, process.env[key] ?? null]))));
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
+const stdio = process.argv.includes("--stdio");
 http.createServer((request, response) => {
-  if (request.url === "/global/health") {
-    response.writeHead(200, { "Content-Type": "application/json" });
-    response.end(JSON.stringify({ healthy: true, version: "engine-network-fixture" }));
-  } else response.end("ok");
+  if (request.headers.authorization !== "Basic " + Buffer.from("opencode:" + process.env.OPENCODE_PASSWORD).toString("base64")) return response.writeHead(401).end();
+  response.setHeader("Content-Type", "application/json");
+  if (request.url === "/api/experimental/migration/v1") return response.end(JSON.stringify({ status: "completed" }));
+  if (request.url === "/api/info") return response.end(JSON.stringify({ version: ${JSON.stringify(version)}, pid: process.pid }));
+  response.writeHead(404).end();
 }).listen(port, "127.0.0.1", () => {
-  process.stdout.write("opencode server listening on http://127.0.0.1:" + port + "\\n");
+  process.stdout.write((stdio ? JSON.stringify({ url: "http://127.0.0.1:" + port }) : "server listening on http://127.0.0.1:" + port) + "\\n");
 });
 process.on("SIGTERM", () => process.exit(0));
-`, "utf8");
+if (stdio) { process.stdin.once("end", () => process.exit(0)); process.stdin.resume(); }
+`);
     const ambientCatalog = join(dir, "ambient-firm-catalog.json");
     await writeFile(ambientCatalog, "{}", "utf8");
     const previousCatalog = process.env[LAWOSS_MODELS_CATALOG_ENV];
@@ -108,8 +109,10 @@ process.on("SIGTERM", () => process.exit(0));
     try {
       process.env[LAWOSS_MODELS_CATALOG_ENV] = ambientCatalog;
       process.env.LAWOSS_SYNTHETIC_INHERIT_CANARY = "synthetic-parent";
+      process.env.LEGALWORK_SERVER_TOKEN = "server-token-must-not-reach-the-engine";
       engine = await createManagedOpencodeServer({
-        bin: node,
+        bin,
+        candidateBuild,
         cwd: dir,
         inheritEnvironment,
         env: { OPENCODE_MODELS_URL: "https://models.eigenweltlabs.com", OPENCODE_MODELS_PATH: "caller-must-not-override", OPENCODE_DISABLE_MODELS_FETCH: "0", OPENCODE_DISABLE_SHARE: "0", OPENCODE_DISABLE_AUTOUPDATE: "0" },
@@ -120,11 +123,15 @@ process.on("SIGTERM", () => process.exit(0));
       expect(seen.OPENCODE_DISABLE_AUTOUPDATE).toBe("1");
       expect(seen.OPENCODE_MODELS_PATH).toBe(inheritEnvironment === false ? bundledModelsCatalogPath({})! : ambientCatalog);
       expect(seen.LAWOSS_SYNTHETIC_INHERIT_CANARY).toBe(inheritEnvironment === false ? null : "synthetic-parent");
+      // Upstream v2 forces FFF off; the server's own token never reaches the engine (lawoss/engine-credentials.ts).
+      expect(seen.OPENCODE_DISABLE_FFF).toBe("true");
+      expect(seen.LEGALWORK_SERVER_TOKEN).toBeNull();
       expect(engine.execution.env.find((entry) => entry.name === "OPENCODE_DISABLE_MODELS_FETCH")?.value).toBe("1");
     } finally {
       try {await engine?.close();} finally {
         if (previousCatalog === undefined) delete process.env[LAWOSS_MODELS_CATALOG_ENV]; else process.env[LAWOSS_MODELS_CATALOG_ENV] = previousCatalog;
         if (previousCanary === undefined) delete process.env.LAWOSS_SYNTHETIC_INHERIT_CANARY; else process.env.LAWOSS_SYNTHETIC_INHERIT_CANARY = previousCanary;
+        delete process.env.LEGALWORK_SERVER_TOKEN;
       }
     }
   });

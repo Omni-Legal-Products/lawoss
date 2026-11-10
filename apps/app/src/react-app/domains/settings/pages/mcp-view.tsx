@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 /** @jsxImportSource react */
 import { packageParts } from "./plugin-package-contents";
 import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationAddRequest, useIntegrationLibraryLayout } from "./integration-library";
@@ -116,7 +117,7 @@ export type McpViewProps = {
   cancelPendingMcpAuth?: () => void;
   authorizeMcp: (entry: McpServerEntry) => void;
   logoutMcpAuth: (name: string) => Promise<void> | void;
-  removeMcp: (name: string) => void;
+  removeMcp: (name: string) => void | Promise<void | false>;
   setMcpEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
   /** Return extension-specific config UI for the detail modal. */
   configSlotForEntry?: (entry: McpDirectoryInfo) => React.ReactNode | null;
@@ -266,7 +267,10 @@ export function McpView(props: McpViewProps) {
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [logoutTarget, setLogoutTarget] = useState<string | null>(null);
   const [logoutBusy, setLogoutBusy] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
+  // 🟡 LAWOSS (#255 A3): odinštalovanie skillu z detailu je natrvalo, preto najprv potvrdenie.
+  const [skillUninstallTarget, setSkillUninstallTarget] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const [addMcpModalOpen, setAddMcpModalOpen] = useState(false);
   const [togglingMcp, setTogglingMcp] = useState<string | null>(null);
@@ -413,6 +417,7 @@ export function McpView(props: McpViewProps) {
   const logoutConfirmation = (
     <ConfirmModal
       open={logoutOpen}
+      pending={logoutBusy}
       title={t("mcp.logout_modal_title")}
       message={t("mcp.logout_modal_message").replace("{server}", displayName(logoutTarget ?? ""))}
       confirmLabel={logoutBusy ? t("mcp.logout_working") : t("mcp.logout_action")}
@@ -630,19 +635,22 @@ export function McpView(props: McpViewProps) {
 
       <ConfirmModal
         open={removeOpen}
+        pending={removing}
         title={t("mcp.remove_modal_title")}
         message={t("mcp.remove_modal_message").replace("{server}", displayName(removeTarget ?? ""))}
-        confirmLabel={t("mcp.remove_app")}
+        confirmLabel={t(removing ? "catalog.removing" : "mcp.remove_app")}
         cancelLabel={t("common.cancel")}
         variant="danger"
         onCancel={() => {
           setRemoveOpen(false);
           setRemoveTarget(null);
         }}
-        onConfirm={() => {
-          if (removeTarget) props.removeMcp(removeTarget);
-          setRemoveOpen(false);
-          setRemoveTarget(null);
+        onConfirm={async () => {
+          if (!removeTarget || removing) return;
+          setRemoving(true);
+          try { if (await props.removeMcp(removeTarget) === false) throw new Error(t("mcp.remove_failed")); setRemoveOpen(false); setRemoveTarget(null); }
+          catch (error) { toast.error(error instanceof Error ? error.message : t("common.something_went_wrong")); }
+          finally { setRemoving(false); }
         }}
       />
 
@@ -755,15 +763,27 @@ export function McpView(props: McpViewProps) {
             onReveal={detailSkill.path ? () => {
               void revealDesktopItemInDir(detailSkill.path);
             } : undefined}
-            onUninstall={props.uninstallSkill ? () => {
-              props.uninstallSkill?.(detailSkill.name);
-              setDetailSkill(null);
-            } : undefined}
+            onUninstall={props.uninstallSkill ? () => setSkillUninstallTarget(detailSkill.name) : undefined}
             onHide={() => setLegalWorkExtensionHidden(getSkillHiddenId(detailSkill), true)}
             onShow={() => setLegalWorkExtensionHidden(getSkillHiddenId(detailSkill), false)}
           />
         );
       })() : null}
+
+      <ConfirmModal
+        open={skillUninstallTarget !== null}
+        title={t("skills.uninstall_title")}
+        message={t("skills.uninstall_warning").replace("{name}", skillUninstallTarget ?? "")}
+        confirmLabel={t("skills.uninstall")}
+        cancelLabel={t("common.cancel")}
+        variant="danger"
+        onCancel={() => setSkillUninstallTarget(null)}
+        onConfirm={() => {
+          if (skillUninstallTarget) props.uninstallSkill?.(skillUninstallTarget);
+          setSkillUninstallTarget(null);
+          setDetailSkill(null);
+        }}
+      />
 
       {detailPlugin ? (() => {
         const hidden = isLegalWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`);
@@ -1036,7 +1056,7 @@ function McpConfiguredServersSection(props: {
   onConfigure: McpViewProps["connectMcp"];
   onCancelSetup?: () => void;
   onRequestLogout: (name: string) => void;
-  onRemove: (name: string) => void;
+  onRemove: McpViewProps["removeMcp"];
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
   onToggleBusy: (value: SetStateAction<string | null>) => void;
   canShareWithFirm?: boolean;
@@ -1141,7 +1161,7 @@ function McpConfiguredServerRow(props: {
   onConfigure: McpViewProps["connectMcp"];
   onCancelSetup?: () => void;
   onRequestLogout: (name: string) => void;
-  onRemove: (name: string) => void;
+  onRemove: McpViewProps["removeMcp"];
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
   onToggleBusy: (value: SetStateAction<string | null>) => void;
   canShareWithFirm?: boolean;
@@ -1155,7 +1175,7 @@ function McpConfiguredServerRow(props: {
     <>
       <IntegrationLibraryRow name={props.displayName(props.entry.name)} description={props.directoryEntry?.description ?? marketplace?.summary ?? t("integrations.custom_connector")} source={owner ? t("integrations.plugin_source", { name: pluginImportName(owner) }) : marketplace ? t("integrations.plugin_source", { name: "LAWOSS Marketplace" }) : undefined} icon={<McpConfiguredServerIcon {...props} />} busy={props.busy} onOpen={() => props.onSelect(props.entry.name)} status={<ConnectorStatus state={props.status} />}
         onShare={props.canShareWithFirm && props.onShareWithFirm ? () => void props.onShareWithFirm?.(props.entry.name, props.displayName(props.entry.name)) : undefined}
-        onRemove={props.entry.source !== "config.global" ? () => props.onRemove(props.entry.name) : undefined} />
+        onRemove={props.entry.source !== "config.global" && props.entry.editable !== false ? () => props.onRemove(props.entry.name) : undefined} />
       <McpConfiguredServerDetails {...props} />
     </>
   );
@@ -1169,18 +1189,18 @@ function McpConfiguredServerIcon(props: Parameters<typeof McpConfiguredServerRow
 }
 
 function McpConnectorStatus(props: Parameters<typeof McpConfiguredServerRow>[0]) {
-  if (props.onToggleEnabled && props.entry.source !== "config.global" && (props.status === "connected" || props.status === "disabled")) return null;
+  if (props.onToggleEnabled && props.entry.source !== "config.global" && props.entry.editable !== false && (props.status === "connected" || props.status === "disabled")) return null;
   return <ConnectorStatus state={props.status} />;
 }
 
 function McpConnectorToggle(props: Parameters<typeof McpConfiguredServerRow>[0] & { onSetup?: () => void }) {
-  if (!props.onToggleEnabled || props.entry.source === "config.global") return null;
+  if (!props.onToggleEnabled || props.entry.source === "config.global" || props.entry.editable === false) return null;
   return <Switch
     checked={props.entry.config.enabled !== false}
     disabled={props.busy || props.togglingMcp !== null}
     aria-label={`${t(props.entry.config.enabled === false ? "mcp.enable_app" : "mcp.disable_app")} ${props.displayName(props.entry.name)}`}
     onCheckedChange={enabled => {
-      if (enabled && connectorNeedsSetup(props.entry.config)) { props.onSetup?.(); return; }
+      if (enabled && connectorNeedsSetup(props.entry.config, props.entry.configured)) { props.onSetup?.(); return; }
       if (props.togglingMcp) return;
       props.onToggleBusy(props.entry.name);
       void Promise.resolve(props.onToggleEnabled?.(props.entry.name, enabled)).finally(() => props.onToggleBusy(null));
@@ -1189,16 +1209,17 @@ function McpConnectorToggle(props: Parameters<typeof McpConfiguredServerRow>[0] 
 }
 
 function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServerRow>[0]) {
+  const [removing, setRemoving] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const [editing, setEditing] = useState(false);
   useEffect(() => { if (!props.selected) setEditing(false); }, [props.selected]);
-  const needsSetup = connectorNeedsSetup(props.entry.config);
+  const needsSetup = connectorNeedsSetup(props.entry.config, props.entry.configured);
   const signIn = async () => {
     setSigningIn(true);
     try { await props.onAuthorize(props.entry); }
     finally { setSigningIn(false); }
   };
-  return <Dialog open={props.selected} onOpenChange={open => { if (!open) props.onSelect(null); }}>
+  return <Dialog open={props.selected} onOpenChange={open => { if (!open && !removing) props.onSelect(null); }}>
     <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background">
       <DialogHeader className="pe-6">
         {editing || props.pluginName ? <Button variant="ghost" size="sm" className="-ml-2 mb-2 w-fit max-w-full" onClick={() => editing ? setEditing(false) : props.onSelect(null)}><ArrowLeft className="size-4 shrink-0" /><span className="truncate">{editing ? t("common.back") : t("plugin_details.back", { name: props.pluginName ?? "" })}</span></Button> : null}
@@ -1215,15 +1236,22 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
           <div className="min-w-0 space-y-1"><h3 className="text-sm font-medium">{t("integrations.connector_account_access")}</h3><p className="text-xs leading-5 text-muted-foreground">{t(props.entry.config.enabled === false && props.onToggleEnabled ? "integrations.connector_enable_signin_hint" : "integrations.connector_account_hint")}</p></div>
           {props.status === "connected" ? <Button variant="outline" size="sm" disabled={props.busy || props.logoutBusy} onClick={() => props.onRequestLogout(props.entry.name)}>{t(props.logoutBusy && props.logoutTarget === props.entry.name ? "mcp.logout_working" : "mcp.logout_action")}</Button> : <Button size="sm" disabled={props.busy || signingIn || props.togglingMcp !== null} onClick={() => void signIn()}>{signingIn ? <Loader2 className="animate-spin" /> : null}{t("mcp.login_action")}</Button>}
         </div> : null}
-        {props.entry.source === "config.remote" && props.onToggleEnabled && !needsSetup ? <div className="flex items-center justify-between gap-4 py-4"><span className="text-sm font-medium">{t("connector_setup.settings")}</span><Button variant="outline" size="sm" disabled={props.busy} onClick={() => setEditing(true)}>{t("common.edit")}</Button></div> : null}
+        {props.entry.source === "config.remote" && props.entry.editable !== false && props.onToggleEnabled && !needsSetup ? <div className="flex items-center justify-between gap-4 py-4"><span className="text-sm font-medium">{t("connector_setup.settings")}</span><Button variant="outline" size="sm" disabled={props.busy} onClick={() => setEditing(true)}>{t("common.edit")}</Button></div> : null}
+        {props.entry.editable === false ? <p className="py-4 text-xs text-muted-foreground">{t("connector_setup.authored_readonly")}</p> : null}
         <details className="group pt-5">
           <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-muted-foreground hover:text-foreground"><Code2 className="size-3.5" />{t("mcp.technical_details")}<ChevronDown className="ms-auto size-3.5 transition-transform group-open:rotate-180" /></summary>
           <div className="mt-3 space-y-2 rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground"><p>{t(props.entry.config.type === "remote" ? "integrations.connector_remote" : "integrations.connector_local")}</p><p className="break-all font-mono">{props.entry.config.type === "remote" ? props.entry.config.url : props.entry.config.command?.join(" ")}</p></div>
         </details>
       </div>
       {props.errorInfo && !needsSetup ? <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-xs leading-5 text-destructive">{props.errorInfo}</p> : null}
-      {props.entry.source !== "config.global" && !props.pluginName ? <DialogFooter className="justify-start sm:justify-start">
-        <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={props.busy} onClick={() => props.onRemove(props.entry.name)}>{t("mcp.remove_app")}</Button>
+      {props.entry.source !== "config.global" && props.entry.editable !== false && !props.pluginName ? <DialogFooter className="justify-start sm:justify-start">
+        <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={props.busy || removing} onClick={async () => {
+          if (removing) return;
+          setRemoving(true);
+          try { if (await props.onRemove(props.entry.name) === false) throw new Error(t("mcp.remove_failed")); props.onSelect(null); }
+          catch (error) { toast.error(error instanceof Error ? error.message : t("common.something_went_wrong")); }
+          finally { setRemoving(false); }
+        }}>{removing ? <Loader2 className="size-4 animate-spin" /> : null}<span role={removing ? "status" : undefined}>{t(removing ? "catalog.removing" : "mcp.remove_app")}</span></Button>
       </DialogFooter> : null}
       </>}
     </DialogContent>

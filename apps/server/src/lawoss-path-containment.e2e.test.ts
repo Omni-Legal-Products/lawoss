@@ -63,13 +63,16 @@ async function office() {
 /** Engine na skúšku: zapamätá si, s akým adresárom relácie ho server zavolal. */
 function fakeEngine() {
   const directories: string[] = [];
+  // Engine v2: zoznam chatov `GET /api/session` s pripnutým `directory` a obálkou `{ data, cursor }`.
   const engine = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
     fetch(request) {
-      const directory = new URL(request.url).searchParams.get("directory");
-      if (directory) directories.push(directory);
-      return Response.json([]);
+      const url = new URL(request.url);
+      if (url.pathname === "/api/info") return Response.json({ version: "2.1.4", pid: process.pid });
+      const directory = url.searchParams.get("directory");
+      if (url.pathname === "/api/session" && directory) directories.push(directory);
+      return Response.json({ data: [], cursor: {} });
     },
   });
   cleanups.push(() => engine.stop(true));
@@ -114,10 +117,11 @@ async function expectContained(input: { get: Awaited<ReturnType<typeof serve>>["
   // na POSIX normalizácia zahodí úvodnú lomku, takže je to neexistujúci súbor vo workspace-i.
   const absolute = await get("/files/content", { path: join(input.sibling, "tajne.md") });
   expect([absolute.status, (await absolute.json()).code]).toEqual(process.platform === "win32" ? [400, "invalid_path"] : [404, "file_not_found"]);
+  // Proxy v2 odmietne miesto mimo klienta ešte pred enginom (`assertNativeProxyDirectory`).
   for (const directory of [input.sibling, join(input.sibling, "tajne.md")]) {
     const escaped = await get("/opencode/session", { directory });
-    expect(escaped.status).toBe(400);
-    expect((await escaped.json()).code).toBe("path_escape");
+    expect(escaped.status).toBe(403);
+    expect((await escaped.json()).code).toBe("workspace_location_mismatch");
   }
   expect(engine.directories.length).toBe(seen);
 }
@@ -127,8 +131,8 @@ test("klient Novak vidí svoje súbory a reláciu vo veci, súrodenca Novak s.r.
   const { get, engine } = await serve(f.base, f.novak);
   await expectContained({ get, engine, matterDirectory: join(f.novak, ...MATTER.split("/")), sibling: f.sibling });
   const relative = await get("/opencode/session", { directory: "../Novak s.r.o" });
-  expect(relative.status).toBe(400);
-  expect((await relative.json()).code).toBe("path_escape");
+  expect(relative.status).toBe(403);
+  expect((await relative.json()).code).toBe("workspace_location_mismatch");
 });
 
 test("adresár relácie pod koreňom súborového systému (`/`, `C:\\`) nie je mimo neho", async () => {

@@ -38,6 +38,13 @@ export const ViewInputSchema = z.object({
   sourceServerUrl: z.string().max(4096).optional(),
   fallbackMarkdown: z.string().max(100_000).optional(),
 }).strict();
+/** Deliberate Assistant deliverables, confined to its own workspace. */
+export const AssistantSaveReportSchema = z.object({
+  key: z.string().regex(/^[a-z0-9][a-z0-9-]{0,119}$/).describe("Stable report key, e.g. morning-briefing-2026-10-28. Reuse it on retries."),
+  input: ViewInputSchema,
+  baseRevision: z.string().min(1).max(200).optional().describe("Exact revision from view_read when updating a previously saved report."),
+}).strict();
+
 export const ViewSaveSourceSchema = z.object({ workspaceId: z.string().min(1).max(200), sessionId: z.string().min(1).max(200), callId: z.string().min(1).max(200) }).strict();
 export type ViewSaveSource = z.infer<typeof ViewSaveSourceSchema>;
 export const ViewSaveInputSchema = ViewInputSchema;

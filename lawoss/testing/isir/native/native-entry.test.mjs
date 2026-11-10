@@ -13,6 +13,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { createAppUrlMatcher, guardIpcMain } from '../../../../apps/desktop/electron/app-url.mjs';
 import { createNativeLocaleState, nativeCopy } from '../../../../apps/desktop/electron/native-locale.mjs';
+import { boundedShutdown } from '../../../../apps/desktop/electron/bounded-shutdown.mjs';
 
 // Execute the actual entry in a controlled module shell. Only its imports are
 // substituted; no Electron, main startup, file clients or subprocesses run.
@@ -111,6 +112,10 @@ async function shutdownNavigationFixture(t,{publish=publishNativeQuitAcceptance,
     runtimeDisposedForQuit:false,runtimeDisposeInProgress:false,appIsQuitting:false,
     recorderServiceInstance:noop,chevron7Signing:noop,appAudioTap:noop,callOverlay:noop,systemDictation:noop,dictationHud:noop,meetingMonitor:noop,appTray:noop,powerSessions:noop,
     disposeRuntimeBeforeQuit:async()=>{disposed=true;events.push('leader-exit');child.exitCode=0;child.emit('exit',0);},uiControlServer:{stop:async()=>{}},
+    // Upstream before-quit ohraničí upratovanie skutočným boundedShutdown; vynútené ukončenie by test zlyhalo.
+    boundedShutdown,runtimeManager:{forceStopOwnedChildren(){throw new Error('bounded shutdown forced');}},
+    // Upstream v0.3.9 (#369): before-quit first asks the unsaved-changes guard; this synthetic window has no unsaved documents.
+    shutdownApproved:false,shutdownGuard:{confirm:async()=>true},
   });
   vm.runInContext(`${screenUrl}\n${screen}\n${before}`,context);
   const f=await fixture({env:{LAWOSS_ISIR_NATIVE_ROOT:root,LEGALWORK_ELECTRON_USERDATA:path.join(root,'profile'),LAWOSS_ISIR_NATIVE_QUIT_NONCE:nonce},quit:()=>productionApp.quit(),publisher:publish});

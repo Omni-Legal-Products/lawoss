@@ -2,9 +2,14 @@ import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
 import type { AudioRecordingDetail, AudioRecordingMeta } from "@legalwork/types/audio";
 import type { WorkspaceWire } from "@legalwork/types/workspace";
 
-export type WorkspaceType = "local" | "remote";
-
-export type RemoteType = "opencode" | "legalwork";
+/** Host callbacks are never loaded from saved configuration or exposed over HTTP. */
+export type ServerRuntimeOptions = {
+  modelDownloadFetch?: import("./ocr/models.js").ModelDownloadFetch;
+  documentLayout?: import("./document-preparation/structure.js").DocumentLayout;
+  rawHttpNodeExecutable?: () => string;
+  toolImageRasterRuntime?: () => import("./tool-image-raster.js").ToolImageRasterRuntime;
+  onListening?: (port: number) => Promise<void>;
+};
 
 export type ApprovalMode = "manual" | "auto";
 
@@ -21,8 +26,8 @@ export interface WorkspaceConfig {
   path: string;
   name?: string;
   preset?: string;
-  workspaceType?: WorkspaceType;
-  remoteType?: RemoteType;
+  /** Legacy remote records are read only to preserve their original configuration. */
+  workspaceType?: "local" | "remote";
   baseUrl?: string;
   directory?: string;
   displayName?: string;
@@ -33,10 +38,6 @@ export interface WorkspaceConfig {
   previousSessionIds?: string[];
   /** Host-owned storage identity for a path reused by a distinct project. */
   appFilesStorageKey?: string;
-  legalworkHostUrl?: string;
-  legalworkToken?: string;
-  legalworkWorkspaceId?: string;
-  legalworkWorkspaceName?: string;
   sandboxBackend?: string;
   sandboxRunId?: string;
   sandboxContainerName?: string;
@@ -49,8 +50,7 @@ export interface WorkspaceInfo {
   name: string;
   path: string;
   preset: string;
-  workspaceType: WorkspaceType;
-  remoteType?: RemoteType;
+  workspaceType: "local";
   baseUrl?: string;
   directory?: string;
   displayName?: string;
@@ -61,10 +61,6 @@ export interface WorkspaceInfo {
   previousSessionIds?: string[];
   /** Host-owned storage identity for a path reused by a distinct project. */
   appFilesStorageKey?: string;
-  legalworkHostUrl?: string;
-  legalworkToken?: string;
-  legalworkWorkspaceId?: string;
-  legalworkWorkspaceName?: string;
   sandboxBackend?: string;
   sandboxRunId?: string;
   sandboxContainerName?: string;
@@ -78,13 +74,18 @@ export interface WorkspaceInfo {
   };
 }
 
+/** Public workspace metadata excludes the engine's private connection secrets. */
+export type WorkspaceMetadata = Omit<WorkspaceInfo, "opencodeUsername" | "opencodePassword" | "opencode"> & {
+  opencode?: Pick<NonNullable<WorkspaceInfo["opencode"]>, "baseUrl" | "directory">;
+};
+
 // Compile-time contract tripwires against the shared wire shape consumed by
 // apps/app (packages/types/src/workspace.ts). The first check rejects fields
 // whose values no longer fit the wire contract; the second rejects fields the
 // contract does not know about. Both are erased at build time.
 type Extends<A extends B, B> = A;
-type _WorkspaceInfoFitsWire = Extends<WorkspaceInfo, WorkspaceWire>;
-type _WorkspaceInfoKeysKnown = Extends<keyof WorkspaceInfo, keyof WorkspaceWire>;
+type _WorkspaceInfoFitsWire = Extends<WorkspaceMetadata, WorkspaceWire>;
+type _WorkspaceInfoKeysKnown = Extends<keyof WorkspaceMetadata, keyof WorkspaceWire>;
 
 export interface OpencodeConfigFile {
   path: string;
@@ -119,6 +120,14 @@ export interface RecorderLiveTranscriptStatus {
 }
 
 export interface RecorderBridge {
+  library?: {
+    list: () => Promise<AudioRecordingMeta[]>;
+    read: (id: string) => Promise<AudioRecordingDetail | null>;
+    rename: (id: string, title: string) => Promise<void>;
+    link: (id: string, projectId: string, linked: boolean) => Promise<void>;
+    trash: (id: string) => Promise<void>;
+    control: (input: { action: "status" | "start" | "stop"; title?: string; projectId?: string; recordingId?: string; sources?: ("microphone" | "system")[] }) => Promise<unknown>;
+  };
   /** The local profile's retained recordings. Library routes require owner access. */
   listRecordings?: () => Promise<AudioRecordingMeta[]>;
   readRecording?: (id: string) => Promise<AudioRecordingDetail | null>;
@@ -164,6 +173,30 @@ export interface ServerConfig {
   requestHostApproval?: HostApprovalHandler;
   /** Host-owned managed execution capability, not the user’s sandbox preference. Routes both native and protected commands; never accepted from API config patches. */
   agentSandboxEnabled?: boolean;
+  /** Host-owned admission boundary for native project automation discovery. */
+  engineProjectTrustRequired?: boolean;
+  /** Host-owned source policy. Managed engines ignore project/ancestor native discovery. */
+  engineConfigurationMode?: "managed" | "native-project";
+  managedEngineStorageDirectory?: string;
+  /** Host-owned history identity and current owned connection; never client configuration. */
+  managedImageAffinity?: (workspace: WorkspaceInfo) => import("./managed-image-affinity.js").ManagedImageAffinity | undefined;
+  /** Explicit host-generated integrations; never read from authored/API config. */
+  managedEnginePluginDirectories?: string[];
+  managedEngineStarting?: boolean;
+  managedEngineStatus?: "starting" | "migrating" | "ready" | "error";
+  waitForManagedEngineEndpoint?: () => Promise<void>;
+  /** Host-only coordinator state; never accepted from project/client config. */
+  managedEngineRecoveryState?: () => { mode: "service" | "recovery" | "promoting"; heldSessions: Array<{ id: string; directory: string }>; error?: { code: string; message: string } };
+  retryManagedEngineRecovery?: () => Promise<void>;
+  /** Host-owned catalog lifecycle. False defers while work or sign-in is active. */
+  reloadManagedEngineCatalog?: () => Promise<boolean>;
+  withManagedEngineAdmission?: (sessionID: string, action: () => Promise<Response>) => Promise<Response>;
+  /**
+   * LAWOSS (RAM 2 GB, #367, ADR 0017): admission of an engine request into the MCP budget of its
+   * location (lawoss/engine-mcp-budget.ts via server.ts). Returns the in-flight release. Host-only.
+   */
+  lawossEngineMcpAdmission?: (request: { method: string; path: string; directory: string; sessionID?: string }) => Promise<() => void>;
+  observeManagedEngineResponse?: (request: { method: string; path: string; directory: string }, response: Response) => Promise<void>;
   opencodeBaseUrl?: string;
   opencodeDirectory?: string;
   opencodeUsername?: string;
@@ -171,6 +204,7 @@ export interface ServerConfig {
   approval: ApprovalConfig;
   corsOrigins: string[];
   workspaces: WorkspaceInfo[];
+  workspaceWarnings?: string[];
   authorizedRoots: string[];
   readOnly: boolean;
   /** Background setup of the layout model and the small OCR model when selected; enabled by resolved host config. */

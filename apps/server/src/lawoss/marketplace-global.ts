@@ -119,10 +119,10 @@ function provenanceOf(bundle: ClaudePluginBundle) {
   return { source: bundle.preview.source, version: bundle.preview.version };
 }
 
-/** `enabled: false` MCP z daného riadku, aby ho reinštalácia znova nezapla. */
+/** Vypnuté MCP z daného riadku, aby ho reinštalácia znova nezapla (engine v2: `disabled: true`, starší tvar `enabled: false`). */
 async function disabledMcp(config: ServerConfig, rowId: string, names: readonly string[]): Promise<string[]> {
   const map = runtimeMcpMap(await readRuntimeOpencodeConfig(config, rowId));
-  return names.filter((name) => map[name]?.enabled === false);
+  return names.filter((name) => map[name]?.disabled === true || map[name]?.enabled === false);
 }
 
 async function restoreDisabled(config: ServerConfig, names: readonly string[]): Promise<void> {

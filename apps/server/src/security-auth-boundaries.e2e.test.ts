@@ -27,7 +27,10 @@ async function fixture(readOnly = false, onApproval?: ServerConfig["requestHostA
     const path = new URL(request.url).pathname;
     calls.push(`${request.method} ${path}`);
     // The proxy checks that a session belongs to the workspace before forwarding.
-    if (path === "/session/synthetic_session") return Response.json({ id: "synthetic_session", directory: workspace });
+    // Engine v2 (/api/*): native session and configuration envelopes.
+    if (path === "/api/session/synthetic_session") return Response.json({ data: { id: "synthetic_session", projectID: "fixture", location: { directory: workspace }, cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, time: { created: 1, updated: 1 } } });
+    if (path === "/api/config") return Response.json([]);
     return Response.json({ ok: true });
   } });
   cleanup.push(() => engine.stop(true));
@@ -37,7 +40,7 @@ async function fixture(readOnly = false, onApproval?: ServerConfig["requestHostA
   const config: ServerConfig = {
     host: "127.0.0.1", port: 0, token: "collaborator-test-token", hostToken: "host-test-token", configPath: join(root, "server.json"),
     approval: { mode: onApproval ? "manual" : "auto", timeoutMs: 1000 }, requestHostApproval: onApproval, corsOrigins: ["*"], authorizedRoots: [workspace], readOnly,
-    workspaces: [{ id: "ws_1", name: "Synthetic workspace", path: workspace, workspaceType: "local", preset: "starter", baseUrl: `http://127.0.0.1:${engine.port}`, opencodeUsername: "engine-user-sentinel", opencodePassword: "engine-password-sentinel", legalworkToken: "remote-token-sentinel" }],
+    workspaces: [{ id: "ws_1", name: "Synthetic workspace", path: workspace, workspaceType: "local", preset: "starter", baseUrl: `http://127.0.0.1:${engine.port}`, opencodeUsername: "engine-user-sentinel", opencodePassword: "engine-password-sentinel" }],
     startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "json", logRequests: false,
   };
   // Upstream v0.2.18: shared viewer/owner tokens are retired; owner authority is the host token.
@@ -60,7 +63,7 @@ test("workspace and mounted status projections do not leak engine credentials or
     const trustedBody = await collaborator.text();
     expect(trustedBody).toContain("Synthetic workspace");
     for (const value of ["engine-user-sentinel"]) expect(trustedBody).not.toContain(value);
-    expect(trustedBody).toContain("remote-token-sentinel");
+    // Upstream v0.3.0 retired remote workspaces, so no remote credential exists to project.
     expect(trustedBody).not.toContain("engine-password-sentinel");
   }
 });
@@ -81,7 +84,7 @@ test("viewer cannot retrieve configuration through direct, mounted, export, meta
     }
   }
   expect(f.calls).toEqual([]);
-  const normal = await fetch(`${f.base}/workspace/ws_1/opencode-config`, { headers: f.collaborator });
+  const normal = await fetch(`${f.base}/workspace/ws_1/opencode-config`, { headers: f.owner });
   expect(normal.status).toBe(200);
   expect(await normal.text()).toContain("provider-secret-sentinel");
   const session = await fetch(`${f.base}/opencode/session/synthetic_session/message`, { headers: f.viewer });
@@ -117,27 +120,29 @@ test("read-only mode blocks proxy mutations for collaborators at every mount but
     }
     expect((await fetch(`${f.base}${mount}/session/synthetic_session`, { headers: f.collaborator })).status).toBe(200);
   }
-  expect(f.calls).toEqual(Array(6).fill("GET /session/synthetic_session"));
-  expect(() => assertOpencodeProxyAllowed({ type: "remote", scope: "collaborator" }, "POST", "/permission/request/reply", false)).not.toThrow();
-  expect(() => assertOpencodeProxyAllowed({ type: "remote", scope: "owner" }, "POST", "/permission/request/reply", true)).toThrow();
+  expect(f.calls).toEqual(Array(6).fill("GET /api/session/synthetic_session"));
+  expect(() => assertOpencodeProxyAllowed({ type: "remote", scope: "collaborator" }, "POST", "/permission/request/reply")).not.toThrow();
+  // LAWOSS v2: a read-only server refuses proxied writes through ensureWritable in proxyOpencodeRequest; the route guard refuses viewer writes.
+  expect(() => assertOpencodeProxyAllowed({ type: "remote", scope: "viewer" }, "POST", "/permission/request/reply")).toThrow();
 });
 
 
 test("project configuration APIs cannot follow a link to an outside credential file", async () => {
   const f = await fixture();
   const endpoint = `${f.base}/workspace/ws_1/opencode-config`;
-  expect((await fetch(endpoint, { headers: f.collaborator })).status).toBe(200);
+  expect((await fetch(endpoint, { headers: f.owner })).status).toBe(200);
   const outside = join(f.root, "outside-config.json");
   const sentinel = JSON.stringify({ provider: { sentinel: "outside-secret" } });
   await writeFile(outside, sentinel);
   await rm(join(f.workspace, "opencode.json"));
   await symlink(outside, join(f.workspace, "opencode.json"));
   for (const route of ["opencode-config", "runtime-config"]) {
-    const response = await fetch(`${f.base}/workspace/ws_1/${route}`, { headers: f.collaborator });
+    // Upstream v0.3.0: raw OpenCode configuration is host-only.
+    const response = await fetch(`${f.base}/workspace/ws_1/${route}`, { headers: route === "opencode-config" ? f.owner : f.collaborator });
     expect(response.status).toBe(400);
     expect(await response.text()).not.toContain("outside-secret");
   }
-  const write = await fetch(endpoint, { method: "POST", headers: { ...f.collaborator, "Content-Type": "application/json" }, body: JSON.stringify({ scope: "project", content: "{}" }) });
+  const write = await fetch(endpoint, { method: "POST", headers: { ...f.owner, "Content-Type": "application/json" }, body: JSON.stringify({ scope: "project", content: "{}" }) });
   expect(write.status).toBe(400);
   expect(await readFile(outside, "utf8")).toBe(sentinel);
 });
@@ -150,13 +155,13 @@ test("project configuration writes reject a different canonical target after app
     return "allow";
   });
   const endpoint = `${f.base}/workspace/ws_1/opencode-config`;
-  expect((await fetch(endpoint, { headers: f.collaborator })).status).toBe(200);
+  expect((await fetch(endpoint, { headers: f.owner })).status).toBe(200);
   link = join(f.workspace, "opencode.json");
   const original = join(f.workspace, "approved.json");
   replacement = join(f.workspace, "unapproved.json");
   await writeFile(original, "{}"); await writeFile(replacement, "{}");
   await rm(link); await symlink(original, link);
-  const response = await fetch(endpoint, { method: "POST", headers: { ...f.collaborator, "Content-Type": "application/json" }, body: JSON.stringify({ scope: "project", content: '{"model":"new-model"}' }) });
+  const response = await fetch(endpoint, { method: "POST", headers: { ...f.owner, "Content-Type": "application/json" }, body: JSON.stringify({ scope: "project", content: '{"model":"new-model"}' }) });
   expect(response.status).toBe(409);
   expect(await readFile(original, "utf8")).toBe("{}");
   expect(await readFile(replacement, "utf8")).toBe("{}");

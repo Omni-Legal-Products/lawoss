@@ -11,7 +11,7 @@ test("combines runtime diagnostics and app logs via the local server's message-r
     await writeFile(path.join(logs, "main.log"), "UI bridge unreachable at doc.ts:100");
     const requests = [];
     const text = await collectTechnicalSupportBundle({ app: { getVersion: () => "0.2.18", getName: () => "LegalWork", isPackaged: true, getPath: () => logs },
-      runtimeManager: { collectRuntimeDiagnostics: () => ({ engine: { running: true, pid: 123 } }) },
+      runtimeManager: { collectRuntimeDiagnostics: async () => ({ engine: { running: true, pid: 123 } }) },
       serverInfo: { running: true, baseUrl: "http://127.0.0.1:9999", hostToken: "secret-fixture" },
       fetchImpl: async (url, options) => { requests.push({ url, options }); return Response.json({ format: "legalwork-technical-diagnostics", schemaVersion: 2, scope: { days: 7 }, desktop: { runtime: { engine: { pid: 123 } } } }); } });
     assert.equal(requests.length, 1);
@@ -26,6 +26,18 @@ test("combines runtime diagnostics and app logs via the local server's message-r
     assert.equal(JSON.parse(text).desktop.runtime.engine.pid, 123);
     assert.ok(!text.includes("secret-fixture"));
   } finally { await rm(logs, { recursive: true, force: true }); }
+});
+
+test("asynchronous runtime failures remain visible in an otherwise usable export", async () => {
+  await collectTechnicalSupportBundle({
+    app: { getVersion: () => "0.2.18", getName: () => "LegalWork", getPath: () => "missing" },
+    runtimeManager: { collectRuntimeDiagnostics: async () => { throw new Error("engine status probe failed"); } },
+    serverInfo: { running: true, baseUrl: "http://127.0.0.1:9999", hostToken: "fixture" },
+    fetchImpl: async (_url, options) => {
+      assert.deepEqual(JSON.parse(options.body).desktop.runtime, { error: "engine status probe failed" });
+      return Response.json({ format: "legalwork-technical-diagnostics", schemaVersion: 2, scope: { days: 7 } });
+    },
+  });
 });
 
 test("selected days reach the server and filter logs without separating stack traces", async () => {

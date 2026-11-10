@@ -81,8 +81,9 @@ test("outside workspace HTTP config, skill, and command writes use app-owned sto
   const id = workspaceIdForPath(f.matter);
   const headers = { authorization: "Bearer client", "content-type": "application/json" };
 
+  // Upstream v0.3.0: raw OpenCode configuration is host-only.
   const configWrite = await fetch(`${f.url}/workspace/${id}/opencode-config`, {
-    method: "POST", headers, body: JSON.stringify({ scope: "project", content: '{"model":"test/model"}' }),
+    method: "POST", headers: { ...headers, "x-legalwork-host-token": "host" }, body: JSON.stringify({ scope: "project", content: '{"model":"test/model"}' }),
   });
   expect(configWrite.status).toBe(200);
   const skillWrite = await fetch(`${f.url}/workspace/${id}/skills`, {
@@ -97,7 +98,7 @@ test("outside workspace HTTP config, skill, and command writes use app-owned sto
   expect(commandWrite.status).toBe(200);
 
   const [configRead, skillsRead, commandsRead] = await Promise.all([
-    fetch(`${f.url}/workspace/${id}/opencode-config?scope=project`, { headers: { authorization: "Bearer client" } }),
+    fetch(`${f.url}/workspace/${id}/opencode-config?scope=project`, { headers: { authorization: "Bearer client", "x-legalwork-host-token": "host" } }),
     fetch(`${f.url}/workspace/${id}/skills`, { headers: { authorization: "Bearer client" } }),
     fetch(`${f.url}/workspace/${id}/commands`, { headers: { authorization: "Bearer client" } }),
   ]);
@@ -117,7 +118,7 @@ test("outside workspace HTTP config, skill, and command writes use app-owned sto
   cleanups.push(async () => { await restartedServer.stop(); });
   const restartedUrl = `http://127.0.0.1:${restartedServer.port}`;
   const restartedConfigRead = await fetch(`${restartedUrl}/workspace/${id}/opencode-config?scope=project`, {
-    headers: { authorization: `Bearer ${restartedConfig.token}` },
+    headers: { authorization: `Bearer ${restartedConfig.token}`, "x-legalwork-host-token": restartedConfig.hostToken },
   });
   const restartedSkillsRead = await fetch(`${restartedUrl}/workspace/${id}/skills`, { headers: { authorization: `Bearer ${restartedConfig.token}` } });
   const restartedCommandsRead = await fetch(`${restartedUrl}/workspace/${id}/commands`, { headers: { authorization: `Bearer ${restartedConfig.token}` } });

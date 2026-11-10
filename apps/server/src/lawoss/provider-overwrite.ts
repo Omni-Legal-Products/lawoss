@@ -47,7 +47,8 @@ export function providerOverwriteConflicts(input: {
 
 /** Adresa servera poskytovateľa (protokol, hostiteľ, port); bez `baseURL` platí predvolená adresa poskytovateľa. */
 export function providerEndpoint(block: unknown): string {
-  const options = typeof block === "object" && block !== null && "options" in block ? block.options : undefined;
+  // Engine v2 keeps the address in `settings`; v1 rows in `options`.
+  const options = typeof block === "object" && block !== null ? "settings" in block ? block.settings : "options" in block ? block.options : undefined : undefined;
   const baseURL = typeof options === "object" && options !== null && "baseURL" in options ? options.baseURL : undefined;
   if (typeof baseURL !== "string" || !baseURL.trim()) return "";
   try { return new URL(baseURL.trim()).origin.toLowerCase(); } catch { return baseURL.trim().toLowerCase(); }

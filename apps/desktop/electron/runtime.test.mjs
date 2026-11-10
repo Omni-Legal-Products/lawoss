@@ -7,18 +7,21 @@ import { syncBuiltinESMExports } from "node:module";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { mkdir, mkdtemp, readFile, rm, writeFile, stat, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile, stat, symlink } from "node:fs/promises";
+import { registerInertOpencodeCandidate } from "../../../lawoss/testing/inert-opencode-candidate.mjs";
+import { realpathSync } from "node:fs";
 
 import {
   createRuntimeManager,
   alignWindowsOpencodeConfigEnv,
   desktopProjectsDirectory,
   externalWorkspaceAppFilesRoot,
+  embeddedOpencodeConnection,
   commandMatchesPackagedSidecar,
-  mergeRuntimeMcpConfig,
   bundledNodeDirectory,
   childProcessPath,
   bundledOpencodeSdkDirectory,
+  toolImageRasterModules,
   nodeShimFileName,
   nodeShimScriptContent,
   opencodeHomeEnvFromRoot,
@@ -82,6 +85,91 @@ describe("outside app-files root", () => {
       externalWorkspaceAppFilesRoot(configPath, workspace),
       path.join(process.cwd(), "config", "workspace-app-files", hash),
     );
+  });
+});
+
+describe("private embedded engine connection", () => {
+  it("selects the exact workspace, including its overrides, instead of the first workspace", () => {
+    const config = {
+      opencodeBaseUrl: "http://127.0.0.1:41000", opencodeUsername: "default-user", opencodePassword: "default-password",
+      workspaces: [
+        { path: "/cases/other", opencodePassword: "other-password" },
+        { path: "/cases/selected", directory: "/engine/location", baseUrl: "http://127.0.0.1:42000", opencodeUsername: "selected-user", opencodePassword: "selected-password" },
+      ],
+    };
+    assert.deepEqual(embeddedOpencodeConnection(config, "/cases/selected/../selected", "linux"), {
+      baseUrl: "http://127.0.0.1:42000", projectDir: "/engine/location", hostname: "127.0.0.1", port: 42000,
+      opencodeUsername: "selected-user", opencodePassword: "selected-password",
+    });
+    assert.equal(embeddedOpencodeConnection(config, "/cases/missing", "linux"), null);
+    assert.equal(embeddedOpencodeConnection(config, "", "linux"), null);
+    assert.equal(embeddedOpencodeConnection(config, "/cases/SELECTED", "linux"), null);
+    assert.equal(embeddedOpencodeConnection({ ...config, workspaces: [config.workspaces[1], config.workspaces[1]] }, "/cases/selected", "linux"), null);
+  });
+
+  it("reads newly published lifecycle credentials and preserves unauthenticated standalone connections", () => {
+    const config = { workspaces: [{ path: "/cases/current" }], opencodeBaseUrl: "http://127.0.0.1:41000", opencodeUsername: "engine", opencodePassword: "before" };
+    assert.equal(embeddedOpencodeConnection(config, "/cases/current", "darwin").opencodePassword, "before");
+    Object.assign(config, { opencodeBaseUrl: "http://127.0.0.1:41001", opencodePassword: "after" });
+    const rotated = embeddedOpencodeConnection(config, "/cases/current", "darwin");
+    assert.equal(rotated.opencodePassword, "after");
+    assert.equal(rotated.port, 41001);
+    assert.equal(embeddedOpencodeConnection({ workspaces: config.workspaces, opencodeBaseUrl: config.opencodeBaseUrl }, "/cases/current", "darwin").opencodePassword, null);
+    assert.equal(embeddedOpencodeConnection({ workspaces: config.workspaces }, "/cases/current", "darwin"), null);
+  });
+
+  it("matches Windows drive paths and extended paths without crossing projects", () => {
+    const config = { opencodeBaseUrl: "http://127.0.0.1:41000", workspaces: [{ path: "C:\\Cases\\Current", opencodePassword: "private" }] };
+    assert.equal(embeddedOpencodeConnection(config, "c:/cases/current", "win32").opencodePassword, "private");
+    assert.equal(embeddedOpencodeConnection(config, "\\\\?\\C:\\Cases\\Current", "win32").opencodePassword, "private");
+    assert.equal(embeddedOpencodeConnection(config, "C:\\Cases\\Current-other", "win32"), null);
+  });
+});
+
+describe("host-owned image runtime modules", () => {
+  // Windows 8.3 and long user-directory names can identify the same file.
+  const physical = filename => realpathSync.native(filename);
+  it("resolves physical packaged modules and rejects missing or escaping dependencies", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "image-runtime-"));
+    try {
+      const resourcesPath = path.join(root, "Resources");
+      const modules = path.join(resourcesPath, "app.asar.unpacked", "node_modules");
+      for (const name of ["@napi-rs/canvas", "image-size"]) {
+        const directory = path.join(modules, name);
+        await mkdir(directory, { recursive: true });
+        await writeFile(path.join(directory, "package.json"), JSON.stringify({ name, main: "index.cjs" }));
+        await writeFile(path.join(directory, "index.cjs"), "");
+      }
+      const options = { isPackaged: true, resourcesPath, serverEntry: path.join(root, "unrelated", "embedded.js") };
+      const result = toolImageRasterModules(options);
+      assert.deepEqual({ canvas: physical(result.canvas), imageSize: physical(result.imageSize) }, {
+        canvas: physical(path.join(modules, "@napi-rs/canvas/index.cjs")),
+        imageSize: physical(path.join(modules, "image-size/index.cjs")),
+      });
+      await rm(path.join(modules, "image-size"), { recursive: true });
+      assert.throws(() => toolImageRasterModules(options), /Cannot find module|ENOENT/);
+      const outside = path.join(root, "outside");
+      await mkdir(outside);
+      await writeFile(path.join(outside, "index.cjs"), "");
+      await writeFile(path.join(outside, "package.json"), JSON.stringify({ main: "index.cjs" }));
+      await symlink(outside, path.join(modules, "image-size"), process.platform === "win32" ? "junction" : "dir");
+      assert.throws(() => toolImageRasterModules(options), /escapes the unpacked application/);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("uses the server's installed dependencies in development", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "image-runtime-dev-"));
+    try {
+      for (const name of ["@napi-rs/canvas", "image-size"]) {
+        const directory = path.join(root, "server/node_modules", name);
+        await mkdir(directory, { recursive: true });
+        await writeFile(path.join(directory, "package.json"), JSON.stringify({ main: "index.cjs" }));
+        await writeFile(path.join(directory, "index.cjs"), "");
+      }
+      const result = toolImageRasterModules({ isPackaged: false, resourcesPath: "/unrelated/Electron", serverEntry: path.join(root, "server/dist/embedded.js") });
+      assert.equal(physical(result.canvas), physical(path.join(root, "server/node_modules/@napi-rs/canvas/index.cjs")));
+      assert.equal(physical(result.imageSize), physical(path.join(root, "server/node_modules/image-size/index.cjs")));
+    } finally { await rm(root, { recursive: true, force: true }); }
   });
 });
 
@@ -328,41 +416,6 @@ describe("PATH potomkov a pribalený Node", () => {
 });
 
 
-describe("runtime MCP config removal", () => {
-  for (const kind of ["xdg", "config", "database"]) {
-    it(`removes from the engine's ${kind} path and preserves other settings`, async () => {
-      const root = await mkdtemp(path.join(os.tmpdir(), "legalwork-mcp-profile-"));
-      const env = kind === "database"
-        ? { LEGALWORK_RUNTIME_DB: path.join(root, "runtime.sqlite") }
-        : kind === "config"
-          ? { LEGALWORK_SERVER_CONFIG: path.join(root, "server.json") }
-          : process.platform === "win32" ? { APPDATA: root } : { XDG_CONFIG_HOME: root };
-      try {
-        const file = await mergeRuntimeMcpConfig("legalmemory", { type: "remote", url: "https://example.test/mcp", enabled: true }, env);
-        assert.equal(file, path.join(root, ...(kind === "xdg" ? ["legalwork"] : []), "runtime-opencode-config.json"));
-        const current = JSON.parse(await readFile(file, "utf8"));
-        current.plugin = ["file:///test/plugin.js"];
-        current.mcp.other = { type: "remote", url: "https://other.test/mcp" };
-        await writeFile(file, JSON.stringify(current));
-        await mergeRuntimeMcpConfig("legalmemory", null, env);
-        const result = JSON.parse(await readFile(file, "utf8"));
-        assert.equal(result.mcp.legalmemory, undefined);
-        assert.deepEqual(result.mcp.other, current.mcp.other);
-        assert.deepEqual(result.plugin, current.plugin);
-        // Retrying a removal must stay disconnected.
-        await mergeRuntimeMcpConfig("legalmemory", null, env);
-        assert.deepEqual(JSON.parse(await readFile(file, "utf8")), result);
-        await writeFile(file, "{broken");
-        await assert.rejects(mergeRuntimeMcpConfig("legalmemory", null, env));
-        assert.equal(await readFile(file, "utf8"), "{broken");
-      } finally {
-        await rm(root, { recursive: true, force: true });
-      }
-    });
-  }
-});
-
-
 describe("desktop project storage", () => {
   it("keeps macOS projects in Documents outside the app installation and engine home", () => {
     assert.equal(desktopProjectsDirectory("/Users/chris/Documents", false, "darwin"), "/Users/chris/Documents/LegalWork/Projects");
@@ -398,8 +451,9 @@ describe("selected existing project startup", () => {
 });
 
 for (const appFiles of ["inside","outside"]) it(`existing canonical aliases still reach ordinary runtime startup (${appFiles})`, async()=>{
- const root=await mkdtemp(path.join(os.tmpdir(),"lawoss-runtime-existing-"));
- const ownedBinary=path.join(root,"inert-opencode");
+ const root=await realpath(await mkdtemp(path.join(os.tmpdir(),"lawoss-runtime-existing-")));
+ // LAWOSS v2: startup and doctor verify the engine against the prepared selection; register an inert candidate.
+ const ownedBinary=await registerInertOpencodeCandidate(root);
  const controlledCalls=[],unexpectedSync=[],unexpectedAsync=[];
  const syncMock=mock.method(childProcess,"spawnSync",(program,argv,options)=>{
   if(program==="/usr/libexec/path_helper"||program==="ps")return {status:0,stdout:"",stderr:""};
@@ -410,7 +464,6 @@ for (const appFiles of ["inside","outside"]) it(`existing canonical aliases stil
  const asyncMock=mock.method(childProcess,"spawn",()=>{unexpectedAsync.push(true);throw new Error("Unexpected startup child denied");});
  syncBuiltinESMExports();
  try {
-  await writeFile(ownedBinary,"Inert diagnostic fixture; never executable");
   const target=path.join(root,"actual"),alias=path.join(root,"alias");await mkdir(target);await symlink(target,alias,process.platform==="win32"?"junction":"dir");
   const manager=createRuntimeManager({app:{isPackaged:true,getPath:key=>key==="exe"?path.join(root,"app","Electron"):root},desktopRoot:path.join(root,"desktop"),listLocalWorkspacePaths:async()=>[],listLocalWorkspaceAppFiles:async()=>({}),listLocalWorkspaces:async()=>[],reconnectHostWorkspace:async()=>null,recorder:undefined,onSidecarExit:()=>{},getApprovalWindow:()=>null,modelDownloadFetch:undefined});
   // This Node fixture has no packaged Node binary. The real existing-root

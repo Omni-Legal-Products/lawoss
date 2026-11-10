@@ -12,13 +12,13 @@ test('engine trace projection admits only fixed names, bounded durations and sta
     span(),span('PrivateClientName'),span('Npm.reify',{endTimeUnixNano:'0'}),
     span('Npm.reify',{startTimeUnixNano:'secret'}),span('Npm.reify',{endTimeUnixNano:'999999999999999999999'}),
     span('Npm.reify',{startTimeUnixNano:1000000000}),span('Npm.reify',{endTimeUnixNano:'999999999'}),
-    span('Npm.reify',{status:{code:99}}),span('Plugin.init',{status:undefined}),
+    span('Npm.reify',{status:{code:99}}),span('Plugin.activate',{status:undefined}),span('Plugin.init'),
   ]));
-  assert.deepEqual(projection.snapshot().spans,[{name:'Npm.reify',durationMs:5,status:1},{name:'Plugin.init',durationMs:5,status:0}]);
-  assert.doesNotMatch(JSON.stringify(projection.snapshot()),/secret|private|token|traceId|resource|attributes|events|message|PrivateClientName/);
-  for(let i=0;i<1000;i++)projection.add(payload([span('EffectFlock.tryAcquire')]));
-  projection.add(payload([span('InstanceStore.boot')]));
-  assert.ok(projection.snapshot().spans.some(r=>r.name==='InstanceStore.boot'),'Lock pressure cannot crowd out a later bootstrap span');
+  assert.deepEqual(projection.snapshot().spans,[{name:'Npm.reify',durationMs:5,status:1},{name:'Plugin.activate',durationMs:5,status:0}]);
+  assert.doesNotMatch(JSON.stringify(projection.snapshot()),/secret|private|token|traceId|resource|attributes|events|message|PrivateClientName|Plugin\.init/);
+  for(let i=0;i<1000;i++)projection.add(payload([span('MCP.tools')]));
+  projection.add(payload([span('Project.activate')]));
+  assert.ok(projection.snapshot().spans.some(r=>r.name==='Project.activate'),'Repeated MCP spans cannot crowd out a later location span');
   assert.ok(projection.snapshot().spans.length<=120);
   assert.ok(projection.snapshot().dropped>0);
 });

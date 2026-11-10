@@ -1,19 +1,27 @@
-import { randomBytes } from "node:crypto";
+import type { Plugin } from "@opencode/plugin";
 import { z } from "zod";
-import type { SavedConversations } from "./app-state-reminders.js";
 import { resolveWorkspaceId, serverUrl, workspaceToolHeaders } from "./office-plugin-shared.js";
 import { wikiAgentSecret } from "./wiki-agent-secret.js";
 
-const HEADER = "x-lawoss-provider-observation";
+/**
+ * LAWOSS: a bounded witness for one known provider failure (Gemini 3 through OpenRouter rejecting a
+ * corrupted thought signature). The engine's own HTTP hooks bind the request to its native assistant
+ * and user message before dispatch; the response body is forwarded byte for byte and never retained.
+ */
 const MAX_BYTES = 32768;
 const MAX_PUBLICATIONS = 8;
-type Owner = { closed: boolean; stop: AbortController; jobs: Set<Promise<void>>; keys: Set<string> };
-type Observation = { at: number; owner: Owner; publishing: boolean; publish: (signal: AbortSignal) => Promise<void> };
-const pending = new Map<string, Observation>();
-let installed = false;
-const messagesSchema = z.array(z.object({ info: z.object({ id: z.string(), sessionID: z.string(), role: z.string(), parentID: z.string().optional(), providerID: z.string().optional(), modelID: z.string().optional(), time: z.object({ completed: z.number().optional() }).optional() }) }));
+const GEMINI_3 = /^google\/gemini-3(?:[.-]|$)/;
 
-function signatureRejection(text: string): boolean {
+type Binding = { sessionID: string; messageId: string; userMessageId: string; providerId: string; modelId: string; directory: string };
+type Owner = { closed: boolean; stop: AbortController; jobs: Set<Promise<void>> };
+
+const historySchema = z.array(z.object({
+  type: z.string(), id: z.string(),
+  model: z.object({ id: z.string(), providerID: z.string() }).optional(),
+  time: z.object({ completed: z.unknown().optional() }).passthrough().optional(),
+}).passthrough());
+
+export function signatureRejection(text: string): boolean {
   try {
     const error = z.object({ error: z.object({ message: z.string().optional(), metadata: z.object({ raw: z.string().optional() }).optional() }) }).parse(JSON.parse(text)).error;
     if (error.message?.includes("Corrupted thought signature.")) return true;
@@ -22,85 +30,79 @@ function signatureRejection(text: string): boolean {
   return false;
 }
 
-function enqueue(source: Observation) {
-  const owner = source.owner;
-  if (owner.closed || source.publishing || owner.jobs.size >= MAX_PUBLICATIONS) return;
-  source.publishing = true;
-  const job = Promise.resolve().then(() => source.publish(owner.stop.signal))
-    .catch(() => { source.publishing = false; })
-    .finally(() => { owner.jobs.delete(job); });
-  owner.jobs.add(job);
+/** The running assistant after the latest user message, from the same model; otherwise unknown. */
+export function bindTurn(history: unknown, model: { id: string; providerID: string }): { messageId: string; userMessageId: string } | null {
+  const parsed = historySchema.safeParse(history);
+  if (!parsed.success) return null;
+  const messages = parsed.data;
+  let user = -1;
+  for (let index = messages.length - 1; index >= 0; index--) if (messages[index]!.type === "user") { user = index; break; }
+  if (user < 0) return null;
+  const assistant = messages.slice(user + 1).filter(message => message.type === "assistant").at(-1);
+  if (!assistant || assistant.time?.completed !== undefined || assistant.model?.id !== model.id || assistant.model.providerID !== model.providerID) return null;
+  return { messageId: assistant.id, userMessageId: messages[user]!.id };
 }
 
-function install() {
-  if (installed) return;
-  installed = true;
-  const base = globalThis.fetch;
-  const patched = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-    const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
-    const id = headers.get(HEADER);
-    if (!id) return base(input, init);
-    headers.delete(HEADER);
-    const source = pending.get(id);
-    const response = await base(input, { ...init, headers });
-    if (!source || source.at < Date.now() - 600_000 || response.status !== 400 || !response.body) return response;
-    // Tee-free observation: forward every byte and apply backpressure; never retain a raw body.
-    const decoder = new TextDecoder();
-    let text = "", bytes = 0;
-    const body = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        controller.enqueue(chunk);
-        bytes += chunk.byteLength;
-        if (bytes <= MAX_BYTES) text += decoder.decode(chunk, { stream: true }); else text = "";
-      },
-      flush() {
-        // Diagnostics have their own bounded owner; they never hold the provider's EOF.
-        if (bytes <= MAX_BYTES && signatureRejection(text + decoder.decode())) enqueue(source);
-        text = "";
-      },
-    }));
-    return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
-  };
-  globalThis.fetch = Object.assign(patched, base);
+function enqueue(owner: Owner, job: (signal: AbortSignal) => Promise<void>) {
+  if (owner.closed || owner.jobs.size >= MAX_PUBLICATIONS) return;
+  const running = Promise.resolve().then(() => job(owner.stop.signal)).catch(() => {}).finally(() => { owner.jobs.delete(running); });
+  owner.jobs.add(running);
 }
 
-/** Correlation comes from the engine's current assistant before dispatch. Local nonce is never sent upstream. */
-export function providerFailureObserver(initial: SavedConversations) {
-  const owner: Owner = { closed: false, stop: new AbortController(), jobs: new Set(), keys: new Set() };
-  const headers = async (input: { sessionID: string; model: { providerID: string; id: string; api?: { id?: string; npm?: string } }; message: { id: string } }, output: { headers: Record<string, string> }) => {
-    const modelId = input.model.api?.id ?? input.model.id;
-    if (owner.closed || input.model.providerID !== "openrouter" || !/^google\/gemini-3(?:[.-]|$)/.test(modelId) || !initial.directory || !initial.client?.session || !serverUrl() || !wikiAgentSecret()) return;
+async function publish(binding: Binding, signal: AbortSignal) {
+  signal.throwIfAborted();
+  const context = { sessionID: binding.sessionID, directory: binding.directory, abort: signal };
+  const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
+  const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspace)}/sessions/${encodeURIComponent(binding.sessionID)}/provider-failure`, {
+    method: "POST", headers: { ...await workspaceToolHeaders(context), "content-type": "application/json" }, signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]),
+    body: JSON.stringify({ messageId: binding.messageId, userMessageId: binding.userMessageId, providerId: binding.providerId, modelId: binding.modelId, code: "gemini_thought_signature" }),
+  });
+  await response.body?.cancel();
+  if (!response.ok) throw new Error("Provider observation was not accepted.");
+}
+
+/** Forward every byte with backpressure; diagnostics have their own bounded owner and never hold EOF. */
+function observed(response: Response, onMatch: () => void): Response {
+  if (!response.body) return response;
+  const decoder = new TextDecoder();
+  let text = "", bytes = 0;
+  const body = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      controller.enqueue(chunk);
+      bytes += chunk.byteLength;
+      if (bytes <= MAX_BYTES) text += decoder.decode(chunk, { stream: true }); else text = "";
+    },
+    flush() {
+      if (bytes <= MAX_BYTES && signatureRejection(text + decoder.decode())) onMatch();
+      text = "";
+    },
+  }));
+  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+
+export async function registerProviderFailureObserver(ctx: Plugin.Context): Promise<() => Promise<void>> {
+  const owner: Owner = { closed: false, stop: new AbortController(), jobs: new Set() };
+  const bound = new WeakMap<Request, Binding>();
+  const before = await ctx.session.hook("http.request", async (event) => {
+    if (owner.closed || event.kind !== "primary" || event.model.providerID !== "openrouter" || !GEMINI_3.test(event.model.id) || !serverUrl() || !wikiAgentSecret()) return;
     try {
-      const query = { directory: initial.directory, limit: 1 };
-      const data = (await initial.client.session.messages({ path: { id: input.sessionID }, query })).data;
-      const parsed = messagesSchema.safeParse(data);
-      const last = parsed.success ? parsed.data.at(-1)?.info : undefined;
-      if (owner.closed || !last || last.role !== "assistant" || last.sessionID !== input.sessionID || last.parentID !== input.message.id || last.providerID !== input.model.providerID || last.modelID !== input.model.id || last.time?.completed) return;
-      install();
-      const now = Date.now();
-      for (const [id, entry] of pending) if (entry.at < now - 600_000) { pending.delete(id); entry.owner.keys.delete(id); }
-      if (pending.size >= 256) return;
-      const id = randomBytes(16).toString("hex");
-      const context = { sessionID: input.sessionID, directory: initial.directory };
-      pending.set(id, { at: now, owner, publishing: false, async publish(signal) {
-        signal.throwIfAborted();
-        const workspace = await resolveWorkspaceId({ ...context, abort: signal }, { requireDirectory: true });
-        const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspace)}/sessions/${encodeURIComponent(input.sessionID)}/provider-failure`, {
-          method: "POST", headers: { ...await workspaceToolHeaders(context), "content-type": "application/json" }, signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]),
-          body: JSON.stringify({ messageId: last.id, userMessageId: input.message.id, providerId: input.model.providerID, modelId, code: "gemini_thought_signature" }),
-        });
-        await response.body?.cancel();
-        if (!response.ok) throw new Error("Provider observation was not accepted.");
-      } });
-      owner.keys.add(id);
-      output.headers[HEADER] = id;
+      const session = await ctx.session.get({ sessionID: event.sessionID });
+      const turn = bindTurn(await ctx.session.context({ sessionID: event.sessionID }), event.model);
+      if (!turn || owner.closed) return;
+      bound.set(event.request, { ...turn, sessionID: event.sessionID, providerId: event.model.providerID, modelId: event.model.id, directory: session.location.directory });
     } catch { /* Missing ownership never guesses a message or modifies the request. */ }
-  };
-  return { headers, async dispose() {
+  }, { providerID: "openrouter" });
+  const after = await ctx.session.hook("http.response", (event) => {
+    const binding = bound.get(event.request);
+    if (!binding) return;
+    bound.delete(event.request);
+    if (owner.closed || event.response.status !== 400) return;
+    event.response = observed(event.response, () => enqueue(owner, signal => publish(binding, signal)));
+  }, { providerID: "openrouter" });
+  return async () => {
     owner.closed = true;
     owner.stop.abort();
-    for (const id of owner.keys) pending.delete(id);
-    owner.keys.clear();
+    await Promise.all([before.dispose(), after.dispose()]);
     await Promise.all([...owner.jobs]);
-  } };
+  };
 }

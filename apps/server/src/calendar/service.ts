@@ -32,6 +32,30 @@ export async function calendarOccurrences(config: ServerConfig, workspace: Works
   }
   return result.sort((a, b) => a.start.localeCompare(b.start));
 }
+/** The same aggregate used by the global Calendar view and the Assistant, including inbox tasks. */
+export async function globalCalendarOccurrences(config: ServerConfig, from: string, to: string, workspaces = config.workspaces): Promise<CalendarOccurrence[]> {
+  if (to <= from || to > addDays(from, 366)) throw new ApiError(400, "calendar_range", "Choose a date range of at most one year.");
+  const store = await calendarStore(config), links = await projectSyncStore(config);
+  const visible = (await Promise.all(workspaces.map(async workspace => await calendarVisible(config, workspace) ? workspace : null)))
+    .filter((workspace): workspace is WorkspaceInfo => workspace !== null);
+  const names = new Map(visible.map(workspace => [workspace.id, workspace.displayName || workspace.name || workspace.id]));
+  const result = visible.flatMap(workspace => store.list(workspace.id).flatMap(item => occurrences(item, names.get(workspace.id)!, from, to)));
+  // Load tasks once for the global view, rather than once per project.
+  for (const task of await datedTasks(config)) {
+    if (!task.dueDate || task.deletedAt || task.status === "cancelled") continue;
+    if (task.projectId) {
+      const link = links.linkByWorkspace(task.projectId);
+      if (!names.has(task.projectId) || (link?.role === "member" && !link.settings.scope.tasks)) continue;
+    }
+    const day = task.dueDate.length === 10 ? task.dueDate : dayInZone(task.dueDate, "Europe/Berlin");
+    if (day < from || day >= to) continue;
+    result.push({ id: `task:${task.id}`, itemId: task.id, uid: `task-${task.id}@legalwork`, projectId: task.projectId ?? null,
+      projectName: task.projectId ? names.get(task.projectId)! : "Inbox", kind: "task", title: task.title,
+      start: task.dueDate, end: null, allDay: task.dueDate.length === 10, timeZone: "Europe/Berlin", status: task.status,
+      assigneeUserId: task.assigneeUserId, provenance: null, verified: true, recurring: false });
+  }
+  return result.sort((a, b) => a.start.localeCompare(b.start) || a.id.localeCompare(b.id));
+}
 export async function datedTasks(config: ServerConfig, projectId?: string) {
   if (projectId) {
     const link = (await projectSyncStore(config)).linkByWorkspace(projectId);
@@ -64,7 +88,7 @@ export async function calendarExport(config: ServerConfig, workspace: WorkspaceI
 export async function collectCalendarReminders(config: ServerConfig, now = Date.now()) {
   const store = await calendarStore(config), today = new Date(now).toISOString().slice(0, 10);
   for (const workspace of config.workspaces) {
-    if (workspace.workspaceType === "remote" || !(await calendarVisible(config, workspace))) continue;
+    if (!(await calendarVisible(config, workspace))) continue;
     for (const item of store.list(workspace.id)) {
       if (item.status !== "active") continue;
       for (const occurrence of occurrences(item, workspace.name || workspace.id, addDays(today, -30), addDays(today, 366))) {

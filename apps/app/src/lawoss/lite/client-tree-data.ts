@@ -3,6 +3,7 @@
  * priradenie rozhovorov klientovi alebo veci podľa priečinka a akcie nad nimi.
  * Model je v `client-tree.ts` a `matter-conversations.ts`; tu je len napojenie na React Query a trasu.
  */
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -31,7 +32,7 @@ export const isTreeFailure = (state: unknown): boolean => typeof state === "obje
 export function scopeFolder(scope: OkfScope | null, relative: string | null): Folder | null {
   if (relative === null || !scope) return null;
   const at = locateInScope(scope, relative);
-  return at && at.workspace.workspaceType !== "remote" && at.workspace.path ? { workspace: at.workspace, abs: folderPath(at.workspace, at.path) } : null;
+  return at && !isRetiredRemoteWorkspace(at.workspace) && at.workspace.path ? { workspace: at.workspace, abs: folderPath(at.workspace, at.path) } : null;
 }
 
 const clientFolderOfGroup = (scope: OkfScope | null, group: Pick<ClientGroup, "key" | "matters">) => scopeFolder(scope, clientFolderFor(group.key, group.matters[0]?.path ?? ""));
@@ -83,7 +84,7 @@ export const FOLDER_LOCATE_KEY = "lite-folder-locate";
  */
 function useSessionDirectory(connection: OkfConnection | null, session: TreeFocus["session"], known: string | null | undefined, enabled: boolean): string | null | undefined {
   const workspace = session ? connection?.workspaces.find((w) => w.id === session.workspaceId) : undefined;
-  const local = Boolean(workspace?.path && workspace.workspaceType !== "remote");
+  const local = Boolean(workspace?.path && !isRetiredRemoteWorkspace(workspace));
   const fetched = useQuery({
     queryKey: [SESSION_DIRECTORY_KEY, workspace?.id ?? "", session?.sessionId ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
     enabled: enabled && local && known === undefined && Boolean(connection?.client && session),
@@ -129,7 +130,7 @@ export function useClientTree(connection: OkfConnection | null, scope: OkfScope 
   const sessionFolder = useMemo((): Folder | null => {
     if (byDirectory) return null;
     const workspace = route.session ? connection?.workspaces.find((w) => w.id === route.session?.workspaceId) : undefined;
-    if (!workspace?.path || workspace.workspaceType === "remote") return null;
+    if (!workspace?.path || isRetiredRemoteWorkspace(workspace)) return null;
     const dir = comparable(workspace.path);
     const owner = [...clientFolders.values()].filter((f): f is Folder => f !== null && within(comparable(f.abs), dir)).sort((a, b) => b.abs.length - a.abs.length)[0];
     return owner ?? { workspace, abs: workspace.path };

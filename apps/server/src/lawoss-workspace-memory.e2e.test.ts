@@ -10,17 +10,20 @@ import type { WorkspaceMemoryStatus } from "../../../lawoss/okf-handoff/workspac
 import { externalAppFilesRoot, externalMemoryProfilePath } from "./lawoss/workspace-app-files.js";
 import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 import { engineAgentSession } from "./lawoss/test-support/engine-agent.js";
+import { nativeRow } from "./lawoss/test-support/native-config.js";
 const priorData = process.env.LEGALWORK_DATA_DIR, priorTokens = process.env.LEGALWORK_TOKEN_STORE;
 const roots: string[] = [], stops: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const stop of stops.splice(0)) await stop(); for (const root of roots.splice(0)) await removeTestDir(root); if (priorData === undefined) delete process.env.LEGALWORK_DATA_DIR; else process.env.LEGALWORK_DATA_DIR = priorData; if (priorTokens === undefined) delete process.env.LEGALWORK_TOKEN_STORE; else process.env.LEGALWORK_TOKEN_STORE = priorTokens; });
 async function fixture() {
   const base = await realpath(await mkdtemp(join(tmpdir(), "lawoss-status-"))); roots.push(base);
   const root = join(base, "matter"), vault = join(base, "vault"); await mkdir(root); await mkdir(vault); await mkdir(join(root, ".lawoss"));
+  // LAWOSS: a linked folder may not lie in app data, which includes the server config folder (lawoss/linked-folders.ts).
+  await mkdir(join(base, "private"));
   process.env.LEGALWORK_DATA_DIR = join(base, "data"); process.env.LEGALWORK_TOKEN_STORE = join(base, "tokens.json");
   await writeFile(join(vault, "memory.md"), "SYNTHETIC-ANCHOR SECRET-SOURCE-BODY");
   await writeFile(join(root, ".lawoss/memory-profile.json"), JSON.stringify({ version: 1, matterId: "synthetic", roots: [{ id: "vault", path: vault }], sources: [{ id: "memory", root: "vault", path: "memory.md", role: "case_memory", required: true, writable: false, anchors: ["SYNTHETIC-ANCHOR"] }] }));
   await writeFile(join(root, "opencode.json"), JSON.stringify({ permission: { external_directory: { [`${vault}/*`]: "allow" } } }));
-  const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(base, "server.json"), token: "synthetic-client", hostToken: "synthetic-host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "synthetic", name: "Synthetic", preset: "starter", path: root, workspaceType: "local" }], authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(base, "private", "server.json"), token: "synthetic-client", hostToken: "synthetic-host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "synthetic", name: "Synthetic", preset: "starter", path: root, workspaceType: "local" }], authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   const server = await startServer(config); stops.push(() => server.stop());
   const url = `http://127.0.0.1:${server.port}/workspace/synthetic`, headers = { authorization: "Bearer synthetic-client", "content-type": "application/json" };
   const status = async (): Promise<WorkspaceMemoryStatus> => { const response = await fetch(`${url}/lawoss/memory`, { headers }); expect(response.status).toBe(200); const text = await response.text(); expect(text).not.toContain("SECRET-SOURCE-BODY"); expect(text).not.toContain("SYNTHETIC-ANCHOR"); expect(text).not.toContain('"content"'); return JSON.parse(text); };
@@ -31,7 +34,9 @@ test("authenticated status ignores file grants; native grant and revocation affe
   for (const path of ["/lawoss/memory", "/lawoss/memory/grants"]) expect((await fetch(f.url + path)).status).toBe(401);
   expect((await fetch(f.url.replace("synthetic", "unknown") + "/lawoss/memory", { headers: f.headers })).status).toBe(404);
   expect((await f.status()).complete).toBe(false);
-  const untrusted = await (await fetch(`${f.url}/authorized-folders`, { headers: f.headers })).json(); expect(untrusted.folders).toEqual([f.vault.replaceAll(sep, "/")]);
+  // LAWOSS v2: the server reads the project config only through the engine (`config.get`); without an engine the
+  // client's own `opencode.json` grant is not a folder at all, and memory grants never come from it anyway.
+  const untrusted = await (await fetch(`${f.url}/authorized-folders`, { headers: f.headers })).json(); expect(untrusted.folders).toEqual([]);
   const grants = await (await fetch(`${f.url}/lawoss/memory/grants`, { headers: f.headers })).json(); expect(grants.folders).toEqual([]); expect(grants.authority).toBe("runtime");
   expect((await fetch(`${f.url}/authorized-folders`, { method: "PUT", headers: f.headers, body: JSON.stringify({ folders: [f.vault] }) })).status).toBe(200);
   const loaded = await f.status(); expect(loaded.complete).toBe(true); expect(loaded.sources[0]?.status).toBe("loaded"); expect(loaded.sources[0]?.sha256).toMatch(/^[a-f0-9]{64}$/);
@@ -41,7 +46,7 @@ test("authenticated status ignores file grants; native grant and revocation affe
 test("runtime broad allow cannot bypass narrow deny/custom or invalid grants", async () => {
   const f = await fixture();
   for (const rules of [{ [`${f.vault}/*`]: "allow", [`${f.vault}/private/*`]: "deny" }, { [`${f.vault}/*`]: "allow", custom: "allow" }, { "relative/*": "allow" }]) {
-    await writeRuntimeOpencodeConfig(f.config, "synthetic", () => ({ permission: { external_directory: rules } }));
+    await writeRuntimeOpencodeConfig(f.config, "synthetic", () => nativeRow({ permission: { external_directory: rules } }));
     const status = await f.status(); expect(status.complete).toBe(false); expect(status.grants.folders).toEqual([]); expect(status.grants.hiddenCount).toBeGreaterThan(0); expect(status.sources[0]?.sha256).toBeNull();
   }
 });
@@ -76,8 +81,9 @@ test("mapped production hook checkpoints outside the client and preserves it acr
   const agent = await engineAgentSession(f.config, { sessionID: "mapped", directory: f.root });
   try {
     process.env.LEGALWORK_SERVER_URL = new URL(f.url).origin;
-    const { LawossOkfHandoff } = await import("./opencode-plugins/lawoss-okf-handoff.js");
-    const first = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, first); expect(first.system[0]).not.toContain("FAILED");
+    // Engine v2: the native entry maps these portable hooks (opencode-plugins/lawoss-okf-handoff.ts).
+    await import("./opencode-plugins/lawoss-okf-handoff.js"); const { LawossOkfHandoff } = await import("../../../lawoss/okf-handoff/plugin.mjs");
+    const first = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }, { mode: "native" }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, first); expect(first.system[0]).not.toContain("FAILED");
     const checkpoint = join(appRoot, ".lawoss", "handoff", "mapped.md"); expect((await readdir(appRoot, { recursive: true })).map(entry => entry.replaceAll(sep, "/"))).toContain(".lawoss/handoff/mapped.md"); const good = await readFile(checkpoint, "utf8"); expect(good).toContain("MAPPED-HOOK-ANCHOR"); expect(await workspaceSnapshot(f.root)).toEqual(before);
     for (const stop of stops.splice(0)) await stop(); const restarted = await startServer(f.config); stops.push(() => restarted.stop()); process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${restarted.port}`;
     const oldToken = wikiAgentSecret()!;
@@ -87,8 +93,8 @@ test("mapped production hook checkpoints outside the client and preserves it acr
     expect(stale.status).toBe(403);
     expect(await stale.json()).toMatchObject({ code: "wiki_agent_unauthorized" });
     // The outer agent fixture restores the original environment below.
-    const fresh = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, fresh); expect(fresh.system[0]).not.toContain("FAILED"); const afterRestart = await readFile(checkpoint, "utf8"); expect(afterRestart).toContain("MAPPED-HOOK-ANCHOR");
-    await rm(profilePath); const revoked = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, revoked); expect(revoked.system[0]).toContain("FAILED"); expect(await readFile(checkpoint, "utf8")).toBe(afterRestart);
+    const fresh = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }, { mode: "native" }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, fresh); expect(fresh.system[0]).not.toContain("FAILED"); const afterRestart = await readFile(checkpoint, "utf8"); expect(afterRestart).toContain("MAPPED-HOOK-ANCHOR");
+    await rm(profilePath); const revoked = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }, { mode: "native" }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, revoked); expect(revoked.system[0]).toContain("FAILED"); expect(await readFile(checkpoint, "utf8")).toBe(afterRestart);
   } finally { if (previous.url === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previous.url; agent.restore(); }
 });
 
@@ -99,10 +105,11 @@ test("production plugin resolves real HTTP grants on each hook and preserves rev
   try {
     process.env.LEGALWORK_SERVER_URL = new URL(f.url).origin;
     process.env.LAWOSS_MEMORY_ALLOWED_ROOTS = JSON.stringify([f.vault]);
-    const { LawossOkfHandoff } = await import("./opencode-plugins/lawoss-okf-handoff.js");
-    const hooks = await LawossOkfHandoff({ directory: f.root });
+    // Engine v2: the native entry maps these portable hooks (opencode-plugins/lawoss-okf-handoff.ts).
+    await import("./opencode-plugins/lawoss-okf-handoff.js"); const { LawossOkfHandoff } = await import("../../../lawoss/okf-handoff/plugin.mjs");
+    const hooks = await LawossOkfHandoff({ directory: f.root }, { mode: "native" });
     const first = { system: [] as string[] }; await hooks["experimental.chat.system.transform"]!({ sessionID: "host_live" }, first); expect(first.system[0]).toContain("FAILED");
-    await fetch(`${f.url}/authorized-folders`, { method: "PUT", headers: f.headers, body: JSON.stringify({ folders: [f.vault] }) });
+    expect((await fetch(`${f.url}/authorized-folders`, { method: "PUT", headers: f.headers, body: JSON.stringify({ folders: [f.vault] }) })).status).toBe(200);
     const second = { system: [] as string[] }; await hooks["experimental.chat.system.transform"]!({ sessionID: "host_live" }, second); expect(second.system[0]).not.toContain("FAILED");
     const { readFile } = await import("node:fs/promises"); const checkpoint = join(f.root, ".lawoss/handoff/host_live.md"); const good = await readFile(checkpoint, "utf8"); expect(good).toContain("SECRET-SOURCE-BODY");
     await fetch(`${f.url}/authorized-folders`, { method: "PUT", headers: f.headers, body: JSON.stringify({ folders: [] }) });
@@ -113,9 +120,10 @@ test("production plugin resolves real HTTP grants on each hook and preserves rev
   }
 });
 
-test("status and grants reject remote workspaces before reading local paths", async () => {
+// LAWOSS v2: upstream odstránil vzdialené pracovné priestory (workspaceType je vždy "local"); nie je čo odmietnuť.
+test.skip("status and grants reject remote workspaces before reading local paths", async () => {
   for (const path of ["/lawoss/memory", "/lawoss/memory/grants"]) {
-    const f = await fixture(); f.config.workspaces[0]!.workspaceType = "remote";
+    const f = await fixture(); Reflect.set(f.config.workspaces[0]!, "workspaceType", "remote");
     const before = await workspaceSnapshot(f.root);
     const response = await fetch(f.url + path, { headers: f.headers }); expect(response.status).toBe(400); expect(await response.text()).not.toContain("SECRET-SOURCE-BODY");
     expect(await workspaceSnapshot(f.root)).toEqual(before);
@@ -134,7 +142,7 @@ for (const endpoint of ["/lawoss/memory", "/lawoss/memory/grants"]) {
   for (const granted of [false, true]) for (const oldCore of [false, true]) {
     test(`first ${endpoint} leaves writable workspace unchanged (grant=${granted}, oldCore=${oldCore})`, async () => {
       const f = await fixture();
-      if (granted) await writeRuntimeOpencodeConfig(f.config, "synthetic", () => ({ permission: { external_directory: { [`${f.vault}/*`]: "allow" } } }));
+      if (granted) await writeRuntimeOpencodeConfig(f.config, "synthetic", () => nativeRow({ permission: { external_directory: { [`${f.vault}/*`]: "allow" } } }));
       if (oldCore) {
         await mkdir(join(f.root, ".opencode/commands"), { recursive: true });
         await writeFile(join(f.root, ".opencode/.legalwork-core"), "synthetic-old-bundled-stamp");

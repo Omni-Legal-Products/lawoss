@@ -9,6 +9,7 @@
  * `withFirmPermissions`); firma „spravuje zmeny“ len vtedy, keď má pravidlo pre `edit`, `bash` alebo
  * `lawoss_file_change`, nie pre iné nástroje.
  */
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import { useCallback, useEffect, useState } from "react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import {
@@ -79,7 +80,7 @@ export function agentSummary(state: Pick<AgentState, "yolo" | "edits">): AgentSu
 async function activeWorkspaceId(api: AgentModeApi): Promise<string | undefined> {
   if (!api.listWorkspaces) return undefined;
   const list = await api.listWorkspaces();
-  return list.activeId ?? list.items.find((item) => item.workspaceType !== "remote")?.id;
+  return list.activeId ?? list.items.find((item) => !isRetiredRemoteWorkspace(item))?.id;
 }
 
 /** Načíta YOLO a vlastné pravidlá zmien; každá časť zlyhá samostatne (neznámy stav, nie chyba kroku). */

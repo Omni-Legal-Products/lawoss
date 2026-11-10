@@ -6,8 +6,9 @@ import type { ArtifactPanelProps } from "./artifact-panel";
 import { classifyOpenTarget } from "./open-target";
 import { usePanelTabStore, workspacePanelKey } from "../panel/panel-tab-store";
 import { storageFileTab } from "../panel/storage-file-tab";
-import { createDocumentTaskQueue } from "./document-task-queue";
+import { createDocumentTaskQueue, checkDocumentTask, type DocumentTaskOptions } from "./document-task-queue";
 import { openBackgroundTab } from "../background/open-background-tab";
+import { t } from "@/i18n";
 
 export type DocumentProject = { projectId: string; workspaceId: string; workspaceRoot: string; client: LegalworkServerClient; isRemoteWorkspace: boolean };
 export type Registration = { surface: LegalworkControlSurface; action: LegalworkControlAction; ready: () => boolean; dirty: () => boolean; updatedAt?: () => number | null };
@@ -110,9 +111,10 @@ export function createDocumentRuntime(createHost = () => document.createElement(
     if (!entry) throw new Error("No document is selected for this task. Use inapp_documents_open with its workspace path; no visible tab is required.");
     return entry;
   };
-  const waitUntilReady = async (entry: Entry) => {
+  const waitUntilReady = async (entry: Entry, options: DocumentTaskOptions = {}) => {
     const deadline = Date.now() + 60_000;
     while (entries.get(entry.key) === entry && Date.now() < deadline) {
+      checkDocumentTask(options);
       if (entry.fileEditing) throw new Error("This document is being edited as a file. Reopen it with inapp_documents_open after the file edit finishes.");
       if (entry.registration?.ready()) return entry.registration;
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -121,6 +123,21 @@ export function createDocumentRuntime(createHost = () => document.createElement(
   };
   return {
     entries, changed, ensure, close, getProject, taskSessions, prune,
+    async openSession(args: unknown, callerSessionId: string | undefined, navigate: (path: string) => void) {
+      const sessionId = stringArg(args, "sessionId"), project = await getProject(sessionId);
+      if (callerSessionId) {
+        taskSessions.set(callerSessionId, sessionId);
+        return { ok: true, sessionId, workspaceId: project.projectId, background: true, message: "The session is available to this task. Read it with session.read_transcript. The user's view is unchanged." };
+      }
+      // Navigation alone does not select the chat when this route is already
+      // mounted beside a document. Keep the editor and select its owning chat.
+      const panels = usePanelTabStore.getState(), scope = workspacePanelKey(project.projectId);
+      const chat = panels.sessions[scope]?.tabs.find(tab => tab.type === "chat" && tab.sessionId === sessionId);
+      if (chat) panels.selectTab(scope, chat.id);
+      else panels.adoptChat(scope, sessionId, t("session.default_title"), { preserveLayout: true });
+      navigate(`/workspace/${encodeURIComponent(project.projectId)}/session/${encodeURIComponent(sessionId)}`);
+      return { ok: true, navigatedTo: sessionId };
+    },
     dismiss: (entry: Entry, sessionId: string) => { entry.dismissed.add(sessionId); changed(); },
     releaseTask: (sessionId: string) => {
       selected.delete(sessionId); taskSessions.delete(sessionId);
@@ -130,7 +147,8 @@ export function createDocumentRuntime(createHost = () => document.createElement(
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     version: () => version,
     setResolver: (resolver: (sessionId: string) => DocumentProject) => { resolveProject = resolver; },
-    async beginFileEdit(args: unknown) {
+    async beginFileEdit(args: unknown, options: DocumentTaskOptions = {}) {
+      checkDocumentTask(options);
       const sessionId = stringArg(args, "sessionId"), operationId = stringArg(args, "operationId");
       if (!operationId) throw new Error("A file operation identity is required.");
       const project = await getProject(sessionId);
@@ -149,6 +167,7 @@ export function createDocumentRuntime(createHost = () => document.createElement(
         const handoff = { matches, opened: new Array<Entry>() };
         activeHandoffs.set(operationId, handoff);
         try {
+          checkDocumentTask(options);
           // A shell script can compute its destination dynamically. Without
           // explicit paths, protect all live editable files in this project.
           const targets = [...entries.values()].filter(entry => matches(entry.props)
@@ -159,9 +178,10 @@ export function createDocumentRuntime(createHost = () => document.createElement(
             const hold = queue(entry.key, async () => {
               try {
                 if (!entry.fileEditing) {
-                  const registration = await waitUntilReady(entry);
+                  const registration = await waitUntilReady(entry, options);
                   const result = await registration.action.execute({ sessionId: entry.props.sessionId,
-                    path: registration.surface.path, toolName: "prepare_file_edit", args: {} }, { setNarration: () => {} });
+                    path: registration.surface.path, toolName: "prepare_file_edit", args: {} }, { setNarration: () => {}, ...options });
+                  checkDocumentTask(options);
                   if (!result || typeof result !== "object" || Reflect.get(result, "ok") !== true || Reflect.get(result, "saved") !== true || registration.dirty()) {
                     throw new Error(`Could not save ${entry.props.tab.label} before the file edit. The draft is still open.`);
                   }
@@ -219,7 +239,8 @@ export function createDocumentRuntime(createHost = () => document.createElement(
       await edit.done;
       return { ok: true, reloaded: true };
     },
-    async createMarkdown(args: unknown) {
+    async createMarkdown(args: unknown, options: DocumentTaskOptions = {}) {
+      checkDocumentTask(options);
       const sessionId = stringArg(args, "sessionId"), path = stringArg(args, "path"), content = stringArg(args, "content");
       if (!validPath(path) || !/\.(md|markdown)$/i.test(path)) throw new Error("Use a new workspace-relative Markdown filename.");
       const project = await getProject(sessionId);
@@ -230,18 +251,20 @@ export function createDocumentRuntime(createHost = () => document.createElement(
         const result = await writeMarkdownChunk({
           workspaceId: project.workspaceId, sessionId, path, content, append, complete,
           exists: async () => (await project.client.statWorkspaceFile(project.workspaceId, path)).exists,
-          save: value => project.client.writeWorkspaceFile(project.workspaceId, { path, content: value, createOnly: true }),
+          save: value => { checkDocumentTask(options); return project.client.writeWorkspaceFile(project.workspaceId, { path, content: value, createOnly: true }); },
         });
         const entry = ensure({ ...project, sessionId: workspacePanelKey(project.projectId),
           tab: { id: `file:${path}`, type: "artifact", value: path, label: path.split("/").at(-1)!, preview: "markdown" }, onClose: () => {} });
         select(entry, sessionId);
         return result;
-      });
+      }, options);
     },
-    async open(args: unknown) {
+    async open(args: unknown, options: DocumentTaskOptions = {}) {
+      checkDocumentTask(options);
       const sessionId = stringArg(args, "sessionId");
       const project = await getProject(sessionId);
       await waitForFileEdits(project);
+      checkDocumentTask(options);
       let path = stringArg(args, "path"), connectionId = stringArg(args, "connectionId");
       const copyTo = stringArg(args, "copyTo");
       if (!validPath(path)) throw new Error("Use a relative file path within the workspace or connection.");
@@ -249,8 +272,9 @@ export function createDocumentRuntime(createHost = () => document.createElement(
         if (!validPath(copyTo) || copyTo.split(".").at(-1)?.toLowerCase() !== (connectionId ? path : attachmentFilename(path)).split(".").at(-1)?.toLowerCase()) throw new Error("Use a new workspace-relative filename with the same file extension as the template.");
         if (connectionId) {
           const copy = await project.client.checkoutStorageFile(project.workspaceId, connectionId, path);
+          checkDocumentTask(options);
           await project.client.keepStorageLocalCopy(project.workspaceId, connectionId, copy.localPath, copyTo);
-        } else await project.client.copyWorkspaceFile(project.workspaceId, path, copyTo);
+        } else { checkDocumentTask(options); await project.client.copyWorkspaceFile(project.workspaceId, path, copyTo); }
         path = copyTo; connectionId = "";
       }
       const name = connectionId ? path.split("/").at(-1)! : attachmentFilename(path);
@@ -274,13 +298,13 @@ export function createDocumentRuntime(createHost = () => document.createElement(
         }
         select(entry, sessionId);
         const liveEditing = editsLive(preview, path);
-        if (liveEditing) await waitUntilReady(entry);
+        if (liveEditing) await waitUntilReady(entry, options);
         const show = Boolean(args && typeof args === "object" && Reflect.get(args, "show") === true);
         // Same as the user opening the task's card: the tab moves beside the chat.
         if (show) openBackgroundTab(entry.props.sessionId, sessionId, entry.props.tab);
         return { ok: true, name, path: entry.registration?.surface.path ?? path, liveEditing, ...(copyTo ? { copied: true } : {}),
           message: show ? "The document is ready for this task and now open beside the chat." : "The document is ready for this task. Use the matching inapp_* tools. The user's view has not changed." };
-      });
+      }, options);
     },
     async list(args: unknown) {
       const sessionId = stringArg(args, "sessionId"), project = await getProject(sessionId);
@@ -306,7 +330,8 @@ export function createDocumentRuntime(createHost = () => document.createElement(
         return { ok: true, path: entry.registration?.surface.path, message: "Selected for this task. The user's view has not changed." };
       });
     },
-    async execute(actionId: string, args: unknown) {
+    async execute(actionId: string, args: unknown, options: DocumentTaskOptions = {}) {
+      checkDocumentTask(options);
       const sessionId = stringArg(args, "sessionId");
       // Capture the target before queueing: another task's selection cannot redirect it.
       const entry = current(sessionId, await getProject(sessionId), stringArg(args, "path") || undefined);
@@ -316,7 +341,7 @@ export function createDocumentRuntime(createHost = () => document.createElement(
       if (!selected.has(sessionId)) selected.set(sessionId, entry.key);
       changed();
       return queue(entry.key, async () => {
-        const registration = await waitUntilReady(entry);
+        const registration = await waitUntilReady(entry, options);
         const handoff = stringArg(args, "toolName") === "prepare_file_edit";
         if (handoff && [...entry.tasks].some(task => task !== sessionId)) throw new Error("Another task is using this live document. Finish that task before switching to file editing.");
         if (registration.action.id !== actionId || (stringArg(args, "format") && stringArg(args, "format") !== registration.surface.format)) throw new Error("This document requires a different format's tools.");
@@ -324,8 +349,10 @@ export function createDocumentRuntime(createHost = () => document.createElement(
         // editor by its pane identity, without waiting for React to propagate a
         // newly attached chat's membership before this call can proceed.
         const editorArgs = args && typeof args === "object" ? { ...args, sessionId: entry.props.sessionId } : args;
-        const result = await registration.action.execute(editorArgs, { setNarration: () => {} });
+        checkDocumentTask(options);
+        const result = await registration.action.execute(editorArgs, { setNarration: () => {}, ...options });
         if (handoff && result && typeof result === "object" && Reflect.get(result, "ok") === true && Reflect.get(result, "saved") === true) {
+          checkDocumentTask(options);
           if (registration.dirty()) return { ok: false, saved: false, error: "The draft changed while saving. File editing is not ready; the editor remains open." };
           // Keep the destination and task membership, but retire the actual
           // editor so it cannot overwrite a file pipeline's newer bytes.
@@ -334,7 +361,7 @@ export function createDocumentRuntime(createHost = () => document.createElement(
           changed();
         }
         return result;
-      });
+      }, options);
     },
   };
 }

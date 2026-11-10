@@ -7,24 +7,31 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { LegalWorkExtensionsPreview } from "./legalwork-extensions-preview.js";
+import ExtensionsPreview from "./legalwork-extensions-preview.js";
+import { nativePluginTools } from "./native-plugin-test-support.js";
 import { withFileEditorHandoff } from "../file-editor-handoff.js";
 
 const roots: string[] = [];
 let originalFetch: typeof globalThis.fetch | null = null;
 let previousDiscovery: string | undefined;
+// The fixture has no LegalWork server: an address left by an earlier test file must not reach the plugin.
+let previousServerUrl: string | undefined;
 
 afterEach(async () => {
   if (originalFetch) {
     globalThis.fetch = originalFetch;
     if (previousDiscovery === undefined) delete process.env.LEGALWORK_UI_CONTROL_DISCOVERY;
     else process.env.LEGALWORK_UI_CONTROL_DISCOVERY = previousDiscovery;
+    if (previousServerUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
+    else process.env.LEGALWORK_SERVER_URL = previousServerUrl;
   }
   originalFetch = null;
   while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
 });
 
 const SESSION = "ses_m004";
+// OpenCode 2: the real Plugin.define setup with the native test runtime; tools ask through ctx.permission.assert.
+const LegalWorkExtensionsPreview = () => nativePluginTools(ExtensionsPreview, { sessionID: SESSION });
 const PROFILE = "Spisy/M005-syn-neakceptovany-modul/PRACOVNY-PROFIL.md";
 const CONTRACT = "Spisy/M005-syn-neakceptovany-modul/01-zmluva.docx";
 
@@ -40,8 +47,10 @@ async function withBridge(active: object | null) {
   await writeFile(discovery, JSON.stringify({ baseUrl: "http://ui.test", token: "t" }), "utf8");
   if (!originalFetch) {
     previousDiscovery = process.env.LEGALWORK_UI_CONTROL_DISCOVERY;
+    previousServerUrl = process.env.LEGALWORK_SERVER_URL;
     originalFetch = globalThis.fetch;
   }
+  delete process.env.LEGALWORK_SERVER_URL;
   process.env.LEGALWORK_UI_CONTROL_DISCOVERY = discovery;
   const actions: { actionId: string; args: Record<string, unknown>; editorWrite: boolean }[] = [];
   globalThis.fetch = Object.assign(
@@ -150,11 +159,13 @@ describe("a rejected or impossible card changes nothing", () => {
     }
   });
 
-  test("without approval requests or without a selected document nothing is written", async () => {
+  test("the native card is asked before the write, and without a selected document nothing is written", async () => {
+    // OpenCode 2 always offers native approval requests: the card is recorded before the editor write leaves.
     let actions = await withBridge(surface("md", PROFILE));
     const plugin = await LegalWorkExtensionsPreview();
-    await expect(plugin.tool.inapp_md_replace_text.execute({ path: PROFILE, search: "a", replacement: "b" }, { sessionID: SESSION })).rejects.toThrow("approval");
-    expect(writesSent(actions)).toEqual([]);
+    await plugin.tool.inapp_md_replace_text.execute({ path: PROFILE, search: "a", replacement: "b" }, { sessionID: SESSION });
+    expect(plugin.runtime.permissions).toContainEqual(expect.objectContaining({ action: "edit" }));
+    expect(writesSent(actions)).toHaveLength(1);
     actions = await withBridge(null);
     const { cards, context } = approver();
     await expect(plugin.tool.inapp_docx_suggest_change.execute({ paraId: "p1", search: "a", replaceWith: "b" }, context)).rejects.toThrow("No Word document is selected");

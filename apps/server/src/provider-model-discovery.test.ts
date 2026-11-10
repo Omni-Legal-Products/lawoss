@@ -12,7 +12,7 @@ afterEach(async () => {
   while (cleanup.length) await cleanup.pop()?.();
 });
 
-test("built-in worker refresh uses the catalog and only persists new models", async () => {
+test("built-in worker refresh downloads public metadata and retains native configuration ownership", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-catalog-route-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const details = { name: "New built-in model", reasoning: true, tool_call: true, limit: { context: 200000, output: 64000 } };
@@ -24,8 +24,10 @@ test("built-in worker refresh uses the catalog and only persists new models", as
   cleanup.push(() => { if (originalCatalog === undefined) delete process.env.LAWOSS_MODELS_CATALOG; else process.env.LAWOSS_MODELS_CATALOG = originalCatalog; });
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
-    if (path === "/provider") return Response.json({ all: [{ id: "anthropic", models: { old: details } }], connected: ["anthropic"], default: {} });
-    if (path === "/session/status") return Response.json({ running: { type: "busy" } });
+    if (path === "/api/config") return Response.json([]);
+    if (path === "/api/rpc/legalwork.model-catalog/inventory") return Response.json({ output: { models: ["native-loaded-model"] } });
+    if (path === "/api/session/active") return Response.json({ data: { running: { type: "running" } } });
+    if (path === "/api/session/running") return Response.json({ data: { id: "running", location: { directory: root } } });
     return Response.json({});
   } });
   cleanup.push(() => { engine.stop(true); });
@@ -46,7 +48,10 @@ test("built-in worker refresh uses the catalog and only persists new models", as
   const result = await response.json();
   expect(result.reloaded).toBe(false);
   expect(result.providers.anthropic.pendingReload).toBe(true);
-  expect((await readRuntimeOpencodeConfig(config, "ws_catalog")).provider?.anthropic).toEqual({ models: { new: details } });
+  const saved = (await readRuntimeOpencodeConfig(config, "ws_catalog")).providers?.anthropic;
+  expect(saved).toBeUndefined();
+  expect(result.providers.anthropic.availableModels).toEqual(["native-loaded-model"]);
+  expect(result.providers.anthropic.pendingCatalogReload).toBe(true);
 });
 
 function modelServer(handler: (request: Request) => Response) {
@@ -118,8 +123,14 @@ test("worker route requires authorization and returns the endpoint's inventory",
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ models: ["customer/model-7"] });
   expect(calls).toBe(1);
-  await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ provider: { custom: {
-    npm: "@ai-sdk/openai-compatible", options: { baseURL, apiKey: "saved-test-key" }, models: { old: { name: "Old model" } },
+  // An unrelated authored native enum reference is the engine's concern;
+  // it must not make app-owned provider inventory/key binding fail decoding.
+  await writeFile(join(root, "opencode.jsonc"), JSON.stringify({
+    permissions: [{ action: "read", resource: "*", effect: "{file:never-expand-this-effect.txt}" }],
+    providers: { authored: { settings: { baseURL, apiKey: "authored-key-must-not-be-reused" } } },
+  }));
+  await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ providers: { custom: {
+    package: "@opencode/ai/providers/openai-compatible", settings: { baseURL, apiKey: "saved-test-key" }, models: { old: { name: "Old model" } },
   } } }));
   const savedKeyDiscovery = await fetch(endpoint, {
     method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${config.token}` },
@@ -127,6 +138,12 @@ test("worker route requires authorization and returns the endpoint's inventory",
   });
   expect(savedKeyDiscovery.status).toBe(200);
   expect(lastAuthorization).toBe("Bearer saved-test-key");
+  const authoredDiscovery = await fetch(endpoint, {
+    method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${config.token}` },
+    body: JSON.stringify({ providerId: "authored", baseURL, apiKey: "" }),
+  });
+  expect(authoredDiscovery.status).toBe(200);
+  expect(lastAuthorization).toBe("");
   const otherURL = modelServer((request) => {
     expect(request.headers.get("authorization")).toBeNull();
     return Response.json({ data: [{ id: "other/model" }] });
@@ -148,7 +165,7 @@ test("worker route requires authorization and returns the endpoint's inventory",
   expect(result.reloaded).toBe(false);
   expect(result.providers.custom.pendingReload).toBe(false);
   expect(result.providers.custom.availableModels).toEqual(["customer/model-7"]);
-  expect((await readRuntimeOpencodeConfig(config, "ws_1")).provider?.custom).toMatchObject({ models: { old: { name: "Old model" } } });
-  expect((await readRuntimeOpencodeConfig(config, "ws_1")).provider?.custom).not.toHaveProperty("models.customer/model-7");
+  expect((await readRuntimeOpencodeConfig(config, "ws_1")).providers?.custom).toMatchObject({ models: { old: { name: "Old model" } } });
+  expect((await readRuntimeOpencodeConfig(config, "ws_1")).providers?.custom).not.toHaveProperty("models.customer/model-7");
   expect(JSON.stringify(result)).not.toContain("saved-test-key");
 });
