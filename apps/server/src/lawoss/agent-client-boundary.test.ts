@@ -16,6 +16,21 @@ test("missing configured host scope is unknown, never an implicit client grant",
   } finally {await rm(root, {recursive: true});}
 });
 
+// Test alfy 10. 11. 2026: prvý klient z onboardingu zmazaný, prax existuje. Ostatní klienti nesmú prísť o nástroje.
+test("zmazaný prvý klient z onboardingu pri existujúcej praxi nezablokuje ostatných klientov, kontajner ostáva odmietnutý", async () => {
+  const {root, config} = await syntheticHostConfig();
+  try {
+    const base = await realpath(root), practice = join(base, "prax"), container = join(practice, "Klienti"), other = join(container, "C024 SYN Švec");
+    await mkdir(other, {recursive: true});
+    const directory = join(root, "lawoss-onboarding"); await mkdir(directory);
+    await writeFile(join(directory, "profile.json"), JSON.stringify({officeRoot: practice, clientRoot: join(container, "SYN Alfa Test")}));
+    const workspace = (id: string, path: string): WorkspaceInfo => ({id, name: id, path, preset: "starter", workspaceType: "local"});
+    config.workspaces = [workspace("ws_c024", other), workspace("ws_klienti", container)];
+    await expect(requireClientWorkspaceBoundary(config, other)).resolves.toBeUndefined();
+    await expect(requireClientWorkspaceBoundary(config, container)).rejects.toMatchObject({status: 403, code: "wiki_agent_client_workspace_required"});
+  } finally {await rm(root, {recursive: true});}
+});
+
 // N-A3-1 (V10c): starý profil ukazuje na priečinok vnútri zaregistrovaného klienta; ten klient nesmie prísť o nástroje.
 async function boundaryFixture(profile: (paths: {practice: string; outer: string; nested: string}) => Record<string, string>) {
   const {root, config} = await syntheticHostConfig();
