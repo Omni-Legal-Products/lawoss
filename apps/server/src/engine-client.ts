@@ -19,7 +19,8 @@ const engineClientConfigs = new WeakMap<OpenCodeClient, ServerConfig>();
 /** The native v2 client returns domain values directly and throws on failure.
  * Location is explicit on location-scoped operations; a session routes through
  * its saved location. Never change a process-global default for another project. */
-export function createEngineClient(config: ServerConfig, workspace: WorkspaceInfo): OpenCodeClient {
+/** 🟡 LAWOSS: `duringActivation` pre požiadavky pluginu počas aktivácie lokality (routes/native-command-definitions.ts). */
+export function createEngineClient(config: ServerConfig, workspace: WorkspaceInfo, options: { duringActivation?: boolean } = {}): OpenCodeClient {
   const { baseUrl, authHeader } = resolveWorkspaceOpencodeConnection(config, workspace);
   if (!baseUrl) throw new ApiError(503, "opencode_unavailable", "The agent engine is not available for this project.");
   // LAWOSS: a protected document chat of this client is answered by its own runtime, and its
@@ -49,7 +50,8 @@ export function createEngineClient(config: ServerConfig, workspace: WorkspaceInf
       const signal = init?.signal ?? (request instanceof Request ? request.signal : undefined);
       // LAWOSS (RAM 2 GB, #367): a server request that builds a location (its plugins and MCP) goes through the MCP budget.
       const releaseMcp = await config.lawossEngineMcpAdmission?.({ method, path: url.pathname,
-        directory: url.searchParams.get("location[directory]") || workspaceEngineLocation(workspace).directory, ...(sessionID ? { sessionID } : {}) });
+        directory: url.searchParams.get("location[directory]") || workspaceEngineLocation(workspace).directory, ...(sessionID ? { sessionID } : {}),
+        ...(options.duringActivation ? { duringActivation: true } : {}) });
       try {
         if (sessionID) await ensureLegacySessionPermissions(config, workspace, client, sessionID);
         if (sessionID && /\/(?:prompt|command)$/.test(url.pathname)) {

@@ -6231,14 +6231,14 @@ function installEngineMcpBudget(config: ServerConfig): () => void {
   });
   engineMcpBudgets.set(config, budget);
   const previousAdmission = config.lawossEngineMcpAdmission;
-  config.lawossEngineMcpAdmission = async ({ method, path, directory, sessionID }) => {
+  config.lawossEngineMcpAdmission = async ({ method, path, directory, sessionID, duringActivation }) => {
     const workspace = config.workspaces.find(candidate => {
       const own = workspaceEngineScope(config, candidate);
       return !!own && (resolve(own.directory) === resolve(directory) || isPathWithin(own.directory, directory));
     });
     const connection = workspace ? resolveWorkspaceOpencodeConnection(config, workspace) : null;
     const baseUrl = connection?.baseUrl?.trim() ?? "";
-    return admitEngineMcp(config, method, path, baseUrl ? { baseUrl, authHeader: connection?.authHeader ?? null, directory: normalizeOpencodeDirectory(directory) } : null, sessionID);
+    return admitEngineMcp(config, method, path, baseUrl ? { baseUrl, authHeader: connection?.authHeader ?? null, directory: normalizeOpencodeDirectory(directory) } : null, sessionID, duringActivation === true);
   };
   const sweep = setInterval(() => { void budget.sweep().catch(() => undefined); }, Math.min(60_000, Math.max(1_000, settings.idleMs / 4 || 60_000)));
   sweep.unref?.();
@@ -6250,7 +6250,7 @@ function installEngineMcpBudget(config: ServerConfig): () => void {
   };
 }
 
-async function admitEngineMcp(config: ServerConfig, method: string, path: string, scope: EngineScope | null, sessionID?: string): Promise<() => void> {
+async function admitEngineMcp(config: ServerConfig, method: string, path: string, scope: EngineScope | null, sessionID?: string, duringActivation = false): Promise<() => void> {
   const budget = engineMcpBudgetFor(config);
   if (!budget || !scope) return () => undefined;
   if (!initializesEngineMcp(method, path)) return () => undefined;
@@ -6258,7 +6258,7 @@ async function admitEngineMcp(config: ServerConfig, method: string, path: string
   // jej konfiguráciu (modely, agenti, skilly, príkazy).
   if (readsEngineConfig(path)) await budget.refreshIfStale(scope);
   const session = sessionID ?? (budget.limit > 0 ? engineSessionAction(method, path) : null);
-  return budget.admit(session ? await engineSessionScope(scope, session) : scope);
+  return budget.admit(session ? await engineSessionScope(scope, session) : scope, { awaitReady: !duringActivation });
 }
 
 // Publish changed shared definitions and refresh the native location after a

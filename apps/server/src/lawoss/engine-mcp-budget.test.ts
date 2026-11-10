@@ -112,6 +112,36 @@ test("súbežné prvé dotyky toho istého adresára inicializujú raz", async (
   expect(initialized).toEqual(["/a"]);
 });
 
+test("požiadavka pluginu počas aktivácie lokality na aktiváciu nečaká (inak engine po 5 s vráti 503)", async () => {
+  // Aktivácia (GET /api/model) čaká na pluginy lokality; plugin príkazov počas nej číta definície cez server.
+  let finishActivation = () => {};
+  const activation = new Promise<void>((resolve) => { finishActivation = resolve; });
+  const initialized: string[] = [];
+  const budget = createEngineMcpBudget({
+    limit: 1, idleMs: 60_000, busy: async () => false, dispose: async () => {},
+    initialize: async (s) => { initialized.push(s.directory); await activation; },
+  });
+  let opened = false;
+  const first = budget.admit(scope("/a")).then((release) => { opened = true; return release; });
+  // Plugin volá až počas aktivácie, teda keď už beží `initialize` lokality.
+  while (!initialized.includes("/a")) await Bun.sleep(1);
+  // Plugin: prepustí sa hneď, hoci aktivácia ešte beží; bežná požiadavka by tu čakala.
+  const pluginRelease = await Promise.race([budget.admit(scope("/a"), { awaitReady: false }), Bun.sleep(200).then(() => null)]);
+  expect(pluginRelease).not.toBeNull();
+  expect(opened).toBe(false);
+  pluginRelease?.();
+  finishActivation();
+  (await first)();
+  expect(initialized).toEqual(["/a"]);
+  // Prvý dotyk lokality od pluginu aktiváciu spustí, ale nečaká na ňu.
+  let hold = () => {};
+  const slow = createEngineMcpBudget({ limit: 1, idleMs: 60_000, busy: async () => false, dispose: async () => {},
+    initialize: () => new Promise<void>((resolve) => { hold = resolve; }) });
+  const direct = await Promise.race([slow.admit(scope("/b"), { awaitReady: false }), Bun.sleep(200).then(() => null)]);
+  expect(direct).not.toBeNull();
+  direct?.(); hold();
+});
+
 test("limit 0 zachová pôvodné správanie: všetko je aktívne, nič sa neuvoľní", async () => {
   const { budget, disposed } = fixture({ limit: 0 });
   for (const directory of ["/a", "/b", "/c"]) (await budget.admit(scope(directory)))();
