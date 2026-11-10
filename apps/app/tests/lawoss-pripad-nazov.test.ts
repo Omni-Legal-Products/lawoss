@@ -6,7 +6,7 @@ import { mattersCs, mattersSk } from "../src/lawoss/i18n/matters";
 import { setupCs, setupSk } from "../src/lawoss/i18n/setup";
 import { integrationsCs, integrationsSk } from "../src/lawoss/i18n/integrations";
 import { FOUND_TEXT } from "../src/lawoss/domains/onboarding/found-text";
-import { welcomeText, welcomeTextKeys } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
+import { DEFAULT_MATTER_AREA, welcomeText, welcomeTextKeys } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
 import { entryActionLabels } from "../src/lawoss/domains/onboarding/entry-actions";
 import { MARKETPLACE_CATALOG } from "../src/lawoss/domains/marketplace/catalog";
 import { composePrompt, type NovySpisForm } from "../src/lawoss/okf/compose-prompt";
@@ -177,3 +177,11 @@ function fakeClient(files: Record<string, string>): OkfReadClient {
     },
   };
 }
+
+describe("sprievodca pridaním klienta: texty v jazyku rozhrania (test alfy 10. 11. 2026)", () => {
+  test("voľba nový/existujúci klient je v mužskom rode a predvolená oblasť prípadu nie je anglická", () => {
+    expect([welcomeText("sk")("new"), welcomeText("sk")("existing")]).toEqual(["Vytvoriť nového", "Pripojiť existujúceho"]);
+    expect([welcomeText("cs")("new"), welcomeText("cs")("existing")]).toEqual(["Vytvořit nového", "Připojit existujícího"]);
+    expect(DEFAULT_MATTER_AREA).toEqual({ en: "General", sk: "Všeobecné", cs: "Obecné", de: "Allgemein" });
+  });
+});
