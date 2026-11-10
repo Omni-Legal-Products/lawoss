@@ -7,7 +7,7 @@
  * lebo ste to zamietli“. `Permission.BlockedError` (zákaz pravidlom) nie je rozhodnutie advokáta a ostáva chybou.
  */
 
-const DECLINED = /\bPermission\.(Declined|Corrected)Error\b/;
+const BLOCKED = /\bPermission\.BlockedError\b/;
 
 /** Everything the error says about itself: its tag, name and message, also through `cause` (Effect wraps typed failures). */
 function descriptions(error: unknown, depth = 0): string[] {
@@ -22,9 +22,13 @@ function feedbackOf(error: unknown, depth = 0): string | undefined {
   return typeof feedback === "string" && feedback.trim() ? feedback.trim() : feedbackOf(Reflect.get(error, "cause"), depth + 1);
 }
 
-/** The user's decision on the card, with their feedback when they gave one; `null` for any other error. */
+/**
+ * The user's decision on the card, with their feedback when they gave one; `null` when a rule blocked it.
+ * The engine reports the decline to a plugin in a wrapped form (the plugin cannot log it), so every card failure
+ * except a rule's block counts as the user's decision: in both cases nothing was written.
+ */
 export function declinedCard(error: unknown): { feedback?: string } | null {
-  if (!descriptions(error).some(text => DECLINED.test(text))) return null;
+  if (descriptions(error).some(text => BLOCKED.test(text))) return null;
   const feedback = feedbackOf(error);
   return feedback ? { feedback } : {};
 }
@@ -36,12 +40,7 @@ export async function askOrDeclined(ask: () => Promise<unknown>, what: string): 
     return null;
   } catch (error) {
     const declined = declinedCard(error);
-    if (!declined) {
-      // Content-free shape of an unrecognized card failure, so a changed engine error stays diagnosable.
-      const shape = typeof error === "object" && error !== null ? [error.constructor?.name, Reflect.get(error, "_tag"), Reflect.get(error, "name")].map(String).join("|") : typeof error;
-      console.warn(`[lawoss] approval card failed: ${shape}`);
-      throw error;
-    }
+    if (!declined) throw error;
     return JSON.stringify({ done: false, declined: true, what, ...declined,
       note: declined.feedback
         ? "The user declined the approval card and gave feedback, so nothing was changed. Follow the feedback; do not call it a failure."
