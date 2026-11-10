@@ -10,6 +10,10 @@ test("zamietnutie a zamietnutie s pripomienkou sú rozhodnutie advokáta, zákaz
   expect(declinedCard(tagged("Permission.BlockedError"))).toBeNull();
   expect(declinedCard(new Error("Case memory refused (409): conflict"))).toBeNull();
   expect(declinedCard("Permission.DeclinedError")).toBeNull();
+  // Effect wraps a typed failure (FiberFailure): the tag stays in the name, message or cause.
+  expect(declinedCard(Object.assign(new Error("Permission.DeclinedError"), { name: "(FiberFailure) Permission.DeclinedError" }))).toEqual({});
+  expect(declinedCard(new Error("wrapped", { cause: tagged("Permission.CorrectedError", { feedback: "Nie, do prípadu M071." }) }))).toEqual({ feedback: "Nie, do prípadu M071." });
+  expect(declinedCard(new Error("wrapped", { cause: tagged("Permission.BlockedError") }))).toBeNull();
 });
 
 test("zamietnutá karta vráti výsledok bez zápisu, iná chyba sa vyhodí ďalej", async () => {

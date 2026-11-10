@@ -7,15 +7,26 @@
  * lebo ste to zamietli“. `Permission.BlockedError` (zákaz pravidlom) nie je rozhodnutie advokáta a ostáva chybou.
  */
 
-const DECLINED_TAGS = new Set(["Permission.DeclinedError", "Permission.CorrectedError", "RejectedError", "CorrectedError"]);
+const DECLINED = /\bPermission\.(Declined|Corrected)Error\b/;
+
+/** Everything the error says about itself: its tag, name and message, also through `cause` (Effect wraps typed failures). */
+function descriptions(error: unknown, depth = 0): string[] {
+  if (typeof error !== "object" || error === null || depth > 3) return [];
+  const own = ["_tag", "name", "message"].map(key => Reflect.get(error, key)).filter((value): value is string => typeof value === "string");
+  return [...own, ...descriptions(Reflect.get(error, "cause"), depth + 1)];
+}
+
+function feedbackOf(error: unknown, depth = 0): string | undefined {
+  if (typeof error !== "object" || error === null || depth > 3) return undefined;
+  const feedback = Reflect.get(error, "feedback");
+  return typeof feedback === "string" && feedback.trim() ? feedback.trim() : feedbackOf(Reflect.get(error, "cause"), depth + 1);
+}
 
 /** The user's decision on the card, with their feedback when they gave one; `null` for any other error. */
 export function declinedCard(error: unknown): { feedback?: string } | null {
-  if (typeof error !== "object" || error === null) return null;
-  const tag = [Reflect.get(error, "_tag"), Reflect.get(error, "name")].find(value => typeof value === "string" && DECLINED_TAGS.has(value));
-  if (!tag) return null;
-  const feedback = Reflect.get(error, "feedback");
-  return typeof feedback === "string" && feedback.trim() ? { feedback: feedback.trim() } : {};
+  if (!descriptions(error).some(text => DECLINED.test(text))) return null;
+  const feedback = feedbackOf(error);
+  return feedback ? { feedback } : {};
 }
 
 /** Ask for the card; a declined card returns the tool text for the model instead of throwing. */
@@ -25,7 +36,12 @@ export async function askOrDeclined(ask: () => Promise<unknown>, what: string): 
     return null;
   } catch (error) {
     const declined = declinedCard(error);
-    if (!declined) throw error;
+    if (!declined) {
+      // Content-free shape of an unrecognized card failure, so a changed engine error stays diagnosable.
+      const shape = typeof error === "object" && error !== null ? [error.constructor?.name, Reflect.get(error, "_tag"), Reflect.get(error, "name")].map(String).join("|") : typeof error;
+      console.warn(`[lawoss] approval card failed: ${shape}`);
+      throw error;
+    }
     return JSON.stringify({ done: false, declined: true, what, ...declined,
       note: declined.feedback
         ? "The user declined the approval card and gave feedback, so nothing was changed. Follow the feedback; do not call it a failure."
