@@ -9,10 +9,13 @@
 
 const CLOSED_OUTPUT = new Set(["EPIPE", "ERR_STREAM_DESTROYED", "ERR_STREAM_WRITE_AFTER_END"]);
 
+/** @param {unknown} error */
 export function isClosedOutputError(error) {
-  return typeof error?.code === "string" && CLOSED_OUTPUT.has(error.code);
+  const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+  return typeof code === "string" && CLOSED_OUTPUT.has(code);
 }
 
+/** @param {readonly import("node:stream").Writable[]} [streams] */
 export function ignoreClosedOutput(streams = [process.stdout, process.stderr]) {
   for (const stream of streams) {
     stream?.on("error", (error) => {
