@@ -402,15 +402,14 @@ jobs:
 
       # After the frozen-lockfile install; electron-builder, the updater feed,
       # and app.getVersion() all pick the stamped version up from package.json.
-      # The lockfile-only resync keeps pnpm-lock.yaml consistent with the
-      # stamped orchestrator dependency pins (workspace links, no re-resolution)
-      # so later pnpm invocations in this job don't reject the workspace.
+      # apply-version also stamps the orchestrator pin in pnpm-lock.yaml
+      # (workspace link, no re-resolution), so later pnpm invocations in this
+      # job accept the workspace.
       - name: Stamp release version from tag
         shell: bash
         run: |
           node scripts/release/build-info.mjs --assert-clean
           node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
-          pnpm install --lockfile-only --no-frozen-lockfile
 
       - name: Write Electron notary API key (macOS)
         if: matrix.os_type == 'macos' && env.MACOS_NOTARIZE == 'true'
@@ -809,7 +808,6 @@ jobs:
         run: |
           node scripts/release/build-info.mjs --assert-clean
           node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
-          pnpm install --lockfile-only --no-frozen-lockfile
 
       - name: Resolve package versions
         id: package-versions

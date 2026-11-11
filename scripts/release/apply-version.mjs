@@ -19,9 +19,12 @@
  *   - apps/orchestrator/package.json   version + legalwork-server dep
  *   - apps/server/package.json         version
  *
- * Run AFTER `pnpm install --frozen-lockfile`: pnpm-lock.yaml still records the
- * placeholder specifiers, and this script intentionally leaves it untouched so
- * the frozen-lockfile install stays valid.
+ * Run AFTER `pnpm install --frozen-lockfile`. The orchestrator's pinned
+ * legalwork-server specifier is also stamped in pnpm-lock.yaml (its importer
+ * entry, a workspace link), so later pnpm invocations accept the workspace.
+ * LAWOSS (alpha 11. 11. 2026): this replaces `pnpm install --lockfile-only`,
+ * which re-resolved the whole graph and dropped the integrity of the
+ * tarball-URL dependency xlsx, so the release-source check refused the build.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -83,7 +86,15 @@ const writeJson = (path, data) => {
   writeFileSync(path, JSON.stringify(data, null, 2) + "\n");
 };
 
+/** Stamp the orchestrator importer's legalwork-server specifier, the only lockfile line the version changes. */
+export function stampLockfile(text, nextVersion) {
+  const pattern = /(\n  apps\/orchestrator:\n(?:    .*\n|      .*\n|        .*\n)*?      legalwork-server:\n        specifier: )0\.0\.0\n/;
+  if (!pattern.test(text)) throw new Error("pnpm-lock.yaml: apps/orchestrator legalwork-server specifier 0.0.0 not found");
+  return text.replace(pattern, `$1${nextVersion}\n`);
+}
+
 const appPath = resolve(root, "apps", "app", "package.json");
+const lockPath = resolve(root, "pnpm-lock.yaml");
 const desktopPath = resolve(root, "apps", "desktop", "package.json");
 const orchestratorPath = resolve(root, "apps", "orchestrator", "package.json");
 const serverPath = resolve(root, "apps", "server", "package.json");
@@ -109,6 +120,8 @@ writeJson(appPath, appData);
 writeJson(desktopPath, desktopData);
 writeJson(orchestratorPath, orchestratorData);
 writeJson(serverPath, serverData);
+const lockfile = stampLockfile(readFileSync(lockPath, "utf8"), version);
+if (!dryRun) writeFileSync(lockPath, lockfile);
 
 console.log(
   JSON.stringify(
@@ -121,6 +134,7 @@ console.log(
         "apps/desktop/package.json",
         "apps/orchestrator/package.json",
         "apps/server/package.json",
+        "pnpm-lock.yaml",
       ],
     },
     null,
