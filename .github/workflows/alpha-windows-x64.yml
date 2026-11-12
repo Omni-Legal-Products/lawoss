@@ -68,6 +68,16 @@ on:
         required: false
         type: boolean
         default: true
+      engine_reuse_run_id:
+        description: "LAWOSS: voliteľne prevziať engine z iného behu tohto repa (ID behu) namiesto stavby na macOS runneri; vyžaduje aj engine_reuse_manifest_sha256"
+        required: false
+        type: string
+        default: ''
+      engine_reuse_manifest_sha256:
+        description: "LAWOSS: nezávislý SHA256 manifestu enginu z toho behu (výstup manifest-sha256 jeho kroku opencode-engine / build)"
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -148,6 +158,9 @@ jobs:
     with:
       build-mode: development
       ref: ${{ github.sha }}
+      # Prevzatý engine overí ci-opencode-derivative.yml proti aktuálnemu receptu a manifestu (beh na ubuntu).
+      reuse-run-id: ${{ inputs.engine_reuse_run_id }}
+      reuse-manifest-sha256: ${{ inputs.engine_reuse_manifest_sha256 }}
   sandbox-runtime:
     needs: signing
     uses: ./.github/workflows/sandbox-runtime.yml
