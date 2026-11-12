@@ -41,6 +41,7 @@
     "test:preview-security": "node scripts/run-preview-security.mjs",
     "test:workflow-editor": "node scripts/workflow-editor-regression.mjs",
     "test:shutdown": "node scripts/shutdown-regression.mjs",
+    "test:local-provider-api": "node scripts/local-provider-api-regression.mjs",
     "test:updater-quit": "node scripts/updater-quit-regression.mjs",
     "check:packaged-security": "node scripts/check-packaged-security.mjs",
     "test:release-acceptance": "node scripts/release-acceptance.mjs",

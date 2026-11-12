@@ -81,6 +81,24 @@ export const localRuntimeTemplates = (): LocalRuntimeTemplate[] => [
   },
 ];
 
+/** Local templates speak Chat Completions, including when editing a redacted saved endpoint. */
+export function localRuntimeRequiresChat(baseURL: string, templateId?: string | null): boolean {
+  const templates = localRuntimeTemplates();
+  if (templates.some((template) => template.id === templateId || slugifyProviderId(template.name) === templateId)) return true;
+  try {
+    const url = new URL(baseURL.trim());
+    return ["http:", "https:"].includes(url.protocol)
+      && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+      && !url.username && !url.password && !url.search && !url.hash
+      && templates.some((template) => {
+        const endpoint = new URL(template.baseURL);
+        return url.port === endpoint.port && url.pathname.replace(/\/+$/, "") === endpoint.pathname;
+      });
+  } catch {
+    return false;
+  }
+}
+
 /** Turn a free-text provider name into a stable lowercase provider id. */
 export function slugifyProviderId(name: string): string {
   const slug = name

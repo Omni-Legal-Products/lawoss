@@ -2404,7 +2404,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, method: "POST", body: input, timeoutMs: 60_000 },
       ),
     getConfig: (workspaceId: string) =>
-      requestJson<{ opencode: Record<string, unknown>; legalwork: Record<string, unknown>; providerDisplay?: Record<string, { hasCustomEndpoint: boolean; editable: boolean }>; authoredConfig?: { status: "resolved" | "approval_required" | "configuration_conflict" | "unavailable"; paths: string[] }; updatedAt?: number | null }>(
+      requestJson<{ opencode: Record<string, unknown>; legalwork: Record<string, unknown>; providerDisplay?: Record<string, { hasCustomEndpoint: boolean; editable: boolean; chatCompletionsOnly?: boolean }>; authoredConfig?: { status: "resolved" | "approval_required" | "configuration_conflict" | "unavailable"; paths: string[] }; updatedAt?: number | null }>(
         baseUrl,
         `/workspace/${workspaceId}/config`,
         { token, hostToken, timeoutMs: timeouts.config },

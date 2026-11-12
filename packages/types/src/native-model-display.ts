@@ -1,6 +1,6 @@
 /** Display metadata is never submitted as an executable model setting. */
 export type NativeModelDisplay = { legalwork?: { defaultVariantID: string | null } };
-export type NativeProviderDisplay = { legalwork?: { hasCustomEndpoint: boolean } };
+export type NativeProviderDisplay = { legalwork?: { hasCustomEndpoint: boolean; chatCompletionsOnly?: boolean } };
 
 type Overlays = {
   settings?: Record<string, unknown>;

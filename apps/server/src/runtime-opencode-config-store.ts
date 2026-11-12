@@ -30,6 +30,8 @@ export type RuntimeOpencodeConfig = { -readonly [Key in keyof NativeRuntimeConfi
   sandboxNetworkMode?: "allow" | "block" | "approve";
   /** App-owned switches, independent of user-authored policy statements. */
   providerActivation?: Record<string, "allow" | "deny">;
+  /** One-time Ollama repair receipts prevent a partial startup from replaying over a later disconnect. */
+  ollamaChatRepairIDs?: string[];
   providerModelSelection?: Record<string, string[]>;
   /** Immutable app-private receipts prevent legacy grants replaying after revocation. */
   nativeSavedApprovalImportIDs?: string[];
@@ -131,6 +133,7 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     ...(personalization ? { personalization } : {}),
     ...(projectPermissionApprovals ? { projectPermissionApprovals } : {}),
     ...(nativeSavedApprovalImportIDs ? { nativeSavedApprovalImportIDs } : {}),
+    ...(application.ollamaChatRepairIDs === undefined ? {} : { ollamaChatRepairIDs: z.array(z.string().min(1)).parse(application.ollamaChatRepairIDs) }),
   };
 }
 
@@ -368,9 +371,11 @@ export async function writeRuntimeOpencodeConfig(
   // Preserve import history even when a settings editor replaces all ordinary
   // project settings. Revoking a grant must not revive its old engine record.
   const importIDs = [...current.nativeSavedApprovalImportIDs ?? []];
+  const ollamaRepairIDs = [...current.ollamaChatRepairIDs ?? []];
   const updated = updater(current);
   const next = normalizeRuntimeOpencodeConfig({ ...updated,
     ...(importIDs.length || updated.nativeSavedApprovalImportIDs?.length ? { nativeSavedApprovalImportIDs: [...new Set([...importIDs, ...updated.nativeSavedApprovalImportIDs ?? []])] } : {}),
+    ...(ollamaRepairIDs.length || updated.ollamaChatRepairIDs?.length ? { ollamaChatRepairIDs: [...new Set([...ollamaRepairIDs, ...updated.ollamaChatRepairIDs ?? []])] } : {}),
   });
   const configJson = JSON.stringify(next);
   if (configJson === previous && db.has(workspaceId)) return next;
