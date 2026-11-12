@@ -30,6 +30,8 @@ const TOOL_LABELS: Record<string, Labels> = {
   storage_search_filenames: { active: "lawoss.tool.files_search", done: "lawoss.tool.files_search_done" },
   storage_write_file: { active: "lawoss.tool.file_save", done: "lawoss.tool.file_save_done" },
   legalwork_shell: { active: "tool_activity.running_command", done: "tool_run.ran_command" },
+  // Režim kódu: `execute` bez známych vnorených volaní (napr. čaká na kartu) nie je „Spúšťanie execute“ (test 12. 11. 2026).
+  execute: { active: "tool.working", done: "tool_run.summary.tool" },
 };
 
 /**
@@ -97,3 +99,26 @@ export const lawossToolCategory = (name: string): LawossToolCategory | null =>
 export const lawossToolActivityLabel = (name: string, input: unknown): string | null => label(name, input, "active");
 /** Krok po skončení, alebo `null`, keď má nástroj upstream text. */
 export const lawossToolHistoryLabel = (name: string, input: unknown): string | null => label(name, input, "done");
+
+/**
+ * Vnorené volania v režime kódu (`execute`) nesú mená `server.nástroj` (`slovlex.get_paragraph`, `orsr.orsr_get_…`)
+ * alebo `search` (engine hľadá nástroj). Test 12. 11. 2026 ukázal „Search“ a „Orsr orsr get company data by query“
+ * namiesto „Zdroj: ORSR“. Hľadanie nástroja nie je krok advokáta; ostatné idú cez tú istú mapu ako samostatné nástroje.
+ */
+const CODE_MODE_INTERNAL = new Set(["search"]);
+const engineToolName = (name: string): string => name.replace(".", "_");
+const humanize = (name: string): string => {
+  const text = name.replace(/^(?:inapp_|legalwork_)/, "").replace(/[_.-]+/g, " ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+};
+
+/** Text kroku `execute` podľa jeho vnorených nástrojov; neznámy nástroj ostane čitateľným menom ako doteraz. */
+export function lawossCodeModeLabel(names: readonly string[], phase: keyof Labels): string {
+  const visible = names.filter((name) => !CODE_MODE_INTERNAL.has(name));
+  if (!visible.length) return t(phase === "active" ? "tool.working" : "tool_run.summary.tool");
+  const known = visible.map((name) => label(engineToolName(name), undefined, phase)).filter((text): text is string => text !== null);
+  const unknown = visible.filter((name) => label(engineToolName(name), undefined, phase) === null).map(humanize);
+  const rest = unknown.length ? [unknown.join(" · ")] : [];
+  const restLabel = phase === "active" && rest.length ? [t("tool_activity.running_tool", { tool: rest[0] })] : rest;
+  return [...new Set([...known, ...restLabel])].join(" · ");
+}

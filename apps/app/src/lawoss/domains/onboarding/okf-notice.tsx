@@ -3,7 +3,8 @@ import type { FoundTextKey } from "./found-text";
 
 type Text = (key: FoundTextKey, params?: Record<string, string | number>) => string;
 
-export const OKF_FILES = ["AGENTS.md", "CLAUDE.md", "client.md", "memory/", "_STATUS.md"];
+// `.opencode/` so skillmi klienta pribudne tiež; test pred spustením alfy 12. 11. 2026 ho v zozname nenašiel.
+export const OKF_FILES = ["AGENTS.md", "CLAUDE.md", "client.md", "memory/", "_STATUS.md", ".opencode/"];
 
 /** Veta oznámenia musí byť viditeľná pri každej odpovedi, ktorá ho berie na vedomie; zoznam súborov je zbalený. */
 export function OkfNotice({ text }: { text: Text }) {
@@ -13,6 +14,7 @@ export function OkfNotice({ text }: { text: Text }) {
       <details className="text-sm">
         <summary className="cursor-pointer font-medium">{text("filesTitle")}</summary>
         <p className="mt-1">{OKF_FILES.join(", ")}</p>
+        <p className="mt-1 text-muted-foreground">{text("filesHidden")}</p>
       </details>
     </>
   );

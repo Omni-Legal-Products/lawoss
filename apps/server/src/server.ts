@@ -1,4 +1,5 @@
 import { registerAiGovernanceRoutes } from "./lawoss/ai-governance-routes.js";
+import { copiesBundledCoreIntoWorkspace } from "./lawoss/bundled-core-placement.js";
 import { registerYoloModeRoutes, yoloModeActive, yoloShellAgentRules } from "./lawoss/yolo-mode.js";
 import { engineAgent, registerFileOperationRoutes } from "./lawoss/file-operations.js";
 import { ProtectedDocumentRuntime } from "./lawoss/protected-ai/runtime.js";
@@ -5716,7 +5717,8 @@ async function resolveWorkspace(config: ServerConfig, id: string, options: { boo
       const bootstrapFiles = async () => {
         const bootstrapWorkspace = { ...workspace, path: resolvedWorkspace };
         const appFilesRoot = workspaceAppFilesRoot(config, bootstrapWorkspace);
-        const bundledCore = config.engineConfigurationMode !== "managed";
+        // 🟡 LAWOSS: zabudované skilly majú jednu kópiu v profile, nie v každom klientovi (PATCHES.md).
+        const bundledCore = copiesBundledCoreIntoWorkspace(config);
         if (usesExternalWorkspaceAppFiles(bootstrapWorkspace)) {
           await ensureDir(appFilesRoot);
           await ensureWorkspaceFiles(appFilesRoot, bootstrapWorkspace.preset, {

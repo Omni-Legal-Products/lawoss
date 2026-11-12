@@ -169,3 +169,28 @@ describe("doplnky z LAWOSS Marketplace (test inštalácie 3. 11. 2026)", () => {
     expect(getToolRunSummary([tool("ruzovy_get_list", {}, true)])).toBe(t("tool_run.summary.read"));
   });
 });
+
+describe("režim kódu: kroky vo vnútri execute (test pred spustením alfy 12. 11. 2026)", () => {
+  const execute = (toolNames: string[], done = true): DynamicToolUIPart => done
+    ? { type: "dynamic-tool", toolName: "execute", toolCallId: "exec", state: "output-available", input: {}, output: "", callProviderMetadata: { opencode: { toolNames, executedTools: toolNames } } }
+    : { type: "dynamic-tool", toolName: "execute", toolCallId: "exec", state: "input-available", input: {}, callProviderMetadata: { opencode: { toolNames } } };
+
+  test("sk: registre ako zdroj, hľadanie nástroja skryté, pamäť po slovensky", () => {
+    setLocale("sk");
+    expect(getToolHistoryLabel(execute(["search", "orsr.orsr_get_company_data_by_query", "slovlex.get_paragraph"])))
+      .toBe("Zdroj: Obchodný register SR · Zdroj: Slov-Lex");
+    expect(getToolHistoryLabel(execute(["search"]))).toBe(t("tool_run.summary.tool"));
+    expect(getToolActivityLabel(execute(["lawoss_memory_deadline"], false))).toBe(t("lawoss.tool.memory_deadline"));
+    expect(getToolActivityLabel(execute(["slovlex.get_paragraph"], false))).toBe("Dopyt do zdroja Slov-Lex");
+  });
+
+  test("sk: execute bez vnorených nástrojov (čaká na kartu) nie je „Spúšťanie execute“", () => {
+    setLocale("sk");
+    expect(getToolActivityLabel(execute([], false))).toBe("Pracujem");
+  });
+
+  test("neznámy nástroj ostane čitateľným menom", () => {
+    setLocale("sk");
+    expect(getToolHistoryLabel(execute(["browser.click"]))).toBe("Browser click");
+  });
+});

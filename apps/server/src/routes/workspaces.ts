@@ -1,4 +1,5 @@
 import { isProjectTemplateLocale } from "../project-schema.js";
+import { copiesBundledCoreIntoWorkspace } from "../lawoss/bundled-core-placement.js";
 import { rebaseWorkspaceMemoryAuthority } from "../lawoss/workspace-reconnect-memory.js";
 import { rebindWorkspaceSessions } from "../lawoss/workspace-session-rebind.js";
 import { serializeWorkspaceMutation } from "../lawoss/workspace-registry-lock.js";
@@ -166,7 +167,7 @@ export async function registerLocalProject(
       }
     } else {
       await ensureDir(workspacePath);
-      await ensureWorkspaceFiles(workspacePath, input.preset, { bundledCore: config.engineConfigurationMode !== "managed" });
+      await ensureWorkspaceFiles(workspacePath, input.preset, { bundledCore: copiesBundledCoreIntoWorkspace(config) });
       if (input.projectFields) await initializeProjectFields(workspacePath, input.projectFields);
     }
 

@@ -20,7 +20,7 @@ import { parseFilename, truncateText } from "@/components/tools/path"
 import { t } from "@/i18n";
 import { legalMemoryActivityLabel } from "@/lib/legalmemory-activity";
 // 🟡 LAWOSS: kroky agenta pre advokáta, nie názvy nástrojov (N-A5-7).
-import { lawossToolActivityLabel } from "@/lawoss/chat/tool-labels";
+import { lawossCodeModeLabel, lawossToolActivityLabel } from "@/lawoss/chat/tool-labels";
 
 type AnyToolPart = ToolUIPart | DynamicToolUIPart
 
@@ -39,13 +39,11 @@ export function getCodeModeToolNames(part: AnyToolPart, completedOnly = false): 
   return Array.isArray(names) ? names.filter((name): name is string => typeof name === "string" && name.length > 0) : [];
 }
 
-export function codeModeToolLabel(part: AnyToolPart): string | undefined {
+export function codeModeToolLabel(part: AnyToolPart, phase: "active" | "done" = "done"): string | undefined {
   const names = getCodeModeToolNames(part);
   if (!names.length) return;
-  return [...new Set(names)].map(name => {
-    const label = name.replace(/^(?:inapp_|legalwork_)/, "").replace(/[_.-]+/g, " ");
-    return label.charAt(0).toUpperCase() + label.slice(1);
-  }).join(" · ");
+  // 🟡 LAWOSS: kroky advokáta aj vo vnútri `execute` („Zdroj: Slov-Lex“), nie mená nástrojov (test 12. 11. 2026).
+  return lawossCodeModeLabel([...new Set(names)], phase);
 }
 
 const productActivityLabels: Record<string, string> = {
@@ -115,8 +113,8 @@ function hostnameOf(url: string | undefined): string | undefined {
  */
 export function getToolActivityLabel(part: AnyToolPart): string {
   if (isAppCapabilitiesToolPart(part)) return t("tool_activity.checking_app_capabilities");
-  const innerTools = codeModeToolLabel(part);
-  if (innerTools) return t("tool_activity.running_tool", { tool: innerTools });
+  const innerTools = codeModeToolLabel(part, "active");
+  if (innerTools) return innerTools;
   const name = part.type === "dynamic-tool" ? part.toolName : part.type.replace(/^tool-/, "");
   const lawossLabel = lawossToolActivityLabel(name, part.input);
   if (lawossLabel) return lawossLabel;
