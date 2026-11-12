@@ -1420,6 +1420,7 @@ async function bootRuntimeForSelectedWorkspace() {
     });
   } catch (error) {
     // 🟡 LAWOSS: náhradný klient len s existujúcim priečinkom (lawoss-boot-fallback.mjs).
+    /** @type {typeof workspace | undefined} */
     const fallback = pickBootFallbackWorkspace(list.workspaces, workspaceRoot);
     const fallbackRoot = String(fallback?.path ?? "").trim();
     if (!fallback || !fallbackRoot) throw error;

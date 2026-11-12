@@ -2930,9 +2930,9 @@ const de = {
   "composer.file_kind": "Datei",
   "composer.image_kind": "Bild",
   "composer.inserted_links_unsupported": "Für nicht unterstützte Dateien wurden Links eingefügt.",
-  "composer.loading_commands": "Commands werden geladen…",
+  "composer.loading_commands": "Befehle werden geladen…",
   "composer.mcps_label": "MCPs",
-  "composer.no_commands": "Keine Commands gefunden.",
+  "composer.no_commands": "Keine Befehle gefunden.",
   "composer.placeholder": "Beschreiben Sie Ihre Aufgabe…",
   "composer.remote_worker_paste_warning":
     "Dies ist ein Remote-Worker. Auch die Sandboxes sind remote. Um Dateien mit ihm zu teilen, laden Sie sie in den Ordner „Geteilt“ in der Seitenleiste.",

@@ -7,7 +7,7 @@ import { useState, type ReactNode } from "react";
 import { t, currentLocale } from "@/i18n";
 import { AiGuidance } from "@/lawoss/domains/ai/guidance";
 import { AiBoundariesRow } from "@/lawoss/domains/ai/boundaries";
-import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
+import { isCommercialSurfaceHidden, isDecisionModelHidden } from "@/lawoss/feature-flags";
 import { ProviderIcon } from "../../../design-system/provider-icon";
 import { SettingsNotice, SettingsStatusBadge } from "../settings-section";
 import {
@@ -256,7 +256,7 @@ export function AiSettingsView(props: AiSettingsViewProps) {
 
       {props.cloudProvidersView}
 
-      {props.systemOneView}
+      {isDecisionModelHidden() ? null : props.systemOneView}
       {props.ocrView}
 
       {props.fusionView}

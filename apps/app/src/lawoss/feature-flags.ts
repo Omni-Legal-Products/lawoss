@@ -85,6 +85,13 @@ export const isProjectViewHidden = (view: string): boolean =>
 /** Wiki (stránka a graf v ponuke „+“ bočného panela) sa neponúka. */
 export const isWikiHidden = (): boolean => ALPHA_HIDE_UNADOPTED_UPSTREAM;
 
+/**
+ * Sekcia „Poskytovatelia modelu Decision (SystemOne)“ v Poskytovateľoch AI: modely s pravdepodobnosťami, ktoré
+ * alfa nepoužíva a chránený režim ich aj tak odmieta (PATCHES.md, SystemOne). Test pred spustením 12. 11. 2026:
+ * advokát ju videl ako nejasnú technickú položku.
+ */
+export const isDecisionModelHidden = (): boolean => ALPHA_HIDE_UNADOPTED_UPSTREAM;
+
 /** Trasa neprevzatej plochy presmeruje na úvodnú stránku režimu. */
 export const isUpstreamRouteHidden = (path: string): boolean =>
   ALPHA_HIDE_UNADOPTED_UPSTREAM && UNADOPTED_UPSTREAM_ROUTES.some((route) => route.test(path));

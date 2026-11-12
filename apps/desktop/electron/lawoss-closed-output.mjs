@@ -13,6 +13,7 @@ export function isClosedOutputError(error) {
   return typeof error?.code === "string" && CLOSED_OUTPUT.has(error.code);
 }
 
+/** @param {readonly import("node:stream").Writable[]} [streams] */
 export function ignoreClosedOutput(streams = [process.stdout, process.stderr]) {
   for (const stream of streams) {
     stream?.on("error", (error) => {

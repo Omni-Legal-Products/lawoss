@@ -172,6 +172,9 @@ for (const endpoint of ["/lawoss/memory", "/lawoss/memory/grants"]) {
     const response = await fetch(f.url.replace("synthetic", "rem_synthetic") + endpoint, { headers: f.headers });
     expect(response.status).toBe(200); expect(await workspaceSnapshot(f.root)).toEqual(before);
     expect((await fetch(f.url + "/authorized-folders", { headers: f.headers })).status).toBe(200);
-    expect((await workspaceSnapshot(f.root)).some(entry => entry.path === ".opencode/.legalwork-core")).toBe(true);
+    // Bežný bootstrap: nastavenie priečinka áno, zabudované skilly už nie (lawoss/bundled-core-placement.ts).
+    const after = await workspaceSnapshot(f.root);
+    expect(after.some(entry => entry.path === ".opencode/legalwork.json")).toBe(true);
+    expect(after.some(entry => entry.path === ".opencode/.legalwork-core")).toBe(false);
   });
 }

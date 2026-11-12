@@ -10,6 +10,7 @@ import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import { getToolHistoryLabel, getToolIcon, getToolRunSummary } from "../src/components/tools/tool-presentation";
 import { BookOpen, FilePenLine, FilePlus2, FolderSearch, Search, SquareTerminal } from "lucide-react";
 import { getToolActivityLabel } from "../src/lib/tool-activity";
+import { t } from "../src/i18n";
 import { filedTasksOf } from "../src/components/chat/filed-tasks";
 import { collectLegalMemoryDocuments, legalMemoryOutputsOf } from "../src/lib/legalmemory-documents";
 import { assistantChatMessages, sharedAssistantFile } from "../src/components/chat/assistant-chat-presentation";
@@ -157,16 +158,18 @@ test("recorded tool names replace Execute in live activity, history and grouped 
   if (source.state.status !== "completed") throw new Error("Expected completed fixture");
   source.state.metadata = { toolCalls: [{ tool: "storage_list_folder", status: "completed" }, { tool: "storage_read_file", status: "running" }, { tool: "storage_read_file", status: "error" }] };
   const part = parseDynamicToolUIParts(projectTool(session.id, "assistant", source))[0];
-  expect(getToolHistoryLabel(part)).toBe("Storage list folder · Storage read file");
-  expect(getToolRunSummary([part, { ...part, toolCallId: "second" }])).toBe("Storage list folder · Storage read file");
+  // LAWOSS: vnorené nástroje majú texty advokáta ako samostatné kroky (lawoss/chat/tool-labels.ts, PATCHES.md).
+  expect(getToolHistoryLabel(part)).toBe("Looked through a folder · Read a file");
+  expect(getToolRunSummary([part, { ...part, toolCallId: "second" }])).toBe("Looked through a folder · Read a file");
   const running = { ...part, state: "input-streaming", output: undefined } satisfies import("ai").DynamicToolUIPart;
-  expect(getToolActivityLabel(running)).toBe("Running Storage list folder · Storage read file");
-  expect(getToolHistoryLabel({ ...part, state: "output-error", output: undefined, errorText: "Failed" })).toContain("Storage read file");
+  expect(getToolActivityLabel(running)).toBe("Looking through a folder · Reading a file");
+  expect(getToolHistoryLabel({ ...part, state: "output-error", output: undefined, errorText: "Failed" })).toContain("Read a file");
   const unrecorded = native("other", {});
   if (unrecorded.state.status !== "completed") throw new Error("Expected completed fixture");
   unrecorded.state.metadata = {};
   unrecorded.state.input = { code: "return tools.secret_tool()" };
-  expect(getToolHistoryLabel(parseDynamicToolUIParts(projectTool(session.id, "assistant", unrecorded))[0])).toBe("Execute");
+  // LAWOSS: `execute` bez zaznamenaných nástrojov nie je „Execute“, ale všeobecný krok.
+  expect(getToolHistoryLabel(parseDynamicToolUIParts(projectTool(session.id, "assistant", unrecorded))[0])).toBe(t("tool_run.summary.tool"));
 });
 
 test("Code Mode activity restores each inner tool's icon while running and after completion", () => {

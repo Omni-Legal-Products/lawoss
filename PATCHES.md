@@ -2212,3 +2212,17 @@ Rozhodnutie MČ 8. 11. 2026: model rozloženia strany (PP-DocLayoutV3, špička 
 | `apps/app/src/react-app/domains/reviews/review-recognition-panel.tsx` | +1 import, `reloadPages` (obnoví rozpoznané strany po dokončení) a jeden riadok s `LayoutOnDemandAction`, keď strana prečítaná cez OCR nemá rozloženie. |
 | `apps/server/src/document-preparation/service.test.ts`, `apps/server/src/document-preparation/routes.test.ts` | Testy, ktoré overujú rozloženie, posielajú `layout: true` (route test cez HTTP telo); dva nové testy: automatická príprava `detect` nevolá, výslovná žiadosť doplní rozloženie do toho istého súboru bez ďalšieho OCR. |
 | `apps/server/src/content-search.test.ts` | Test „missing layout … incomplete evidence“ prepísaný: bez žiadosti o rozloženie chýbajúci model rozloženia dôkaz neznehodnotí. |
+
+### Nálezy testu pred spustením alfy (12. 11. 2026)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/lib/tool-activity.ts` | `codeModeToolLabel(part, phase)` volá `lawossCodeModeLabel` z `lawoss/chat/tool-labels.ts` (+1 import): vnorené nástroje režimu kódu (`slovlex.get_paragraph`, `orsr.orsr_…`, `lawoss_*`) majú texty advokáta („Zdroj: Slov-Lex“), `search` enginu sa nezobrazuje; `execute` bez vnorených mien je „Pracujem“, nie „Spúšťanie execute“. |
+| `apps/app/src/react-app/domains/settings/pages/ai-view.tsx` | Sekcia SystemOne („Poskytovatelia modelu Decision“) len pri `!isDecisionModelHidden()` z `lawoss/feature-flags.ts` (1 podmienka). |
+| `apps/app/src/react-app/domains/settings/pages/connector-browser.tsx` | Nainštalovaný MCP server z LAWOSS Marketplace má v zozname meno z katalógu (`marketplaceConnector(name)?.title`, +1 import), nie „slovlex“. |
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | Composer dostane `listCommands` z `lawossSlashCommands` (+1 import, 1 `useCallback`): skilly klienta a doplnkov v ponuke „/“, bez `/init` a `/review`. |
+| `apps/app/src/i18n/locales/de.ts` | `composer.loading_commands`, `composer.no_commands` bez anglického „Commands“. |
+| `apps/server/src/server.ts`, `apps/server/src/routes/workspaces.ts` | `bundledCore` z `copiesBundledCoreIntoWorkspace()` (`lawoss/bundled-core-placement.ts`, +1 import): zabudované skilly, príkazy a agenti (~7 MB) sa nekopírujú do `.opencode/` každého klienta; engine ich dostáva z `capability-library` v profile. |
+| `apps/desktop/electron/main.mjs`, `apps/desktop/electron/lawoss-closed-output.mjs` | Typy JSDoc pre `typecheck:electron` (CI): náhradný klient má typ vybraného klienta, `ignoreClosedOutput` prijíma `Writable[]`. Bez zmeny správania. |
+| `apps/app/tests/codemode-chat-widgets.test.ts` | Upstream test mien režimu kódu očakáva texty LAWOSS („Looked through a folder · Read a file“, `execute` bez zaznamenaných nástrojov = `tool_run.summary.tool`), +1 import `t`. |
+| `apps/server/src/reload-events.e2e.test.ts`, `apps/server/src/lawoss-workspace-memory.e2e.test.ts` | Testy bootstrapu: `.legalwork-core` po bootstrape chýba, `.opencode/legalwork.json` vznikne; kópie zo staršej zostavy ostanú nedotknuté. |

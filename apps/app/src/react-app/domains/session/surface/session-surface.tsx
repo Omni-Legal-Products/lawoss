@@ -1,4 +1,5 @@
 import { assistantHasVisibleContent } from "@/components/chat/assistant-chat-presentation";
+import { lawossSlashCommands } from "@/lawoss/chat/slash-commands";
 import { readMcpStatuses } from "@/react-app/domains/connections/native-mcp";
 import { browserPasswordRequest } from "@legalwork/types/browser-password-request";
 import { NativeFormPanel } from "../modals/native-form-panel";
@@ -1812,6 +1813,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
     setToolSkills(next);
     return next;
   };
+  // 🟡 LAWOSS: skilly v ponuke „/“, bez príkazov pre vývojárov. Stabilná identita, aby composer nezahodil vyrovnávaciu pamäť.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- listSkills závisí len od klienta a pracovného priestoru.
+  const listSlashOptions = useCallback(() => lawossSlashCommands(props.listCommands, listSkills), [props.listCommands, props.client, props.workspaceId]);
 
   const listMcp = async (): Promise<{ servers: ComposerConnector[]; statuses: McpStatusMap }> => {
     const [response, firmHub] = await Promise.all([
@@ -2234,7 +2238,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         selectedAgent={props.selectedAgent}
         listAgents={props.listAgents}
         onSelectAgent={props.onSelectAgent}
-        listCommands={props.listCommands}
+        listCommands={listSlashOptions}
         listSkills={listSkills}
         skills={toolSkills}
         integrationClient={props.client}

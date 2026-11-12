@@ -20,6 +20,7 @@ import { t } from "@/i18n";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { resolveBrandIconSrc } from "@/react-app/design-system/extension-icon-src";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
+import { marketplaceConnector } from "@/lawoss/domains/marketplace/mcp-servers";
 import { ConnectorConfig } from "../connector-config";
 import { connectorStatusQuery } from "../connector-status-query";
 import { CONNECTOR_SETTINGS_CHANGED } from "../connector-write-settings";
@@ -204,7 +205,8 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
   const firmItems = areFirmItemsHidden() ? [] : (team.data?.items ?? []).filter(item => item.kind === "mcp");
   for (const server of mcp.mcpServers) {
     if (importedConnectorPlugin(server.name, packages.data) || [...catalog, ...customItems].some(item => item.target.kind === "service" && getMcpIdentityKey(item.target.entry) === server.name) || firmItems.some(item => item.connector?.serverName === server.name)) continue;
-    const name = pluginImportConnectorName(server.name);
+    // 🟡 LAWOSS: doplnok z LAWOSS Marketplace menom katalógu („Slov-Lex“), nie menom servera („slovlex“), PATCHES.md.
+    const name = marketplaceConnector(server.name)?.title ?? pluginImportConnectorName(server.name);
     installed.push({ id: `server:${server.name}`, name, description: t("catalog.connection_description"), category: connectorCategory(server.name, name), icon: <Brand name={name} />, target: { kind: "server", name: server.name }, installed: true, status: configuredConnectorState(server, mcp.mcpStatuses[server.name]) });
   }
   for (const item of firmItems) {
