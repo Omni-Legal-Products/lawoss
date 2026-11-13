@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-export const LAWOSS_CI_ENGINE_TESTS = ['scheduled-tasks/engine.test.ts', 'managed-opencode.search.e2e.test.ts', 'opencode-plugins/pdf-reading.integration.test.ts'];
+export const LAWOSS_CI_ENGINE_TESTS = ['scheduled-tasks/engine.test.ts', 'managed-opencode.search.e2e.test.ts', 'opencode-plugins/pdf-reading.integration.test.ts', 'lawoss/ollama-provider.released.test.ts'];
 
 export function engineTestFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {

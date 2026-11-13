@@ -8,7 +8,7 @@ import { nativeProviderFixture } from "./native-provider-fixture";
 const cleanups: Array<() => void> = [];
 afterEach(() => { cleanups.splice(0).forEach(cleanup => cleanup()); getReactQueryClient().clear(); });
 
-test("only explicit app-owned provider metadata enables editing; authored providers retain sign-in and models", async () => {
+test.each([true, false, undefined])("only explicit app-owned provider metadata enables editing; authored providers retain sign-in and models (chat-only=%s)", async chatCompletionsOnly => {
   const native = nativeProviderFixture({ connected: new Set(["owned", "authored", "ancestor", "legacy"]) });
   cleanups.push(native.stop);
   let ownedEditable = true;
@@ -17,7 +17,7 @@ test("only explicit app-owned provider metadata enables editing; authored provid
   const server = Bun.serve({ port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === "/workspace/matter/config") return Response.json({ opencode: { providers: { owned: provider, authored: provider, legacy: provider } }, legalwork: {},
-      providerDisplay: { owned: { hasCustomEndpoint: true, editable: ownedEditable }, authored: { hasCustomEndpoint: true, editable: false }, ancestor: { hasCustomEndpoint: true, editable: false }, legacy: { hasCustomEndpoint: true } } });
+      providerDisplay: { owned: { hasCustomEndpoint: true, editable: ownedEditable, chatCompletionsOnly }, authored: { hasCustomEndpoint: true, editable: false }, ancestor: { hasCustomEndpoint: true, editable: false }, legacy: { hasCustomEndpoint: true } } });
     if (path === "/org-policy") return Response.json({ entries: {} });
     if (path === "/workspace/matter/provider-model-refresh") { edits.push(await request.json()); return Response.json({ providers: {}, reloaded: false }); }
     return Response.json({ message: `Unexpected endpoint ${path}` }, { status: 404 });
@@ -40,7 +40,7 @@ test("only explicit app-owned provider metadata enables editing; authored provid
     await expect(store.refreshProviderModels(id)).rejects.toThrow();
   }
   const editable = await store.readCustomProviderForEdit("owned");
-  expect(editable).toMatchObject({ baseURL: "", endpointConfigured: true, models: [{ id: "full", contextLimit: 900000, outputLimit: 80000 }] });
+  expect(editable).toMatchObject({ baseURL: "", endpointConfigured: true, chatCompletionsOnly: chatCompletionsOnly === true, models: [{ id: "full", contextLimit: 900000, outputLimit: 80000 }] });
   await store.refreshProviderModels("owned"); expect(edits).toHaveLength(1);
   // A later authored winning override revokes form access without changing
   // existing credentials, connected models or the saved private endpoint.

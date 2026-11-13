@@ -145,6 +145,7 @@ export type CustomProviderEditData = {
   name: string;
   baseURL: string;
   endpointConfigured?: boolean;
+  chatCompletionsOnly?: boolean;
   apiType: CustomProviderApiType;
   modelRefresh?: CustomProviderModelRefreshStatus;
   models: Array<{
@@ -766,6 +767,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       name: typeof entry.name === "string" && entry.name.trim() ? entry.name : resolvedId,
       baseURL,
       endpointConfigured: metadata.saved.providerDisplay?.[resolvedId]?.hasCustomEndpoint ?? Boolean(baseURL),
+      chatCompletionsOnly: metadata.saved.providerDisplay?.[resolvedId]?.chatCompletionsOnly === true,
       apiType,
       models,
       modelRefresh,

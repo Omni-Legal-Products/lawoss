@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Lokalne modely Ollama (2026-11-12)
+
+| Subor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/connections/provider-auth/{local-templates,provider-auth-modal,store}.ts(x)`, `apps/app/src/app/lib/legalwork-server.ts`, `packages/types/src/native-model-display.ts`, `apps/server/src/native-provider-display.ts` (+ testy) | Lokalne sablony ponukaju iba Chat Completions a odoslany formular vynuti `chat`. Bezpecny priznak `chatCompletionsOnly` zachova tuto ochranu aj pri redigovanej adrese a vlastnom mene poskytovatela; adresy ani kluce sa klientovi nespristupnia. Vzdialene vlastne Responses API ostava volitelne. |
+| `apps/server/src/{runtime-provider-repair,runtime-opencode-config-store}.ts`, `apps/server/src/lawoss/{ollama-provider-repair,runtime-config-keys}.ts` (+ testy) | Pri starte sa len ulozeny Responses balik na loopback porte 11434 s cestou `/v1` opravi na `openai-compatible`, bez zmeny modelov, adresy a limitov. Jednorazove obnovenie aktivacie ma privatnu potvrdenku v riadku klienta; neskorsie odpojenie sa neprehra ani po prerusenom starte. Pri autorskych nativnych dokumentoch alebo nezistenej proveniencii sa zakazy zachovaju; firemne pravidla a ini poskytovatelia sa nemenia. |
+| `scripts/ci/run-engine-tests.mjs`, `apps/server/src/lawoss/ollama-provider.released.test.ts` (novy), `apps/app/tests/fixtures/local-provider-api.tsx` (novy), `apps/desktop/scripts/local-provider-api-regression.mjs` (novy), `apps/desktop/package.json` (`test:local-provider-api`) | Vyber testov so skutocnym enginom obsahuje dostupnost opraveneho modelu a generovanie cez `/v1/chat/completions` pred aj po restarte. Samostatna regresia skutocneho dialogu Electron overuje lokalne sablony, redigovany endpoint, odoslany typ API, vzdialeny Responses control a mobilnu sirku bez pouzivatelskeho profilu. |
+
 ## Opravy po syncu v2 (2026-11-10)
 
 Rozhodnutia MČ 10. 11. 2026 (koordinačný záznam k ADR 0016).

@@ -62,6 +62,7 @@ import type {
 } from "./store";
 import {
   localRuntimeTemplates,
+  localRuntimeRequiresChat,
   resolveTemplateName,
   slugifyProviderId,
   type LocalRuntimeTemplate,
@@ -330,6 +331,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const [customAutoRefreshTouched, setCustomAutoRefreshTouched] = useState(false);
   const [customSavedBaseURL, setCustomSavedBaseURL] = useState("");
   const [customEndpointConfigured, setCustomEndpointConfigured] = useState(false);
+  const [customChatCompletionsOnly, setCustomChatCompletionsOnly] = useState(false);
   const [customRefreshStatus, setCustomRefreshStatus] = useState<CustomProviderEditData["modelRefresh"]>();
   const [customBusy, setCustomBusy] = useState(false);
   const customModelChoices = useMemo(() => [...new Set([
@@ -370,6 +372,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const activeLocalTemplate = customShowLocalTemplates
     ? localRuntimeTemplates().find((template) => template.id === customTemplateId) ?? null
     : null;
+  const localChatOnly = (!customBaseURL.trim() && customChatCompletionsOnly)
+    || localRuntimeRequiresChat(customBaseURL, customTemplateId);
+  const effectiveCustomApiType = localChatOnly ? "chat" : customApiType;
 
   const formatProviderName = (id: string, fallback?: string) => {
     const named = fallback?.trim();
@@ -611,6 +616,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setCustomAutoRefreshTouched(false);
     setCustomSavedBaseURL("");
     setCustomEndpointConfigured(false);
+    setCustomChatCompletionsOnly(false);
     setCustomRefreshStatus(undefined);
     customModelsFocusRef.current = false;
     oauthSubmitBusyRef.current = false;
@@ -646,6 +652,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setCustomAutoRefreshTouched(true);
     setCustomSavedBaseURL(edit.baseURL.trim().replace(/\/+$/, ""));
     setCustomEndpointConfigured(edit.endpointConfigured === true || Boolean(edit.baseURL));
+    setCustomChatCompletionsOnly(edit.chatCompletionsOnly === true);
     setCustomRefreshStatus(edit.modelRefresh);
     setCustomEditMode(true);
     setCustomFixedProviderId(edit.providerId);
@@ -1098,6 +1105,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   // (fixed id, name, API type, Base-URL hint) for a branded provider.
   const startCustomProvider = (branded?: BrandedCustomProvider) => {
     setCustomEndpointConfigured(false);
+    setCustomChatCompletionsOnly(false);
     setCustomAutoRefresh(false);
     setCustomAutoRefreshTouched(false);
     setCustomSavedBaseURL("");
@@ -1130,6 +1138,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   // (not fixed), so several local providers can coexist.
   const startLocalProvider = () => {
     setCustomEndpointConfigured(false);
+    setCustomChatCompletionsOnly(false);
     setCustomEditMode(false);
     setCustomFixedProviderId(null);
     setCustomBrandName("Local model");
@@ -1216,7 +1225,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         name,
         baseURL,
         apiKey,
-        apiType: customApiType,
+        apiType: effectiveCustomApiType,
         models,
         autoRefresh: customAutoRefresh,
         preserveExistingEndpoint: customEditMode && customEndpointConfigured && !baseURL,
@@ -1877,8 +1886,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                                 hint: "/v1/responses · OpenAI, Azure OpenAI",
                               },
                             ]
-                          ).map((option) => {
-                            const active = customApiType === option.value;
+                          ).filter((option) => !localChatOnly || option.value === "chat").map((option) => {
+                            const active = effectiveCustomApiType === option.value;
                             return (
                               <button
                                 key={option.value}
@@ -1900,11 +1909,11 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                             );
                           })}
                         </div>
-                        <div className="text-[11px] text-dls-secondary">
-                          {customApiType === "responses"
+                        {!localChatOnly && <div className="text-[11px] text-dls-secondary">
+                          {effectiveCustomApiType === "responses"
                             ? t("provider_auth.uses_openai_sdk")
                             : t("provider_auth.uses_compatible_sdk")}
-                        </div>
+                        </div>}
                       </div>
 
                       <TextInput
