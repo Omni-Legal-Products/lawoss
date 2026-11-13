@@ -2226,3 +2226,9 @@ Rozhodnutie MČ 8. 11. 2026: model rozloženia strany (PP-DocLayoutV3, špička 
 | `apps/desktop/electron/main.mjs`, `apps/desktop/electron/lawoss-closed-output.mjs` | Typy JSDoc pre `typecheck:electron` (CI): náhradný klient má typ vybraného klienta, `ignoreClosedOutput` prijíma `Writable[]`. Bez zmeny správania. |
 | `apps/app/tests/codemode-chat-widgets.test.ts` | Upstream test mien režimu kódu očakáva texty LAWOSS („Looked through a folder · Read a file“, `execute` bez zaznamenaných nástrojov = `tool_run.summary.tool`), +1 import `t`. |
 | `apps/server/src/reload-events.e2e.test.ts`, `apps/server/src/lawoss-workspace-memory.e2e.test.ts` | Testy bootstrapu: `.legalwork-core` po bootstrape chýba, `.opencode/legalwork.json` vznikne; kópie zo staršej zostavy ostanú nedotknuté. |
+
+## Prevzatie enginu v alfa buildoch (2026-11-13)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `.github/workflows/alpha-macos-aarch64.yml`, `alpha-windows-x64.yml` | Voliteľné vstupy `engine_reuse_run_id` a `engine_reuse_manifest_sha256` (ako v `ci-tests.yml`) idú do `reuse-run-id` a `reuse-manifest-sha256` v `ci-opencode-derivative.yml`. Krok `opencode-engine / build` potom beží na ubuntu: stiahne artefakt `opencode-derivative-ci` z uvedeného behu a overí ho proti aktuálnemu receptu a nezávislému SHA256 manifestu. Bez vstupov sa engine stavia ako doteraz. Dôvod: Windows alpha.12 (beh 43233686530) 13-krát zrušil GitHub, lebo nedostal macOS arm64 runner pre engine, hoci macOS beh toho istého commitu engine postavil. |
