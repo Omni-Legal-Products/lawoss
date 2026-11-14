@@ -109,14 +109,6 @@ export function RealRegister({ data }: { data: OkfReadResult }) {
         </div>
       ) : null}
 
-      <div className="lw-note">
-        <span>
-          {text("deadlineSource")}
-        </span>
-        <span>
-          {text("deadlineReadOnly")}
-        </span>
-      </div>
     </>
   );
 }

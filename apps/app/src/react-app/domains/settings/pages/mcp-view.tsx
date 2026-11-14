@@ -1,5 +1,6 @@
 import { toast } from "sonner";
 /** @jsxImportSource react */
+import { mcpFailureText } from "../../../../lawoss/domains/integrations/mcp-failure";
 import { packageParts } from "./plugin-package-contents";
 import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationAddRequest, useIntegrationLibraryLayout } from "./integration-library";
 import { useEffect, useState, type SetStateAction } from "react";
@@ -1141,7 +1142,8 @@ function McpConnectedToolRow(props: { entry: McpDirectoryInfo; busy: boolean; on
 
 function readMcpErrorInfo(status: McpStatusMap[string] | undefined) {
   if (!status || status.status !== "failed") return null;
-  return "error" in status ? status.error : t("mcp.connection_failed");
+  // 🟡 LAWOSS: zrozumiteľná veta namiesto surového výpisu npm/TLS (PATCHES.md).
+  return mcpFailureText("error" in status ? status.error : null);
 }
 
 function McpConfiguredServerRow(props: {
