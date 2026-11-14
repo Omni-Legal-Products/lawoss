@@ -53,12 +53,13 @@ export function newerAlpha(current, payload, platform = alphaPlatform()) {
 }
 
 /** Prečíta najnovšiu alfu z webu. Chyba siete nie je chyba appky: vráti prázdny reťazec. */
+/** @param {string} current @param {{ fetchImpl?: (url: string, init?: object) => Promise<{ ok: boolean, json?: () => Promise<unknown> }>, platform?: string }} [options] */
 export async function latestAlpha(current, { fetchImpl = fetch, platform = alphaPlatform() } = {}) {
   if (!platform || !parseAlphaVersion(current)) return "";
   try {
     const response = await fetchImpl(`${SITE}/api/alfa/verzia`, { signal: AbortSignal.timeout(10_000), headers: { accept: "application/json" } });
     if (!response.ok) return "";
-    return newerAlpha(current, await response.json(), platform);
+    return newerAlpha(current, await response.json?.(), platform);
   } catch {
     return "";
   }

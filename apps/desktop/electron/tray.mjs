@@ -19,6 +19,7 @@ export class AppTray {
    *   icon: import("electron").NativeImage | null,
    *   onOpen: () => void,
    *   onQuit: () => void,
+   *   copy?: () => Record<string, string>,
    * }} options
    */
   constructor(options) {
@@ -27,6 +28,7 @@ export class AppTray {
     this.onOpen = options.onOpen;
     this.onQuit = options.onQuit;
     // LAWOSS: texty tray menu v jazyku rozhrania (predtým natvrdo anglicky).
+    /** @type {() => Record<string, string>} */
     this.copy = options.copy ?? (() => ({}));
     /** @type {Tray | null} */
     this.tray = null;
