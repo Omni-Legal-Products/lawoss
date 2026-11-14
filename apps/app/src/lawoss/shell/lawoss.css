@@ -491,8 +491,8 @@
 .lw-nav-urgency[data-urgency="hot"] { background: #e8836b; box-shadow: 0 0 8px rgba(232, 131, 107, 0.85); }
 /* B3: blížiaca sa lehota v riadku klienta/veci má farbu zlatého bodu (význam nesie text). */
 .lw-row-near { color: #c9a24a; }
-/* Alfa 14, bežný režim: aktívna položka bočného panela (globálne riadky aj strom klienta) má jemnú zlatú glazúru
-   s 1 px obrysom a tichým odleskom (design-system.md §4b). Žiadny zvislý prúžok na okraji. Obrys je celý rámik
+/* Alfa 14, bežný režim: aktívna položka bočného panela (globálne riadky aj strom klienta) má statickú zlatú glazúru
+   s 1 px obrysom; odlesk prejde raz len pri hoveri, v pokoji nič nebeží (design-system.md §4b, MČ 14. 11. 2026). Žiadny zvislý prúžok na okraji. Obrys je celý rámik
    (`inset 0 0 0 1px`), nie posunutý tieň. Pokročilý režim (bez `data-lawoss-ui="lite"`) ostáva natívny. */
 :root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session)[data-active] {
   isolation: isolate;
@@ -513,7 +513,9 @@
   --lw-sheen-from: -135%;
   --lw-sheen-to: 470%;
   transform: translateX(var(--lw-sheen-from)) skewX(-18deg);
-  animation: lw-sheen 9s ease-in-out infinite;
+}
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session)[data-active]:hover::after {
+  animation: lw-sheen-once 900ms var(--lw-ease-expo) 1 both;
 }
 @media (prefers-reduced-motion: reduce) {
   :root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session)[data-active]::after { content: none; animation: none; }

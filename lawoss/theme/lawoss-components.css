@@ -70,16 +70,13 @@
 }
 
 /* ── zlatý lesk (design-system.md §4b, MČ 14. 11. 2026) ─────────────────────
-   Hlavná akcia: pomalý odlesk raz za ~7 s, pri hoveri hneď. Rovnaký recept majú
+   Hlavná akcia: odlesk prejde raz (~0,9 s) len pri hoveri a pri zameraní klávesnicou;
+   v pokoji nič nebeží, žiadna nekonečná animácia (MČ 14. 11. 2026). Rovnaký recept majú
    `.lw-btn.gold` a `.lw-today-primary` (lawoss.css, okf-glass.css). Pohyb len cez
    `transform`; `prefers-reduced-motion` odlesk aj zdvih vypne, stav ostáva. */
 :root {
   --lw-sheen-from: -140%;
   --lw-sheen-to: 330%;
-}
-@keyframes lw-sheen {
-  0%, 62% { transform: translateX(var(--lw-sheen-from)) skewX(-18deg); }
-  100% { transform: translateX(var(--lw-sheen-to)) skewX(-18deg); }
 }
 @keyframes lw-sheen-once {
   from { transform: translateX(var(--lw-sheen-from)) skewX(-18deg); }
@@ -100,9 +97,8 @@
   pointer-events: none;
   background: var(--lw-gold-sheen);
   transform: translateX(var(--lw-sheen-from)) skewX(-18deg);
-  animation: lw-sheen 7s ease-in-out infinite;
 }
-:is([data-slot="button"][data-variant="default"]:not([data-size="sm"]):not([data-size="xs"]), .lw-composer-send, .lw-btn.gold, .lw-today-primary):hover:not(:disabled)::after {
+:is([data-slot="button"][data-variant="default"]:not([data-size="sm"]):not([data-size="xs"]), .lw-composer-send, .lw-btn.gold, .lw-today-primary):is(:hover, :focus-visible):not(:disabled)::after {
   animation: lw-sheen-once 900ms var(--lw-ease-expo) 1 both;
 }
 :is([data-slot="button"][data-variant="default"], .lw-composer-send, .lw-btn.gold, .lw-today-primary):is(:disabled, [aria-disabled="true"])::after {

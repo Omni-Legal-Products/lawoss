@@ -38,10 +38,22 @@ describe("zlatý lesk: tokeny a hlavná akcia", () => {
     const sheenStart = components.indexOf("/* ── zlatý lesk");
     expect(components.slice(sheenStart)).not.toMatch(/#[0-9a-f]{3,8}\b/i);
   });
-  test("odlesk raz za ~7 s, pri hoveri hneď; animuje sa len transform", () => {
-    expect(components).toContain("animation: lw-sheen 7s ease-in-out infinite;");
-    expect(components).toMatch(/:hover:not\(:disabled\)::after \{\n  animation: lw-sheen-once/);
-    for (const name of ["lw-sheen", "lw-sheen-once", "lw-changed-fade"]) {
+  test("odlesk prejde raz (~0,9 s) len pri hoveri a zameraní klávesnicou; nikde nič nebeží dookola; len transform", () => {
+    // MČ 14. 11. 2026: žiadny odlesk v pokoji ani nekonečná animácia (predtým raz za ~7 s, v paneli raz za 9 s).
+    // (Kostra načítania `lw-okf-shimmer` v okf-glass.css je ukazovateľ práce, nie zlatý lesk.)
+    for (const css of [components, shell, glass]) {
+      expect(css).not.toMatch(/animation:[^;]*lw-(sheen|changed)[^;]*infinite/);
+      expect(css).not.toMatch(/animation:\s*lw-sheen\s/);
+      expect(css).not.toContain("@keyframes lw-sheen {");
+    }
+    expect(components).not.toMatch(/\binfinite\b/);
+    expect(shell).not.toMatch(/\binfinite\b/);
+    expect(components).toMatch(/:is\(:hover, :focus-visible\):not\(:disabled\)::after \{\n  animation: lw-sheen-once 900ms var\(--lw-ease-expo\) 1 both;/);
+    // V pokoji len pseudo-prvok mimo tlačidla, bez animácie.
+    const idle = block(components, ':is([data-slot="button"][data-variant="default"]:not([data-size="sm"]):not([data-size="xs"]), .lw-composer-send, .lw-btn.gold, .lw-today-primary)::after {');
+    expect(idle).toContain("background: var(--lw-gold-sheen);");
+    expect(idle).not.toContain("animation");
+    for (const name of ["lw-sheen-once", "lw-changed-fade"]) {
       const frames = components.slice(components.indexOf(`@keyframes ${name} {`));
       const body = frames.slice(0, frames.indexOf("\n}\n"));
       expect(body.length).toBeGreaterThan(0);
@@ -62,7 +74,10 @@ describe("aktívna položka v bežnom režime: glazúra, nikdy prúžok na okraj
     const rule = block(shell, ':root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session)[data-active] {');
     expect(rule).toContain("background: var(--lw-gold-glaze);");
     expect(rule).toContain("box-shadow: inset 0 0 0 1px var(--lw-gold-glaze-border), var(--lw-gold-glaze-shadow);");
-    expect(shell).toContain("animation: lw-sheen 9s ease-in-out infinite;");
+    // Glazúra a obrys sú statické; odlesk len pri hoveri, raz.
+    expect(rule).not.toContain("animation");
+    expect(block(shell, ':root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session)[data-active]::after {')).not.toContain("animation");
+    expect(block(shell, ':root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session)[data-active]:hover::after {')).toContain("animation: lw-sheen-once 900ms var(--lw-ease-expo) 1 both;");
   });
   test("žiadny zvislý prúžok: v CSS LAWOSS ani v bočnom paneli nie je posunutý vnútorný tieň ani okraj aktívnej položky", () => {
     for (const css of [shell, components, glass]) {
