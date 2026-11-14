@@ -1213,7 +1213,7 @@ function WorkspaceSidebarGroup({
                       <DropdownMenu>
                         <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" className={cn("absolute top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 data-popup-open:opacity-100 [@media(hover:none)]:opacity-100", config.collapseProjectSessions ? "right-7" : "right-0.5")} aria-label={t("projects.session_actions")}><MoreHorizontal className="size-3.5" /></Button>} />
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem disabled={ctx.newChatDisabled} onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}><SquarePen />{t("session.new_task")}</DropdownMenuItem>
+                          <DropdownMenuItem disabled={ctx.newChatDisabled} onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}><SquarePen />{projectNav.lite ? t("projects.new_chat") : t("session.new_task")}</DropdownMenuItem>{/* 🟡 LAWOSS (alfa 14) */}
                           {ctx.onOpenCreateGroupModal && <DropdownMenuItem onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}><FolderPlus />{t("session_management.create_group")}</DropdownMenuItem>}
                         </DropdownMenuContent>
                       </DropdownMenu>

@@ -195,6 +195,9 @@ describe("boční panel LAWOSS-lite", () => {
     expect(sidebar).toContain('projectReviews: <SidebarMenuSubItem key="projectReviews">');
     // Ceruzka pri rozbalenom klientovi zakladá chat: v bežnom režime „Nový chat“, v Pokročilom natívne.
     expect(sidebar).toContain('aria-label={projectNav.lite ? t("projects.new_chat") : t("session.new_task")}');
+    // Rovnako položka v ponuke „…“ pri Chatoch (zakladá chat).
+    expect(sidebar).toContain('<SquarePen />{projectNav.lite ? t("projects.new_chat") : t("session.new_task")}</DropdownMenuItem>');
+    expect(sidebar).not.toContain('<SquarePen />{t("session.new_task")}</DropdownMenuItem>');
     expect(t("projects.new_chat", "sk")).toBe("Nový chat");
   });
   test("alfa 14: stav MCP zverejní existujúce čítanie stavového riadku, nie nové čítanie", () => {
