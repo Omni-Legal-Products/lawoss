@@ -100,11 +100,12 @@ export function liteDeadlines({ data, scope, clientId, nav, appTasks: rawAppTask
   const model = buildToday(source, now, LEHOTY_HORIZON_DAYS, appTasks);
   const events = agendaEvents(source, appTasks);
   const rows = lehotyRows(model, events, now);
-  // Výber klienta: klienti praxe (pri filtri z panela, lebo zúžené čítanie praxu nevidí).
-  const practice = filtered ? nav?.scope ?? null : scope;
-  const ownership = practice?.practiceRoot ? registerOwnerOf(nav, practice) : null;
-  const choices = practiceClientChoices(practice, (filtered ? nav?.data?.clients : data.clients) ?? []);
-  const listed = ownership && practice ? lehotyClients(ownership.owners, choices, practice.anchor.id) : [];
+  // Výber klienta: klienti praxe. Kotva rozsahu je vybraný priečinok (aj pri `?klient=`), rozsah je celá prax;
+  // vynechá sa len zaregistrovaný koreň praxe, ktorý klientom nie je.
+  const root = scope?.practiceRoot ? comparable(scope.practiceRoot) : null;
+  const ownership = scope && root ? registerOwnerOf(nav, scope) : null;
+  const choices = practiceClientChoices(scope, data.clients ?? []);
+  const listed = ownership ? lehotyClients(ownership.owners.filter((owner) => comparable(owner.path) !== root), choices) : [];
   const current: LehotyClient[] = filtered && scope && !listed.some((c) => c.id === scope.anchor.id)
     ? [{ id: scope.anchor.id, title: scope.anchor.displayNameResolved || scope.anchor.name || scope.anchor.path }] : [];
   const clients = [...listed, ...current];

@@ -128,13 +128,13 @@ export type LehotyClient = { id: string; title: string };
 type OwnerWorkspace = { id: string; path: string; name?: string; displayNameResolved?: string };
 
 /**
- * Klienti pre výber a „Podľa klienta“: vlastníci priečinkov (ako `registerOwns`, #246), bez koreňa praxe. Meno
+ * Klienti pre výber a „Podľa klienta“: vlastníci priečinkov (ako `registerOwns`, #246). Meno
  * z karty klienta (`practiceClientChoices`), inak meno priečinka.
  */
-export function lehotyClients(owners: readonly OwnerWorkspace[], choices: readonly Pick<ClientChoice, "id" | "title">[], exclude?: string): LehotyClient[] {
+export function lehotyClients(owners: readonly OwnerWorkspace[], choices: readonly Pick<ClientChoice, "id" | "title">[]): LehotyClient[] {
   const seen = new Set<string>();
   return owners.flatMap((owner) => {
-    if (owner.id === exclude || seen.has(owner.id)) return [];
+    if (seen.has(owner.id)) return [];
     seen.add(owner.id);
     return [{ id: owner.id, title: choices.find((c) => c.id === owner.id)?.title || owner.displayNameResolved || owner.name || lastSegment(owner.path) || owner.id }];
   }).sort((a, b) => a.title.localeCompare(b.title, "cs") || a.id.localeCompare(b.id));

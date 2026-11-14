@@ -91,6 +91,8 @@ export function LehotyDashboard({ title, locale, todayIso, rows, undated, events
           {undated > 0 && kind !== "deadlines" ? <p className="lw-dnes-quiet" data-lawoss-undated={undated}><Info aria-hidden size={13} />{text("lehoty_undated", { count: undated })}</p> : null}
           {/* #242: prípady bez evidovaných lehôt ostanú viditeľné tichým riadkom, aj keď iné prípady lehoty majú. */}
           {coverage.recorded > 0 && coverage.unrecorded > 0 ? <p className="lw-dnes-quiet" data-lawoss-unrecorded={coverage.unrecorded}><Info aria-hidden size={13} />{text("deadlines_partial_note", { count: coverage.unrecorded })}</p> : null}
+          {/* Ako Dnes: termíny a úlohy sú, ale žiadny prípad nemá evidované lehoty; prázdny zoznam to povie sám. */}
+          {complete && coverage.recorded === 0 && groups.length > 0 ? <p className="lw-dnes-quiet" data-lawoss-deadlines="unrecorded_dates"><Info aria-hidden size={13} />{text("deadlines_unrecorded")}</p> : null}
           {truncated ? <p className="lw-dnes-quiet" data-lawoss-truncated={truncated} role="note"><Info aria-hidden size={13} />{text("lehoty_truncated", { count: truncated })}</p> : null}
           {unreadable ? <p className="lw-dnes-quiet" data-lawoss-unreadable={unreadable} role="note"><Info aria-hidden size={13} />{text("lehoty_unreadable", { count: unreadable })}</p> : null}
         </section>

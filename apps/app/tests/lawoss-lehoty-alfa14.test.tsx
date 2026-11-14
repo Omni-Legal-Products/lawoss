@@ -167,6 +167,14 @@ describe("obrazovka", () => {
     expect(client).toContain('<option value="tatran" selected="">Tatran</option>');
   });
 
+  test("#242: termíny bez jedinej evidovanej lehoty – tichý riadok ako na Dnes", () => {
+    const work = rows.filter((r) => r.kind === "work" || r.kind === "task");
+    const none = html(<LehotyDashboard {...base} rows={work} coverage={{ recorded: 0, unrecorded: 2 }} />);
+    expect(none).toContain('data-lawoss-deadlines="unrecorded_dates"');
+    expect(none).toContain("Pracovný termín");
+    expect(out).not.toContain('data-lawoss-deadlines="unrecorded_dates"');
+  });
+
   test("prázdne: nenačítané nie je „nič“; bez evidovaných lehôt to povie", () => {
     const empty = { ...base, rows: [], undated: 0, events: [], byClient: undefined };
     expect(html(<LehotyDashboard {...empty} complete={false} />)).toContain('data-lawoss-deadlines="not_loaded"');
@@ -271,13 +279,17 @@ describe("zachované pravidlá: ?klient=, #246, #168", () => {
     const folder = (title: string) => overviewFolder(scope, read.matters.find((m) => m.title === title)!.path)!;
     expect(ownership.owner(folder("Cudzí spor"))).toBe("vnoreny");
     expect(ownership.owner(folder("Spor BETA"))).toBe("alfa");
-    // Kotva rozsahu v teste je ALFA (ako v review #246); skutočná prax má kotvu v koreni.
     const counts = clientCounts(lehotyRows(buildToday(read, TODAY, 36_500), [], TODAY), lehotyClients(ownership.owners, []),
       (path) => ownership.owner(overviewFolder(scope, path)!), () => null);
     expect(counts.map((c) => [c.id, c.count])).toEqual([["alfa", 1], ["vnoreny", 1]]);
+    // Kotva rozsahu je vybraný klient (ALFA), rozsah celá prax: ALFA vo výbere aj v počtoch nechýba.
     const all = liteDeadlines({ data: read, scope, clientId: null, nav, appTasks: [app("H", "horak")], workspaces, todayIso: TODAY });
-    expect(all.clients.map((c) => c.id)).toEqual(["horak", "vnoreny"]);
-    expect(all.byClient?.map((c) => [c.id, c.count])).toEqual([["horak", 1], ["vnoreny", 1]]);
+    expect(all.clients.map((c) => c.id)).toEqual(["alfa", "horak", "vnoreny"]);
+    expect(all.byClient?.map((c) => [c.id, c.count])).toEqual([["alfa", 1], ["horak", 1], ["vnoreny", 1]]);
+    // Pri filtri klienta ostáva výber klientov praxe aj bez panela (bez neho členovia rozsahu, vnorený patrí vonkajšiemu).
+    const one = liteDeadlines({ data: read, scope, clientId: "alfa", nav: null, appTasks: [], workspaces, todayIso: TODAY });
+    expect(one.clients.map((c) => c.id)).toEqual(["alfa", "horak"]);
+    expect(one.byClient).toBeUndefined();
   });
 
   test("ownInputs nechá len podklady vlastných prípadov", () => {
