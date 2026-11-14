@@ -22,7 +22,7 @@ import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { ProjectReviews } from "../../reviews/project-reviews";
 import { ProjectsPage } from "../../workspace/projects-page";
 import { ProjectHome } from "../../workspace/project-home";
-import { ClientOverview } from "@/lawoss/lite/client-overview";
+import { ClientInitials, ClientOverview } from "@/lawoss/lite/client-overview";
 import { useClientDisplayName } from "@/lawoss/lite/client-row-view";
 import { clientDeadlinesLink } from "@/lawoss/lite/links";
 import { ProjectPersonalisationProvider } from "../../workspace/project-personalisation-modal";
@@ -1151,6 +1151,7 @@ export function SessionPage(props: SessionPageProps) {
       onViewAllDeadlines={inWorkspace || isProjectViewHidden("calendar") ? undefined : () => navigate(workspaceCalendarRoute(props.selectedWorkspaceId))}
       onRename={props.onRenameProject}
       extra={<ClientOverview workspaceId={props.selectedWorkspaceId} />}
+      leading={<ClientInitials workspaceId={props.selectedWorkspaceId} name={projectName} />} // 🟡 LAWOSS
     /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
   ) : null;
 

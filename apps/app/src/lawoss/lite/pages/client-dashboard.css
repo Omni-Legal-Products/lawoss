@@ -1,0 +1,119 @@
+/*
+ * Domov klienta v bežnom režime ako pasívny prehľad (alfa 14, spec-klient.md). Diely z Dnes (today.css: dlaždice,
+ * štítky, malé dlaždice, štvorček dní, dok chatu) s tokenmi --td-* (okf-glass.css, .lw-client-home). Svetlá aj tmavá
+ * téma cez tokeny; zaoblenia z dizajn systému; zlatá len ako glazúra s odleskom pri hoveri/fokuse, nikdy zvislý prúžok.
+ */
+.lw-client-home.lw-klient {
+  --dn-radius: var(--lw-radius-2xl, 18px);
+  --dn-radius-sm: var(--lw-radius-xl, 14px);
+  --dn-amber: var(--lw-warning, #d89a4e);
+  --dn-green: var(--lw-success, #8dbb8f);
+  container: lw-klient / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.lw-klient > * { min-width: 0; }
+.lw-klient-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; }
+.lw-klient-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--lw-text-secondary); }
+.lw-klient .lw-klient-quiet { margin: -8px 2px 0; }
+
+/* Dlaždice: štyri v rade, na užšom obsahu dve, na úzkom (karta vedľa chatu) jedna. */
+.lw-klient .lw-klient-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@container lw-klient (max-width: 900px) { .lw-klient .lw-klient-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container lw-klient (max-width: 520px) { .lw-klient .lw-klient-tiles { grid-template-columns: minmax(0, 1fr); } }
+.lw-klient .lw-dnes-tile .lw-dnes-tile-sub + .lw-dnes-tile-sub { color: var(--lw-text-tertiary); font-size: 12px; }
+.lw-dnes-pill[data-tone="muted"] { background: transparent; color: var(--lw-text-tertiary); }
+
+/* Malý pás 14 dní ako štvrtá dlaždica: tie isté dni a bodky ako na Dnes, bez názvov dní. */
+.lw-klient .lw-today-strip[data-compact] {
+  display: flex; flex-direction: column; gap: 10px; padding: 18px 16px 14px;
+  border: 1px solid var(--td-line); border-radius: var(--dn-radius);
+  background: var(--td-glass), var(--lw-surface);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--lw-text-primary) 6%, transparent), 0 18px 40px -28px rgba(0, 0, 0, 0.6);
+}
+.lw-klient .lw-today-strip[data-compact]::after { content: none; }
+.lw-klient .lw-today-strip[data-compact] .lw-dnes-tile-label { margin: 0; font-weight: 400; }
+.lw-klient .lw-today-strip[data-compact] .lw-today-days { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: minmax(0, 1fr); gap: 2px; row-gap: 0; }
+.lw-klient .lw-today-strip[data-compact] .lw-today-days::after { display: none; }
+.lw-klient .lw-today-strip[data-compact] .lw-today-day[data-overdue] { grid-column: auto; }
+.lw-klient .lw-today-strip[data-compact] .lw-today-day[data-overdue] > a { grid-auto-flow: row; justify-content: stretch; gap: 3px; }
+.lw-klient .lw-today-strip[data-compact] .lw-today-day > a, .lw-klient .lw-today-strip[data-compact] .lw-today-day > span {
+  gap: 3px; padding: 5px 0 6px; border-radius: var(--lw-radius-sm, 6px);
+  background: color-mix(in srgb, var(--lw-text-primary) 3.5%, transparent);
+}
+.lw-klient .lw-today-strip[data-compact] .lw-today-dow { display: none; }
+.lw-klient .lw-today-strip[data-compact] .lw-today-dom { font-size: 10px; font-weight: 500; }
+.lw-klient .lw-today-strip[data-compact] .lw-today-dots { flex-direction: column; align-items: center; gap: 2px; min-height: 5px; }
+.lw-klient .lw-today-strip[data-compact] .lw-today-dots i { width: 5px; height: 5px; }
+.lw-klient .lw-today-strip[data-compact] .lw-today-dots i[data-kind="task"] { background: var(--td-gold); box-shadow: none; }
+.lw-klient .lw-today-strip[data-compact] .lw-today-dots-more { font-size: 8px; line-height: 8px; }
+.lw-klient .lw-today-strip[data-compact] .lw-today-tip { min-width: 180px; }
+
+/* Karty prípadov: tri, dve, jedna podľa šírky. */
+.lw-klient-cases { display: grid; gap: 12px; }
+.lw-klient-cases > .lw-dnes-h2 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.lw-klient-count { padding: 1px 8px; border-radius: var(--lw-radius-full, 9999px); background: color-mix(in srgb, var(--lw-text-primary) 7%, transparent); font-size: 12px; font-weight: 500; color: var(--lw-text-secondary); font-variant-numeric: tabular-nums; }
+.lw-klient-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+@container lw-klient (max-width: 900px) { .lw-klient-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container lw-klient (max-width: 560px) { .lw-klient-grid { grid-template-columns: minmax(0, 1fr); } }
+.lw-klient-card { gap: 12px; }
+.lw-klient-kind { min-width: 0; max-width: 62%; overflow: hidden; text-overflow: ellipsis; }
+.lw-klient-card-head { display: grid; gap: 2px; min-width: 0; }
+.lw-klient-ref { font-family: var(--lw-font-mono); font-size: 12px; color: var(--lw-text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw-klient-phase { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 13px; font-weight: 500; color: var(--lw-text-primary); }
+.lw-klient-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 10px; border-top: 1px solid var(--td-line); font-size: 13px; color: var(--lw-text-secondary); }
+.lw-klient-foot small { flex: none; font-size: 12px; color: var(--lw-text-tertiary); font-variant-numeric: tabular-nums; }
+.lw-klient-next { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw-klient-next svg { flex: none; color: var(--td-gold); }
+.lw-klient-all { justify-self: start; }
+.lw-klient-cases > .lw-dnes-quiet { margin: 0 2px; }
+
+/* „Čaká na vás“: vstupy klienta a otvorené úlohy pod tromi číslami, malým písmom. */
+.lw-klient-cols > .lw-dnes-panel { display: flex; flex-direction: column; gap: 12px; }
+.lw-klient-cols .lw-dnes-h2 { margin: 0; }
+.lw-klient-inputs { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; font-size: 12px; color: var(--lw-text-secondary); }
+.lw-klient-inputs b { font-weight: 600; color: var(--lw-text-primary); font-variant-numeric: tabular-nums; }
+.lw-klient-inputs-title { color: var(--lw-text-tertiary); }
+.lw-klient-inputs-note { flex-basis: 100%; color: var(--lw-text-tertiary); }
+.lw-klient .lw-dnes-more { margin: 0 10px; }
+.lw-klient .lw-dnes-quiet { margin: 0 10px; }
+
+/* „Pokračovať“: posledné chaty klienta. */
+.lw-klient-continue .lw-dnes-mini-icon { flex: none; }
+.lw-klient-when { flex: none; font-size: 12px; color: var(--lw-text-tertiary); font-variant-numeric: tabular-nums; }
+
+/* Pripojené priečinky na konci, predvolene zbalené. */
+.lw-klient-folders { display: grid; gap: 12px; }
+.lw-klient-folders-toggle { width: 100%; background: transparent; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.lw-klient-chevron { flex: none; color: var(--lw-text-tertiary); transition: transform 160ms var(--td-ease); }
+.lw-klient-folders-toggle[aria-expanded="true"] .lw-klient-chevron { transform: rotate(90deg); }
+.lw-klient a:focus-visible, .lw-klient button:focus-visible, .lw-klient input:focus-visible { outline: 2px solid var(--td-gold); outline-offset: 2px; }
+
+/* Pole chatu: na úzkej šírke (karta vedľa chatu) sa neukáže, chat je hneď vedľa. */
+.lw-klient .lw-dnes-dock { margin-top: 4px; }
+@container lw-klient (max-width: 560px) { .lw-klient .lw-dnes-dock { display: none; } }
+
+/* Hlavička klienta (upstream `project-home.tsx`) v bežnom režime, len pri klientovi s prehľadom z OKF:
+   zlaté „Nový chat“ nahrádza pole chatu dole (nový chat je aj v bočnom paneli). Prvá skupina v druhom riadku
+   hlavičky je práve tlačidlo „Nový chat“ (test lawoss-klient-prehlad-alfa14 stráži túto štruktúru).
+   A5: „Pridať poznámku“ a „Nová úloha“ zatiaľ ostávajú ako tiché sekundárne tlačidlá; odstrániť po overení vety
+   „Nová úloha“ v chate (pri overení 14. 11. nefungovala). */
+:root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-client-overview]) .lw-project-home-header header > div:nth-child(2) > div:first-child { display: none; }
+
+/* Iniciály klienta pred názvom (🟡 LAWOSS hák `leading` v project-home.tsx). Názov a iniciály ostanú v jednom riadku
+   aj na úzkej šírke; tlačidlá vtedy idú pod ne. */
+.lw-klient-initials {
+  flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--lw-radius-xl, 14px);
+  background: var(--lw-gold-glaze), var(--lw-surface); color: var(--lw-gold-glaze-text);
+  box-shadow: inset 0 0 0 1px var(--lw-gold-glaze-border);
+  font-size: 16px; font-weight: 600; letter-spacing: 0.02em;
+}
+:root[data-lawoss-ui="lite"] .lw-project-home-header header > div:first-child:has(> .lw-klient-initials) { flex-flow: row wrap; align-items: center; gap: 12px 14px; }
+@container project-page (max-width: 679px) {
+  :root[data-lawoss-ui="lite"] .lw-project-home-header header > div:first-child:has(> .lw-klient-initials) > :last-child { flex-basis: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lw-klient-chevron { transition: none; }
+}

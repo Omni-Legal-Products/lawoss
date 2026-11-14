@@ -172,7 +172,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
         <ContinueSection model={model} todayIso={todayIso} locale={locale} text={text} />
       </>}
 
-      <ChatBar text={text} filing={model.inputs.length > 0} />
+      <ChatBar text={text} suggestions={[text("chat_suggest_today"), ...(model.inputs.length > 0 ? [text("chat_suggest_file")] : []), text("chat_suggest_week")]} />
     </div>
   );
 }
@@ -303,8 +303,8 @@ function HotRowView({ row, locale, text }: { row: HotRow; locale: Language; text
   </Link>;
 }
 
-/** Štvorček dní: číslo a jednotka; neplatný dátum „?“, po termíne „!“, dnes slovom. */
-function DayBox({ daysLeft, tone, text }: { daysLeft: number | null; tone: DayTone; text: Text }) {
+/** Štvorček dní: číslo a jednotka; neplatný dátum „?“, po termíne „!“, dnes slovom (aj Domov klienta). */
+export function DayBox({ daysLeft, tone, text }: { daysLeft: number | null; tone: DayTone; text: Text }) {
   const [value, unit] = daysLeft === null ? ["?", text("due_invalid")]
     : daysLeft < 0 ? ["!", text("tile_overdue")]
     : daysLeft === 0 ? ["0", text("due_today")]
@@ -365,18 +365,18 @@ function ContinueSection({ model, todayIso, locale, text }: { model: TodayModel;
 }
 
 /**
- * Pole chatu: návrh ani Enter nič neodosiela, len otvorí Domov (nový chat) s vetou v poli správy; klienta si
- * advokát vyberie tam. Veta ide cez pamäť (`home-prefill.ts`), nie cez adresu.
+ * Pole chatu: návrh ani Enter nič neodosiela, len otvorí Domov (nový chat) s vetou v poli správy. Z Dnes si klienta
+ * advokát vyberie tam; z Domova klienta (`projectId`) je jeho klient na Domove už vybraný (`/home?project=`).
+ * Veta ide cez pamäť (`home-prefill.ts`), nikdy cez adresu.
  */
-function ChatBar({ text, filing }: { text: Text; filing: boolean }) {
+export function ChatBar({ text, suggestions, projectId }: { text: Text; suggestions: readonly string[]; projectId?: string }) {
   const navigate = useNavigate();
   const [draft, setDraft] = useState("");
   const open = (value: string) => {
     if (!value.trim()) return;
     requestHomePrefill(value);
-    navigate(homeRoute());
+    navigate(homeRoute(projectId));
   };
-  const suggestions = [text("chat_suggest_today"), ...(filing ? [text("chat_suggest_file")] : []), text("chat_suggest_week")];
   return <div className="lw-dnes-dock"><section className="lw-dnes-chat" aria-label={text("chat_label")} data-lawoss-chatbar="">
     <div className="lw-dnes-chat-suggest">
       {suggestions.map((suggestion) => <button key={suggestion} type="button" className="lw-dnes-suggest" onClick={() => open(suggestion)}>{suggestion}</button>)}
@@ -388,7 +388,7 @@ function ChatBar({ text, filing }: { text: Text; filing: boolean }) {
   </section></div>;
 }
 
-function Skeleton({ small = false }: { small?: boolean }) {
+export function Skeleton({ small = false }: { small?: boolean }) {
   return <span className="lw-dnes-skel" data-small={small || undefined} aria-hidden data-lawoss-skeleton="" />;
 }
 
@@ -410,7 +410,9 @@ function caseDateWhen(d: CaseDate, locale: Language, text: Text): string {
  * Jeden diagram, který nese informaci: 14 dní, dnešek, lhůty jako body podle naléhavosti. Úlohy ukáže ako termíny
  * z prípadov (`caseDates`, #251) na Dnes aj na Domove klienta: záznam s lehotou v ten istý deň nie je dvakrát.
  */
-export function DeadlineStrip({ deadlines, tasks, todayIso, locale, text }: { deadlines: readonly TodayDeadline[]; tasks: readonly TodayTask[]; todayIso: string; locale: Language; text: Text }) {
+export function DeadlineStrip({ deadlines, tasks, todayIso, locale, text, compact = false }: { deadlines: readonly TodayDeadline[]; tasks: readonly TodayTask[]; todayIso: string; locale: Language; text: Text;
+  /** Malý pás v dlaždici (Domov klienta v bežnom režime): tie isté dni a bodky, nadpis ako popis dlaždice. */
+  compact?: boolean }) {
   const dates = caseDates(tasks, todayIso, STRIP_DAYS, deadlines);
   const overdue = deadlines.filter((d) => !d.invalid && d.tier === "overdue");
   const days = Array.from({ length: STRIP_DAYS }, (_, i) => addDays(todayIso, i));
@@ -427,8 +429,8 @@ export function DeadlineStrip({ deadlines, tasks, todayIso, locale, text }: { de
     })),
   ];
   return (
-    <section className="lw-today-strip" style={reveal(1)} aria-label={text("strip_title")}>
-      <h2 className="lw-today-section-title">{text("strip_title")}</h2>
+    <section className="lw-today-strip" style={reveal(1)} aria-label={text("strip_title")} data-compact={compact || undefined}>
+      <h2 className={compact ? "lw-dnes-tile-label" : "lw-today-section-title"}>{text("strip_title")}</h2>
       <ol className="lw-today-days">
         {cells.map((cell) => {
           const hidden = Math.max(0, cell.items.length - STRIP_DOTS) + Math.max(0, cell.due.length - STRIP_TASK_DOTS);

@@ -820,6 +820,10 @@ export const shellEn = {
   "lawoss.lite.chat_suggest_today": "What should I do today?",
   "lawoss.lite.chat_suggest_file": "File the new documents",
   "lawoss.lite.chat_suggest_week": "Check this week's deadlines",
+  "lawoss.lite.client_chat_suggest_new": "What is new with this client?",
+  "lawoss.lite.client_chat_suggest_deadlines": "Check this client's deadlines",
+  "lawoss.lite.client_phase_missing_one": "Phase not recorded for {count} case",
+  "lawoss.lite.client_phase_missing_other": "Phase not recorded for {count} cases",
   "lawoss.lite.days_unit_one": "day",
   "lawoss.lite.days_unit_other": "days",
   "lawoss.lite.deadlines_unit_one": "deadline",
@@ -838,7 +842,7 @@ export const shellEn = {
 };
 
 /** Čeština a slovenština potřebují navíc tvary few/many (Intl.PluralRules, viz `t()` v i18n/index.ts). */
-type SlavicPluralKey = "lawoss.lite.days_unit_few" | "lawoss.lite.days_unit_many" | "lawoss.lite.deadlines_unit_few" | "lawoss.lite.deadlines_unit_many" | "lawoss.lite.week_dates_few" | "lawoss.lite.week_dates_many" | "lawoss.lite.tile_reg_failing_few" | "lawoss.lite.tile_reg_failing_many" | "lawoss.lite.continue_tasks_few" | "lawoss.lite.continue_tasks_many" | "lawoss.lite.due_in_days_few" | "lawoss.lite.due_in_days_many" | "lawoss.practice.clients_few" | "lawoss.practice.clients_many" | "lawoss.lite.registers_failing_few" | "lawoss.lite.registers_failing_many";
+type SlavicPluralKey = "lawoss.lite.days_unit_few" | "lawoss.lite.days_unit_many" | "lawoss.lite.deadlines_unit_few" | "lawoss.lite.deadlines_unit_many" | "lawoss.lite.week_dates_few" | "lawoss.lite.week_dates_many" | "lawoss.lite.tile_reg_failing_few" | "lawoss.lite.tile_reg_failing_many" | "lawoss.lite.continue_tasks_few" | "lawoss.lite.continue_tasks_many" | "lawoss.lite.due_in_days_few" | "lawoss.lite.due_in_days_many" | "lawoss.practice.clients_few" | "lawoss.practice.clients_many" | "lawoss.lite.registers_failing_few" | "lawoss.lite.registers_failing_many" | "lawoss.lite.client_phase_missing_few" | "lawoss.lite.client_phase_missing_many";
 
 export const shellCs = {
   "home.new_project_hint": "Nejdřív vyberte klienta, nebo přidejte nového.",
@@ -1667,6 +1671,12 @@ export const shellCs = {
   "lawoss.lite.chat_suggest_today": "Co mám dnes udělat?",
   "lawoss.lite.chat_suggest_file": "Zařaď nové dokumenty",
   "lawoss.lite.chat_suggest_week": "Zkontroluj lhůty tohoto týdne",
+  "lawoss.lite.client_chat_suggest_new": "Co je u tohoto klienta nového?",
+  "lawoss.lite.client_chat_suggest_deadlines": "Zkontroluj lhůty tohoto klienta",
+  "lawoss.lite.client_phase_missing_one": "Fáze není evidována u {count} případu",
+  "lawoss.lite.client_phase_missing_few": "Fáze není evidována u {count} případů",
+  "lawoss.lite.client_phase_missing_many": "Fáze není evidována u {count} případu",
+  "lawoss.lite.client_phase_missing_other": "Fáze není evidována u {count} případů",
   "lawoss.lite.days_unit_one": "den",
   "lawoss.lite.days_unit_few": "dny",
   "lawoss.lite.days_unit_many": "dne",
@@ -2521,6 +2531,12 @@ export const shellSk = {
   "lawoss.lite.chat_suggest_today": "Čo mám dnes urobiť?",
   "lawoss.lite.chat_suggest_file": "Zaraď nové dokumenty",
   "lawoss.lite.chat_suggest_week": "Skontroluj lehoty tohto týždňa",
+  "lawoss.lite.client_chat_suggest_new": "Čo je u tohto klienta nové?",
+  "lawoss.lite.client_chat_suggest_deadlines": "Skontroluj lehoty tohto klienta",
+  "lawoss.lite.client_phase_missing_one": "Fáza nie je evidovaná pri {count} prípade",
+  "lawoss.lite.client_phase_missing_few": "Fáza nie je evidovaná pri {count} prípadoch",
+  "lawoss.lite.client_phase_missing_many": "Fáza nie je evidovaná pri {count} prípadu",
+  "lawoss.lite.client_phase_missing_other": "Fáza nie je evidovaná pri {count} prípadoch",
   "lawoss.lite.days_unit_one": "deň",
   "lawoss.lite.days_unit_few": "dni",
   "lawoss.lite.days_unit_many": "dňa",
@@ -3369,6 +3385,10 @@ export const shellDe = {
   "lawoss.lite.chat_suggest_today": "Was steht heute an?",
   "lawoss.lite.chat_suggest_file": "Neue Dokumente zuordnen",
   "lawoss.lite.chat_suggest_week": "Fristen dieser Woche prüfen",
+  "lawoss.lite.client_chat_suggest_new": "Was gibt es Neues bei diesem Mandanten?",
+  "lawoss.lite.client_chat_suggest_deadlines": "Fristen dieses Mandanten prüfen",
+  "lawoss.lite.client_phase_missing_one": "Phase bei {count} Fall nicht erfasst",
+  "lawoss.lite.client_phase_missing_other": "Phase bei {count} Fällen nicht erfasst",
   "lawoss.lite.days_unit_one": "Tag",
   "lawoss.lite.days_unit_other": "Tage",
   "lawoss.lite.deadlines_unit_one": "Frist",

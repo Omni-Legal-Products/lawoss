@@ -44,6 +44,7 @@ import { buildClientRows, useRootCards } from "./client-row-data";
 import { ANCESTOR_CLASS, rowDeadlineText, urgencyTextClass } from "./client-row-text";
 import { useUiMode } from "./ui-mode";
 import { cardTitles, rememberCardTitles } from "./client-titles";
+import { recentChats, type RecentChat } from "./client-cards";
 
 /**
  * Skupiny panela pre LAWOSS: režim wiki (session-route odovzdá len priečinok wiki) zoznam projektov nemení,
@@ -61,6 +62,10 @@ function useLiveGroups(groups: readonly WorkspaceSessionGroup[] | undefined): re
   last.current = next;
   return next;
 }
+
+/** Kľúč posledných chatov: projekt, stav zoznamu a id, názov a čas chatov (nie stav behu). */
+const recentChatsKey = (groups: readonly WorkspaceSessionGroup[] | undefined): string =>
+  (groups ?? []).map((g) => [g.workspace.id, g.status, ...g.sessions.map((s) => [s.id, s.title, s.parentID ?? "", s.time?.updated ?? s.time?.created ?? "", s.time?.archived ?? ""].join("\u0002"))].join("\u0000")).join("\u0001");
 
 /** Projekty panela ako ich pozná LAWOSS; kľúč sa mení len pri zmene id, cesty alebo názvu (nie pri novom chate). */
 function useLiveWorkspaces(groups: readonly WorkspaceSessionGroup[] | undefined): RouteWorkspace[] | undefined {
@@ -153,7 +158,12 @@ export function useClientNavData(live?: { groups?: readonly WorkspaceSessionGrou
 }
 
 
-export type PublishedClientNav = Pick<ReturnType<typeof useClientNavData>, "connection" | "scope" | "data" | "groups" | "model" | "excludedWorkspaceIds" | "rows">;
+export type PublishedClientNav = Pick<ReturnType<typeof useClientNavData>, "connection" | "scope" | "data" | "groups" | "model" | "excludedWorkspaceIds" | "rows"> & {
+  /** Posledné chaty projektov zo živého zoznamu panela (Domov klienta, „Pokračovať“); bez panela nič. */
+  chats?: Readonly<Record<string, readonly RecentChat[]>>;
+};
+/** Domov klienta ukáže tri posledné chaty. */
+const RECENT_CHATS = 3;
 
 let published: PublishedClientNav | null = null;
 const publishedListeners = new Set<() => void>();
@@ -221,7 +231,9 @@ function ClientNavRoot({ groups, selectedWorkspaceId, children }: { groups?: rea
   useEffect(() => {
     setOpenState((prev) => forgetProjectOverride(prev, focused));
   }, [focused, tree.focus.client, tree.focus.matter]);
-  const snapshot = useMemo<PublishedClientNav>(() => ({ connection: nav.connection, scope: nav.scope, data: nav.data, groups: nav.groups, model: nav.model, excludedWorkspaceIds: nav.excludedWorkspaceIds, rows: nav.rows }), [nav.connection, nav.scope, nav.data, nav.groups, nav.model, nav.excludedWorkspaceIds, nav.rows]);
+  // Kľúč z toho, čo „Pokračovať“ ukáže: nový stav behu chatu zverejnený stav nemení.
+  const chats = useMemo(() => recentChats(live ?? [], RECENT_CHATS), [recentChatsKey(live)]); // eslint-disable-line react-hooks/exhaustive-deps -- kľúč nesie obsah `live`
+  const snapshot = useMemo<PublishedClientNav>(() => ({ connection: nav.connection, scope: nav.scope, data: nav.data, groups: nav.groups, model: nav.model, excludedWorkspaceIds: nav.excludedWorkspaceIds, rows: nav.rows, chats }), [nav.connection, nav.scope, nav.data, nav.groups, nav.model, nav.excludedWorkspaceIds, nav.rows, chats]);
   useEffect(() => { publish(snapshot); }, [snapshot]);
   useEffect(() => () => publish(null), []);
   // Klienti, ktorých vlastní koreň praxe: chat v koreni s priečinkom klienta, nikdy nad celou praxou.
