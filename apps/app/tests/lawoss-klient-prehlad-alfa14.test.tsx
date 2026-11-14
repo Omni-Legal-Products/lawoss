@@ -285,7 +285,7 @@ describe("pole chatu a stránka", () => {
     expect(css).toContain("A5:");
     expect(css).toContain("prefers-reduced-motion");
     // „Pridať poznámku“ a „Nová úloha“ v riadku názvu: oba riadky hlavičky sú `display: contents` (len CSS, len s iniciálami).
-    expect(css).toContain(':root[data-lawoss-ui="lite"] .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) > div:is(:first-child, :nth-child(2)) { display: contents; }');
+    expect(css).toContain(':root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) > div:is(:first-child, :nth-child(2)) { display: contents; }');
   });
 
   test("texty vo všetkých štyroch jazykoch, bez skladania kľúča za behu", () => {

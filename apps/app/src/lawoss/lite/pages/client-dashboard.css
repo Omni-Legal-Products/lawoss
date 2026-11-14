@@ -88,10 +88,10 @@
 .lw-klient-cols > .lw-dnes-panel { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; }
 /* Tri malé čísla vedľa seba: ikona a číslo v riadku, popis pod nimi. */
 .lw-klient .lw-dnes-minis { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.lw-klient .lw-dnes-mini { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 4px 8px; padding: 10px; }
+.lw-klient .lw-dnes-mini { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 4px 8px; padding: 8px 9px; }
 .lw-klient .lw-dnes-mini .lw-dnes-mini-icon { width: 26px; height: 26px; border-radius: var(--lw-radius-sm, 6px); }
 .lw-klient .lw-dnes-mini b { font-size: 20px; }
-.lw-klient .lw-dnes-mini > span:last-child { grid-column: 1 / -1; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw-klient .lw-dnes-mini > span:last-child { grid-column: 1 / -1; font-size: 11px; line-height: 1.25; }
 /* Riadok lehoty: názov až na dva riadky, pod ním štítok pôvodu a prípad · dátum (štítok už nezaberá riadok názvu). */
 .lw-klient .lw-dnes-item[data-kind="deadline"] { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 4px 8px; }
 .lw-klient .lw-dnes-item[data-kind="deadline"] > .lw-dnes-dni { grid-row: 1 / span 2; margin-right: 4px; }
@@ -127,7 +127,10 @@
    stránke a Úlohy aj Poznámky sa posúvajú nad ním. `space-y-6` (okraje podľa poradia v DOM) nahrádza `gap`; spodný
    okraj stĺpca (pb-8) dáva dok, ako na Dnes, inak by na konci stránky visel 32 px nad spodkom. */
 :root[data-lawoss-ui="lite"] [data-testid="project-home"]:has(> .lw-project-page-content > .lw-klient-dock) > .lw-project-page-content {
-  display: flex; flex-direction: column; gap: 24px; padding-bottom: 0;
+  display: flex; flex-direction: column; gap: 24px;
+}
+@container project-page (width >= 560px) {
+  :root[data-lawoss-ui="lite"] [data-testid="project-home"]:has(> .lw-project-page-content > .lw-klient-dock) > .lw-project-page-content { padding-bottom: 0; }
 }
 :root[data-lawoss-ui="lite"] [data-testid="project-home"]:has(> .lw-project-page-content > .lw-klient-dock) > .lw-project-page-content > * { margin-block: 0; }
 .lw-dnes-dock.lw-klient-dock { order: 1; background: var(--lw-canvas, var(--lw-surface)); }
@@ -143,24 +146,26 @@
    „Nová úloha“ v chate (pri overení 14. 11. nefungovala). */
 :root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header > div:nth-child(2) > div:first-child { display: none; }
 
-/* Iniciály klienta pred názvom (🟡 LAWOSS hák `leading` v project-home.tsx). */
+/* Iniciály klienta pred názvom (🟡 LAWOSS hák `leading` v project-home.tsx). Bez poľa chatu (koreň praxe) ostanú
+   iniciály a názov v jednom riadku a tlačidlá pod nimi. */
 .lw-klient-initials {
   flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--lw-radius-xl, 14px);
   background: var(--lw-gold-glaze), var(--lw-surface); color: var(--lw-gold-glaze-text);
   box-shadow: inset 0 0 0 1px var(--lw-gold-glaze-border);
   font-size: 16px; font-weight: 600; letter-spacing: 0.02em;
 }
+:root[data-lawoss-ui="lite"] .lw-project-home-header header > div:first-child:has(> .lw-klient-initials) { flex-flow: row wrap; align-items: center; gap: 12px 14px; }
 /* Hlavička klienta v jednom riadku: iniciály, názov (ceruzka ostáva pri ňom), tiché „Pridať poznámku“ a „Nová úloha“,
    potom pripnutie, zdieľanie a Personalizácia. Len CSS nad upstream značkami: oba riadky hlavičky sú `display: contents`
    a poradie dáva `order` (poradie fokusu ostáva podľa DOM: názov, ikony, potom tlačidlá). Na úzkej šírke sa riadok
-   zalomí. */
-:root[data-lawoss-ui="lite"] .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-:root[data-lawoss-ui="lite"] .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) > div:is(:first-child, :nth-child(2)) { display: contents; }
-:root[data-lawoss-ui="lite"] .lw-project-home-header header > div:first-child > .lw-klient-initials { order: 0; }
-:root[data-lawoss-ui="lite"] .lw-project-home-header header > div:first-child:has(> .lw-klient-initials) > :nth-child(2) { order: 1; flex: 1 1 14rem; min-width: 0; }
-:root[data-lawoss-ui="lite"] .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) > div:nth-child(2) > * { order: 2; }
-:root[data-lawoss-ui="lite"] .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) > div:nth-child(2) > button { height: 32px; padding-inline: 10px; color: var(--lw-text-secondary); }
-:root[data-lawoss-ui="lite"] .lw-project-home-header header > div:first-child:has(> .lw-klient-initials) > :last-child { order: 3; }
+   zalomí. Len s poľom chatu na stránke (ako skrytie „Nový chat“): pri koreni praxe ostanú upstream riadky. */
+:root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+:root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) > div:is(:first-child, :nth-child(2)) { display: contents; }
+:root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header > div:first-child > .lw-klient-initials { order: 0; }
+:root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header > div:first-child:has(> .lw-klient-initials) > :nth-child(2) { order: 1; flex: 1 1 14rem; min-width: 0; }
+:root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) > div:nth-child(2) > * { order: 2; }
+:root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) > div:nth-child(2) > button { height: 32px; padding-inline: 10px; color: var(--lw-text-secondary); }
+:root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header > div:first-child:has(> .lw-klient-initials) > :last-child { order: 3; }
 
 @media (prefers-reduced-motion: reduce) {
   .lw-klient-chevron { transition: none; }
