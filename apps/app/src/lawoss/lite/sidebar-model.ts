@@ -61,10 +61,11 @@ function decodeSegment(segment: string): string {
 /**
  * Projekt, ktorému patrí trasa bežného režimu mimo stromu klienta: natívne stránky projektu (`/workspace/<id>/…`:
  * Prehľad, Dokumenty, Chaty, chat) a lehoty jedného klienta (`/lehoty?klient=<id>`). Ostatné trasy (Dnes, Lehoty
- * a úlohy, Klienti, Na zaradenie, Nastavenia…) sú globálne: `null`.
+ * a úlohy, Klienti, Na zaradenie, Nastavenia aj s ID projektu…) sú globálne: `null`.
  */
 export function routeProject(pathname: string, search: string): string | null {
-  const workspace = /^\/workspace\/([^/]+)(?:\/|$)/.exec(pathname)?.[1];
+  // Nastavenia (aj `/workspace/<id>/settings/…`, kam vedie riadok Nastavenia dole v paneli) nepatria klientovi.
+  const workspace = /^\/workspace\/([^/]+)(?:\/(?!settings(?:\/|$))|$)/.exec(pathname)?.[1];
   if (workspace) return decodeSegment(workspace);
   return pathname === LEHOTY_PATH ? new URLSearchParams(search).get("klient") : null;
 }

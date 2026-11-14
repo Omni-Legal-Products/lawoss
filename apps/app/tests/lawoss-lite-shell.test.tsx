@@ -273,7 +273,8 @@ describe("alfa 14, bežný režim: aktívna je len položka otvorenej trasy", ()
     expect(routeProject("/workspace/tatran/session/s1", "")).toBe("tatran");
     expect(routeProject(`/workspace/${encodeURIComponent("ws 1/a")}/project`, "")).toBe("ws 1/a");
     expect(routeProject(LEHOTY_PATH, "?klient=tatran")).toBe("tatran");
-    for (const path of ["/dnes", LEHOTY_PATH, "/klienti", "/na-zaradenie", "/settings/general", "/home"]) expect(routeProject(path, "")).toBeNull();
+    for (const path of ["/dnes", LEHOTY_PATH, "/klienti", "/na-zaradenie", "/settings/general", "/home", "/workspace/tatran/settings/general", "/workspace/tatran/settings", "/workspace/tatran/settings/extensions/mcp"]) expect(routeProject(path, "")).toBeNull();
+    expect(routeProject("/workspace/tatran/settingsx", "")).toBe("tatran");
   });
 
   test("na Dnes a Lehotách a úlohách vybraný (rozbalený) klient nie je aktívny; na svojej trase áno", () => {
@@ -310,6 +311,15 @@ describe("alfa 14, bežný režim: aktívna je len položka otvorenej trasy", ()
     }
   });
 
+  test("Nastavenia dole v paneli (aj s ID projektu) a riadok klienta nie sú aktívne naraz", () => {
+    const path = "/workspace/tatran/settings/general";
+    const footer = renderToStaticMarkup(<QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter initialEntries={[path]}><SidebarProvider><LiteSidebarFooterView summary={{ state: "unknown" }} workspaceId="tatran" locale="sk" onReport={() => {}} /></SidebarProvider></MemoryRouter>
+    </QueryClientProvider>);
+    expect(footer).toMatch(/<a(?=[^>]*data-lawoss-lite-nav="settings")(?=[^>]*aria-current="page")[^>]*>/);
+    expect(row(path)).toBe(false);
+  });
+
   test("zlatá glazúra riadku klienta sa stlmí, keď je aktívna položka pod ním; len v bežnom režime", () => {
     const css = readFileSync(join(import.meta.dir, "../src/lawoss/shell/lawoss.css"), "utf8");
     const rule = /:root\[data-lawoss-ui="lite"\] \.lw-chat-sidebar li:has\(\.lw-sidebar-session\[data-active\]\) \.lw-sidebar-item\[data-active\] \{([^}]*)\}/.exec(css)?.[1] ?? "";
@@ -327,6 +337,14 @@ describe("alfa 14, bežný režim: riadok klienta bez kolízie lehoty a akcií",
     expect(css).toContain('div:has(> [data-workspace-actions]):is(:hover, :has(:focus-visible), :has([data-popup-open])) [data-lawoss-row-due] { display: none; }');
     // Fokus po kliknutí (focus-within) akcie neukáže a miesto nerezervuje.
     expect(css).not.toMatch(/workspace-actions[^\n]*focus-within/);
+  });
+  test("stráž synchronizácie: CSS stavia na značkách natívneho riadku projektu v app-sidebar.tsx", () => {
+    const sidebar = readFileSync(join(import.meta.dir, "../src/react-app/domains/session/sidebar/app-sidebar.tsx"), "utf8");
+    expect(sidebar).toContain('<div data-workspace-actions className="group/workspace-actions absolute right-16 top-1/2');
+    expect(sidebar).toContain("data-workspace-drag-handle\n        onPointerDown={onTitlePointerDown}\n      >");
+    // Hneď za úchopom mena je miesto bodky neprečítaného (posledný span tlačidla).
+    expect(sidebar).toMatch(/<\/div>\n      <span className="flex size-3\.5 shrink-0 items-center justify-center">\n        \{isLoading \? <Loader2/);
+    expect(sidebar).toContain('"pr-10 [&_.lw-folder-icon]:size-5');
   });
   test("prázdne miesto bodky neprečítaného sa nerezervuje; lehota sa nezmenšuje", () => {
     expect(css).toContain(':root[data-lawoss-ui="lite"] .lw-chat-sidebar [data-workspace-drag-handle] + span:empty { display: none; }');
