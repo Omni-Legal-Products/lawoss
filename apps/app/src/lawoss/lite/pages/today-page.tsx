@@ -236,7 +236,8 @@ function NearestTileView({ tile, locale, text, known }: { tile: NearestTile; loc
   const late = tile.state === "overdue" || tile.state === "passed";
   return <Link className="lw-dnes-tile" to={to} onClick={tile.kind === "work" && tile.item.app ? openAppTask(tile.item.id) : undefined}
     data-lawoss-tile="nearest" data-state={tile.state} data-kind={tile.kind} data-tone={dayTone(tile.state === "invalid" ? null : days)}>
-    <span className="lw-dnes-tile-label">{text("tile_nearest")}</span>
+    {/* Pracovný termín nie je lehota: dlaždica ho tak aj nazve (štítok „pracovný termín“ ostáva). */}
+    <span className="lw-dnes-tile-label">{text(tile.kind === "work" ? "tile_nearest_work" : "tile_nearest")}</span>
     {tile.state === "invalid" ? <span className="lw-dnes-num" data-tone="red">?<small>{text("due_invalid")}</small></span>
       : late ? <span className="lw-dnes-num lw-dnes-num-word" data-tone="red">{text("tile_overdue")}</span>
       : <span className="lw-dnes-num" data-tone={dayTone(days)}>{days}<small>{text("days_unit", { count: days })}</small></span>}
@@ -369,7 +370,9 @@ function ContinueSection({ model, todayIso, locale, text }: { model: TodayModel;
  * advokát vyberie tam; z Domova klienta (`projectId`) je jeho klient na Domove už vybraný (`/home?project=`).
  * Veta ide cez pamäť (`home-prefill.ts`), nikdy cez adresu.
  */
-export function ChatBar({ text, suggestions, projectId }: { text: Text; suggestions: readonly string[]; projectId?: string }) {
+export function ChatBar({ text, suggestions, projectId, className }: { text: Text; suggestions: readonly string[]; projectId?: string;
+  /** Ďalšia trieda doku (Domov klienta: dok mimo sekcie prehľadu, pripnutý na celú stránku). */
+  className?: string }) {
   const navigate = useNavigate();
   const [draft, setDraft] = useState("");
   const open = (value: string) => {
@@ -377,7 +380,7 @@ export function ChatBar({ text, suggestions, projectId }: { text: Text; suggesti
     requestHomePrefill(value);
     navigate(homeRoute(projectId));
   };
-  return <div className="lw-dnes-dock"><section className="lw-dnes-chat" aria-label={text("chat_label")} data-lawoss-chatbar="">
+  return <div className={className ? `lw-dnes-dock ${className}` : "lw-dnes-dock"}><section className="lw-dnes-chat" aria-label={text("chat_label")} data-lawoss-chatbar="">
     <div className="lw-dnes-chat-suggest">
       {suggestions.map((suggestion) => <button key={suggestion} type="button" className="lw-dnes-suggest" onClick={() => open(suggestion)}>{suggestion}</button>)}
     </div>

@@ -28,6 +28,17 @@ describe("dlaždice", () => {
     expect([null, -2, 0, 3, 4, 7, 8].map(dayTone)).toEqual(["red", "red", "red", "red", "amber", "amber", "neutral"]);
   });
 
+  test("dlaždica s pracovným termínom sa volá „Najbližší termín“ (nie lehota), štítok ostáva", () => {
+    const tile = (model: TodayModel) => html(<TodayView model={model} locale="sk" now={now} />).match(/data-lawoss-tile="nearest".*?<\/a>/)?.[0] ?? "";
+    const work = tile({ deadlines: [], tasks: [{ key: "t", id: "T", title: "Pojednávanie", due: "2026-11-17", matters: [MATTER] }], inputs: [], recent: [] });
+    expect(work).toContain('data-kind="work"');
+    expect(work).toContain(">Najbližší termín<");
+    expect(work).toContain(">pracovný termín<");
+    expect(work).not.toContain("Najbližšia lehota");
+    const due = tile({ deadlines: [deadline("2026-11-17", 3)], tasks: [], inputs: [], recent: [] });
+    expect(due).toContain(">Najbližšia lehota<");
+  });
+
   test("Najbližšia lehota: deadlines[0]; neplatný dátum podľa `invalid`, nie umelého daysLeft 0; bez lehoty termín z prípadu", () => {
     expect(nearestTile([deadline("2026-11-17", 3)], [])).toMatchObject({ kind: "deadline", state: "due" });
     expect(nearestTile([deadline("2026-11-10", -4)], [])).toMatchObject({ kind: "deadline", state: "overdue" });

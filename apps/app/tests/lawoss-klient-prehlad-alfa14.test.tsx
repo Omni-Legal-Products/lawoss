@@ -53,6 +53,16 @@ describe("model dlaždíc", () => {
     expect(termTile([matter("C")], TODAY)).toEqual({ kind: "none" });
   });
 
+  test("dlaždica: pracovný termín ako „Najbližší termín“ so štítkom v riadku čísla, lehota ako „Najbližšia lehota“", () => {
+    const tile = (out: string) => out.match(/data-lawoss-tile="nearest".*?<\/a>/)?.[0] ?? "";
+    const work = tile(view({ matters: [matter("B", { openTasks: [{ id: "T", title: "Pojednávanie", due: "2026-11-15" }] })], deadlines: [], today: undefined }));
+    expect(work).toContain(">Najbližší termín<");
+    expect(work).toMatch(/<span class="lw-klient-num-row">.*>pracovný termín<\/span><\/span>/);
+    expect(work).not.toContain("Najbližšia lehota");
+    expect(tile(view())).toContain(">Najbližšia lehota<");
+    for (const dict of [shellEn, shellCs, shellSk, shellDe]) expect(dict).toHaveProperty(["lawoss.lite.tile_nearest_work"]);
+  });
+
   test("rozpis prípadov len z druhov v dátach; prípad s dvoma druhmi pri oboch, bez druhu nič", () => {
     const kinds = { a: "Konanie", b: "Konanie · Duševné vlastníctvo", c: "Korporátna agenda", d: "" };
     expect(kindBreakdown(kinds, ["a", "b", "c", "d", "e"])).toEqual([
@@ -125,6 +135,8 @@ describe("karty prípadov", () => {
     const out = view({ kinds: { [UHRADA]: "Konanie" } });
     expect(out).toContain('data-lawoss-matter-kind="" title="Konanie">Konanie</span>');
     expect(out).toContain("12Cb/45/2026 · MS Košice");
+    // Názov najviac na dva riadky; spisová značka · súd a počet úloh jedným riadkom dole (bez prázdneho tela karty).
+    expect(out).toMatch(/<b class="lw-dnes-card-title lw-klient-card-title">Úhrada dodávok<\/b><span class="lw-klient-foot"><span class="lw-klient-ref" title="12Cb\/45\/2026 · MS Košice">12Cb\/45\/2026 · MS Košice<\/span><small>Úlohy 1<\/small><\/span>/);
     expect(out).toMatch(/data-tone="red" data-kind="deadline"[^>]*>o 3 dni</);
     expect(out).toContain("Úlohy 1");
     expect(out).toContain('data-lawoss-kinds="">Konanie 1</span>');
@@ -237,6 +249,31 @@ describe("pole chatu a stránka", () => {
     expect(out).toContain(`href="${liteMatterLink(UHRADA)}"`);
   });
 
+  test("pole chatu je súrodenec prehľadu (dok na celú stránku), nie jeho dieťa; pri koreni praxe nie je", () => {
+    const out = view();
+    expect(out).toMatch(/<\/section><div class="lw-dnes-dock lw-klient-dock"><section class="lw-dnes-chat"[^>]*data-lawoss-chatbar=""/);
+    expect(out.endsWith("</section></div>")).toBe(true);
+    expect(view({ chat: false })).not.toContain("data-lawoss-chatbar");
+    // Upstream: slot `extra` je priame dieťa stĺpca `.lw-project-page-content` hneď pred Úlohami; na tom stojí `order`.
+    const home = source("react-app/domains/workspace/project-home.tsx");
+    expect(home).toMatch(/<div className="lw-project-page-content lw-project-page-top space-y-6 pb-8">[\s\S]*?\n {8}\{props\.extra\}\n {8}<div className="grid grid-cols-1/);
+    expect(home).toContain('data-testid="project-home"');
+    const css = source("lawoss/lite/pages/client-dashboard.css");
+    expect(css).toContain(':root[data-lawoss-ui="lite"] [data-testid="project-home"]:has(> .lw-project-page-content > .lw-klient-dock) > .lw-project-page-content {');
+    expect(css).toContain(".lw-dnes-dock.lw-klient-dock { order: 1;");
+    expect(source("lawoss/lite/pages/okf-glass.css")).toContain(".lw-client-home, .lw-klient-dock {");
+  });
+
+  test("hustota: štyri dlaždice a tri karty v rade do 620 px obsahu (container, nie okno), lehoty 5 : 7", () => {
+    const css = source("lawoss/lite/pages/client-dashboard.css");
+    expect(css).toContain("@container lw-klient (width < 620px) { .lw-klient .lw-klient-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }");
+    expect(css).toContain("@container lw-klient (width < 380px) { .lw-klient .lw-klient-tiles { grid-template-columns: minmax(0, 1fr); } }");
+    expect(css).toContain("@container lw-klient (width < 620px) { .lw-klient-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }");
+    expect(css).toContain("@container lw-klient (width < 400px) { .lw-klient-grid { grid-template-columns: minmax(0, 1fr); } }");
+    expect(css).toContain("@container lw-klient (width >= 620px) { .lw-klient .lw-klient-cols { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); } }");
+    expect(css).not.toMatch(/@media[^{]*width/);
+  });
+
   test("upstream hlavička: štruktúra, na ktorú sa spolieha skrytie „Nový chat“, a hák `leading`", () => {
     const home = source("react-app/domains/workspace/project-home.tsx");
     // header > div (názov) + div (riadok tlačidiel), ktorého prvá skupina je „Nový chat“.
@@ -247,6 +284,8 @@ describe("pole chatu a stránka", () => {
     expect(css).toContain(':root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header > div:nth-child(2) > div:first-child { display: none; }');
     expect(css).toContain("A5:");
     expect(css).toContain("prefers-reduced-motion");
+    // „Pridať poznámku“ a „Nová úloha“ v riadku názvu: oba riadky hlavičky sú `display: contents` (len CSS, len s iniciálami).
+    expect(css).toContain(':root[data-lawoss-ui="lite"] .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) > div:is(:first-child, :nth-child(2)) { display: contents; }');
   });
 
   test("texty vo všetkých štyroch jazykoch, bez skladania kľúča za behu", () => {

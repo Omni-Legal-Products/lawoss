@@ -49,7 +49,9 @@ export function ClientDashboardView({ workspaceId, locale, todayIso, matters, de
   const filing = todayModel ? todayModel.inputs.length : inputs?.unfiled ?? 0;
   const known = !partial && !readFailed;
   const suggestions = [text("client_chat_suggest_new"), ...(filing > 0 ? [text("chat_suggest_file")] : []), text("client_chat_suggest_deadlines")];
-  return <section aria-label={text("client_overview_title")} data-lawoss-client-overview="" data-lawoss-lite="client" className="lw-client-home lw-klient">
+  // Pole chatu je súrodenec sekcie (nie jej dieťa): na stránke klienta je tak priamo v stĺpci upstream stránky a CSS
+  // ho drží dole na celej stránke aj pod Úlohami a Poznámkami (client-dashboard.css, „Dok na celú stránku“).
+  return <><section aria-label={text("client_overview_title")} data-lawoss-client-overview="" data-lawoss-lite="client" className="lw-client-home lw-klient">
     <div className="lw-klient-bar">
       <h2 className="lw-klient-title">{text("client_overview_title")}</h2>
       {events ? <ModeSwitch mode={mode} onChange={setMode} locale={locale} /> : null}
@@ -77,8 +79,9 @@ export function ClientDashboardView({ workspaceId, locale, todayIso, matters, de
     </>}
 
     {folders ? <FoldersDisclosure workspaceId={workspaceId} text={text}>{folders}</FoldersDisclosure> : null}
-    {chat ? <ChatBar text={text} suggestions={suggestions} projectId={workspaceId} /> : null}
-  </section>;
+  </section>
+  {chat ? <ChatBar text={text} suggestions={suggestions} projectId={workspaceId} className="lw-klient-dock" /> : null}
+  </>;
 }
 
 /** Tichý riadok s ikonou namiesto odseku (neúplné čítanie, cudzie priečinky, neevidované lehoty). */
@@ -93,12 +96,15 @@ function TermTileView({ tile, locale, text, known }: { tile: TermTile; locale: L
     {known ? <span className="lw-dnes-tile-sub">{text("next_term_none")}</span> : null}
   </div>;
   return <Link className="lw-dnes-tile" to={liteMatterLink(tile.matter.path)} data-lawoss-tile="nearest" data-kind={tile.kind} data-state={tile.late ? "overdue" : "due"} data-tone={tile.tone}>
-    <span className="lw-dnes-tile-label">{text("tile_nearest")}</span>
-    {tile.late ? <span className="lw-dnes-num lw-dnes-num-word" data-tone="red">{text("tile_overdue")}</span>
-      : <span className="lw-dnes-num" data-tone={tile.tone}>{tile.daysLeft}<small>{text("days_unit", { count: tile.daysLeft })}</small></span>}
+    <span className="lw-dnes-tile-label">{text(tile.kind === "work" ? "tile_nearest_work" : "tile_nearest")}</span>
+    {/* Číslo a štítok v jednom riadku (štítok sa zalomí pod číslo, len keď sa nezmestí): dlaždica je nízka ako na Dnes. */}
+    <span className="lw-klient-num-row">
+      {tile.late ? <span className="lw-dnes-num lw-dnes-num-word" data-tone="red">{text("tile_overdue")}</span>
+        : <span className="lw-dnes-num" data-tone={tile.tone}>{tile.daysLeft}<small>{text("days_unit", { count: tile.daysLeft })}</small></span>}
+      <span className="lw-dnes-pill" data-tone={tile.kind === "work" ? "work" : "neutral"}>{text(tile.kind === "work" ? "origin_work" : "agenda_kind_deadline")}</span>
+    </span>
     <span className="lw-dnes-tile-sub lw-dnes-tile-title" title={tile.title}>{tile.title}</span>
     <span className="lw-dnes-tile-sub" title={tile.matter.title}>{tile.matter.title}</span>
-    <span className="lw-dnes-pill" data-tone={tile.kind === "work" ? "work" : "neutral"}>{text(tile.kind === "work" ? "origin_work" : "agenda_kind_deadline")}</span>
   </Link>;
 }
 
@@ -165,16 +171,16 @@ function CaseCardView({ card, kind, todayIso, locale, text }: { card: CaseCard; 
       {kind ? <span className="lw-dnes-pill lw-klient-kind" data-lawoss-matter-kind="" title={kind}>{kind}</span> : <span />}
       <PillView pill={cardPill(card, todayIso)} locale={locale} text={text} />
     </span>
-    <span className="lw-klient-card-head">
-      <b className="lw-dnes-card-title">{matter.title}</b>
-      {meta ? <span className="lw-klient-ref">{meta}</span> : null}
-    </span>
+    {/* Najviac dva riadky názvu („…“), celý názov je v `title` karty. */}
+    <b className="lw-dnes-card-title lw-klient-card-title">{matter.title}</b>
     {status.phase ? <span className="lw-klient-phase" title={text("card_phase")}>
       <span className="sr-only">{text("card_phase")}: </span>{status.phase}
       {status.stale ? <span className="lw-case-stale">{text("card_phase_stale")}</span> : null}
     </span> : null}
-    {status.nextStep || matter.openTasks.length ? <span className="lw-klient-foot">
-      {status.nextStep ? <span className="lw-klient-next" title={status.nextStep}><ArrowRight aria-hidden size={13} /><span className="sr-only">{text("card_next_step")}: </span>{status.nextStep}</span> : <span />}
+    {status.nextStep ? <span className="lw-klient-next" title={status.nextStep}><ArrowRight aria-hidden size={13} /><span className="sr-only">{text("card_next_step")}: </span>{status.nextStep}</span> : null}
+    {/* Jeden nízky riadok dole: spisová značka · súd vľavo, počet úloh vpravo. */}
+    {meta || matter.openTasks.length ? <span className="lw-klient-foot">
+      {meta ? <span className="lw-klient-ref" title={meta}>{meta}</span> : <span />}
       {matter.openTasks.length ? <small>{text("tasks_short")} {matter.openTasks.length}</small> : null}
     </span> : null}
   </Link>;
