@@ -1145,9 +1145,9 @@ function WorkspaceSidebarGroup({
                     ctx.onCreateChatInWorkspace(workspace.id);
                   }}
                   disabled={ctx.newChatDisabled}
-                  aria-label={t("session.new_task")}
-                  title={t("session.new_task")}
-                >
+                  aria-label={projectNav.lite ? t("projects.new_chat") : t("session.new_task")}
+                  title={projectNav.lite ? t("projects.new_chat") : t("session.new_task")}
+                >{/* 🟡 LAWOSS (alfa 14): ceruzka zakladá chat; v bežnom režime sa tak aj volá */}
                   <SquarePen className="size-3.5" strokeWidth={1.5} />
                 </Button>}
                 <WorkspaceActionsMenu

@@ -16,7 +16,6 @@ import { LawossNav, LawossLayout } from "../src/lawoss/shell/layout";
 import { LEHOTY_PATH, LITE_MATTER_PATH, NEW_CLIENT_PATH } from "../src/lawoss/lite/links";
 import { LiteSidebarFooterView, registersText } from "../src/lawoss/lite/sidebar-footer";
 import { deadlineAttentionCount, feedbackPageUrl, registersSummary } from "../src/lawoss/lite/sidebar-model";
-import { CompareDocumentsActionView } from "../src/lawoss/lite/compare-documents";
 import { publishMcpStatuses } from "../src/lawoss/lite/mcp-status-store";
 import type { McpStatusMap } from "../src/app/types";
 import { GeneralSettingsView } from "../src/react-app/domains/settings/pages/general-view";
@@ -187,14 +186,16 @@ describe("boční panel LAWOSS-lite", () => {
     expect(feedbackPageUrl("en")).toBe("https://lawoss.app/en/alfa/hlasenie");
     expect(feedbackPageUrl("de")).toBe("https://lawoss.app/en/alfa/hlasenie");
   });
-  test("alfa 14: Porovnať dokumenty v Dokumentoch otvorí Tabuľkovú kontrolu klienta, len v bežnom režime", () => {
-    const action = (mode: "lite" | "pro", projectId?: string) => renderToStaticMarkup(<MemoryRouter><CompareDocumentsActionView mode={mode} projectId={projectId} /></MemoryRouter>);
-    expect(action("lite", "ws 1")).toMatch(/<a(?=[^>]*href="\/workspace\/ws%201\/reviews")(?=[^>]*data-lawoss-compare-documents="")[^>]*>/);
-    expect(action("lite", "ws1")).toContain("Compare documents");
-    expect(action("pro", "ws1")).toBe("");
-    expect(action("lite")).toBe("");
+  test("alfa 14: Dokumenty bez samostatnej akcie (práca je v chate); Tabuľková kontrola ostáva v Pokročilom strome", () => {
+    // Predtým v bežnom režime tlačidlo „Porovnať dokumenty“ v hlavičke Súborov (odstránené rozhodnutím MČ 14. 11. 2026).
     const page = readFileSync(join(import.meta.dir, "../src/react-app/domains/workspace/project-files-page.tsx"), "utf8");
-    expect(page).toContain("<CompareDocumentsAction projectId={local.projectId} />");
+    expect(page).not.toContain("CompareDocuments");
+    expect(page).not.toContain("LAWOSS: v bežnom režime");
+    const sidebar = readFileSync(join(import.meta.dir, "../src/react-app/domains/session/sidebar/app-sidebar.tsx"), "utf8");
+    expect(sidebar).toContain('projectReviews: <SidebarMenuSubItem key="projectReviews">');
+    // Ceruzka pri rozbalenom klientovi zakladá chat: v bežnom režime „Nový chat“, v Pokročilom natívne.
+    expect(sidebar).toContain('aria-label={projectNav.lite ? t("projects.new_chat") : t("session.new_task")}');
+    expect(t("projects.new_chat", "sk")).toBe("Nový chat");
   });
   test("alfa 14: stav MCP zverejní existujúce čítanie stavového riadku, nie nové čítanie", () => {
     const hook = readFileSync(join(import.meta.dir, "../src/react-app/domains/connections/use-mcp-connected-count.ts"), "utf8");
