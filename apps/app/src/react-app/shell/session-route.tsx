@@ -278,6 +278,7 @@ import {
   useProviderListQuery,
 } from "@/react-app/infra/provider-list-query";
 import { modelReadiness } from "@/lawoss/shell/model-readiness";
+import { requestRemoveClientConfirm } from "@/lawoss/shell/remove-client-confirm";
 
 /**
  * Serialize an SDK error value into a string that parseSessionError can parse.
@@ -2050,12 +2051,8 @@ export function SessionRoute() {
 
   const handleForgetWorkspace = useCallback(
     async (workspaceId: string) => {
-      if (typeof window !== "undefined") {
-        const message =
-          t("workspace_list.remove_confirm") ||
-          "Remove this project from the sidebar?";
-        if (!window.confirm(message)) return;
-      }
+      // 🟡 LAWOSS: potvrdenie v okne appky so slovenskými a českými tlačidlami.
+      if (!(await requestRemoveClientConfirm())) return;
       try {
         if (!client) throw new Error(t("session_route.create_server_unavailable"));
         await removeProjectFromSidebar(client, workspaceId, () => {

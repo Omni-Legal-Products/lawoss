@@ -21,7 +21,7 @@ describe("skill okf-pamat pre workspace LAWOSS", () => {
     const body = pamatSkillBody();
     expect(OKF_PAMAT_SKILL_NAME).toBe("okf-pamat");
     expect(/^name:\s*okf-pamat$/m.test(skill)).toBe(true);
-    expect(body.description).toMatch(/^Use when reading or writing case memory/);
+    expect(body.description).toMatch(/^Použite pri čítaní alebo zápise pamäte prípadu/);
     expect(body.description.length).toBeLessThanOrEqual(1024); // limit servera (validateDescription)
     expect(body.content.startsWith("# okf-pamat")).toBe(true);
     // Frontmatter je odstrihnutý, ale `---` v tele ostáva legitímne: SKILL.md

@@ -8,6 +8,8 @@ import { getModelBehaviorSummary } from "@/app/lib/model-behavior";
 import type { ModelRef, ProviderListItem } from "@/app/types";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
+// 🟡 LAWOSS: miera uvažovania s preloženými textmi namiesto surových kľúčov katalógu.
+import { lawossVariantLabel, localizeBehaviorSummary } from "@/lawoss/chat/model-behavior-labels";
 
 type ProviderModel = ProviderListItem["models"][string];
 
@@ -55,12 +57,12 @@ export function useModelBehavior(input: UseModelBehaviorInput) {
     const model = providerCatalog[defaultModel.providerID]?.[defaultModel.modelID];
     if (!model) {
       return {
-        modelVariantLabel: variant ?? t("settings.default_label"),
+        modelVariantLabel: variant ? lawossVariantLabel(variant) : t("settings.default_label"),
         modelBehaviorOptions: emptyModelBehaviorOptions,
         modelVariantValue: variant,
       };
     }
-    const summary = getModelBehaviorSummary(defaultModel.providerID, model, variant);
+    const summary = localizeBehaviorSummary(getModelBehaviorSummary(defaultModel.providerID, model, variant));
     return {
       modelVariantLabel: summary.label,
       modelBehaviorOptions: summary.options,

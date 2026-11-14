@@ -182,16 +182,10 @@ describe("stav praxe navrchu stránok kancelárie (N-A2-8)", () => {
   const text = (html: string) => html.replace(/<[^>]+>/g, "\n");
 
   // Server rendering always uses English (`useLocale` server snapshot); SK/CS texts are checked through t() below.
-  test("úplné čítanie: jeden riadok s praxou, počtom klientov a časom; žiadny zoznam slugov navrchu", async () => {
+  // Alfa 13: úplné čítanie nie je správa pre advokáta, pruh sa vtedy nezobrazí vôbec (preklik alpha.12, 14. 11. 2026).
+  test("úplné čítanie: pruh sa nezobrazí", async () => {
     const { data, scope } = await overview();
-    const html = renderToStaticMarkup(<PracticeCoverage data={data} scope={scope} now={at} />);
-    const firstLine = text(html).split("\n").find(Boolean);
-    expect(firstLine).toMatch(/^Selected practice: 4 usporiadana kancelaria · 3 clients · updated \S+/);
-    expect(html).toContain('role="status"');
-    expect(html).not.toContain("data-lawoss-practice-problems");
-    for (const slug of slugs) expect(html.includes(slug) ? slug : null).toBeNull();
-    // Podrobnosti sú pod rozbaľovačom a menujú klientov z karty klienta.
-    expect(html).toMatch(/<details data-lawoss-practice-details="">[\s\S]*SYN Hron Technológie, a\. s\.: Current/);
+    expect(renderToStaticMarkup(<PracticeCoverage data={data} scope={scope} now={at} />)).toBe("");
   });
 
   test("čiastočné čítanie: výstraha a zoznam len klientov s problémom, menom z karty a časom posledného úspechu", async () => {

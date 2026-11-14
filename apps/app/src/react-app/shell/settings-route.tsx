@@ -181,6 +181,7 @@ import { conversationWorkspaceId, isLawossHomeWorkspace, preferRealWorkspace } f
 import { localProviderTimeouts } from "@/lawoss/providers/local-timeouts";
 import { patchProviderConfirmingOverwrite } from "@/lawoss/providers/overwrite-confirm";
 import { lawossProviderRow } from "@/lawoss/providers/provider-row";
+import { requestRemoveClientConfirm } from "@/lawoss/shell/remove-client-confirm";
 
 function reconcileSelectedWorkspaceId(
   currentId: string,
@@ -1873,10 +1874,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   }, [workspaces]);
 
   const handleForgetWorkspace = useCallback(async (workspaceId: string) => {
-    if (typeof window !== "undefined") {
-      const message = t("workspace_list.remove_confirm") || t("workspace.remove_confirm");
-      if (!window.confirm(message)) return;
-    }
+    // 🟡 LAWOSS: potvrdenie v okne appky so slovenskými a českými tlačidlami.
+    if (!(await requestRemoveClientConfirm())) return;
     try {
       if (!legalworkClient) throw new Error(t("session_route.create_server_unavailable"));
       const nextId = workspacesRef.current.find(workspace => workspace.id !== workspaceId)?.id ?? "";

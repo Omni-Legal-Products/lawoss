@@ -44,6 +44,7 @@ import { SystemDictationService } from "./audio/system-dictation.mjs";
 import { SystemKeyMonitor, resolveKeyMonitorPath } from "./audio/system-key-monitor.mjs";
 import { PowerLifecycle, PowerSessions } from "./power-lifecycle.mjs";
 import { AppTray } from "./tray.mjs";
+import { alphaPageUrl, feedbackUrl, latestAlpha } from "./lawoss-alpha-feedback.mjs";
 import { pinWindowsProcessQoS } from "./windows-qos.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager, externalWorkspaceAppFilesRoot, resolveLegalworkServerConfigPath } from "./runtime.mjs";
@@ -454,8 +455,28 @@ async function collectSupportLogsAndReveal(technical = false, days = 7) {
   return filePath;
 }
 
+// LAWOSS: tester nahlási chybu formulárom na webe; odkaz nesie len verziu a systém.
+function openAlphaFeedback() {
+  void shell.openExternal(feedbackUrl({ locale: uiLocales.forWindow(mainWindow), version: app.getVersion() }));
+}
+
+// LAWOSS: nepodpísané alfy vstavaný updater nevidí, preto sa na novú alfu pýtame webu (raz po štarte, potom každých 6 h).
+let announcedAlpha = "";
+async function announceNewAlpha() {
+  const version = await latestAlpha(app.getVersion());
+  if (!version || version === announcedAlpha) return;
+  announcedAlpha = version;
+  const locale = uiLocales.forWindow(mainWindow);
+  const copy = nativeCopy(locale, DISPLAY_NAME);
+  const options = { type: /** @type {const} */ ("info"), message: copy.alphaTitle, detail: copy.alphaDetail.replaceAll("{version}", version), buttons: [copy.alphaOpen, copy.alphaLater], defaultId: 0, cancelId: 1 };
+  const result = mainWindow && !mainWindow.isDestroyed() ? await dialog.showMessageBox(mainWindow, options) : await dialog.showMessageBox(options);
+  if (result.response === 0) void shell.openExternal(alphaPageUrl(locale));
+}
+
 const applicationMenu = createApplicationMenu({
   appName: DISPLAY_NAME,
+  reportIssue: openAlphaFeedback,
+  developerTools: !app.isPackaged,
   getLocale: window => uiLocales.forWindow(window === mainWindow || secondaryWindows.has(window) ? window : mainWindow),
   getWindow: () => createMainWindow(),
   collectSupportLogs: () => {
@@ -969,6 +990,7 @@ let startHiddenPending = process.argv.includes("--hidden");
 
 const appTray = new AppTray({
   appName: DISPLAY_NAME,
+  copy: () => nativeCopy(uiLocales.forWindow(mainWindow), DISPLAY_NAME),
   icon: APP_ICON_IMAGE,
   onOpen: () => {
     void createMainWindow().then((win) => {
@@ -3346,6 +3368,10 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    if (app.isPackaged) {
+      setTimeout(() => { void announceNewAlpha(); }, 30_000).unref?.();
+      setInterval(() => { void announceNewAlpha(); }, 6 * 60 * 60 * 1000).unref?.();
+    }
     await prepareActaportMcpRuntime().catch(() => console.warn("Actaport MCP bundle unavailable. Rebuild LegalWork to enable Actaport."));
     // Recreate the private token bridge before workspace engines reconnect saved MCP entries.
     await getActaportConnection().environment();

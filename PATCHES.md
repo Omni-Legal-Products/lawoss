@@ -1,5 +1,25 @@
 # LAWOSS downstream patches
 
+## Alfa 13: hlásenie chýb, nová alfa, zrozumiteľné chyby registrov (2026-11-14)
+
+Nálezy z overenia zverejnenej alpha.12 (súkromný zápis MČ, 14. 11. 2026).
+
+| Súbor | Zmena |
+|---|---|
+| `apps/desktop/electron/lawoss-alpha-feedback.mjs` (nový, + test), `main.mjs`, `app-menu.mjs`, `native-locale.mjs` | Pomocník › „Nahlásiť chybu alebo nápad…“ otvorí formulár na lawoss.app (v odkaze len verzia a systém). Vydaný build sa po štarte a každých 6 h spýta `lawoss.app/api/alfa/verzia` a na novšiu alfu upozorní dialógom (nepodpísané alfy vstavaný updater nevidí). Vývojárske položky Zobrazenia (načítať znova, nástroje pre vývojárov) sú len mimo vydaného buildu. |
+| `apps/desktop/electron/tray.mjs` | Texty tray menu a bubliny z `native-locale.mjs` namiesto angličtiny natvrdo. |
+| `apps/app/src/lawoss/domains/integrations/mcp-failure.ts` (nový, + test), `react-app/domains/settings/pages/{mcp-view,connector-browser}.tsx`, `lawoss/i18n/integrations.ts` | Pri stave „Problém“ sa v detaile integrácie zobrazí veta, prečo register nejde (kontrola šifrovaných spojení, sieť, čas, príprava súčastí), namiesto surového výpisu npm až po kliknutí na Spravovať. |
+| `apps/app/src/react-app/domains/workspace/project-files-page.tsx` | Súbory klienta bez panela „Pripojené súbory“ (Memory Drive), ktorý LAWOSS neponúka. |
+| `apps/app/src/lawoss/domains/lehoty/{deadline-review,lehoty-page}.tsx` | Panel „Kontrola lehoty z dokumentu“ sa nezobrazí, kým postup nie je zapnutý; preč je poznámka o poli `deadlines` a adresári `memory/`. |
+| `apps/app/src/lawoss/okf/practice-coverage.tsx` (+ test) | Pruh „Vybraná prax …“ sa zobrazí len pri neúplnom čítaní. |
+| `apps/app/src/lawoss/feature-flags.ts` | Workflows a Vyhodnotenia skryté v lište aj v prispôsobení navigácie. |
+| `apps/app/src/lawoss/chat/tool-labels.ts`, `lawoss/i18n/shell.ts` (LAWOSS, + test `tests/lawoss-alfa13-texty.test.ts`) | Krok čítania bez cesty je „Prečítaný súbor“ / „Čítanie súboru“ bez zástupného slova `file`; vnorené `websearch` a `extension_list_actions` v režime kódu majú SK/CS text namiesto mena nástroja. Hľadanie ukazuje vzor, ktorý agent naozaj hľadal (prázdny vzor už mal všeobecný text). |
+| `apps/app/src/components/model-behavior-select.tsx`, `react-app/domains/session/surface/use-model-behavior.ts`, nový `lawoss/chat/model-behavior-labels.ts` | Miera uvažovania: nadpis z `model_behavior.title_reasoning_effort` namiesto anglického natvrdo, známe kľúče katalógu (`none` … `max`) s preloženým textom; hodnota ostáva kľúčom, neznámy kľúč doslovne. Upstream `model-behavior.ts` a jeho test sa nemenia. |
+| `apps/app/src/lawoss/domains/ai/guidance.tsx` | Tlačidlo potvrdenia informácie v Poskytovateľoch AI: „Rozumiem“ / „Rozumím“ / „Understood“ / „Verstanden“. |
+| `apps/app/src/i18n/locales/{sk,cs}.ts` | Tabuľková kontrola: režim „Len jazykový model“ / „Jen jazykový model“ (aj v texte o vylúčených stĺpcoch) a nastavenia odkazujú na poskytovateľov AI bez skratky. en/de ostávajú upstream. |
+| `lawoss/okf-pamat/SKILL.md`, `apps/app/src/lawoss/okf/{skill-bundle,skill-refresh,bundled-skill-hashes}.ts`, volania `pamatSkillBody(locale)` v `novy-spis/prepare-draft.ts`, `marketplace/use-native-integrations.ts`, `onboarding/install-pack.ts` | Popis /okf-pamat po slovensky, v českej appke po česky (len popis; telo skillu je jedno). Telo SKILL.md je nezmenené, preto obnova v existujúcom priestore prepíše popis, ktorý je niektorým pribaleným (`BUNDLED_OKF_SKILL_DESCRIPTIONS`); vlastný popis zostáva. |
+| `apps/app/src/react-app/shell/{session-route,settings-route,providers}.tsx`, nové `lawoss/shell/remove-client-confirm{,-host}.ts(x)` | „Odobrať klienta“ sa potvrdzuje v okne appky (`ConfirmModal`, Zrušiť / Odobrať klienta) namiesto systémového `window.confirm` s anglickými tlačidlami; bez hostiteľa (náhľady) ostáva natívne okno. |
+
 ## Opravy po syncu v2 (2026-11-10)
 
 Rozhodnutia MČ 10. 11. 2026 (koordinačný záznam k ADR 0016).

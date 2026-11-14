@@ -1,5 +1,10 @@
 /** UI copy only. Persisted identifiers, profile contents and tool contracts stay unchanged. */
 export const integrationsEn = {
+  "lawoss.integrations.mcp_failure.inspection": "The register could not start: this network inspects encrypted connections and blocked the download of its components. Try another network (for example a phone hotspot) or ask your administrator to allow registry.npmjs.org, then open the integration again.",
+  "lawoss.integrations.mcp_failure.offline": "The register could not start: its components could not be downloaded. Check the internet connection and try again.",
+  "lawoss.integrations.mcp_failure.timeout": "The register did not start in time. Try again; the first start downloads its components and can take a minute.",
+  "lawoss.integrations.mcp_failure.install": "The register could not prepare its components on first start. Check the internet connection and try again; if it keeps failing, report it from Help.",
+  "lawoss.integrations.mcp_failure.heading": "Why it is not working",
   "lawoss.integrations.chevron7.interrupted": "Signing was interrupted. Check Chevron7 and any output before trying again.",
   "lawoss.integrations.chevron7.failed": "Could not complete the handoff. Check Chevron7 and try again.",
   "lawoss.integrations.chevron7.returned": "Chevron7 closed. Check its result and the output file; LAWOSS has not verified the signature.",
@@ -295,6 +300,11 @@ export const integrationsEn = {
   "lawoss.integrations.providerOverwrite.removeCancelled": "Nothing was disconnected. The other clients keep their own provider settings.",
 };
 export const integrationsCs = {
+  "lawoss.integrations.mcp_failure.inspection": "Registr se nepodařilo spustit: tato síť kontroluje šifrovaná spojení a zablokovala stažení jeho součástí. Zkuste jinou síť (například hotspot z telefonu) nebo požádejte správce o výjimku pro registry.npmjs.org a integraci otevřete znovu.",
+  "lawoss.integrations.mcp_failure.offline": "Registr se nepodařilo spustit: nepodařilo se stáhnout jeho součásti. Zkontrolujte připojení k internetu a zkuste to znovu.",
+  "lawoss.integrations.mcp_failure.timeout": "Registr se nespustil včas. Zkuste to znovu; první spuštění stahuje součásti a může trvat minutu.",
+  "lawoss.integrations.mcp_failure.install": "Registr si při prvním spuštění nedokázal připravit součásti. Zkontrolujte připojení k internetu a zkuste to znovu; pokud to nepomůže, nahlaste to z Nápovědy.",
+  "lawoss.integrations.mcp_failure.heading": "Proč to nefunguje",
   "lawoss.integrations.chevron7.interrupted": "Podpisování bylo přerušeno. Před opakováním zkontrolujte Chevron7 a případný výstup.",
   "lawoss.integrations.chevron7.failed": "Předání se nepodařilo dokončit. Zkontrolujte Chevron7 a zkuste to znovu.",
   "lawoss.integrations.chevron7.returned": "Chevron7 se zavřel. Zkontrolujte jeho výsledek a výstupní soubor; LAWOSS podpis neověřil.",
@@ -590,6 +600,11 @@ export const integrationsCs = {
   "lawoss.integrations.providerOverwrite.removeCancelled": "Nic se neodpojilo. Ostatní klienti si ponechali vlastní nastavení poskytovatele.",
 } satisfies Record<keyof typeof integrationsEn, string>;
 export const integrationsSk = {
+  "lawoss.integrations.mcp_failure.inspection": "Register sa nepodarilo spustiť: táto sieť kontroluje šifrované spojenia a zablokovala stiahnutie jeho súčastí. Skúste inú sieť (napríklad hotspot z telefónu) alebo požiadajte správcu o výnimku pre registry.npmjs.org a integráciu otvorte znova.",
+  "lawoss.integrations.mcp_failure.offline": "Register sa nepodarilo spustiť: nepodarilo sa stiahnuť jeho súčasti. Skontrolujte pripojenie na internet a skúste to znova.",
+  "lawoss.integrations.mcp_failure.timeout": "Register sa nespustil včas. Skúste to znova; prvé spustenie sťahuje súčasti a môže trvať minútu.",
+  "lawoss.integrations.mcp_failure.install": "Register si pri prvom spustení nedokázal pripraviť súčasti. Skontrolujte pripojenie na internet a skúste to znova; ak to nepomôže, nahláste to z Pomocníka.",
+  "lawoss.integrations.mcp_failure.heading": "Prečo to nefunguje",
   "lawoss.integrations.chevron7.interrupted": "Podpisovanie bolo prerušené. Pred opakovaním skontrolujte Chevron7 a prípadný výstup.",
   "lawoss.integrations.chevron7.failed": "Odovzdanie sa nepodarilo dokončiť. Skontrolujte Chevron7 a skúste to znova.",
   "lawoss.integrations.chevron7.returned": "Chevron7 sa zavrel. Skontrolujte jeho výsledok a výstupný súbor; LAWOSS podpis neoveril.",
@@ -885,6 +900,11 @@ export const integrationsSk = {
   "lawoss.integrations.providerOverwrite.removeCancelled": "Nič sa neodpojilo. Ostatní klienti si ponechali vlastné nastavenie poskytovateľa.",
 } satisfies Record<keyof typeof integrationsEn, string>;
 export const integrationsDe = {
+  "lawoss.integrations.mcp_failure.inspection": "Das Register konnte nicht starten: Dieses Netzwerk prüft verschlüsselte Verbindungen und hat den Download seiner Komponenten blockiert. Versuchen Sie ein anderes Netzwerk (z. B. einen Handy-Hotspot) oder bitten Sie Ihren Administrator um eine Ausnahme für registry.npmjs.org und öffnen Sie die Integration erneut.",
+  "lawoss.integrations.mcp_failure.offline": "Das Register konnte nicht starten: Seine Komponenten konnten nicht geladen werden. Prüfen Sie die Internetverbindung und versuchen Sie es erneut.",
+  "lawoss.integrations.mcp_failure.timeout": "Das Register ist nicht rechtzeitig gestartet. Versuchen Sie es erneut; der erste Start lädt Komponenten und kann eine Minute dauern.",
+  "lawoss.integrations.mcp_failure.install": "Das Register konnte beim ersten Start seine Komponenten nicht vorbereiten. Prüfen Sie die Internetverbindung und versuchen Sie es erneut; wenn es weiter fehlschlägt, melden Sie es über die Hilfe.",
+  "lawoss.integrations.mcp_failure.heading": "Warum es nicht funktioniert",
   "lawoss.integrations.chevron7.interrupted": "Die Signierung wurde unterbrochen. Prüfen Sie Chevron7 und vorhandene Ausgaben vor einem erneuten Versuch.",
   "lawoss.integrations.chevron7.failed": "Die Übergabe konnte nicht abgeschlossen werden. Prüfen Sie Chevron7 und versuchen Sie es erneut.",
   "lawoss.integrations.chevron7.returned": "Chevron7 wurde geschlossen. Prüfen Sie das Ergebnis und die Ausgabedatei; LAWOSS hat die Signatur nicht geprüft.",

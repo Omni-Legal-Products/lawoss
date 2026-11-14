@@ -13,7 +13,8 @@ const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "legalwork:native-menu:toggle-sidebar";
 const NATIVE_MENU_CHECK_UPDATES_EVENT = "legalwork:native-menu:check-updates";
 const NATIVE_MENU_ZOOM_EVENT = "legalwork:native-menu:zoom";
 
-export function createApplicationMenu({ appName, getWindow, collectSupportLogs, getLocale = (_window) => "en" }) {
+// LAWOSS: reportIssue = „Nahlásiť chybu alebo nápad…“; developerTools = vývojárske položky Zobrazenia (len mimo vydaného buildu).
+export function createApplicationMenu({ appName, getWindow, collectSupportLogs, reportIssue, developerTools = true, getLocale = (_window) => "en" }) {
   let applicationMenuVisible = process.platform === "darwin";
 
   async function activeMenuWindow() {
@@ -173,10 +174,7 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs, 
             },
           },
           { type: "separator" },
-          { role: "reload" },
-          { role: "forceReload" },
-          { role: "toggleDevTools" },
-          { type: "separator" },
+          ...(developerTools ? [{ role: "reload" }, { role: "forceReload" }, { role: "toggleDevTools" }, { type: "separator" }] : []),
           {
             label: copy.actualSize,
             accelerator: "CommandOrControl+0",
@@ -226,6 +224,7 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs, 
       {
         role: "help", id: "Help", label: copy.help,
         submenu: [
+          ...(reportIssue ? [{ label: copy.reportIssue, click: () => { reportIssue(); } }, { type: "separator" }] : []),
           {
             label: copy.support,
             click: () => {

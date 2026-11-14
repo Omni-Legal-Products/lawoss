@@ -19,6 +19,7 @@ export class AppTray {
    *   icon: import("electron").NativeImage | null,
    *   onOpen: () => void,
    *   onQuit: () => void,
+   *   copy?: () => Record<string, string>,
    * }} options
    */
   constructor(options) {
@@ -26,6 +27,9 @@ export class AppTray {
     this.icon = options.icon;
     this.onOpen = options.onOpen;
     this.onQuit = options.onQuit;
+    // LAWOSS: texty tray menu v jazyku rozhrania (predtým natvrdo anglicky).
+    /** @type {() => Record<string, string>} */
+    this.copy = options.copy ?? (() => ({}));
     /** @type {Tray | null} */
     this.tray = null;
   }
@@ -50,17 +54,19 @@ export class AppTray {
         this.tray.on("click", () => this.onOpen());
       }
     }
+    const copy = this.copy();
+    const ready = copy.trayDictationReady ?? "Dictation ready";
     const dictationLabel = state.dictationEnabled
       ? state.shortcutLabel
-        ? `Dictation ready (${state.shortcutLabel})`
-        : "Dictation ready"
-      : "Dictation off";
+        ? `${ready} (${state.shortcutLabel})`
+        : ready
+      : copy.trayDictationOff ?? "Dictation off";
     const menu = Menu.buildFromTemplate([
-      { label: `Open ${this.appName}`, click: () => this.onOpen() },
+      { label: copy.trayOpen ?? `Open ${this.appName}`, click: () => this.onOpen() },
       { type: "separator" },
       { label: dictationLabel, enabled: false },
       { type: "separator" },
-      { label: `Quit ${this.appName}`, click: () => this.onQuit() },
+      { label: copy.trayQuit ?? `Quit ${this.appName}`, click: () => this.onQuit() },
     ]);
     this.tray.setContextMenu(menu);
   }
@@ -71,7 +77,7 @@ export class AppTray {
     try {
       this.tray.displayBalloon({
         title: this.appName,
-        content: `${this.appName} keeps running here so your dictation shortcut stays available. Right-click the icon to quit.`,
+        content: this.copy().trayHint ?? `${this.appName} keeps running here so your dictation shortcut stays available. Right-click the icon to quit.`,
       });
     } catch {
       // Balloon support varies; the tray icon itself is the fallback.

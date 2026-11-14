@@ -38,8 +38,15 @@ export function okfCliSource(): string {
   return okfCli;
 }
 
-export function pamatSkillBody(): { description: string; content: string } {
-  return skillBody(pamatSkillMarkdown);
+/**
+ * Český popis /okf-pamat pre ponuku „/“ a výber skillov (overenie alfy 12, 14. 11. 2026: popis bol po anglicky).
+ * Telo skillu je pre agenta a ostáva jedno (slovenské); spúšťače sú rovnaké ako v SKILL.md.
+ */
+export const OKF_PAMAT_DESCRIPTION_CS = "Použijte při čtení nebo zápisu paměti případu ve spisu OKF nebo v prostoru s výslovným .lawoss/memory-profile.json — zaznamenání faktů, rozhodnutí, lhůt, subjektů, poznatků a právních zdrojů a jejich promítnutí do _STATUS.md. Spouštěče (CZ) — \"zapiš do paměti\", \"co víme o spisu\", \"aktualizuj _STATUS\", \"zkontroluj paměť spisu\", \"povyš poznatek\"; (SK) — \"zapíš do pamäte\", \"čo vieme o spise\", \"aktualizuj _STATUS\", \"skontroluj pamäť spisu\", \"povýš poznatok\"; (EN) — \"matter memory\", \"case memory\", \"record decision\".";
+
+export function pamatSkillBody(locale: Language = currentLocale()): { description: string; content: string } {
+  const body = skillBody(pamatSkillMarkdown);
+  return locale === "cs" ? { ...body, description: OKF_PAMAT_DESCRIPTION_CS } : body;
 }
 
 export function okfMemoryCliSource(): string {

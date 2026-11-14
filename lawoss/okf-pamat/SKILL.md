@@ -1,6 +1,6 @@
 ---
 name: okf-pamat
-description: Use when reading or writing case memory in an OKF matter folder (spis) or an explicit .lawoss/memory-profile.json workspace — recording facts, decisions, deadlines, subjects, lessons or legal authorities, and projecting them into _STATUS.md. Triggers (SK) — "zapíš do pamäte", "čo vieme o spise", "aktualizuj _STATUS", "skontroluj pamäť spisu", "povýš poznatok"; (CZ) — "zapiš do paměti", "co víme o spisu", "aktualizuj _STATUS", "zkontroluj paměť spisu", "povyš poznatek"; (EN) — "matter memory", "case memory", "record decision".
+description: Použite pri čítaní alebo zápise pamäte prípadu v spise OKF alebo v priestore s výslovným .lawoss/memory-profile.json — zaznamenanie faktov, rozhodnutí, lehôt, subjektov, poznatkov a právnych zdrojov a ich premietnutie do _STATUS.md. Spúšťače (SK) — "zapíš do pamäte", "čo vieme o spise", "aktualizuj _STATUS", "skontroluj pamäť spisu", "povýš poznatok"; (CZ) — "zapiš do paměti", "co víme o spisu", "aktualizuj _STATUS", "zkontroluj paměť spisu", "povyš poznatek"; (EN) — "matter memory", "case memory", "record decision".
 ---
 
 # okf-pamat — pamäť spisu
