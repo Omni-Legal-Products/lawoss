@@ -136,7 +136,7 @@ describe("karty prípadov", () => {
     expect(out).toContain('data-lawoss-matter-kind="" title="Konanie">Konanie</span>');
     expect(out).toContain("12Cb/45/2026 · MS Košice");
     // Názov najviac na dva riadky; spisová značka · súd a počet úloh jedným riadkom dole (bez prázdneho tela karty).
-    expect(out).toMatch(/<b class="lw-dnes-card-title lw-klient-card-title">Úhrada dodávok<\/b><span class="lw-klient-foot"><span class="lw-klient-ref" title="12Cb\/45\/2026 · MS Košice">12Cb\/45\/2026 · MS Košice<\/span><small>Úlohy 1<\/small><\/span>/);
+    expect(out).toMatch(/<b class="lw-dnes-card-title lw-klient-card-title">Úhrada dodávok<\/b><span class="lw-klient-foot"><span class="lw-klient-ref">12Cb\/45\/2026 · MS Košice<\/span><small>Úlohy 1<\/small><\/span>/);
     expect(out).toMatch(/data-tone="red" data-kind="deadline"[^>]*>o 3 dni</);
     expect(out).toContain("Úlohy 1");
     expect(out).toContain('data-lawoss-kinds="">Konanie 1</span>');

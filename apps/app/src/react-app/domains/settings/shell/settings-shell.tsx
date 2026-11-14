@@ -58,6 +58,8 @@ export type SettingsShellProps = SettingsPageFrameProps & {
   busyHint?: string | null;
   onSelectWorkspace: (workspaceId: string) => void;
   onClose: () => void;
+  /** 🟡 LAWOSS: Domov v lište ostáva natívny, aj keď zatvorenie v lite vedie na poslednú obrazovku. */
+  onHome?: () => void;
   headerLeadingSlot?: React.ReactNode;
   children: React.ReactNode;
   modalSlot?: React.ReactNode;
@@ -83,7 +85,7 @@ export function SettingsShell(props: SettingsShellProps) {
     "--sidebar-width-icon": "var(--lw-window-left-rail-width)",
   };
   const actions: MainRailActions = {
-    navHome: { onClick: props.onClose },
+    navHome: { onClick: props.onHome ?? props.onClose }, // 🟡 LAWOSS
     navScheduled: { onClick: () => navigate("/scheduled") },
     navCalendar: { onClick: () => navigate("/calendar") },
     navProjects: { onClick: () => navigate("/projects") },

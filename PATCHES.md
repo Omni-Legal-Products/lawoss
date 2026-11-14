@@ -2259,6 +2259,19 @@ Rozhodnutie MČ 8. 11. 2026: model rozloženia strany (PP-DocLayoutV3, špička 
 | `apps/app/tests/codemode-chat-widgets.test.ts` | Upstream test mien režimu kódu očakáva texty LAWOSS („Looked through a folder · Read a file“, `execute` bez zaznamenaných nástrojov = `tool_run.summary.tool`), +1 import `t`. |
 | `apps/server/src/reload-events.e2e.test.ts`, `apps/server/src/lawoss-workspace-memory.e2e.test.ts` | Testy bootstrapu: `.legalwork-core` po bootstrape chýba, `.opencode/legalwork.json` vznikne; kópie zo staršej zostavy ostanú nedotknuté. |
 
+### Nálezy UI testu alfy 14 (2026-11-15, fix/alfa14-ui-nalezy)
+
+Len bežný režim; pokročilý ostáva natívny. Logika je v nových alebo zelených súboroch `apps/app/src/lawoss/lite/{settings-return,search-excerpt,documents-disclosure}.ts(x)`, `permission-details.tsx`, `client-row-view.tsx` a `lawoss/domains/ai/guidance.tsx`; test `apps/app/tests/lawoss-alfa14-ui-nalezy.test.tsx`.
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/shell/settings-route.tsx` | Zatvorenie Nastavení: `navigate(settingsReturnRoute() ?? sessionReturnRoute)` (+1 import, 1 výraz). V bežnom režime späť na poslednú obrazovku mimo Nastavení (zapamätá ju pätka bočného panela), inak natívne. `onHome` = pôvodný návrat (1 riadok), aby Domov v lište ostal natívny. `AiGuidance` v úvode Integrácií dostane `liteDisclosure` (1 atribút): v bežnom režime zbalené „AI a chránené údaje – podrobnosti“, aj pred potvrdením prečítania (potvrdenie nič nepodmieňuje); „Rozumiem“ ostáva vo vnútri. |
+| `apps/app/src/react-app/domains/settings/shell/settings-shell.tsx` | Voliteľná prop `onHome` a `navHome: { onClick: props.onHome ?? props.onClose }` (+2 riadky, 1 výraz): Domov v lište Nastavení nejde na poslednú obrazovku ako zatvorenie. |
+| `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | Panel aj dialóg: `usePermissionDetails(…, presentation.scopeValue)` (2 existujúce riadky), Podrobnosti len pri `detailsHaveContent(details, …)` (2 podmienky); v paneli `open` len mimo bežného režimu a `data-lawoss-readable-scope` na bloku „Čo a kam“ (čitateľné písmo cez `lawoss/shell/lawoss.css`). V bežnom režime Podrobnosti neopakujú riadky bloku „Čo a kam“; čo sa schvaľuje, sa nemení. |
+| `apps/app/src/react-app/domains/session/home/app-home.tsx` | Výber klienta na Domove: meno cez `useHomeClientLabel()` (+1 import, 1 hook, 2 výrazy), v bežnom režime ako bočný panel (meno z karty, nie priečinka); bez nového čítania. |
+| `apps/app/src/react-app/shell/command-palette.tsx` | Úryvok výsledku hľadania cez `plainSearchExcerpt()` (+1 import, 1 výraz): v bežnom režime bez `**`, `*`, `` ` ``, `#` a odkazov markdownu; porovnanie s cestou ostáva na pôvodnom texte. |
+| `apps/app/src/react-app/domains/session/panel/workspace-files-panel.tsx` | `DocumentProcessingPanel` obalený `LiteDocumentsDisclosure` (+1 import, 2 riadky): v bežnom režime za zbaleným riadkom „Spracovanie dokumentov pre asistenta“, obsah ostáva pripojený; pokročilý bez obalu. |
+
 ## Prevzatie enginu v alfa buildoch (2026-11-13)
 
 | Súbory | Downstream doplnenie a dôvod |

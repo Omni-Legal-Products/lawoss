@@ -9,7 +9,7 @@ import { clientFromPath } from "../../../../../lawoss/okf/cockpit";
 import type { OkfReadResult } from "../okf/read-model";
 import { HORIZON_DAYS, isCalendarDay, urgencyOf } from "../okf/view-rules";
 import type { AgendaEvent } from "./agenda-model";
-import { APP_TASKS_PATH, liteMatterLink } from "./links";
+import { APP_TASKS_PATH, LEHOTY_PATH, LITE_INPUTS_PATH, liteMatterLink } from "./links";
 import { taskDueDateInputValue } from "@/react-app/domains/tasks/task-format";
 import { isoDay } from "../../../../../lawoss/okf-pamat/src/schema.ts";
 
@@ -242,6 +242,14 @@ export function waitingCounts(input: { inputs: number; deadlines: readonly Today
   const verify = input.deadlines.filter((d) => d.invalid || (d.basis === "instruction" && !overdueDeadlines.includes(d))).length + input.unreadable.length;
   const confirm = (input.events ?? []).filter((e) => e.kind === "candidate").length;
   return { filing: input.inputs, overdue, verify, confirm, total: input.inputs + overdue + verify + confirm };
+}
+
+/**
+ * Kam vedie dlaždica „Čaká na vás“ (test alfy 14. 11.: jediná neklikateľná z dlaždíc): Na zaradenie, keď čakajú len
+ * nezaradené podklady, inak Lehoty a úlohy (po termíne, na overenie, na potvrdenie aj prázdny stav).
+ */
+export function waitingLink(waiting: Pick<Waiting, "filing" | "total">): string {
+  return waiting.filing > 0 && waiting.filing === waiting.total ? LITE_INPUTS_PATH : LEHOTY_PATH;
 }
 
 /** Riadok „Čo horí“: evidovaná lehota, termín z prípadu (aj úloha aplikácie) alebo úloha s nečitateľným dátumom. */

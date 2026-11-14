@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import type { PendingPermission } from "@/app/types";
-import { usePermissionDetails, useReviewRows } from "@/lawoss/lite/permission-details";
+import { detailsHaveContent, usePermissionDetails, useReviewRows } from "@/lawoss/lite/permission-details";
 import { currentUiMode, useUiMode } from "@/lawoss/lite/ui-mode";
 import { describeMemoryWrite, keepsMemoryWriteGate } from "@/lawoss/lite/memory-write";
 import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
@@ -251,7 +251,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
   const locale = useLocale();
   // LAWOSS: the card text is translated while describing it, so the language is a dependency.
   const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission, locale]);
-  const details = usePermissionDetails(props.permission, props.chatDirectory, presentation.details); // LAWOSS (N-A8-3): bez surového JSON
+  const details = usePermissionDetails(props.permission, props.chatDirectory, presentation.details, presentation.scopeValue); // LAWOSS (N-A8-3): bez surového JSON; lite bez riadkov „Čo a kam“
   const metadata =
     props.permission.metadata && typeof props.permission.metadata === "object"
       ? props.permission.metadata
@@ -380,7 +380,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
           ) : null}
 
           {projectInstructions ? <ProjectInstructionsReview metadata={metadata} /> : null}
-          {hasMetadata && !projectInstructions ? (
+          {hasMetadata && !projectInstructions && detailsHaveContent(details, false) /* 🟡 LAWOSS: prázdne Podrobnosti sa neukážu */ ? (
             <details className="group rounded-[18px] border border-dls-border bg-dls-surface px-4 py-3">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[13px] font-medium text-dls-text">
                 <span>{t("session.details_label")}</span>
@@ -436,7 +436,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
   const locale = useLocale();
   // LAWOSS: the card text is translated while describing it, so the language is a dependency.
   const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission, locale]);
-  const details = usePermissionDetails(props.permission, props.chatDirectory, presentation.details); // LAWOSS (N-A8-3): bez surového JSON
+  const details = usePermissionDetails(props.permission, props.chatDirectory, presentation.details, presentation.scopeValue); // LAWOSS (N-A8-3): bez surového JSON; lite bez riadkov „Čo a kam“
   const host = props.permission.host;
   const network = host?.network ? networkApprovalContent(host.network) : null;
   const metadata =
@@ -595,15 +595,15 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
                 {presentation.scopeLabel}
               </div>
               {/* 🟡 LAWOSS (N-A4-6): a lawoss_files card wraps its paths so the new file name at the end stays visible. */}
-              <div className={`mt-1 rounded-lg border border-dls-border bg-dls-hover/55 px-2.5 py-1.5 font-mono text-[12px] leading-5 text-dls-text ${presentation.scopeValue.includes("\n") || presentation.details ? "max-h-40 overflow-auto whitespace-pre-line break-all" : "truncate"}`}>
+              <div data-lawoss-readable-scope={lite && presentation.details ? "" : undefined} /* 🟡 LAWOSS: lite čitateľné písmo */ className={`mt-1 rounded-lg border border-dls-border bg-dls-hover/55 px-2.5 py-1.5 font-mono text-[12px] leading-5 text-dls-text ${presentation.scopeValue.includes("\n") || presentation.details ? "max-h-40 overflow-auto whitespace-pre-line break-all" : "truncate"}`}>
                 {presentation.scopeValue}
               </div>
             </div>
           </div>}
 
           {projectInstructions ? <div className="mt-3"><ProjectInstructionsReview metadata={metadata} /></div> : null}
-          {hasMetadata && !projectInstructions ? (
-            <details open={Boolean(presentation.details) || undefined} className="group mt-3 rounded-xl border border-dls-border bg-dls-surface px-3 py-2">
+          {hasMetadata && !projectInstructions && detailsHaveContent(details, true) /* 🟡 LAWOSS: prázdne Podrobnosti sa neukážu */ ? (
+            <details open={(Boolean(presentation.details) && !lite) || undefined} /* 🟡 LAWOSS: lite zbalené */ className="group mt-3 rounded-xl border border-dls-border bg-dls-surface px-3 py-2">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[12px] font-medium text-dls-text">
                 <span>{t("session.details_label")}</span>
                 <ChevronRight size={14} className="text-dls-secondary transition-transform group-open:rotate-90" />

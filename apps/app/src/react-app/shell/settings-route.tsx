@@ -169,6 +169,7 @@ import { ROUTE_LEGALWORK_CAPABILITIES } from "./legalwork-capabilities";
 import { useReloadCoordinator } from "./reload-coordinator";
 import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory";
 import { liteSettingsWorkspace } from "@/lawoss/lite/office-scope";
+import { settingsReturnRoute } from "@/lawoss/lite/settings-return"; // 🟡 LAWOSS: zatvorenie Nastavení v lite
 import { composerSettingsPath, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { refreshProviderListQueries } from "@/react-app/infra/provider-list-query";
@@ -2355,7 +2356,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             initialSection={route.extensionsSection}
             onRefresh={refreshNativeIntegrations}
             lawossIntro={<div className="space-y-4">
-              <AiGuidance locale={currentLocale()} />
+              <AiGuidance locale={currentLocale()} liteDisclosure /* 🟡 LAWOSS: lite zbalené */ />
               <IntegrationSourcesCard />
               {nativeIntegrations.error ? <p role="alert" className="text-sm text-red-11">{describeRouteError(nativeIntegrations.error)}</p> : null}
               <NativeCatalog
@@ -2513,7 +2514,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           onSelectWorkspace={handleSelectSettingsWorkspace}
           headerStatus={routeLegalworkStatus}
           busyHint={loading ? t("session.loading_detail") : busyLabel}
-          onClose={props.onClose ?? (() => navigate(sessionReturnRoute))}
+          onClose={props.onClose ?? (() => navigate(settingsReturnRoute() ?? sessionReturnRoute))} // 🟡 LAWOSS: lite späť na poslednú obrazovku
+          onHome={props.onClose ?? (() => navigate(sessionReturnRoute))} // 🟡 LAWOSS: Domov natívne
           compact={props.embedded}
         >
           {settingsView}

@@ -15,7 +15,7 @@ import { addDays, formatDay, today, useOkfConnection, type OkfReadResult, type O
 import { deadlineKey, deadlineText, dueTextFromDays, urgencyOf, type Urgency } from "../../okf/view-rules";
 import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { deadlineCoverage } from "../../../../../../lawoss/okf/views";
-import { appTodayTasks, buildToday, caseDates, continueCard, dayTone, hotRows, invalidCaseDates, nearestTile, taskLink, todayLead, waitingCounts, weekCounts, type CaseDate, type DayTone, type HotRow, type NearestTile, type TodayDeadline, type TodayLead, type TodayModel, type TodayTask } from "../today-model";
+import { appTodayTasks, buildToday, caseDates, continueCard, dayTone, hotRows, invalidCaseDates, nearestTile, taskLink, todayLead, waitingCounts, waitingLink, weekCounts, type CaseDate, type DayTone, type HotRow, type NearestTile, type TodayDeadline, type TodayLead, type TodayModel, type TodayTask } from "../today-model";
 import { appTaskClient, inPractice, openAppTask, useAppTasks } from "../app-tasks";
 import { agendaEvents, type AgendaEvent } from "../agenda-model";
 import { CandidatesPanel, ModeSwitch, MonthCalendar, type ViewMode } from "../agenda-views";
@@ -209,7 +209,7 @@ function Tiles({ model, dates, unreadable, todayIso, locale, text, evidence, eve
       </>}
     </Link>
     {/* Zlatá len keď niečo čaká; nula bez úplného čítania nie je „nič nečaká“. */}
-    <div className="lw-dnes-tile" data-lawoss-tile="waiting" data-gold={!pending && waiting.total > 0 || undefined}>
+    <Link className="lw-dnes-tile" to={waitingLink(waiting)} data-lawoss-tile="waiting" data-gold={!pending && waiting.total > 0 || undefined}>
       <span className="lw-dnes-tile-label">{text("tile_waiting")}</span>
       {pending ? <Skeleton /> : waiting.total > 0 ? <>
         <span className="lw-dnes-num" data-tone="gold">{waiting.total}</span>
@@ -218,7 +218,7 @@ function Tiles({ model, dates, unreadable, todayIso, locale, text, evidence, eve
         <span className="lw-dnes-num" data-tone="green"><Check aria-hidden size={28} /></span>
         <span className="lw-dnes-tile-sub">{text("wait_none")}</span>
       </> : <span className="lw-dnes-num" data-tone="muted">—</span>}
-    </div>
+    </Link>
     <RegistersTile registers={registers} activeId={activeId} text={text} />
   </section>;
 }
@@ -380,6 +380,8 @@ export function ChatBar({ text, suggestions, projectId, className }: { text: Tex
   const [draft, setDraft] = useState("");
   const open = (value: string) => {
     if (!value.trim()) return;
+    // Veta ide Domovu: pole sa vyprázdni, aby ju návrat na túto stránku neukázal znova (test alfy 14. 11.).
+    setDraft("");
     requestHomePrefill(value);
     navigate(homeRoute(projectId));
   };
@@ -391,7 +393,7 @@ export function ChatBar({ text, suggestions, projectId, className }: { text: Tex
       })}
     </div>
     <form className="lw-dnes-chat-field" onSubmit={(event) => { event.preventDefault(); open(draft); }}>
-      <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={text("chat_placeholder")} aria-label={text("chat_placeholder")} />
+      <input value={draft} onChange={(event) => setDraft(event.target.value)} autoComplete="off" placeholder={text("chat_placeholder")} aria-label={text("chat_placeholder")} />
       <button type="submit" className="lw-dnes-chat-go" disabled={!draft.trim()} aria-label={text("chat_open")} title={text("chat_open")}><ArrowRight aria-hidden size={16} /></button>
     </form>
   </section></div>;

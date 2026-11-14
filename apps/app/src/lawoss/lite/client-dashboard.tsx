@@ -178,9 +178,11 @@ function CaseCardView({ card, kind, todayIso, locale, text }: { card: CaseCard; 
       {status.stale ? <span className="lw-case-stale">{text("card_phase_stale")}</span> : null}
     </span> : null}
     {status.nextStep ? <span className="lw-klient-next" title={status.nextStep}><ArrowRight aria-hidden size={13} /><span className="sr-only">{text("card_next_step")}: </span>{status.nextStep}</span> : null}
-    {/* Jeden nízky riadok dole: spisová značka · súd vľavo, počet úloh vpravo. */}
+    {/* Jeden nízky riadok dole: spisová značka · súd vľavo, počet úloh vpravo. Bez vlastnej bublinky (`title`): po
+        kliknutí na kartu ostala systémová bublinka „SYN-M002/2026 · SYN testový súd“ visieť až v Nastaveniach (test
+        alfy 14. 11.). Značka aj súd sú na karte viditeľné. */}
     {meta || matter.openTasks.length ? <span className="lw-klient-foot">
-      {meta ? <span className="lw-klient-ref" title={meta}>{meta}</span> : <span />}
+      {meta ? <span className="lw-klient-ref">{meta}</span> : <span />}
       {matter.openTasks.length ? <small>{text("tasks_short")} {matter.openTasks.length}</small> : null}
     </span> : null}
   </Link>;

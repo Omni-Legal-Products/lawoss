@@ -590,3 +590,13 @@
 .lw-plan-group > .lw-sc { border-bottom-color: var(--lw-border-subtle); }
 /* Upstream má vlastnú triedu .lw-field (výplň vstupného poľa); v LAWOSS formulári je to len obal popisu a poľa. */
 .lw-form .lw-field { background: none; box-shadow: none; }
+
+/* Karta schválenia v bežnom režime (test alfy 14. 11. 2026): blok „Čo a kam“ je jediný čitateľný popis zápisu, preto
+   bežné písmo a viac miesta namiesto strojového; cesty sa lámu kdekoľvek, text po slovách. Pokročilý režim natívne. */
+:root[data-lawoss-ui="lite"] [data-lawoss-readable-scope] {
+  font-family: inherit;
+  font-size: 13px;
+  max-height: 16rem;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}

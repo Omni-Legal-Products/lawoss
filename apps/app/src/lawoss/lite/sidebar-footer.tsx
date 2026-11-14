@@ -4,6 +4,7 @@
  * Bežný režim nemá ľavú lištu, preto sú Nastavenia tu. Pokročilý režim tento spodok nemá (lišta ostáva).
  */
 import { MessageSquareWarning, Settings } from "lucide-react";
+import { useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
@@ -12,14 +13,13 @@ import { usePlatform } from "@/react-app/kernel/platform";
 import { workspaceSettingsRoute } from "@/react-app/shell/workspace-routes";
 import { useMcpStatuses } from "./mcp-status-store";
 import { feedbackPageUrl, registersSummary, type RegistersSummary } from "./sidebar-model";
+import { isSettingsPath, rememberSettingsReturn } from "./settings-return";
 
 const ROW_CLASS = "gap-2.5 text-[13px] text-sidebar-foreground/80 [&_svg]:size-4";
 
 /** Nastavenia a Integrácie vybraného priečinka, ako tlačidlo Nastavenia v lište; bez priečinka globálne. */
 export const settingsPath = (workspaceId: string | null | undefined, tab: string): string =>
   workspaceId ? workspaceSettingsRoute(workspaceId, tab) : `/settings/${tab}`;
-
-const isSettingsPath = (pathname: string): boolean => /^(?:\/workspace\/[^/]+)?\/settings(?:\/|$)/.test(pathname);
 
 /** Text riadku registrov; `null` = stav neznámy (nič netvrdí, riadok sa neukáže). */
 export function registersText(summary: RegistersSummary, locale: Language): { label: string; meta?: string } | null {
@@ -37,7 +37,9 @@ export function LiteSidebarFooter({ workspaceId }: { workspaceId?: string | null
 }
 
 export function LiteSidebarFooterView(props: { workspaceId?: string | null; summary: RegistersSummary; locale: Language; onReport: () => void }) {
-  const { pathname, state } = useLocation();
+  const { pathname, search, state } = useLocation();
+  // Zatvorenie Nastavení sa vráti sem (`settings-return.ts`); pätka je v bežnom režime na každej obrazovke mimo Nastavení.
+  useEffect(() => rememberSettingsReturn(pathname, search), [pathname, search]);
   const registers = registersText(props.summary, props.locale);
   const inSettings = isSettingsPath(pathname);
   return (
