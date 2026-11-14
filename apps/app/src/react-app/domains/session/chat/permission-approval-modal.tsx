@@ -19,6 +19,7 @@ import { usePermissionDetails, useReviewRows } from "@/lawoss/lite/permission-de
 import { currentUiMode, useUiMode } from "@/lawoss/lite/ui-mode";
 import { describeMemoryWrite, keepsMemoryWriteGate } from "@/lawoss/lite/memory-write";
 import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
+import { okfCommandCard } from "@/lawoss/lite/okf-command-card";
 import { fileOperationCard, offersRememberedApproval, rememberedApprovalKeys, type FileOperationDetails } from "@/lawoss/lite/file-operation-card";
 import { useOtherClientFolderText } from "@/lawoss/lite/other-client-folder";
 import { permissionCardNote } from "@/lawoss/lite/nested-client-card";
@@ -38,6 +39,8 @@ type PermissionPresentation = {
   note: string | null;
   /** 🟡 LAWOSS (P6): lawoss_files cards show these readable lines in "Details" instead of the raw JSON. */
   details?: FileOperationDetails;
+  /** 🟡 LAWOSS (Lite): readable card of a /novy-spis command; the raw command is only in the collapsed "Details". */
+  commandInDetails?: boolean;
 };
 
 /** 🟡 LAWOSS (P6): the readable "Details" of a lawoss_files card – complete, inert text in a bounded scroll region. */
@@ -208,7 +211,14 @@ function isFocusableElement(element: HTMLElement) {
   return style.display !== "none" && style.visibility !== "hidden";
 }
 
-function describePermissionRequest(permission: PendingPermission): PermissionPresentation {
+/** 🟡 LAWOSS: the command a shell card approves – the host card's exact command, else the engine's `metadata.command`. */
+function approvedCommand(permission: PendingPermission): string {
+  if (permission.host?.command) return permission.host.command;
+  const command = permission.metadata && typeof permission.metadata === "object" ? permission.metadata.command : undefined;
+  return typeof command === "string" ? command : "";
+}
+
+export function describePermissionRequest(permission: PendingPermission, lite = false): PermissionPresentation {
   const patterns = permission.patterns.filter((pattern) => pattern.trim().length > 0);
   if (permission.permission === "doom_loop") {
     const tool =
@@ -231,6 +241,11 @@ function describePermissionRequest(permission: PendingPermission): PermissionPre
   const files = permission.metadata && typeof permission.metadata === "object" ? fileOperationCard(permission.metadata) : null;
   if (files) return { ...files, isDoomLoop: false, note: null };
 
+  // 🟡 LAWOSS (Lite, overenie alfy 14. 11.): /novy-spis command as "Create the case?" – the same permission and buttons.
+  const okf = lite && permission.permission === "bash" && !permission.host?.network ? okfCommandCard(approvedCommand(permission)) : null;
+  if (okf) return { ...okf, permissionLabel: readablePermissionLabel(permission.permission), isDoomLoop: false,
+    note: permissionCardNote(permission.message), commandInDetails: true };
+
   const copy = permissionCopy(permission.permission);
   return {
     title: copy.title,
@@ -249,16 +264,17 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
   const locale = useLocale();
+  const lite = useUiMode() === "lite";
   // LAWOSS: the card text is translated while describing it, so the language is a dependency.
-  const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission, locale]);
+  const presentation = useMemo(() => describePermissionRequest(props.permission, lite), [props.permission, locale, lite]);
   const details = usePermissionDetails(props.permission, props.chatDirectory, presentation.details); // LAWOSS (N-A8-3): bez surového JSON
   const metadata =
     props.permission.metadata && typeof props.permission.metadata === "object"
       ? props.permission.metadata
       : {};
   const hasMetadata = Object.keys(metadata).length > 0;
-  const detailRows = useReviewRows(permissionDetailRows(metadata), props.chatDirectory); // LAWOSS: Kontrola bez surového diffu
-  const lite = useUiMode() === "lite";
+  // LAWOSS: Kontrola bez surového diffu; príkaz čitateľnej karty /novy-spis je len v Podrobnostiach.
+  const detailRows = useReviewRows(permissionDetailRows(presentation.commandInDetails ? { ...metadata, command: undefined } : metadata), props.chatDirectory);
   const memoryWriteProposal = describeMemoryWrite(String(metadata.command ?? ""));
   const Icon = presentation.isDoomLoop ? RefreshCcw : ShieldCheck;
   const iconClass = presentation.isDoomLoop
@@ -434,8 +450,9 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
   const projectInstructions = props.permission.permission === "legalwork_project_set_instructions";
   const projectFolder = props.permission.permission === "external_directory" && props.permission.protocol === "v2";
   const locale = useLocale();
+  const lite = useUiMode() === "lite";
   // LAWOSS: the card text is translated while describing it, so the language is a dependency.
-  const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission, locale]);
+  const presentation = useMemo(() => describePermissionRequest(props.permission, lite), [props.permission, locale, lite]);
   const details = usePermissionDetails(props.permission, props.chatDirectory, presentation.details); // LAWOSS (N-A8-3): bez surového JSON
   const host = props.permission.host;
   const network = host?.network ? networkApprovalContent(host.network) : null;
@@ -445,7 +462,6 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
       : {};
   const hasMetadata = Object.keys(metadata).length > 0;
   const Icon = network?.search ? Search : network ? Globe : presentation.isDoomLoop ? RefreshCcw : ShieldCheck;
-  const lite = useUiMode() === "lite";
   const memoryWriteProposal = describeMemoryWrite(String(metadata.command ?? ""));
   const otherClient = useOtherClientFolderText(props.permission, props.chatDirectory); // LAWOSS (N-A7-14)
   const missingFolder = useMissingFolderText(props.permission); // LAWOSS (N-A7-14): cesta, ktorá neexistuje
@@ -531,7 +547,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
         ) : null}
 
         <div className="border-t border-dls-border px-4 py-3">
-          {host?.command && !network ? <div className="mb-3">
+          {host?.command && !network && !presentation.commandInDetails ? <div className="mb-3">
             <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-dls-secondary">{t("session.permission_detail_command")}</div>
             <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-dls-border bg-dls-hover/55 px-2.5 py-1.5 font-mono text-[12px] leading-5 text-dls-text">{host.command}</pre>
           </div> : null}
@@ -603,7 +619,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
 
           {projectInstructions ? <div className="mt-3"><ProjectInstructionsReview metadata={metadata} /></div> : null}
           {hasMetadata && !projectInstructions ? (
-            <details open={Boolean(presentation.details) || undefined} className="group mt-3 rounded-xl border border-dls-border bg-dls-surface px-3 py-2">
+            <details open={(Boolean(presentation.details) && !presentation.commandInDetails) || undefined} className="group mt-3 rounded-xl border border-dls-border bg-dls-surface px-3 py-2">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[12px] font-medium text-dls-text">
                 <span>{t("session.details_label")}</span>
                 <ChevronRight size={14} className="text-dls-secondary transition-transform group-open:rotate-90" />
