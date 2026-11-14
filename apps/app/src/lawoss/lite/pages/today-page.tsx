@@ -89,7 +89,7 @@ function TodayLive({ data, meta, scope, locale, name }: { data: OkfReadResult; m
   // #271: nedočítaný zoznam úloh aplikácie robí prehľad neúplným rovnako ako nedočítaná pamäť.
   const evidence = useMemo(() => ({ complete: data.coverage.status === "complete" && appTasksComplete, ...deadlineCoverage(data.inputs) }), [data, appTasksComplete]);
   return <TodayView model={model} locale={locale} meta={meta} name={name} choices={choices} evidence={evidence} events={events} preferenceScope={clientPreferenceScope(scope, connection?.baseUrl)} activeId={connection?.activeWorkspaceId}
-    registers={statuses === null ? "pending" : registersSummary(statuses)} pending={appTasksLoading} />;
+    registers={registersSummary(statuses)} pending={appTasksLoading} />;
 }
 
 type Text = (key: string, params?: Record<string, string | number>) => string;
@@ -124,8 +124,8 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
   evidence?: { complete: boolean; recorded: number; unrecorded: number };
   /** Udalosti praxe pre mesiac (spec 0020); bez nich sa prepínač ani mesiac neukážu. */
   events?: readonly AgendaEvent[];
-  /** Stav registrov ako v pätke bočného panela; `"pending"` = mapa stavov ešte nie je (kostra), bez hodnoty dlaždica nie je. */
-  registers?: RegistersSummary | "pending";
+  /** Stav registrov ako v pätke bočného panela; neznámy stav (aj bez mapy stavov) dlaždicu neukáže, ako pätka. */
+  registers?: RegistersSummary;
   /** Úlohy aplikácie sa ešte čítajú: počty, ktoré od nich závisia, ukážu kostru, nie nulu. */
   pending?: boolean;
   /** Režim po otvorení; voľba sa nepamätá (spec 0020). */
@@ -192,13 +192,13 @@ function leadText(lead: TodayLead, locale: Language, text: Text): string {
 type Shared = { model: TodayModel; dates: readonly CaseDate[]; unreadable: readonly TodayTask[]; text: Text };
 
 /** Štyri dlaždice: najbližšia lehota, tento týždeň, čaká na vás, registre. */
-function Tiles({ model, dates, unreadable, todayIso, locale, text, evidence, events, registers, activeId, pending }: Shared & { todayIso: string; locale: Language; evidence?: { complete: boolean }; events?: readonly AgendaEvent[]; registers?: RegistersSummary | "pending"; activeId?: string | null; pending: boolean }) {
+function Tiles({ model, dates, unreadable, todayIso, locale, text, evidence, events, registers, activeId, pending }: Shared & { todayIso: string; locale: Language; evidence?: { complete: boolean }; events?: readonly AgendaEvent[]; registers?: RegistersSummary; activeId?: string | null; pending: boolean }) {
   const week = weekCounts(model.deadlines, dates, todayIso);
   const waiting = waitingCounts({ inputs: model.inputs.length, deadlines: model.deadlines, dates, unreadable, events });
   const known = evidence?.complete !== false;
   const parts = ([["filing", waiting.filing], ["overdue", waiting.overdue], ["verify", waiting.verify], ["confirm", waiting.confirm]] as const)
     .filter(([, count]) => count > 0).map(([kind, count]) => `${count} ${text(`wait_${kind}`)}`);
-  return <section className="lw-dnes-tiles" style={reveal(1)} aria-label={text("tile_nearest")}>
+  return <section className="lw-dnes-tiles" style={reveal(1)} aria-label={text("tiles_label")}>
     <NearestTileView tile={nearestTile(model.deadlines, dates)} locale={locale} text={text} known={known} />
     <Link className="lw-dnes-tile" to={LEHOTY_PATH} data-lawoss-tile="week">
       <span className="lw-dnes-tile-label">{text("tile_week")}</span>
@@ -245,10 +245,10 @@ function NearestTileView({ tile, locale, text, known }: { tile: NearestTile; loc
 }
 
 /** Rovnaký stav a cieľ ako riadok registrov v bočnom paneli; neznámy stav nič netvrdí. */
-function RegistersTile({ registers, activeId, text }: { registers?: RegistersSummary | "pending"; activeId?: string | null; text: Text }) {
-  if (!registers || (registers !== "pending" && registers.state === "unknown")) return null;
+function RegistersTile({ registers, activeId, text }: { registers?: RegistersSummary; activeId?: string | null; text: Text }) {
+  // `null` mapa stavov znamená aj „priečinok nie je vybraný / čítanie zlyhalo“, nie len načítanie: bez kostry naveky.
+  if (!registers || registers.state === "unknown") return null;
   const label = <span className="lw-dnes-tile-label">{text("tile_registers")}</span>;
-  if (registers === "pending") return <div className="lw-dnes-tile" data-lawoss-tile="registers" data-state="pending">{label}<Skeleton /></div>;
   return <Link className="lw-dnes-tile" to={settingsPath(activeId, "extensions/mcp")} data-lawoss-tile="registers" data-state={registers.state}>
     {label}
     {registers.state === "failing"

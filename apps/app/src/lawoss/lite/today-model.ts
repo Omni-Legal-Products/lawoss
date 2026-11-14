@@ -322,6 +322,12 @@ export type ContinueCard = {
   line: { kind: "event"; text: string } | { kind: "tasks"; count: number } | null;
 };
 
+/**
+ * `matter.state` je stav z karty prípadu, inak `status` záznamu prípadu. Ten druhý je platnosť záznamu (OKF enum
+ * `active`/`superseded`/…, „platný“), nie fáza prípadu: na karte by bol pri každom prípade a v angličtine.
+ */
+const RECORD_VALIDITY: ReadonlySet<string> = new Set(["active", "superseded", "void", "banned", "deprecated"]);
+
 export function continueCard(matter: TodayMatter, todayIso: string): ContinueCard {
   const deadline = nextDeadline(matter.deadlines, todayIso);
   const work = deadline ? undefined : nextWorkDate(matter, todayIso);
@@ -332,7 +338,7 @@ export function continueCard(matter: TodayMatter, todayIso: string): ContinueCar
     path: matter.path,
     title: matter.title,
     ...(matter.client ? { client: matter.client } : {}),
-    ...(matter.state?.trim() ? { state: matter.state.trim() } : {}),
+    ...(matter.state?.trim() && !RECORD_VALIDITY.has(matter.state.trim()) ? { state: matter.state.trim() } : {}),
     next: date ? { kind: deadline ? "deadline" : "work", date, daysLeft, tone: deadline ? dayTone(daysLeft) : "neutral" } : null,
     line: event ? { kind: "event", text: event } : matter.openTasks.length ? { kind: "tasks", count: matter.openTasks.length } : null,
   };

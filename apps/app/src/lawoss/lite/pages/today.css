@@ -209,7 +209,8 @@
 /* ── Dnes ako pasívny prehľad (alfa 14, spec-dnes.md) ───────────────────────
    Dlaždice s číslami, pás 14 dní, „Čo horí“ | „Čaká na vás“, „Pokračovať“ a pole chatu. Len tokeny (svetlá aj tmavá
    téma), zaoblenia z dizajn systému §2, zlatá ako glazúra s odleskom len pri hoveri/fokuse (§4b), nikdy zvislý prúžok. */
-.lw-dnes { gap: 22px; }
+/* Flex stĺpec (nie mriežka): pole chatu sa drží dole (sticky) a pri krátkej stránke ho `margin-top: auto` odtlačí na spodok. */
+.lw-dnes { display: flex; flex-direction: column; gap: 22px; }
 .lw-dnes { --dn-radius: var(--lw-radius-2xl, 18px); --dn-radius-sm: var(--lw-radius-xl, 14px); --dn-amber: var(--lw-warning, #d89a4e); --dn-green: var(--lw-success, #8dbb8f); }
 .lw-dnes .lw-today-hero { padding-top: 14px; }
 .lw-dnes .lw-today-lead { margin-top: 8px; font-size: 14px; }
@@ -287,7 +288,8 @@ a.lw-dnes-tile:hover, a.lw-dnes-card:hover, a.lw-dnes-mini:hover {
 
 /* „Čo horí“ | „Čaká na vás“: dva stĺpce, na úzkom obsahu jeden. */
 .lw-dnes-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
-@container (min-width: 820px) { .lw-dnes-cols { grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); } }
+/* ~1100 px okno = 256 px bočný panel + 2 × 44 px okraj stránky + ~756 px obsahu; pod 900 px okna je obsah ~570 px. */
+@container (min-width: 740px) { .lw-dnes-cols { grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); } }
 .lw-dnes-panel { padding: 18px 20px; }
 .lw-dnes-h2 { margin: 0 0 10px; font-size: 16px; font-weight: 600; color: var(--lw-text-primary); }
 .lw-dnes-continue > .lw-dnes-h2 { margin-bottom: 12px; }
@@ -349,7 +351,7 @@ a.lw-dnes-tile:hover, a.lw-dnes-card:hover, a.lw-dnes-mini:hover {
 
 /* Pole chatu: otvorí Domov s vetou, nič neodošle. */
 .lw-dnes-chat {
-  position: sticky; bottom: 16px; z-index: 3;
+  position: sticky; bottom: 16px; z-index: 3; margin-top: auto;
   display: flex; flex-direction: column; gap: 10px; padding: 14px 16px;
   border: 1px solid color-mix(in srgb, var(--td-gold) 35%, transparent); border-radius: var(--lw-radius-3xl, 22px);
   background: color-mix(in srgb, var(--lw-surface) 94%, transparent);

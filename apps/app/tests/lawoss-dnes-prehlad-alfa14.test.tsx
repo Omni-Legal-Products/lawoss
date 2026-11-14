@@ -95,6 +95,8 @@ describe("úvod a karty", () => {
     expect(missed.state).toBe("aktívny");
     expect(missed.line).toEqual({ kind: "tasks", count: 2 });
     expect(continueCard(base, TODAY)).toMatchObject({ next: null, line: null });
+    // Platnosť záznamu (OKF `status: active`) nie je stav prípadu.
+    expect(continueCard({ ...base, state: "active" }, TODAY).state).toBeUndefined();
   });
 });
 
@@ -103,10 +105,9 @@ describe("obrazovka", () => {
   const statuses = (status: McpStatus): McpStatusMap => ({ slovlex: status, orsr: status });
 
   test("načítanie: kostra namiesto čísla 0 v dlaždiciach aj v „po termíne“", () => {
-    const out = html(<TodayView model={model} locale="sk" now={now} pending registers="pending" />);
-    expect(out.match(/data-lawoss-skeleton=""/g)).toHaveLength(4);
+    const out = html(<TodayView model={model} locale="sk" now={now} pending />);
+    expect(out.match(/data-lawoss-skeleton=""/g)).toHaveLength(3);
     expect(out).not.toMatch(/data-lawoss-tile="week".*?<span class="lw-dnes-num">0/);
-    expect(out).toContain('data-lawoss-tile="registers" data-state="pending"');
   });
 
   test("Registre: rovnaký stav a cieľ ako pätka bočného panela; neznámy stav dlaždicu neukáže", () => {

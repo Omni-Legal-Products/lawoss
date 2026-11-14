@@ -794,6 +794,7 @@ export const shellEn = {
   "lawoss.lite.registers_failing_other": "Registers: {count} not working",
   // Alfa 14: Dnes ako pasívny prehľad (dlaždice, Čo horí, Pokračovať, pole chatu).
   "lawoss.lite.tile_nearest": "Nearest deadline",
+  "lawoss.lite.tiles_label": "Overview in numbers",
   "lawoss.lite.tile_week": "This week",
   "lawoss.lite.tile_waiting": "Waiting for you",
   "lawoss.lite.tile_registers": "Registers",
@@ -1640,6 +1641,7 @@ export const shellCs = {
   "lawoss.lite.registers_failing_other": "Registry: {count} nefunguje",
   // Alfa 14: Dnes ako pasívny prehľad (dlaždice, Čo horí, Pokračovať, pole chatu).
   "lawoss.lite.tile_nearest": "Nejbližší lhůta",
+  "lawoss.lite.tiles_label": "Přehled v číslech",
   "lawoss.lite.tile_week": "Tento týden",
   "lawoss.lite.tile_waiting": "Čeká na vás",
   "lawoss.lite.tile_registers": "Registry",
@@ -2493,6 +2495,7 @@ export const shellSk = {
   "lawoss.lite.registers_failing_other": "Registre: {count} nejde",
   // Alfa 14: Dnes ako pasívny prehľad (dlaždice, Čo horí, Pokračovať, pole chatu).
   "lawoss.lite.tile_nearest": "Najbližšia lehota",
+  "lawoss.lite.tiles_label": "Prehľad v číslach",
   "lawoss.lite.tile_week": "Tento týždeň",
   "lawoss.lite.tile_waiting": "Čaká na vás",
   "lawoss.lite.tile_registers": "Registre",
@@ -3340,6 +3343,7 @@ export const shellDe = {
   "lawoss.lite.registers_failing_other": "Register: {count} funktionieren nicht",
   // Alfa 14: Dnes ako pasívny prehľad (dlaždice, Čo horí, Pokračovať, pole chatu).
   "lawoss.lite.tile_nearest": "Nächste Frist",
+  "lawoss.lite.tiles_label": "Übersicht in Zahlen",
   "lawoss.lite.tile_week": "Diese Woche",
   "lawoss.lite.tile_waiting": "Wartet auf Sie",
   "lawoss.lite.tile_registers": "Register",
