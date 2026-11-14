@@ -19,12 +19,14 @@ export function alphaPlatform(platform = process.platform, arch = process.arch) 
   return "";
 }
 
-/** Formulár hlásenia; verzia a systém idú v odkaze, aby ich tester nemusel hľadať. Žiadne osobné údaje. */
+/** Formulár hlásenia; verzia a systém idú v odkaze (parametre `v`, `os`, `arch`, ktoré formulár pozná). Žiadne osobné údaje. */
 export function feedbackUrl({ locale, version, platform = process.platform, arch = process.arch }) {
   const url = new URL(`${SITE}/${siteLocale(locale)}/alfa/hlasenie`);
-  const system = alphaPlatform(platform, arch);
-  if (version) url.searchParams.set("verzia", String(version).slice(0, 60));
-  if (system) url.searchParams.set("system", system);
+  if (version) url.searchParams.set("v", String(version).slice(0, 60));
+  if (alphaPlatform(platform, arch)) {
+    url.searchParams.set("os", platform);
+    url.searchParams.set("arch", arch);
+  }
   return url.toString();
 }
 

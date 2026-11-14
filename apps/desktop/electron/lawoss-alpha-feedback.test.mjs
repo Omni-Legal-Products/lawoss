@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { alphaPlatform, feedbackUrl, latestAlpha, newerAlpha, parseAlphaVersion } from "./lawoss-alpha-feedback.mjs";
 
-test("odkaz na hlásenie nesie verziu a systém, nič iné", () => {
+test("odkaz na hlásenie nesie verziu a systém v parametroch formulára, nič iné", () => {
   assert.equal(
     feedbackUrl({ locale: "sk", version: "0.2.1-alpha.12.ge0dd860", platform: "darwin", arch: "arm64" }),
-    "https://lawoss.app/sk/alfa/hlasenie?verzia=0.2.1-alpha.12.ge0dd860&system=mac",
+    "https://lawoss.app/sk/alfa/hlasenie?v=0.2.1-alpha.12.ge0dd860&os=darwin&arch=arm64",
   );
-  assert.match(feedbackUrl({ locale: "cs", version: "", platform: "win32", arch: "arm64" }), /\/cz\/alfa\/hlasenie\?system=win-arm64$/);
-  assert.match(feedbackUrl({ locale: "de", version: "1", platform: "linux", arch: "x64" }), /\/en\/alfa\/hlasenie\?verzia=1$/);
+  assert.match(feedbackUrl({ locale: "cs", version: "", platform: "win32", arch: "arm64" }), /\/cz\/alfa\/hlasenie\?os=win32&arch=arm64$/);
+  assert.match(feedbackUrl({ locale: "de", version: "1", platform: "linux", arch: "x64" }), /\/en\/alfa\/hlasenie\?v=1$/);
 });
 
 test("platformy zodpovedajú kľúčom webu", () => {
