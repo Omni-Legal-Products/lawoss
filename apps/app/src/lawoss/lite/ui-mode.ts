@@ -43,7 +43,23 @@ function resolve(): UiMode {
 
 let state: UiMode = resolve();
 
-function notify(): void { for (const listener of listeners) listener(); }
+/**
+ * Režim aj na `<html data-lawoss-ui>`: CSS bežného režimu (zlatá glazúra aktívnej položky, alfa 14) sa tak
+ * nedotkne Pokročilého. Bez dokumentu (testy, SSR) nič.
+ */
+export function markUiModeOnDocument(mode: UiMode = state, root: { dataset?: DOMStringMap } | null | undefined = documentRoot()): void {
+  if (root?.dataset) root.dataset.lawossUi = mode;
+}
+
+/** Koreň dokumentu, ak existuje (náhradný `document` v testoch nemusí mať `documentElement`). */
+function documentRoot(): { dataset?: DOMStringMap } | null {
+  return typeof document === "undefined" ? null : document.documentElement ?? null;
+}
+
+function notify(): void {
+  markUiModeOnDocument();
+  for (const listener of listeners) listener();
+}
 
 export function currentUiMode(): UiMode { return state; }
 
@@ -74,6 +90,7 @@ let installed = false;
 export function initUiMode(): void {
   if (installed || typeof window === "undefined") return;
   installed = true;
+  markUiModeOnDocument();
   window.addEventListener("storage", (event) => {
     if (event.key !== UI_MODE_STORAGE_KEY) return;
     const next = isUiMode(event.newValue) ? event.newValue : resolve();

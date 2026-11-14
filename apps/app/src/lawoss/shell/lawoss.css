@@ -239,8 +239,10 @@
 }
 .lw-btn:hover { border-color: color-mix(in srgb, var(--lw-gold) 50%, transparent); background: color-mix(in srgb, var(--lw-gold) 8%, transparent); }
 /* Hlavná akcia ako „+ Nová vec“ v Dnes: kovové zlato. */
-.lw-btn.gold { border-color: transparent; background: var(--lw-metal); background-size: 180% 100%; color: var(--lw-on-gold); font-weight: 600; padding: 0 20px; box-shadow: var(--lw-gold-glow); transition: background-position 600ms var(--lw-ease-expo), box-shadow 300ms var(--lw-ease-expo); }
-.lw-btn.gold:hover { background-position: 100% 0; box-shadow: var(--lw-gold-glow-hover); }
+/* Zlatý lesk (§4b): odlesk a jeho vypnutie pri reduced-motion v lawoss/theme/lawoss-components.css. */
+.lw-btn.gold { position: relative; border-color: transparent; background: var(--lw-gold-gloss); color: var(--lw-on-gold); font-weight: 600; padding: 0 20px; box-shadow: var(--lw-gold-gloss-shadow); transition: transform 160ms var(--lw-ease-expo), box-shadow 160ms var(--lw-ease-expo); }
+.lw-btn.gold:hover:not(:disabled) { background: var(--lw-gold-gloss); transform: translateY(-1px); box-shadow: var(--lw-gold-gloss-shadow-hover); }
+.lw-btn.gold:focus-visible { outline: 2px solid var(--lw-gold-focus); outline-offset: 3px; }
 
 /* diagrams */
 .lw-strip { margin-top: 16px; }
@@ -489,6 +491,33 @@
 .lw-nav-urgency[data-urgency="hot"] { background: #e8836b; box-shadow: 0 0 8px rgba(232, 131, 107, 0.85); }
 /* B3: blížiaca sa lehota v riadku klienta/veci má farbu zlatého bodu (význam nesie text). */
 .lw-row-near { color: #c9a24a; }
+/* Alfa 14, bežný režim: aktívna položka bočného panela (globálne riadky aj strom klienta) má jemnú zlatú glazúru
+   s 1 px obrysom a tichým odleskom (design-system.md §4b). Žiadny zvislý prúžok na okraji. Obrys je celý rámik
+   (`inset 0 0 0 1px`), nie posunutý tieň. Pokročilý režim (bez `data-lawoss-ui="lite"`) ostáva natívny. */
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session)[data-active] {
+  isolation: isolate;
+  background: var(--lw-gold-glaze);
+  color: var(--lw-gold-glaze-text);
+  box-shadow: inset 0 0 0 1px var(--lw-gold-glaze-border), var(--lw-gold-glaze-shadow);
+}
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session)[data-active]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 30%;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--lw-gold-glaze-sheen);
+  --lw-sheen-from: -135%;
+  --lw-sheen-to: 470%;
+  transform: translateX(var(--lw-sheen-from)) skewX(-18deg);
+  animation: lw-sheen 9s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session)[data-active]::after { content: none; animation: none; }
+}
 /* Alfa 14, bežný režim: lehota vpravo v riadku klienta, počty a stav registrov v bočnom paneli (len tokeny). */
 .lw-row-due-near { color: var(--lw-warning); }
 .lw-nav-meta { margin-left: auto; flex: none; font-family: var(--lw-font-mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--lw-text-tertiary); }

@@ -15,6 +15,7 @@ import { clientCardLabel } from "./client-titles";
 import type { ClientRowFacts } from "./client-row-data";
 import { dueTextClass, rowDeadlineText, rowDueText, urgencyTextClass } from "./client-row-text";
 import { useClientNav, useClientNavData, usePublishedClientNav, type PublishedClientNav } from "./client-nav";
+import { JUST_CHANGED_CLASS, useJustChanged } from "./just-changed";
 import { useUiMode, type UiMode } from "./ui-mode";
 
 type ProjectRef = { id: string; path?: string | null };
@@ -30,6 +31,8 @@ export type ClientRow = {
   status?: { text: string; urgency: string };
   /** Bežný režim: tá istá lehota vpravo v riadku, slovom do 14 dní („o 3 dni“), inak dátum. */
   due?: { text: string; urgency: string };
+  /** Totožnosť lehoty (druh a dátum): mení sa, keď pribudne bližšia lehota, nie o polnoci pri „o 3 dni“ → „o 2 dni“. */
+  dueKey?: string;
 };
 
 /**
@@ -48,6 +51,7 @@ export function clientRowFrom(facts: ClientRowFacts | undefined, nativeLabel: st
     ...(facts.deadline ? {
       status: { text: rowDeadlineText(facts.deadline, locale), urgency: facts.deadline.urgency },
       due: { text: rowDueText(facts.deadline, locale), urgency: facts.deadline.urgency },
+      dueKey: facts.deadline.kind === "next" ? `next:${facts.deadline.date}` : facts.deadline.kind,
     } : {}),
   };
 }
@@ -95,14 +99,16 @@ export function useClientRowActive(projectId: string, isSelected: boolean): bool
  * Bežný režim: najbližšia lehota vpravo vedľa mena (návrh sidebaru alfy 14); Pokročilý ju má v druhom riadku.
  */
 export function ClientRowLabel({ row }: { row: ClientRow }) {
-  return <ClientRowLabelView row={row} mode={useUiMode()} />;
+  // Alfa 14: zmena najbližšej lehoty (napr. po zápise lehoty) sa na riadku krátko zlato zvýrazní.
+  const changed = useJustChanged(row.dueKey);
+  return <ClientRowLabelView row={row} mode={useUiMode()} justChanged={changed} />;
 }
 
-export function ClientRowLabelView({ row, mode }: { row: ClientRow; mode: UiMode }) {
+export function ClientRowLabelView({ row, mode, justChanged = false }: { row: ClientRow; mode: UiMode; justChanged?: boolean }) {
   const name = <span className={row.client ? "line-clamp-2 whitespace-normal break-words" : "block truncate"} title={row.tooltip}
     data-lawoss-row-label="" data-lawoss-native-name={row.nativeLabel}>{row.label}</span>;
   if (mode !== "lite" || !row.due) return name;
-  return <span className="flex min-w-0 items-baseline gap-2">
+  return <span className={cn("flex min-w-0 items-baseline gap-2 rounded-[var(--lw-radius-xs)]", justChanged && JUST_CHANGED_CLASS)} data-lawoss-just-changed={justChanged ? "" : undefined}>
     <span className="min-w-0 flex-1">{name}</span>
     <span className={cn("lw-row-due", dueTextClass(row.due.urgency))} data-lawoss-row-due="" data-urgency={row.due.urgency}>{row.due.text}</span>
   </span>;

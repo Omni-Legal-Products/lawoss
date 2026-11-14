@@ -15,17 +15,16 @@
 [data-slot="button"][data-variant="default"],
 .lw-composer-send:not(:disabled) {
   border-color: transparent;
-  background: var(--lw-metal);
-  background-size: 180% 100%;
+  background: var(--lw-gold-gloss);
   color: var(--lw-on-gold);
   font-weight: 600;
-  box-shadow: var(--lw-gold-glow);
-  transition: background-position 600ms var(--lw-ease-expo), transform 200ms var(--lw-ease-expo), box-shadow 300ms var(--lw-ease-expo), opacity 140ms;
+  box-shadow: var(--lw-gold-gloss-shadow);
+  transition: transform 160ms var(--lw-ease-expo), box-shadow 160ms var(--lw-ease-expo), opacity 140ms;
 }
 [data-slot="button"][data-variant="default"]:hover:not(:disabled),
 .lw-composer-send:hover:not(:disabled) {
-  background-position: 100% 0;
-  box-shadow: var(--lw-gold-glow-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--lw-gold-gloss-shadow-hover);
 }
 [data-slot="button"][data-variant="default"]:disabled {
   box-shadow: none;
@@ -43,6 +42,7 @@
   border-color: color-mix(in srgb, var(--lw-gold) 70%, transparent);
   background: color-mix(in srgb, var(--lw-gold) 20%, transparent);
   box-shadow: none;
+  transform: none;
 }
 :root:not(.dark):not([data-theme="dark"]) [data-slot="button"][data-variant="default"]:is([data-size="sm"], [data-size="xs"]) {
   color: var(--lw-accent);
@@ -60,8 +60,101 @@
   outline: 2px solid var(--lw-gold);
   outline-offset: 2px;
 }
+[data-slot="button"][data-variant="default"]:not([data-size="sm"]):not([data-size="xs"]):focus-visible,
+.lw-composer-send:focus-visible {
+  outline-color: var(--lw-gold-focus);
+  outline-offset: 3px;
+}
 @media (prefers-reduced-motion: reduce) {
   [data-slot="button"], .lw-composer-send { transition: none; }
+}
+
+/* ── zlatý lesk (design-system.md §4b, MČ 14. 11. 2026) ─────────────────────
+   Hlavná akcia: pomalý odlesk raz za ~7 s, pri hoveri hneď. Rovnaký recept majú
+   `.lw-btn.gold` a `.lw-today-primary` (lawoss.css, okf-glass.css). Pohyb len cez
+   `transform`; `prefers-reduced-motion` odlesk aj zdvih vypne, stav ostáva. */
+:root {
+  --lw-sheen-from: -140%;
+  --lw-sheen-to: 330%;
+}
+@keyframes lw-sheen {
+  0%, 62% { transform: translateX(var(--lw-sheen-from)) skewX(-18deg); }
+  100% { transform: translateX(var(--lw-sheen-to)) skewX(-18deg); }
+}
+@keyframes lw-sheen-once {
+  from { transform: translateX(var(--lw-sheen-from)) skewX(-18deg); }
+  to { transform: translateX(var(--lw-sheen-to)) skewX(-18deg); }
+}
+:is([data-slot="button"][data-variant="default"]:not([data-size="sm"]):not([data-size="xs"]), .lw-composer-send, .lw-btn.gold, .lw-today-primary) {
+  isolation: isolate;
+  overflow: hidden;
+}
+:is([data-slot="button"][data-variant="default"]:not([data-size="sm"]):not([data-size="xs"]), .lw-composer-send, .lw-btn.gold, .lw-today-primary)::after {
+  content: "";
+  position: absolute;
+  top: -40%;
+  bottom: -40%;
+  left: 0;
+  width: 45%;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--lw-gold-sheen);
+  transform: translateX(var(--lw-sheen-from)) skewX(-18deg);
+  animation: lw-sheen 7s ease-in-out infinite;
+}
+:is([data-slot="button"][data-variant="default"]:not([data-size="sm"]):not([data-size="xs"]), .lw-composer-send, .lw-btn.gold, .lw-today-primary):hover:not(:disabled)::after {
+  animation: lw-sheen-once 900ms var(--lw-ease-expo) 1 both;
+}
+:is([data-slot="button"][data-variant="default"], .lw-composer-send, .lw-btn.gold, .lw-today-primary):is(:disabled, [aria-disabled="true"])::after {
+  content: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is([data-slot="button"][data-variant="default"], .lw-composer-send, .lw-btn.gold, .lw-today-primary)::after { content: none; animation: none; }
+  :is([data-slot="button"][data-variant="default"], .lw-composer-send, .lw-btn.gold, .lw-today-primary):hover { transform: none; }
+}
+
+/* Práve zmenený riadok (nová lehota, potvrdený návrh): jednorazový zlatý odlesk
+   a podklad `--lw-gold-ink`, ktorý vybledne (~1200 ms). Trieda sa pridá len na
+   chvíľu (`useJustChanged` v lawoss/lite/just-changed.ts). */
+.lw-just-changed {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+.lw-just-changed::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--lw-gold-ink);
+  opacity: 0;
+  pointer-events: none;
+  animation: lw-changed-fade var(--lw-duration-changed) var(--lw-ease-expo) 1 both;
+}
+.lw-just-changed::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 35%;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--lw-gold-glaze-sheen);
+  --lw-sheen-from: -110%;
+  --lw-sheen-to: 300%;
+  transform: translateX(var(--lw-sheen-to)) skewX(-18deg);
+  animation: lw-sheen-once var(--lw-duration-changed) var(--lw-ease-expo) 1 both;
+}
+@keyframes lw-changed-fade {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lw-just-changed::after { content: none; animation: none; }
+  /* bez pohybu: podklad svieti počas celej doby bez vyblednutia, zmena ostáva viditeľná */
+  .lw-just-changed::before { animation: none; opacity: 1; }
 }
 
 /* ── plochy ───────────────────────────────────────────────────────────────
