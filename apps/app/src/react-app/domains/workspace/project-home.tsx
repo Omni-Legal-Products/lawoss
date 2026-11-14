@@ -54,6 +54,7 @@ export function ProjectHome(props: {
   onRename?: (name: string) => Promise<boolean>;
   /** LAWOSS: prehľad klienta z OKF nad úlohami (lawoss/lite/client-overview.tsx). */
   extra?: ReactNode;
+  leading?: ReactNode; // 🟡 LAWOSS: iniciály klienta pred názvom v bežnom režime (client-overview.tsx)
 }) {
   const { client, workspaceId } = props;
   const requestTab = useRequestPanelTab({ kind: "workspace", workspaceId: props.projectId });
@@ -126,6 +127,7 @@ export function ProjectHome(props: {
         <ContextMenu>
         <ContextMenuTrigger render={<header className="p-5 @min-[720px]/project-page:p-6" />}>
           <div className="flex flex-col items-stretch gap-3 @min-[680px]/project-page:flex-row @min-[680px]/project-page:items-start">
+            {props.leading /* 🟡 LAWOSS */}
             <ProjectName name={props.name} onRename={props.onRename} />
             <div className="flex min-w-0 flex-wrap items-center gap-1 @min-[680px]/project-page:shrink-0">
             <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-sm" className="shrink-0" aria-label={favoriteLabel} aria-pressed={isFavorite} onClick={() => toggleFavorite(workspaceId)}><Pin className={cn("size-4", isFavorite && "fill-current text-foreground")} /></Button>} /><TooltipContent>{favoriteLabel}</TooltipContent></Tooltip>

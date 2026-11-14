@@ -234,10 +234,12 @@ function reasonValue(reason: MatterViews["reasons"][number], locale: Language): 
 }
 
 /** Hlavička (rozpoznaný typ, dôvody, oprava), rozpory, stavová lišta a bloky prehľadu. */
-export function MatterViewsPanel({ views, locale, access, edit, readState = "fresh" }: {
+export function MatterViewsPanel({ views, locale, access, edit, readState = "fresh", stripOmit = [] }: {
   views: MatterViews; locale: Language; access?: SourceAccess; edit?: ViewsEdit;
   /** `failed`: zdroj klienta sa nepodarilo čerstvo prečítať — prázdne sekcie sú „nenačítané“, nie „neevidované“. */
   readState?: "fresh" | "failed";
+  /** Sekcie lišty, ktoré už ukazuje prehľad nad ňou (bežný režim: fáza a ďalší krok v dlaždici „Kde vec stojí“). */
+  stripOmit?: readonly SectionId[];
 }) {
   const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -265,7 +267,7 @@ export function MatterViewsPanel({ views, locale, access, edit, readState = "fre
         {t(CONFLICT_FIELD[conflict.field], locale)}: {conflict.values.map((value, i) => <span key={`${value.source.file}/${i}`}>{i > 0 ? " ≠ " : ""}{value.tag ? tagText(value.tag, locale) ?? value.value : value.value} <SourceLink source={value.source} locale={locale} access={access} /></span>)}
       </li>)}</ul>
     </div> : null}
-    <Strip sections={views.strip} locale={locale} access={access} failed={failed} />
+    <Strip sections={views.strip.filter((section) => !stripOmit.includes(section.id))} locale={locale} access={access} failed={failed} />
     <div className="lw-views-blocks">
       {blocks.slice(0, OPEN_BLOCKS).map((block) => <Block key={block.family} block={block} locale={locale} access={access} failed={failed} />)}
     </div>

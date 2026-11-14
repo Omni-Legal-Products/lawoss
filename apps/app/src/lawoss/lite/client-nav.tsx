@@ -44,6 +44,7 @@ import { buildClientRows, useRootCards } from "./client-row-data";
 import { ANCESTOR_CLASS, rowDeadlineText, urgencyTextClass } from "./client-row-text";
 import { useUiMode } from "./ui-mode";
 import { cardTitles, rememberCardTitles } from "./client-titles";
+import { recentChats, recentChatsKey, type RecentChat } from "./client-cards";
 
 /**
  * Skupiny panela pre LAWOSS: režim wiki (session-route odovzdá len priečinok wiki) zoznam projektov nemení,
@@ -153,7 +154,12 @@ export function useClientNavData(live?: { groups?: readonly WorkspaceSessionGrou
 }
 
 
-export type PublishedClientNav = Pick<ReturnType<typeof useClientNavData>, "connection" | "scope" | "data" | "groups" | "model" | "excludedWorkspaceIds" | "rows">;
+export type PublishedClientNav = Pick<ReturnType<typeof useClientNavData>, "connection" | "scope" | "data" | "groups" | "model" | "excludedWorkspaceIds" | "rows"> & {
+  /** Posledné chaty projektov zo živého zoznamu panela (Domov klienta, „Pokračovať“); bez panela nič. */
+  chats?: Readonly<Record<string, readonly RecentChat[]>>;
+};
+/** Domov klienta ukáže tri posledné chaty. */
+const RECENT_CHATS = 3;
 
 let published: PublishedClientNav | null = null;
 const publishedListeners = new Set<() => void>();
@@ -162,6 +168,9 @@ function publish(next: PublishedClientNav | null) {
   for (const listener of publishedListeners) listener();
 }
 const subscribePublished = (listener: () => void) => { publishedListeners.add(listener); return () => { publishedListeners.delete(listener); }; };
+
+/** To isté bez odberu (titulok okna sa počíta pri vykreslení hlavičky, `lawossScreenTitle`). */
+export const publishedClientNav = (): PublishedClientNav | null => published;
 
 /** To, čo bočný panel práve vie o klientoch; mimo panela (samostatné okno) `null`. */
 export function usePublishedClientNav(): PublishedClientNav | null {
@@ -221,7 +230,10 @@ function ClientNavRoot({ groups, selectedWorkspaceId, children }: { groups?: rea
   useEffect(() => {
     setOpenState((prev) => forgetProjectOverride(prev, focused));
   }, [focused, tree.focus.client, tree.focus.matter]);
-  const snapshot = useMemo<PublishedClientNav>(() => ({ connection: nav.connection, scope: nav.scope, data: nav.data, groups: nav.groups, model: nav.model, excludedWorkspaceIds: nav.excludedWorkspaceIds, rows: nav.rows }), [nav.connection, nav.scope, nav.data, nav.groups, nav.model, nav.excludedWorkspaceIds, nav.rows]);
+  // Kľúč z toho, čo „Pokračovať“ ukáže (id, názov, deň): aktivita v chate zverejnený stav panela nemení.
+  const recent = recentChats(live ?? [], RECENT_CHATS);
+  const chats = useMemo(() => recent, [recentChatsKey(recent)]); // eslint-disable-line react-hooks/exhaustive-deps -- kľúč nesie obsah `recent`
+  const snapshot = useMemo<PublishedClientNav>(() => ({ connection: nav.connection, scope: nav.scope, data: nav.data, groups: nav.groups, model: nav.model, excludedWorkspaceIds: nav.excludedWorkspaceIds, rows: nav.rows, chats }), [nav.connection, nav.scope, nav.data, nav.groups, nav.model, nav.excludedWorkspaceIds, nav.rows, chats]);
   useEffect(() => { publish(snapshot); }, [snapshot]);
   useEffect(() => () => publish(null), []);
   // Klienti, ktorých vlastní koreň praxe: chat v koreni s priečinkom klienta, nikdy nad celou praxou.

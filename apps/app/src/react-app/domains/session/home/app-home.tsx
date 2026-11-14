@@ -4,6 +4,7 @@ import { ArrowUp, ChevronDown, Folder, Paperclip, Plus } from "lucide-react";
 import type { AssistantProfile } from "@legalwork/types/main-assistant";
 import { AssistantAvatar } from "../sidebar/assistant-appearance";
 import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
+import { clearHomePrefill, peekHomePrefill } from "@/lawoss/lite/home-prefill"; // 🟡 LAWOSS: veta z poľa chatu na Dnes
 import type { WorkspaceInfo } from "@/app/lib/desktop";
 import type { ModelRef } from "@/app/types";
 import { Button } from "@/components/ui/button";
@@ -46,7 +47,8 @@ export type AppHomeProps = {
 
 export function AppHome(props: AppHomeProps) {
   const projectFiles = useProjectFiles();
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => peekHomePrefill()); // 🟡 LAWOSS: predvyplnené z Dnes, nič neodošle
+  useEffect(() => clearHomePrefill(), []); // 🟡 LAWOSS
   const [attachments, setAttachments] = useState<HomeDraftAttachment[]>([]);
   const [sending, setSending] = useState(false);
   const [dragging, setDragging] = useState(false);

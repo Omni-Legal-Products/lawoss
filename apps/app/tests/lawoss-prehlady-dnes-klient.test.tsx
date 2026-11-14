@@ -76,19 +76,26 @@ describe("Dnes: Začnite tu a režim Mesiac", () => {
     expect(startHere(overdue.deadlines, caseDates(overdue.tasks, "2026-10-28", 14))).toMatchObject({ kind: "deadline", item: { tier: "overdue" } });
     expect(startHere([], [])).toBeNull();
   });
-  test("Prehľad ukáže prepínač, Začnite tu s odkazom a malý mesiac; Mesiac veľký kalendár a návrhy", () => {
+  test("Prehľad: prepínač, dlaždice a pás 14 dní namiesto malého mesiaca a „Začnite tu“; Mesiac veľký kalendár a návrhy", () => {
     const props = { model: buildToday(data, TODAY), locale: "sk" as const, now: new Date(`${TODAY}T09:00:00`), events: agendaEvents(data), evidence: { complete: true, recorded: 1, unrecorded: 1 } };
     const overview = html(<TodayView {...props} />);
     expect(overview).toContain('data-lawoss-mode="overview"');
-    expect(overview).toContain('data-lawoss-start="work"');
-    expect(overview).toContain("Začnite tu");
-    expect(overview).toContain('data-lawoss-month="compact"');
+    expect(overview).toContain('class="lw-today-strip"');
+    expect(overview).not.toContain('data-lawoss-month="compact"');
+    expect(overview).not.toContain("data-lawoss-start");
+    expect(overview).not.toContain("Začnite tu");
+    // „Začnite tu“ je zlúčené do dlaždice „Najbližšia lehota“ (klik na lehotu).
+    const nearest = overview.match(/<a class="lw-dnes-tile"[^>]*data-lawoss-tile="nearest".*?<\/a>/)?.[0] ?? "";
+    expect(nearest).toContain(`href="${liteDeadlineLink(UHRADA, "M001-L1", "2026-10-27").replaceAll("&", "&amp;")}"`);
+    expect(nearest).toContain("Vyjadrenie k žalobe");
+    // Návrh na potvrdenie z agendy sa počíta v „Čaká na vás“ a má vlastnú malú dlaždicu.
+    expect(overview).toContain('data-lawoss-waiting="confirm"');
     expect(overview).not.toContain("Stretnutia");
     const month = html(<TodayView {...props} initialMode="month" />);
     expect(month).toContain('data-lawoss-month="full"');
     expect(month).toContain('data-lawoss-candidates="1"');
     expect(month).toContain("Návrhy na potvrdenie");
-    expect(month).not.toContain('data-lawoss-start');
+    expect(month).not.toContain("data-lawoss-tile");
   });
   test("bez udalostí ostáva Dnes ako doteraz, bez prepínača", () => {
     expect(html(<TodayView model={buildToday(data, TODAY)} locale="sk" />)).not.toContain("data-lawoss-mode");

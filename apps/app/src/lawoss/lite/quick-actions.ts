@@ -130,3 +130,15 @@ export function quickActionModelContext(matter: QuickActionMatter): string {
 export function quickActionPrompt(id: QuickActionId, matter: QuickActionMatter, locale: Language): { text: string; modelContext: string } {
   return { text: composeQuickAction(id, matter, locale), modelContext: quickActionModelContext(matter) };
 }
+
+/**
+ * Pole chatu na stránke prípadu: vlastná veta advokáta namiesto vety akcie, inak rovnaký tvar ako rýchla akcia
+ * (identita prípadu ako JSON, pravidlá, skrytý technický kontext). Len koncept v novom chate prípadu; nič sa neodosiela.
+ */
+export function freeTextPrompt(request: string, matter: QuickActionMatter, locale: Language): { text: string; modelContext: string } | null {
+  const own = request.trim();
+  if (!own) return null;
+  const text = TEXT[locale];
+  const identity = [JSON.stringify(matter.title), matter.matterRef ? JSON.stringify(matter.matterRef) : null].filter(Boolean).join(" · ");
+  return { text: [text.head(identity), "", own, "", text.rules].join("\n"), modelContext: quickActionModelContext(matter) };
+}

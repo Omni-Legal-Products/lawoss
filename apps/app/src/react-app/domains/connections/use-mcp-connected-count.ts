@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { readMcpStatuses } from "./native-mcp";
 import type { Client } from "../../../app/types";
 import { startRequestPolling } from "@/app/lib/request-poller";
+import { publishMcpStatuses } from "@/lawoss/lite/mcp-status-store"; // 🟡 LAWOSS: stav registrov v bočnom paneli
 
 const REFRESH_INTERVAL_MS = 60_000;
 
@@ -17,6 +18,7 @@ export function useMcpConnectedCount(client: Client | null, directory: string): 
   useEffect(() => {
     if (!client || !directory.trim()) {
       setCount(0);
+      publishMcpStatuses(null); // 🟡 LAWOSS
       return;
     }
 
@@ -25,10 +27,11 @@ export function useMcpConnectedCount(client: Client | null, directory: string): 
       try {
         const status = await readMcpStatuses(client, directory, signal);
         if (cancelled) return;
+        publishMcpStatuses(status); // 🟡 LAWOSS
         const values = Object.values(status);
         setCount(values.filter((entry) => entry.status === "connected").length);
       } catch (error) {
-        if (!cancelled) setCount(0);
+        if (!cancelled) { setCount(0); publishMcpStatuses(null); } // 🟡 LAWOSS: neznámy stav, nie „pripravené“
         throw error;
       }
     };
@@ -37,6 +40,7 @@ export function useMcpConnectedCount(client: Client | null, directory: string): 
     return () => {
       cancelled = true;
       poller.stop();
+      publishMcpStatuses(null); // 🟡 LAWOSS: mapa iného priečinka nepatrí novému
     };
   }, [client, directory]);
 

@@ -49,7 +49,7 @@ import {
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useLocale } from "@/i18n/use-locale";
-import { LAWOSS_ROUTES, lawossRouteTitle } from "../../lawoss/shell/routes";
+import { LAWOSS_ROUTES, lawossScreenTitle } from "../../lawoss/shell/routes"; // 🟡 LAWOSS: titulok s parametrami trasy
 import { isLandingPath } from "../../lawoss/lite/visibility";
 import { useDetachedWindow } from "./use-detached-window";
 import { EvalsPane } from "./evals-route";
@@ -3069,7 +3069,7 @@ export function SessionRoute() {
           toast.error(t("recorder.transcriber_start_failed"));
         });
       }}
-      mainViewTitle={experimentView ? lawossRouteTitle(location.pathname) : undefined}
+      mainViewTitle={experimentView ? lawossScreenTitle(location.pathname, location.search) : undefined} // 🟡 LAWOSS: Prípad názvom prípadu
       mainView={
         openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
         : showWikis && (manageWikis || !activeWiki) ? <WikiManager client={client} serverUrl={baseUrl} workspaces={sidebarWorkspaces} onChanged={() => void refreshRouteState()} onOpen={openWikiWorkspace} onNewChat={handleOpenWikiSession} /> : scheduledPage ? (

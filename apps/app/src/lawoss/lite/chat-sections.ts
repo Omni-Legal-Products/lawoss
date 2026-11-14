@@ -14,7 +14,10 @@ type Choices = Readonly<Record<string, boolean>>;
 
 /** Je sekcia chatu vidieť? Pokročilý: natívna voľba; bežný: pri pripnutých a nedávnych voľba bežného režimu, inak natívna. */
 export function chatSectionShown(key: string, mode: UiMode, enabled: boolean, liteChoices: Choices): boolean {
-  if (mode === "pro" || !LITE_DEFAULT_OFF.has(key)) return enabled;
+  if (mode === "pro") return enabled;
+  // Alfa 14: bežný režim nemá prispôsobenie panela, Klienti preto vždy (uložené vypnutie z Pokročilého neplatí).
+  if (key === "sectionProjects") return true;
+  if (!LITE_DEFAULT_OFF.has(key)) return enabled;
   return liteChoices[key] ?? false;
 }
 
