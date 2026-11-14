@@ -10,8 +10,8 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { t } from "@/i18n";
 import { cardTitle, clientCode, clientGroupOfProject, clientLabel, expandedAfter, liteProjectNav, matterOfDirectory, matterSourceFresh, prettyFolderName, rowDeadline, sameName } from "../src/lawoss/lite/client-row";
 import { buildClientRows, MAX_CARD_BYTES, readRootCards, type RootCard } from "../src/lawoss/lite/client-row-data";
-import { chatContextText, clientProjectRow, ClientMoreNavItem, ClientRowLabel, ClientRowStatusLine, useClientRowActive } from "../src/lawoss/lite/client-row-view";
-import { shortDay } from "../src/lawoss/lite/client-row-text";
+import { chatContextText, clientProjectRow, ClientRowLabel, ClientRowLabelView, ClientRowStatusLine, ClientRowStatusLineView, useClientRowActive } from "../src/lawoss/lite/client-row-view";
+import { rowDueText, shortDay } from "../src/lawoss/lite/client-row-text";
 import { ClientMattersView, ClientNavTestProvider, matterRowStatus, useMatterChatOpen } from "../src/lawoss/lite/client-nav";
 import { clientNavModel, type ClientOverviewState } from "../src/lawoss/lite/client-projects";
 import type { TreeClient } from "../src/lawoss/lite/client-tree";
@@ -19,7 +19,6 @@ import type { ClientGroup } from "../src/lawoss/lite/today-model";
 import { addDays, today, type OkfReadResult, type OkfScope } from "../src/lawoss/okf/read-model";
 import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 import { shellCs, shellDe, shellEn, shellSk } from "../src/lawoss/i18n/shell";
-import { clientDeadlinesLink } from "../src/lawoss/lite/links";
 
 const source = (path: string) => readFileSync(join(import.meta.dir, "../src", path), "utf8");
 /** Prítomnosť atribútu `data-active` (natívny kontrakt), nie trieda `data-active:…`. */
@@ -188,6 +187,35 @@ describe("stav a lehota v riadku: len to, čo je v súboroch", () => {
     expect(html(<ClientRowLabel row={clientProjectRow(null, tatran, SLUG, "sk")} />)).toContain("block truncate");
     expect(html(<ClientRowStatusLine row={clientProjectRow(null, tatran, SLUG, "sk")} />)).not.toContain("data-lawoss-row-secondary");
   });
+
+  test("alfa 14, bežný režim: lehota vpravo vedľa mena, v druhom riadku len kód; Pokročilý bez zmeny", () => {
+    const late = clientProjectRow(nav({ data: data("fresh", [{ ...UHRADA, deadlines: [deadline("2026-10-01")] }]), groups: [{ ...groups[0], matters: [{ ...UHRADA, deadlines: [deadline("2026-10-01")] }] }] }), tatran, SLUG, "sk");
+    const label = html(<ClientRowLabelView row={late} mode="lite" />);
+    expect(label).toMatch(/data-lawoss-row-label=""[^>]*>[^<]+<\/span><\/span><span class="lw-row-due text-destructive" data-lawoss-row-due="" data-urgency="hot">po lehote<\/span>/);
+    expect(label).toContain(`data-lawoss-native-name="${SLUG}"`);
+    const line = html(<ClientRowStatusLineView row={late} mode="lite" />);
+    expect(line).not.toContain("data-lawoss-row-status");
+    expect(line).toContain('data-lawoss-row-code="">C001<');
+    // Pokročilý režim: rovnaké vykreslenie ako doteraz (lehota v druhom riadku, žiadna vpravo).
+    expect(html(<ClientRowLabelView row={late} mode="pro" />)).toBe(html(<ClientRowLabel row={late} />));
+    expect(html(<ClientRowLabelView row={late} mode="pro" />)).not.toContain("data-lawoss-row-due");
+    expect(html(<ClientRowStatusLineView row={late} mode="pro" />)).toContain("data-lawoss-row-status");
+    // Bez lehoty v bežnom režime len meno.
+    expect(html(<ClientRowLabelView row={clientProjectRow(null, tatran, SLUG, "sk")} mode="lite" />)).not.toContain("data-lawoss-row-due");
+  });
+
+  test("alfa 14: lehota vpravo slovom do 14 dní, potom dátum; zmeškaná a na overenie ako doteraz", () => {
+    const at = (date: string) => rowDueText({ kind: "next", date, urgency: "calm" }, "sk", "2026-11-14");
+    expect(at("2026-11-14")).toBe("dnes");
+    expect(at("2026-11-15")).toBe("zajtra");
+    expect(at("2026-11-17")).toBe("o 3 dni");
+    expect(at("2026-11-28")).toBe("o 14 dní");
+    expect(at("2026-11-29")).toBe(shortDay("2026-11-29", "sk", "2026-11-14"));
+    expect(at("2027-01-05")).toBe(shortDay("2027-01-05", "sk", "2026-11-14"));
+    expect(rowDueText({ kind: "next", date: "2026-11-17", urgency: "near" }, "cs", "2026-11-14")).toBe("za 3 dny");
+    expect(rowDueText({ kind: "overdue", urgency: "hot" }, "sk", "2026-11-14")).toBe("po lehote");
+    expect(rowDueText({ kind: "invalid", urgency: "hot" }, "sk", "2026-11-14")).toBe(t("lawoss.lite.due_invalid", "sk"));
+  });
 });
 
 describe("hierarchia a aktívni predkovia", () => {
@@ -265,29 +293,19 @@ describe("hierarchia a aktívni predkovia", () => {
   });
 });
 
-describe("bežný režim: krátky zoznam pod klientom, Viac a accordion", () => {
+describe("bežný režim: pevný krátky zoznam pod klientom a accordion", () => {
   const all = ["projectHome", "projectMatters", "projectDeadlines", "projectLinkedFolders", "projectCalendar", "projectReviews", "projectTasks", "projectFiles", "projectSessions"] as const;
 
-  test("bežný: Prehľad, Prípady, Chaty, Súbory, Pripojené priečinky; ostatné pod Viac; Pokročilý natívne", () => {
-    expect(liteProjectNav(all, "lite")).toEqual({
-      lite: true,
-      main: ["projectHome", "projectMatters", "projectSessions", "projectFiles", "projectLinkedFolders"],
-      more: ["projectDeadlines", "projectCalendar", "projectReviews", "projectTasks"],
-    });
-    expect(liteProjectNav(all, "pro")).toEqual({ lite: false, main: [...all], more: [] });
-    // Vypnutá položka ostane vypnutá aj v krátkom zozname.
-    expect(liteProjectNav(["projectMatters", "projectSessions"], "lite").main).toEqual(["projectMatters", "projectSessions"]);
-  });
-
-  test("Viac: zbalené, otvorené pri otvorenej stránke vnútri; text vo všetkých jazykoch", () => {
-    expect(html(<ul><ClientMoreNavItem><li>Lehoty</li></ClientMoreNavItem></ul>)).not.toContain("Lehoty");
-    const open = html(<ul><ClientMoreNavItem active><li>Lehoty</li></ClientMoreNavItem></ul>);
-    expect(open).toContain("Lehoty");
-    expect(open).toMatch(/aria-expanded="true"[^>]*data-lawoss-project-more=""/);
-    // Lehoty klienta (jediná položka pod Viac s vlastnou trasou) otvoria Viac len pre svojho klienta.
-    expect(html(<ul><ClientMoreNavItem workspaceId="tatran"><li>Lehoty</li></ClientMoreNavItem></ul>, clientDeadlinesLink("tatran"))).toContain("Lehoty");
-    expect(html(<ul><ClientMoreNavItem workspaceId="ine"><li>Lehoty</li></ClientMoreNavItem></ul>, clientDeadlinesLink("tatran"))).not.toContain("Lehoty");
-    expect([shellSk, shellCs, shellEn, shellDe].map((d) => d["lawoss.lite.nav_more"])).toEqual(["Viac", "Více", "More", "Mehr"]);
+  test("alfa 14, bežný: Prehľad, Prípady, Dokumenty (Súbory), Chaty – nič viac, bez „Viac“; Pokročilý natívne", () => {
+    // Predtým: Prehľad, Prípady, Chaty, Súbory, Pripojené priečinky a zvyšok pod „Viac“ (alfa2 B3).
+    expect(liteProjectNav(all, "lite")).toEqual({ lite: true, main: ["projectHome", "projectMatters", "projectFiles", "projectSessions"] });
+    expect(liteProjectNav(all, "pro")).toEqual({ lite: false, main: [...all] });
+    // Bežný režim nemá prispôsobenie panela: uložené vypnutie (napr. Súbory) strom nezmení, ponúknuté položky áno.
+    expect(liteProjectNav(["projectMatters", "projectSessions"], "lite", all).main).toEqual(["projectHome", "projectMatters", "projectFiles", "projectSessions"]);
+    expect(liteProjectNav(["projectMatters", "projectSessions"], "pro", all).main).toEqual(["projectMatters", "projectSessions"]);
+    expect(liteProjectNav(all, "lite", ["projectHome", "projectSessions"]).main).toEqual(["projectHome", "projectSessions"]);
+    expect([shellSk, shellCs, shellEn, shellDe].map((d) => d["lawoss.lite.nav_documents"])).toEqual(["Dokumenty", "Dokumenty", "Documents", "Dokumente"]);
+    expect([shellSk, shellCs, shellEn, shellDe].every((d) => !("lawoss.lite.nav_more" in d))).toBe(true);
     expect([shellSk, shellCs, shellEn, shellDe].every((d) => d["lawoss.lite.client_folder_tooltip"].includes("{path}"))).toBe(true);
   });
 
@@ -302,12 +320,15 @@ describe("bežný režim: krátky zoznam pod klientom, Viac a accordion", () => 
     expect(expandedAfter(both, "a", "pro", "expand")).toBe(both);
   });
 
-  test("natívny panel: rozdelenie a accordion podľa režimu, Pracovný priestor v bežnom režime pod Viac", () => {
+  test("natívny panel: rozdelenie a accordion podľa režimu; bežný režim bez Pracovného priestoru a bez „Viac“", () => {
     const sidebar = source("react-app/domains/session/sidebar/app-sidebar.tsx");
-    expect(sidebar).toContain("const projectNav = liteProjectNav(projectNavItems, useUiMode());");
+    expect(sidebar).toContain("const projectNav = liteProjectNav(projectNavItems, useUiMode(), hideCommercialSidebarItems(config.projectNavOrder));");
     expect(sidebar).toContain('setExpandedWorkspaceIds((previous) => expandedAfter(previous, id, uiMode, "expand"));');
     expect(sidebar).toContain('setExpandedWorkspaceIds((previous) => expandedAfter(previous, id, uiMode, "toggle"));');
-    expect(sidebar).toMatch(/\{projectNav\.lite && <ClientMoreNavItem[^>]*>\{workbench\(false\)\}/);
+    expect(sidebar).not.toContain("ClientMoreNavItem");
+    // Pracovný priestor len v Pokročilom (natívne pred Súbormi), v bežnom sa nevykreslí.
+    expect(sidebar).toContain('{!projectNav.lite && (key === "projectFiles" || (!projectNavItems.includes("projectFiles") && key === "projectSessions")) && workbench(true)}');
+    expect(sidebar).toContain('{projectNav.lite ? t("lawoss.lite.nav_documents") : t("projects.files")}');
   });
 
   test("Domov klienta je Prehľad (jeden pojem; „Domov“ ostáva len v hlavnej lište)", () => {

@@ -489,6 +489,15 @@
 .lw-nav-urgency[data-urgency="hot"] { background: #e8836b; box-shadow: 0 0 8px rgba(232, 131, 107, 0.85); }
 /* B3: blížiaca sa lehota v riadku klienta/veci má farbu zlatého bodu (význam nesie text). */
 .lw-row-near { color: #c9a24a; }
+/* Alfa 14, bežný režim: lehota vpravo v riadku klienta, počty a stav registrov v bočnom paneli (len tokeny). */
+.lw-row-due-near { color: var(--lw-warning); }
+.lw-nav-meta { margin-left: auto; flex: none; font-family: var(--lw-font-mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--lw-text-tertiary); }
+.lw-nav-meta[data-tone="warning"] { color: var(--lw-warning); }
+.lw-row-due { flex: none; white-space: nowrap; font-family: var(--lw-font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.lw-registers-dot { flex: none; width: 7px; height: 7px; border-radius: var(--lw-radius-full); background: var(--lw-text-tertiary); }
+.lw-registers-dot[data-state="ready"] { background: var(--lw-success); }
+.lw-registers-dot[data-state="failing"] { background: var(--lw-warning); }
+.lw-registers[data-state="failing"] .lw-registers-label { color: var(--lw-warning); }
 
 
 /* ── zjednotenie s pohľadmi z OKF (5. 10. 2026) ────────────────────────────

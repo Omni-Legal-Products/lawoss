@@ -37,3 +37,15 @@ export const isLandingPath = (pathname: string): boolean => pathname === LITE_TO
  */
 export const isMainRailItemVisible = (key: string, mode: UiMode): boolean =>
   mode === "pro" || !["navTasks", "navWorkflows", "navRecorder", "navEvaluations", "navWikis", "navCalendar", "navScheduled"].includes(key);
+
+/**
+ * Ľavá lišta ikon (alfa 14): bežný režim ju nemá, Nastavenia sú dole v bočnom paneli. Zbalený panel ukazuje len
+ * lištu, preto v ňom ostáva aj v bežnom režime (inak by po zbalení zostal prázdny pruh bez cesty späť).
+ */
+export const isMainRailShown = (mode: UiMode, collapsed: boolean): boolean => mode === "pro" || collapsed;
+
+/**
+ * „Prispôsobiť navigáciu“ a lupa v hlavičke panela len v Pokročilom režime: bežný režim má pevný panel
+ * (prispôsobenie by ho menilo natrvalo) a Hľadať ako riadok navigácie.
+ */
+export const isSidebarHeaderToolsVisible = (mode: UiMode): boolean => mode === "pro";

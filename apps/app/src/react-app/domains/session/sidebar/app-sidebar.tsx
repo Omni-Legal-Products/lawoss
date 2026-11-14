@@ -16,7 +16,7 @@ import { ClientDeadlinesNavItem, ClientLinkedFoldersNavItem, ClientMattersNavIte
 import { LITE_CLIENTS_PATH, NEW_CLIENT_PATH } from "@/lawoss/lite/links";
 import { useChatSectionVisibility } from "@/lawoss/lite/chat-sections";
 import { expandedAfter, liteProjectNav } from "@/lawoss/lite/client-row";
-import { ChatContextLabel, ClientMoreNavItem, ClientRowLabel, ClientRowStatusLine, useClientProjectRow, useClientRowActive } from "@/lawoss/lite/client-row-view";
+import { ChatContextLabel, ClientRowLabel, ClientRowStatusLine, useClientProjectRow, useClientRowActive } from "@/lawoss/lite/client-row-view";
 import { useSidebarReorderSpring } from "@/lawoss/lite/sidebar-reorder";
 import { OkfWorkspaceSkillSync } from "@/lawoss/okf/workspace-skill-sync";
 import { StatusDot } from "@legalwork/ui/react";
@@ -69,6 +69,8 @@ import {
 } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import { useUiMode } from "@/lawoss/lite/ui-mode";
+import { isMainRailShown, isSidebarHeaderToolsVisible } from "@/lawoss/lite/visibility"; // 🟡 LAWOSS (alfa 14)
+import { LiteSidebarFooter } from "@/lawoss/lite/sidebar-footer"; // 🟡 LAWOSS (alfa 14)
 import { hideCommercialSidebarItems, isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 
 import {
@@ -861,7 +863,8 @@ function AppSidebarContent(props: AppSidebarProps) {
         className="group/project-sidebar mac:**:data-[sidebar=sidebar]:bg-transparent"
       >
         <div className="flex min-h-0 flex-1">
-        {(!customizingNavigation || collapsed) && <MainActionRail actions={actions} onOpenWindow={props.onOpenNavWindow} unreadTasks={unreadTasks}>
+        {/* 🟡 LAWOSS (alfa 14): bežný režim bez ľavej lišty (okrem zbaleného panela). */}
+        {(!customizingNavigation || collapsed) && isMainRailShown(uiMode, collapsed) && <MainActionRail actions={actions} onOpenWindow={props.onOpenNavWindow} unreadTasks={unreadTasks}>
           <EigenweltAccountMenu client={props.accountClient} workspaceId={props.selectedWorkspaceId} />
         </MainActionRail>}
         <div className="lw-chat-sidebar flex min-h-0 min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden">
@@ -884,17 +887,18 @@ function AppSidebarContent(props: AppSidebarProps) {
                 <div className="truncate text-[15px] font-semibold leading-tight tracking-[-0.02em]">{sidebarBrandName === "LAWOSS" ? <LawossWordmark className="w-28 max-w-full text-foreground" /> : sidebarBrandName}</div>
               </div>
             ) : null}
-            <div className="ml-auto flex shrink-0 items-center gap-0.5">
+            {/* 🟡 LAWOSS (alfa 14): Prispôsobiť navigáciu a lupa len v Pokročilom režime; bežný má riadok Hľadať. */}
+            {isSidebarHeaderToolsVisible(uiMode) && <div className="ml-auto flex shrink-0 items-center gap-0.5">
               <Button ref={customizationButtonRef} variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-foreground" aria-label={t("projects.customize_nav")} title={t("projects.customize_nav")} aria-expanded={customizingNavigation} onClick={() => setCustomizingNavigation(true)}>
                 <Settings className="size-4" strokeWidth={1.5} />
               </Button>
               <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-foreground" aria-label={t("content_search.title")} aria-keyshortcuts={isMacPlatform() ? "Meta+k" : "Control+k"} onClick={props.onOpenSearch} />}>
                 <Search className="size-[18px]" strokeWidth={1.5} />
               </TooltipTrigger><TooltipContent side="bottom">{t("content_search.title")}<kbd className="rounded bg-background/20 px-1.5 py-0.5 font-sans">{isMacPlatform() ? "⌘ K" : "Ctrl K"}</kbd></TooltipContent></Tooltip>
-            </div>
+            </div>}
           </div>
         </div>
-        <LawossNav activePane={Boolean(props.activeNav)} newChat={newChatSection} />
+        <LawossNav activePane={Boolean(props.activeNav)} newChat={newChatSection} onOpenSearch={props.onOpenSearch} />
         <OkfWorkspaceSkillSync workspaceId={props.selectedWorkspaceId} />
         <SidebarWorkflowGenerationBadge onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))} />
         {/* 🟡 LAWOSS: nový chat je v LawossNav; Asistent upstreamu je platená plocha Eigenwelt (isCommercialSurfaceHidden("assistant")). */}
@@ -928,6 +932,7 @@ function AppSidebarContent(props: AppSidebarProps) {
         </m.div></LazyMotion>
         <div className="shrink-0">
           <SidebarUpdateBadge onOpenUpdatesSettings={() => navigate("/settings/updates")} />
+          {uiMode === "lite" && <LiteSidebarFooter workspaceId={props.selectedWorkspaceId} />}{/* 🟡 LAWOSS (alfa 14) */}
         </div>
         </>}
         </div>
@@ -1091,7 +1096,7 @@ function WorkspaceSidebarGroup({
   const { config } = useShellConfig();
   const showSessions = !config.collapseProjectSessions || sessionsOpen;
   const projectNavItems = hideCommercialSidebarItems(config.projectNavOrder).filter(key => key === "projectSessions" || config[key]);
-  const projectNav = liteProjectNav(projectNavItems, useUiMode());
+  const projectNav = liteProjectNav(projectNavItems, useUiMode(), hideCommercialSidebarItems(config.projectNavOrder)); // 🟡 LAWOSS (alfa 14): bežný režim má pevný strom
   const rowActive = useClientRowActive(workspace.id, isSelected);
   const projectLabel = useClientProjectRow(workspace, workspaceLabel(workspace)).label;
   const chatInMatter = useMatterChatOpen(workspace.id);
@@ -1195,7 +1200,7 @@ function WorkspaceSidebarGroup({
                   projectFiles: <SidebarMenuSubItem key="projectFiles">
                     <ProjectFileDropTarget hint projectId={workspace.id}><SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "files")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "files"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "files")} onClick={() => ctx.onOpenProjectFiles(workspace.id)}>
                       <Files className="size-4" strokeWidth={1.5} />
-                      <span>{t("projects.files")}</span>
+                      <span>{projectNav.lite ? t("lawoss.lite.nav_documents") : t("projects.files")}</span>{/* 🟡 LAWOSS (alfa 14): v bežnom režime Dokumenty */}
                     </SidebarMenuSubButton></ProjectFileDropTarget>
                   </SidebarMenuSubItem>,
                   projectSessions: <li key="projectSessions">
@@ -1220,10 +1225,8 @@ function WorkspaceSidebarGroup({
                     </CollapsibleContent></Collapsible>
                   </li>,
                   })[key];
-                  // LAWOSS (B3): bežný režim – krátky zoznam, zvyšok (aj Pracovný priestor) pod „Viac“; Pokročilý natívne.
-                  const moreActive = isSelected && ["calendar", "reviews", "tasks", "workspace"].includes(ctx.activeProjectFeature ?? "");
-                  return <>{projectNav.main.map(key => <React.Fragment key={key}>{!projectNav.lite && (key === "projectFiles" || (!projectNavItems.includes("projectFiles") && key === "projectSessions")) && workbench(true)}{item(key)}</React.Fragment>)}
-                  {projectNav.lite && <ClientMoreNavItem className={PROJECT_FEATURE_CLASS} active={moreActive} workspaceId={workspace.id}>{workbench(false)}{projectNav.more.map(key => <React.Fragment key={key}>{item(key)}</React.Fragment>)}</ClientMoreNavItem>}</>; })()}
+                  // 🟡 LAWOSS (alfa 14): bežný režim – pevný krátky zoznam bez Pracovného priestoru a bez „Viac“; Pokročilý natívne.
+                  return <>{projectNav.main.map(key => <React.Fragment key={key}>{!projectNav.lite && (key === "projectFiles" || (!projectNavItems.includes("projectFiles") && key === "projectSessions")) && workbench(true)}{item(key)}</React.Fragment>)}</>; })()}
                 </SidebarMenuSub>}
                 {!config.collapseProjectSessions && <RecentProjectSessions group={group} loading={showInitialLoading} />}
               </div>

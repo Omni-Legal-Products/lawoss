@@ -1,24 +1,21 @@
 /** @jsxImportSource react */
 /**
  * Riadky bočného panela pre natívny `app-sidebar.tsx` (alfa2 B3, N-22): čitateľné meno klienta (aj na dva riadky)
- * s kódom klienta a priečinkom, stručný stav (lehota zo súborov), zvýraznenie predka, „Viac“ v bežnom režime
- * a kontext chatu (Klient · Prípad). Upstream len vymení volanie; mimo LAWOSS dát ostáva natívne meno.
+ * s kódom klienta a priečinkom, stručný stav (lehota zo súborov; v bežnom režime vpravo v riadku), zvýraznenie
+ * predka a kontext chatu (Klient · Prípad). Upstream len vymení volanie; mimo LAWOSS dát ostáva natívne meno.
  * Fakty riadkov počíta panel raz (`buildClientRows`); tu sa doplní len natívne meno a jazyk.
  */
-import { ChevronRight, MoreHorizontal } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useLocation } from "react-router-dom";
+import { useCallback, useMemo } from "react";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
-import { SidebarMenuSub, SidebarMenuSubButton } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import { clientGroupDirectory } from "./client-projects";
 import { cardTitle, clientGroupOfProject, clientLabel, groupOfDirectory, matterOfDirectory } from "./client-row";
 import { clientCardLabel } from "./client-titles";
 import type { ClientRowFacts } from "./client-row-data";
-import { rowDeadlineText, urgencyTextClass } from "./client-row-text";
+import { dueTextClass, rowDeadlineText, rowDueText, urgencyTextClass } from "./client-row-text";
 import { useClientNav, useClientNavData, usePublishedClientNav, type PublishedClientNav } from "./client-nav";
-import { LEHOTY_PATH } from "./links";
+import { useUiMode, type UiMode } from "./ui-mode";
 
 type ProjectRef = { id: string; path?: string | null };
 export type ClientRow = {
@@ -31,6 +28,8 @@ export type ClientRow = {
   /** Kód klienta (C001), ak ho meno neobsahuje. */
   code?: string;
   status?: { text: string; urgency: string };
+  /** Bežný režim: tá istá lehota vpravo v riadku, slovom do 14 dní („o 3 dni“), inak dátum. */
+  due?: { text: string; urgency: string };
 };
 
 /**
@@ -46,7 +45,10 @@ export function clientRowFrom(facts: ClientRowFacts | undefined, nativeLabel: st
     // Celá lehota aj v bublinke (v úzkom riadku sa môže skrátiť nanajvýš kód klienta, nie lehota).
     tooltip: [t("lawoss.lite.client_folder_tooltip", locale, { path: named.path }), facts.deadline ? rowDeadlineText(facts.deadline, locale) : null].filter(Boolean).join("\n"),
     ...(named.code ? { code: named.code } : {}),
-    ...(facts.deadline ? { status: { text: rowDeadlineText(facts.deadline, locale), urgency: facts.deadline.urgency } } : {}),
+    ...(facts.deadline ? {
+      status: { text: rowDeadlineText(facts.deadline, locale), urgency: facts.deadline.urgency },
+      due: { text: rowDueText(facts.deadline, locale), urgency: facts.deadline.urgency },
+    } : {}),
   };
 }
 
@@ -90,51 +92,38 @@ export function useClientRowActive(projectId: string, isSelected: boolean): bool
 /**
  * Meno v hlavičke klienta: klient smie mať dva riadky (N-22), obyčajný projekt ostáva skrátený na jeden. Natívne
  * meno je v `data-lawoss-native-name`, aby ho natívny pomocník Files našiel presne aj pri mene z karty.
+ * Bežný režim: najbližšia lehota vpravo vedľa mena (návrh sidebaru alfy 14); Pokročilý ju má v druhom riadku.
  */
 export function ClientRowLabel({ row }: { row: ClientRow }) {
-  return <span className={row.client ? "line-clamp-2 whitespace-normal break-words" : "block truncate"} title={row.tooltip}
-    data-lawoss-row-label="" data-lawoss-native-name={row.nativeLabel}>{row.label}</span>;
+  return <ClientRowLabelView row={row} mode={useUiMode()} />;
 }
 
-/**
- * Druhý riadok klienta: najprv lehota (nikdy sa neskracuje, slovný stav, farba len dopĺňa text), potom kód klienta,
- * ktorý sa v úzkom paneli skráti ako jediný.
- */
-export function ClientRowStatusLine({ row }: { row: ClientRow }) {
-  if (!row.code && !row.status) return null;
-  return <span className="flex min-w-0 items-baseline gap-1 text-xs text-muted-foreground" data-lawoss-row-secondary="" title={[row.status?.text, row.code].filter(Boolean).join(" · ")}>
-    {row.status ? <span className={cn("shrink-0 whitespace-nowrap", urgencyTextClass(row.status.urgency))} data-lawoss-row-status="" data-urgency={row.status.urgency}>{row.status.text}</span> : null}
-    {row.code && row.status ? <span aria-hidden className="shrink-0">·</span> : null}
-    {row.code ? <span className="min-w-0 truncate" data-lawoss-row-code="">{row.code}</span> : null}
+export function ClientRowLabelView({ row, mode }: { row: ClientRow; mode: UiMode }) {
+  const name = <span className={row.client ? "line-clamp-2 whitespace-normal break-words" : "block truncate"} title={row.tooltip}
+    data-lawoss-row-label="" data-lawoss-native-name={row.nativeLabel}>{row.label}</span>;
+  if (mode !== "lite" || !row.due) return name;
+  return <span className="flex min-w-0 items-baseline gap-2">
+    <span className="min-w-0 flex-1">{name}</span>
+    <span className={cn("lw-row-due", dueTextClass(row.due.urgency))} data-lawoss-row-due="" data-urgency={row.due.urgency}>{row.due.text}</span>
   </span>;
 }
 
 /**
- * Bežný režim: zriedkavé položky klienta pod „Viac“. Otvorí sa samo, keď sa v ňom otvorí stránka (aj Lehoty klienta),
- * aj keď ho používateľ predtým zbalil; zbalené ukáže bod, keď lehota klienta horí.
+ * Druhý riadok klienta: najprv lehota (nikdy sa neskracuje, slovný stav, farba len dopĺňa text), potom kód klienta,
+ * ktorý sa v úzkom paneli skráti ako jediný. Bežný režim: lehota je už vpravo v prvom riadku, tu len kód.
  */
-export function ClientMoreNavItem({ active = false, workspaceId, className, children }: { active?: boolean; workspaceId?: string; className?: string; children: ReactNode }) {
-  const locale = useLocale();
-  const { pathname, search } = useLocation();
-  const onDeadlines = Boolean(workspaceId) && pathname === LEHOTY_PATH && new URLSearchParams(search).get("klient") === workspaceId;
-  const inside = active || onDeadlines;
-  const hot = useClientNav()?.rows.get(workspaceId ?? "")?.deadline?.urgency === "hot";
-  const [chosen, setChosen] = useState<boolean | null>(null);
-  const wasInside = useRef(inside);
-  useEffect(() => {
-    if (inside && !wasInside.current) setChosen(null);
-    wasInside.current = inside;
-  }, [inside]);
-  const open = chosen ?? inside;
-  return <li className="min-w-0" data-lawoss-project-more-item="">
-    <SidebarMenuSubButton className={className} aria-expanded={open} data-lawoss-project-more="" onClick={() => setChosen(!open)}>
-      <MoreHorizontal className="size-4" strokeWidth={1.5} />
-      <span className="min-w-0 flex-1 truncate">{t("lawoss.lite.nav_more", locale)}</span>
-      {!open && hot ? <><span className="lw-nav-urgency" data-urgency="hot" aria-hidden /><span className="sr-only">{t("lawoss.lite.urgent", locale)}</span></> : null}
-      <ChevronRight aria-hidden className={cn("size-3.5 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none", open && "rotate-90")} />
-    </SidebarMenuSubButton>
-    {open ? <SidebarMenuSub className="mb-1 ms-[18px] mt-1 gap-1 border-s border-sidebar-border ps-1">{children}</SidebarMenuSub> : null}
-  </li>;
+export function ClientRowStatusLine({ row }: { row: ClientRow }) {
+  return <ClientRowStatusLineView row={row} mode={useUiMode()} />;
+}
+
+export function ClientRowStatusLineView({ row, mode }: { row: ClientRow; mode: UiMode }) {
+  const status = mode === "lite" ? undefined : row.status;
+  if (!row.code && !status) return null;
+  return <span className="flex min-w-0 items-baseline gap-1 text-xs text-muted-foreground" data-lawoss-row-secondary="" title={[status?.text, row.code].filter(Boolean).join(" · ")}>
+    {status ? <span className={cn("shrink-0 whitespace-nowrap", urgencyTextClass(status.urgency))} data-lawoss-row-status="" data-urgency={status.urgency}>{status.text}</span> : null}
+    {row.code && status ? <span aria-hidden className="shrink-0">·</span> : null}
+    {row.code ? <span className="min-w-0 truncate" data-lawoss-row-code="">{row.code}</span> : null}
+  </span>;
 }
 
 /** Kontext chatu v Nedávnych a pripnutých: „Klient · Prípad“ podľa priečinka chatu (lacné meno, bez lehôt). */

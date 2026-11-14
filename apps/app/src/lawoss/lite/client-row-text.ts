@@ -1,6 +1,7 @@
 /** Texty a vzhľad riadkov bočného panela (alfa2 B3): lehota v riadku a zvýraznenie predka otvorenej položky. */
 import { t, type Language } from "@/i18n";
 import { today } from "../okf/read-model";
+import { daysUntil, dueTextFromDays, HORIZON_DAYS } from "../okf/view-rules";
 import type { RowDeadline } from "./client-row";
 
 /**
@@ -26,4 +27,19 @@ export function rowDeadlineText(deadline: RowDeadline, locale: Language): string
   if (deadline.kind === "overdue") return t("lawoss.lite.overdue", locale);
   if (deadline.kind === "invalid") return t("lawoss.lite.due_invalid", locale);
   return t("lawoss.lite.row_deadline", locale, { date: shortDay(deadline.date, locale) });
+}
+
+/**
+ * Bežný režim (alfa 14): lehota vpravo v riadku klienta. Do `HORIZON_DAYS` (14 dní) slovom („dnes“, „zajtra“,
+ * „o 3 dni“), neskôr krátky dátum; zmeškaná lehota a dátum na overenie ako doteraz.
+ */
+export function rowDueText(deadline: RowDeadline, locale: Language, todayIso = today()): string {
+  if (deadline.kind !== "next") return rowDeadlineText(deadline, locale);
+  const left = daysUntil(todayIso, deadline.date);
+  return left <= HORIZON_DAYS ? dueTextFromDays(left, locale) : shortDay(deadline.date, locale, todayIso);
+}
+
+/** Farba lehoty vpravo v riadku: zmeškaná červeno, blížiaca sa výstražnou farbou (nie zlatou), inak tlmene. */
+export function dueTextClass(urgency: string | undefined): string {
+  return urgency === "hot" ? "text-destructive" : urgency === "near" ? "lw-row-due-near" : "text-muted-foreground";
 }

@@ -1,5 +1,15 @@
 # LAWOSS downstream patches
 
+## Alfa 14: nový sidebar (2026-11-14)
+
+Bočný panel bežného režimu podľa schváleného návrhu; režim Pokročilé ostáva ako doteraz. Nová logika je v `apps/app/src/lawoss/lite/` (`lite-nav.tsx`, `sidebar-model.ts`, `sidebar-footer.tsx`, `mcp-status-store.ts`, `compare-documents.tsx`, `client-row*.ts(x)`, `visibility.ts`, `chat-sections.ts`), texty v `lawoss/i18n/shell.ts` (en, de, sk, cs).
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | Bežný režim: ľavá lišta ikon skrytá (ostáva len pri zbalenom paneli, inak by zostal prázdny pruh), v hlavičke bez „Prispôsobiť navigáciu“ a lupy (Hľadať je riadok navigácie), `LawossNav` dostane `onOpenSearch`, dole spodok panela (stav registrov, Nahlásiť chybu alebo nápad, Nastavenia). Strom klienta pevne Prehľad, Prípady, Dokumenty (natívne Súbory), Chaty; bez „Viac“ a Pracovného priestoru, uložené prispôsobenie ho nemení. |
+| `apps/app/src/react-app/domains/workspace/project-files-page.tsx` | Hlavička Súborov: v bežnom režime akcia „Porovnať dokumenty“ na Tabuľkovú kontrolu klienta (`CompareDocumentsAction`). |
+| `apps/app/src/react-app/domains/connections/use-mcp-connected-count.ts` | Mapa stavov MCP, ktorú stavový riadok už číta raz za minútu, sa zverejní pre riadok registrov v paneli (`publishMcpStatuses`); žiadne ďalšie čítanie MCP. |
+
 ## Alfa 13: hlásenie chýb, nová alfa, zrozumiteľné chyby registrov (2026-11-14)
 
 Nálezy z overenia zverejnenej alpha.12 (súkromný zápis MČ, 14. 11. 2026).
