@@ -169,6 +169,9 @@ function publish(next: PublishedClientNav | null) {
 }
 const subscribePublished = (listener: () => void) => { publishedListeners.add(listener); return () => { publishedListeners.delete(listener); }; };
 
+/** To isté bez odberu (titulok okna sa počíta pri vykreslení hlavičky, `lawossScreenTitle`). */
+export const publishedClientNav = (): PublishedClientNav | null => published;
+
 /** To, čo bočný panel práve vie o klientoch; mimo panela (samostatné okno) `null`. */
 export function usePublishedClientNav(): PublishedClientNav | null {
   return useSyncExternalStore(subscribePublished, () => published, () => null);

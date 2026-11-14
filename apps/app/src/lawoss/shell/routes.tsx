@@ -20,6 +20,7 @@ import { LITE_CLIENTS_PATH, LITE_INPUTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH,
 import { isExperimentHidden, isUpstreamRouteHidden } from "../feature-flags";
 import { currentUiMode, type UiMode } from "../lite/ui-mode";
 import { LawossLanding } from "../lite/landing";
+import { publishedClientNav } from "../lite/client-nav";
 
 /** Skrytý experiment (alfa) presmeruje na náhradu, inak ukáže svoju obrazovku. Staré odkazy tak nevedú do prázdna. */
 const experiment = (id: string, element: ReactElement, replacement: string): ReactElement =>
@@ -64,4 +65,18 @@ const LITE_TITLES: Readonly<Record<string, string>> = { "/lehoty": "lawoss.lite.
 export function lawossRouteTitle(pathname: string, mode: UiMode = currentUiMode()): string | undefined {
   const key = (mode === "lite" ? LITE_TITLES[pathname] : undefined) ?? LAWOSS_ROUTES.find((route) => route.path === pathname)?.title;
   return key ? t(key) : undefined;
+}
+
+/**
+ * Titulok okna obrazovky LAWOSS s parametrami trasy (alfa 14, spec-lehoty.md B3): Prípad v bežnom režime sa volá
+ * názvom prípadu z údajov, ktoré už zverejnil bočný panel (nič sa nečíta); bez nich ostáva „Klienti a prípady“.
+ */
+export function lawossScreenTitle(pathname: string, search: string, mode: UiMode = currentUiMode(),
+  nav: { data?: { matters: readonly { path: string; title: string }[] } } | null = publishedClientNav()): string | undefined {
+  if (mode === "lite" && pathname === LITE_MATTER_PATH) {
+    const path = new URLSearchParams(search).get("vec");
+    const title = path === null ? undefined : nav?.data?.matters.find((matter) => matter.path === path)?.title.trim();
+    if (title) return title;
+  }
+  return lawossRouteTitle(pathname, mode);
 }

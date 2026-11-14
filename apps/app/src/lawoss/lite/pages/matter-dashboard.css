@@ -36,14 +36,20 @@
   .lw-pripad .lw-pripad-tiles { grid-template-columns: minmax(0, 1fr); }
   .lw-pripad .lw-pripad-tiles > .lw-pripad-stage { grid-row: auto; }
 }
-.lw-pripad .lw-pripad-tiles > .lw-dnes-tile { padding: 16px 18px; }
+/* Výšku radu dáva obsah najvyššej dlaždice (bez min-height), cieľ ~105 px ako na Dnes (spec-lehoty.md B2). */
+.lw-pripad .lw-pripad-tiles > .lw-dnes-tile { padding: 14px 16px; }
+.lw-pripad .lw-pripad-tiles .lw-dnes-num { min-height: 36px; font-size: 34px; }
+.lw-pripad .lw-pripad-tiles .lw-dnes-num-word { font-size: 22px; }
+.lw-pripad-tile-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.lw-pripad-tile-line > .lw-dnes-tile-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw-pripad-tile-date { flex: none; font-size: 12px; color: var(--lw-text-tertiary); white-space: nowrap; }
 button.lw-pripad-tile-button { width: 100%; font: inherit; text-align: left; cursor: pointer; transition: transform 160ms var(--td-ease), border-color 160ms var(--td-ease); }
 button.lw-pripad-tile-button:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--td-gold) 45%, transparent); }
 .lw-pripad-num-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 8px; min-width: 0; }
 .lw-pripad .lw-pripad-num-row > .lw-dnes-pill { margin: 0; padding: 2px 8px; font-size: 11px; }
 .lw-pripad .lw-dnes-tile .lw-dnes-tile-sub + .lw-dnes-tile-sub { color: var(--lw-text-tertiary); font-size: 12px; }
 .lw-pripad-phase-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; margin-top: 4px; }
-.lw-pripad-phase { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; font-size: 20px; line-height: 1.25; font-weight: 600; color: var(--lw-text-primary); }
+.lw-pripad-phase { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; font-size: 18px; line-height: 1.25; font-weight: 600; color: var(--lw-text-primary); }
 .lw-pripad-phase[data-muted] { margin-top: 4px; font-size: 14px; font-weight: 500; color: var(--lw-text-tertiary); }
 .lw-pripad-phase-row > .lw-dnes-pill { margin: 0; padding: 1px 8px; font-size: 11px; }
 .lw-pripad-next { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--lw-text-secondary); }
@@ -83,6 +89,7 @@ button.lw-pripad-tile-button:hover { transform: translateY(-2px); border-color: 
 .lw-pripad-all[open] > summary { margin-bottom: 10px; }
 
 /* Tri stĺpce (bez strán dva); pod 760 px obsahu dva (strany pod nimi cez celú šírku), pod 480 px pod sebou. */
+/* Stĺpce majú rôznu výšku: zarovnané nahor, prázdny panel sa nenaťahuje (spec-lehoty.md B4). */
 .lw-pripad-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
 .lw-pripad-cols[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @container lw-pripad (width < 760px) {
@@ -108,6 +115,8 @@ button.lw-pripad-tile-button:hover { transform: translateY(-2px); border-color: 
 .lw-pripad-col .lw-dnes-item:has(> .lw-dnes-dni) { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 4px 10px; }
 .lw-pripad-col .lw-dnes-item:has(> .lw-dnes-dni) > .lw-dnes-dni { grid-row: 1 / span 2; }
 .lw-pripad-col .lw-dnes-item:has(> .lw-dnes-dni) > .lw-dnes-pill { grid-column: 2; justify-self: start; }
+/* Názov lehoty alebo úlohy najviac na dva riadky (spec-lehoty.md B1), celý v `title`. */
+.lw-pripad-col .lw-dnes-item-text b { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; white-space: normal; overflow-wrap: anywhere; line-height: 1.3; }
 .lw-pripad .lw-dnes-quiet.lw-pripad-empty { margin: 2px 4px; }
 .lw-pripad-link { margin: 2px 4px 0; padding: 0; border: 0; background: none; font: inherit; font-size: 12px; color: var(--lw-text-secondary); text-decoration: none; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
 .lw-pripad-link:hover { color: var(--td-gold-hi); }

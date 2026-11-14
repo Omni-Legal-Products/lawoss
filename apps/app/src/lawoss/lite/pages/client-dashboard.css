@@ -166,6 +166,17 @@
 :root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) > div:nth-child(2) > * { order: 2; }
 :root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) > div:nth-child(2) > button { height: 32px; padding-inline: 10px; color: var(--lw-text-secondary); }
 :root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header > div:first-child:has(> .lw-klient-initials) > :last-child { order: 3; }
+/* Názov klienta jedným riadkom s „…“ (spec-lehoty.md C); celý názov je v bočnom paneli aj v titulku okna (upstream
+   `h1` nemá `title`, len CSS). Pri nedostatku miesta „Pridať poznámku“ a „Nová úloha“ len ako ikony: text sa neskryje,
+   len oreže (`overflow: hidden`), takže ostáva menom tlačidla pre čítačku. */
+:root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header > div:first-child:has(> .lw-klient-initials) > :nth-child(2) h1 {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal;
+}
+@container project-page (width < 900px) {
+  :root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) > div:nth-child(2) > button {
+    justify-content: flex-start; width: 32px; padding-inline: 8px; gap: 16px; overflow: hidden; white-space: nowrap;
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .lw-klient-chevron { transition: none; }

@@ -304,3 +304,49 @@ describe("zachované pravidlá: ?klient=, #246, #168", () => {
     expect(css).not.toMatch(/border-left:[^;]*gold/);
   });
 });
+
+// Spec-lehoty.md B a C: drobnosti z overenia Prípadu a Klienta.
+describe("Prípad a Klient: drobnosti z overenia", () => {
+  const matterCss = readFileSync(new URL("../src/lawoss/lite/pages/matter-dashboard.css", import.meta.url), "utf8");
+  const clientCss = readFileSync(new URL("../src/lawoss/lite/pages/client-dashboard.css", import.meta.url), "utf8");
+
+  test("B1: názov v stĺpci „Lehoty a úlohy“ najviac na dva riadky", () => {
+    expect(matterCss).toContain(".lw-pripad-col .lw-dnes-item-text b { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;");
+  });
+
+  test("B2: dlaždice bez min-height, nižšie číslo a názov s dátumom jedným riadkom", () => {
+    expect(matterCss).not.toMatch(/lw-pripad-tiles[^{]*\{[^}]*min-height: (?!36px)/);
+    expect(matterCss).toContain(".lw-pripad .lw-pripad-tiles .lw-dnes-num { min-height: 36px; font-size: 34px; }");
+    const tile = readFileSync(new URL("../src/lawoss/lite/matter-dashboard.tsx", import.meta.url), "utf8");
+    expect(tile).toContain('<span className="lw-dnes-tile-sub lw-pripad-tile-line">');
+  });
+
+  test("B4: stĺpce zarovnané nahor, prázdny panel sa nenaťahuje", () => {
+    expect(matterCss).toContain(".lw-pripad-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }");
+  });
+
+  test("B3: Prípad v bežnom režime sa v titulku okna volá názvom prípadu, inak ako doteraz", async () => {
+    const { lawossScreenTitle, lawossRouteTitle } = await import("../src/lawoss/shell/routes");
+    const nav = { data: { matters: [{ path: M1, title: "Úhrada dodávok" }] } };
+    const search = `?vec=${encodeURIComponent(M1)}`;
+    expect(lawossScreenTitle("/vec", search, "lite", nav)).toBe("Úhrada dodávok");
+    expect(lawossScreenTitle("/vec", search, "pro", nav)).toBe(lawossRouteTitle("/vec", "pro"));
+    expect(lawossScreenTitle("/vec", "?vec=iny", "lite", nav)).toBe(lawossRouteTitle("/vec", "lite"));
+    expect(lawossScreenTitle("/vec", search, "lite", null)).toBe(lawossRouteTitle("/vec", "lite"));
+    expect(lawossScreenTitle("/lehoty", "", "lite", nav)).toBe(lawossRouteTitle("/lehoty", "lite"));
+    const route = readFileSync(new URL("../src/react-app/shell/session-route.tsx", import.meta.url), "utf8");
+    expect(route).toContain("mainViewTitle={experimentView ? lawossScreenTitle(location.pathname, location.search) : undefined} // 🟡 LAWOSS");
+  });
+
+  test("C: názov klienta jedným riadkom s výpustkou, „Pridať poznámku“ a „Nová úloha“ pod 900 px len ikony (text ostáva menom)", () => {
+    expect(clientCss).toMatch(/> :nth-child\(2\) h1 \{\n  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;/);
+    expect(clientCss).toContain("@container project-page (width < 900px)");
+    expect(clientCss).toMatch(/> div:nth-child\(2\) > button \{\n    justify-content: flex-start; width: 32px; padding-inline: 8px; gap: 16px; overflow: hidden; white-space: nowrap;/);
+    // Stráž synchronizácie: CSS stavia na h1 v ProjectName a tlačidlách v druhom riadku hlavičky upstreamu.
+    const name = readFileSync(new URL("../src/react-app/domains/workspace/project-name.tsx", import.meta.url), "utf8");
+    expect(name).toContain('<h1 className="min-w-0 flex-1 break-words');
+    const home = readFileSync(new URL("../src/react-app/domains/workspace/project-home.tsx", import.meta.url), "utf8");
+    expect(home).toContain('onClick={() => setNoteOpen(true)}><StickyNote />{t("projects.add_note")}</Button>');
+    expect(home).toContain('onClick={() => setTaskOpen(true)}><SquareCheck />{t("tasks.new_task")}</Button>');
+  });
+});

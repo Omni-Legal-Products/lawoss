@@ -63,8 +63,11 @@ function NearestTile({ matter, todayIso, locale, text, known, onReveal }: { matt
         : <span className="lw-dnes-num" data-tone={term.tone}>{term.daysLeft}<small>{text("days_unit", { count: term.daysLeft })}</small></span>}
       <span className="lw-dnes-pill" data-tone={term.kind === "work" ? "work" : "neutral"}>{text(term.kind === "work" ? "origin_work" : "agenda_kind_deadline")}</span>
     </span>
-    <span className="lw-dnes-tile-sub lw-dnes-tile-title" title={term.title}>{term.title}</span>
-    <span className="lw-dnes-tile-sub">{formatDay(term.date, locale)}</span>
+    {/* Názov a dátum jedným riadkom (spec-lehoty.md B2): dlaždica je nízka ako na Dnes, dátum sa neskráti. */}
+    <span className="lw-dnes-tile-sub lw-pripad-tile-line">
+      <span className="lw-dnes-tile-title" title={term.title}>{term.title}</span>
+      <span className="lw-pripad-tile-date">{formatDay(term.date, locale)}</span>
+    </span>
   </button>;
 }
 
