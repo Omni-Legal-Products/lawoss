@@ -102,7 +102,7 @@ describe("3. karta súhlasu bez opakovania", () => {
     expect(modal.match(/usePermissionDetails\(props\.permission, props\.chatDirectory, presentation\.details, presentation\.scopeValue\)/g)?.length).toBe(2);
     expect(modal).toContain("hasMetadata && !projectInstructions && detailsHaveContent(details, false)");
     expect(modal).toContain("hasMetadata && !projectInstructions && detailsHaveContent(details, true)");
-    expect(modal).toContain("open={(Boolean(presentation.details) && !lite) || undefined}");
+    expect(modal).toContain("open={(Boolean(presentation.details) && !lite && !presentation.commandInDetails) || undefined}");
   });
 });
 

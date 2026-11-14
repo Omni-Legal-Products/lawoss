@@ -178,8 +178,9 @@ describe("K5/K6: texty sa prekladajú pri renderi, nie pri uložení", () => {
     const root = join(import.meta.dir, "..", "src", "react-app", "domains", "session");
     const card = readFileSync(join(root, "chat", "permission-approval-modal.tsx"), "utf8");
     expect(card.match(/const locale = useLocale\(\);/g)?.length).toBe(2);
-    const memos = [...card.matchAll(/useMemo\(\(\) => describePermissionRequest\(props\.permission\), (\[[^\]]*\])\)/g)].map((m) => m[1]);
-    expect(memos).toEqual(["[props.permission, locale]", "[props.permission, locale]"]);
+    // Lite (čitateľná karta /novy-spis, 15. 11. 2026) je druhý vstup popisu karty, preto aj v deps.
+    const memos = [...card.matchAll(/useMemo\(\(\) => describePermissionRequest\(props\.permission, lite\), (\[[^\]]*\])\)/g)].map((m) => m[1]);
+    expect(memos).toEqual(["[props.permission, locale, lite]", "[props.permission, locale, lite]"]);
     const behavior = readFileSync(join(root, "surface", "use-model-behavior.ts"), "utf8");
     expect(behavior).toContain("const locale = useLocale();");
     expect(behavior).toMatch(/useMemo\(\(\) => \{[\s\S]*?\}, \[defaultModel, modelVariant, providerCatalog, locale\]\);/);

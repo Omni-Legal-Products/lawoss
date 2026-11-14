@@ -7,12 +7,16 @@
  * Rozhodnutia MČ 10. 11. 2026: poznámka pre celého klienta (`scope: "client"`) má vlastný nadpis a riadok „Platí pre
  * celého klienta“; lehota z pokynu advokáta (`deadline`, nástroj `lawoss_memory_deadline`) ukáže prípad, dátum, na čo je,
  * označenie „podľa pokynu advokáta, neoverené z listiny“ a oba súbory, do ktorých sa zapíše.
+ *
+ * Overenie alfy 14. 11. 2026: „pripomeň mi do 25. 11. … zapíš to ako úlohu“ je pracovná úloha s termínom `due`, nie
+ * procesná lehota. Nový záznam typu `task` s platným `due` a bez `deadlines` (nástroj `lawoss_memory_write`) má kartu
+ * „Zapísať úlohu do prípadu?“ s úlohou a termínom; iná úloha (zmena, lehota, chybný dátum) ostáva na všeobecnej karte.
  */
 import { currentLocale, t } from "@/i18n";
 import type { FileOperationDetails } from "./file-operation-card";
 
 type Deadline = { case: string; date: string; what: string; register: string };
-type MemoryWrite = { target: string; kind: "create" | "update"; title: string; truth: string; previousTruth?: string; history: string[]; fields: string[]; reason?: string; client?: true; deadline?: Deadline };
+type MemoryWrite = { target: string; kind: "create" | "update"; title: string; type: string; truth: string; previousTruth?: string; history: string[]; fields: string[]; reason?: string; client?: true; deadline?: Deadline };
 
 /** The deadline's part of the preview; incomplete data gives no deadline card (the plain memory card still shows the record). */
 function deadlineOf(raw: unknown): Deadline | null {
@@ -37,13 +41,13 @@ function memoryWrite(metadata: Record<string, unknown>): MemoryWrite | null {
   const raw: unknown = metadata.lawossMemory;
   if (!raw || typeof raw !== "object") return null;
   const target: unknown = Reflect.get(raw, "target"), truth: unknown = Reflect.get(raw, "truth");
-  const kind: unknown = Reflect.get(raw, "kind"), title: unknown = Reflect.get(raw, "title");
+  const kind: unknown = Reflect.get(raw, "kind"), title: unknown = Reflect.get(raw, "title"), type: unknown = Reflect.get(raw, "type");
   const previous: unknown = Reflect.get(raw, "previousTruth"), reason: unknown = Reflect.get(raw, "reason");
   const history = strings(Reflect.get(raw, "history")), fields = strings(Reflect.get(raw, "fields"));
   if (typeof target !== "string" || !target || typeof truth !== "string" || !history || !fields) return null;
   if ((kind !== "create" && kind !== "update") || typeof title !== "string") return null;
   const deadline = deadlineOf(Reflect.get(raw, "deadline"));
-  return { target, kind, title, truth, history, fields, ...(typeof previous === "string" ? { previousTruth: previous } : {}),
+  return { target, kind, title, type: typeof type === "string" ? type : "", truth, history, fields, ...(typeof previous === "string" ? { previousTruth: previous } : {}),
     ...(typeof reason === "string" && reason.trim() ? { reason: reason.trim() } : {}),
     ...(Reflect.get(raw, "scope") === "client" ? { client: true as const } : {}), ...(deadline ? { deadline } : {}) };
 }
@@ -68,11 +72,44 @@ function deadlineCard(write: MemoryWrite, deadline: Deadline): Card {
   };
 }
 
+/**
+ * The term of a new task record: its `due` field as a real calendar day (`due: 2026-11-25`, optionally with a note),
+ * and no `deadlines` (a procedural deadline keeps the plain card). `null` when it is not such a task.
+ */
+function taskDue(write: MemoryWrite): string | null {
+  if (write.kind !== "create" || write.type !== "task" || write.client || write.deadline) return null;
+  if (write.fields.some((field) => field.startsWith("deadlines:"))) return null;
+  const due = write.fields.filter((field) => field.startsWith("due:"));
+  const day = due.length === 1 ? /^due: (\d{4}-\d{2}-\d{2})(?:$|[ T])/.exec(due[0]!)?.[1] : undefined;
+  const parsed = day ? new Date(`${day}T00:00:00Z`) : null;
+  return parsed && !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
+}
+
+/** One card for the lawyer's task: what to do, by when, the file and every field of the new record. */
+function taskCard(write: MemoryWrite, due: string): Card {
+  const lines = [
+    t("lawoss.memory_write.task_what", undefined, { text: write.title }),
+    t("lawoss.memory_write.task_due", undefined, { date: fullDay(due) }),
+    t("lawoss.memory_write.file", undefined, { path: write.target }),
+    t("lawoss.memory_write.text", undefined, { text: write.truth }),
+    ...write.history.map((text) => t("lawoss.memory_write.history", undefined, { text })),
+    ...write.fields.map((text) => t("lawoss.memory_write.field_new", undefined, { text })),
+  ];
+  return {
+    title: t("lawoss.memory_write.task_title"), message: t("lawoss.memory_write.task_message"),
+    permissionLabel: t("lawoss.memory_write.permission_label"), scopeLabel: t("lawoss.memory_write.scope"),
+    scopeValue: lines.join("\n"),
+    details: { reason: write.reason ? t("lawoss.files.reason", undefined, { text: write.reason }) : null, lines },
+  };
+}
+
 /** The card's readable content, or `null` when the request is not from `lawoss_memory_write`. */
 export function memoryWriteCard(metadata: Record<string, unknown>): Card | null {
   const write = memoryWrite(metadata);
   if (!write) return null;
   if (write.deadline) return deadlineCard(write, write.deadline);
+  const due = taskDue(write);
+  if (due) return taskCard(write, due);
   // A note for the whole client says so in plain words before the file.
   const whole = write.client ? [t("lawoss.memory_write.client_scope")] : [];
   const file = t("lawoss.memory_write.file", undefined, { path: write.target }), text = t("lawoss.memory_write.text", undefined, { text: write.truth });

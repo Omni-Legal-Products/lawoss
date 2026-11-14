@@ -1,5 +1,14 @@
 # LAWOSS downstream patches
 
+## Alfa 14: čitateľné karty súhlasu pri novom prípade a úlohe vetou (2026-11-15)
+
+Nálezy z testu vetvy alfa 14 (`test-vetva-alfa14.md` č. 1 a 3): nový prípad vetou ukázal päť kariet „Spustiť príkaz v počítači?“ so surovým `node …/okf.js`, úloha vetou sa zapísala ako lehota.
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | `describePermissionRequest` je exportovaná a dostane `lite`; v Lite karta príkazu na počítači (`protocol: "host"`, `host.command`) so skriptom skillu /novy-spis relatívne v `.opencode/skills/`, ktorú presne rozpozná `apps/app/src/lawoss/lite/okf-command-card.ts`, má čitateľný nadpis a rozsah („Založiť prípad?“, názov, klient, protistrana, druh, priečinok, kroky). Pole `commandInDetails` skryje blok „Príkaz“ a v Modale riadok príkazu v Kontrole (ak by tam bol); surový príkaz je posledný riadok zbalených Podrobností. Oprávnenie, veta o celom počítači, tlačidlá a zapamätanie sa nemenia; režim Pokročilé bez zmeny. |
+| `apps/app/src/lawoss/lite/{okf-command-card,memory-write,memory-write-card}.ts`, `lawoss/i18n/shell.ts`, `apps/server/src/opencode-plugins/lawoss-memory-tools.ts`, `lawoss/skills/novy-spis/SKILL{,.cs}.md`, `lawoss/okf-pamat/SKILL.md`, `apps/app/src/lawoss/okf/bundled-skill-hashes.ts` (LAWOSS, + testy) | `shellWords` (slová s príznakom úvodzoviek, holé `&&` len na požiadanie). Karta `task` s platným `due` a bez `deadlines` je „Zapísať úlohu do prípadu?“. Skill /novy-spis: plán raz, zápis prípadu a pamäte jedným príkazom spojeným `&&` (Windows po krokoch), jurisdikcia z karty klienta, ak ju má. Pevný text pluginu a /okf-pamat: pripomienka/úloha je `task` s `due` cez `lawoss_memory_write`, nie `lawoss_memory_deadline`; prípad podľa časti názvu (bez diakritiky, jedna zhoda použiť, viac sa spýtať). Formát OKF ani CLI sa nemenia. |
+
 ## Alfa 14: nový sidebar (2026-11-14)
 
 Bočný panel bežného režimu podľa schváleného návrhu; režim Pokročilé ostáva ako doteraz. Nová logika je v `apps/app/src/lawoss/lite/` (`lite-nav.tsx`, `sidebar-model.ts`, `sidebar-footer.tsx`, `mcp-status-store.ts`, `client-row*.ts(x)`, `visibility.ts`, `chat-sections.ts`), texty v `lawoss/i18n/shell.ts` (en, de, sk, cs).
