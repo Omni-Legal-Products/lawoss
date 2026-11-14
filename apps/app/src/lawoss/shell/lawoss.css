@@ -520,6 +520,11 @@
 @media (prefers-reduced-motion: reduce) {
   :root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session)[data-active]::after { content: none; animation: none; }
 }
+/* Stav riadku (aktívny, hover, fokus) sa v bežnom režime prepne naraz, bez prechodu. Glazúra je gradient a skočí hneď,
+   ale natívny prechod `box-shadow` a `color` (sidebar.tsx, design-system.css) dobieha len s novými snímkami; keď okno
+   snímky nekreslí (je v pozadí alebo zakryté), ostal na riadku, z ktorého sa odišlo, 1 px zlatý rámik a zlatý text bez
+   výplne a nová aktívna položka bez rámika. Odlesk pri hoveri je animácia na ::after a ostáva. */
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session) { transition: none; }
 /* Alfa 14, bežný režim: lehota vpravo v riadku klienta, počty a stav registrov v bočnom paneli (len tokeny). */
 .lw-row-due-near { color: var(--lw-warning); }
 .lw-nav-meta { margin-left: auto; flex: none; font-family: var(--lw-font-mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--lw-text-tertiary); }

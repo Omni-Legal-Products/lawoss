@@ -327,6 +327,17 @@ describe("alfa 14, bežný režim: aktívna je len položka otvorenej trasy", ()
     expect(rule).not.toContain("gold");
     expect(css).toContain(':root[data-lawoss-ui="lite"] .lw-chat-sidebar li:has(.lw-sidebar-session[data-active]) .lw-sidebar-item[data-active]::after { content: none; animation: none; }');
   });
+
+  test("stav riadku sa prepne naraz: po odchode z riadku neostane rámik ani zlatý text z nedobehnutého prechodu", () => {
+    const css = readFileSync(join(import.meta.dir, "../src/lawoss/shell/lawoss.css"), "utf8");
+    // Glazúra (gradient) skočí hneď, natívny prechod box-shadow/color dobieha len s novými snímkami okna.
+    expect(css).toContain(':root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session) { transition: none; }');
+    // Rámik má len aktívny riadok; fokus z klávesnice ostáva natívny (focus-visible), nie :focus po kliknutí.
+    const borders = [...css.matchAll(/([^{}]*lw-sidebar-(?:item|session)[^{}]*)\{([^}]*)\}/g)].filter(([, , body]) => /box-shadow:(?!\s*none)|border:|outline:/.test(body ?? ""));
+    expect(borders.length).toBeGreaterThan(0);
+    for (const [, selector] of borders) expect(selector).toContain("[data-active]");
+    expect(css).not.toMatch(/lw-sidebar-(item|session)[^{]*:focus(?![-\w])/);
+  });
 });
 
 describe("alfa 14, bežný režim: riadok klienta bez kolízie lehoty a akcií", () => {

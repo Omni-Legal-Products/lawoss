@@ -195,7 +195,6 @@
 /* Viac lehôt v jeden deň: tri body a počet zvyšku; bublina najviac šesť položiek */
 .lw-today-dots-more { font-style: normal; font-family: var(--lw-font-mono); font-size: 9px; line-height: 7px; color: var(--lw-text-tertiary); }
 .lw-today-tip-more { font-size: 11px; color: var(--td-gold); }
-.lw-today-name { overflow-wrap: anywhere; }
 
 /* Neplatný dátum: pôvodný zápis pod názvom, nie v úzkom stĺpci dátumu */
 .lw-today-raw { font-family: var(--lw-font-mono); font-size: 11px; color: var(--td-hot); overflow-wrap: anywhere; }
@@ -214,6 +213,28 @@
 .lw-dnes { --dn-radius: var(--lw-radius-2xl, 18px); --dn-radius-sm: var(--lw-radius-xl, 14px); --dn-amber: var(--lw-warning, #d89a4e); --dn-green: var(--lw-success, #8dbb8f); }
 .lw-dnes .lw-today-hero { padding-top: 14px; }
 .lw-dnes .lw-today-lead { margin-top: 8px; font-size: 14px; }
+/* Pozdrav v jednom riadku: písmo podľa šírky obsahu, dlhé meno sa skráti „…“ (celé v `title`). Prepínač a „+ Nový
+   prípad“ sú v riadku pozdravu vpravo a zvislo na jeho stred; dátum nad ním, veta pod ním cez celú šírku. */
+.lw-dnes .lw-today-hero {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "date date" "title actions" "lead lead";
+  align-items: center;
+  row-gap: 0;
+}
+.lw-dnes .lw-today-hero-copy { display: contents; }
+.lw-dnes .lw-today-date { grid-area: date; }
+.lw-dnes .lw-today-greeting {
+  grid-area: title; display: flex; align-items: baseline; min-width: 0;
+  font-size: clamp(24px, 3.6cqi, 38px); line-height: 1.2; white-space: nowrap;
+}
+.lw-dnes .lw-today-greeting > span { flex: none; }
+.lw-dnes .lw-today-greeting > .lw-today-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.lw-dnes .lw-today-lead { grid-area: lead; }
+.lw-dnes .lw-today-actions { grid-area: actions; flex-wrap: nowrap; }
+@container (max-width: 520px) {
+  .lw-dnes .lw-today-hero { grid-template-columns: minmax(0, 1fr); grid-template-areas: "date" "title" "lead" "actions"; }
+  .lw-dnes .lw-today-actions { flex-wrap: wrap; justify-content: flex-start; margin-top: 12px; }
+}
 
 .lw-dnes-tile, .lw-dnes-panel, .lw-dnes-card, .lw-dnes-mini, .lw-dnes .lw-today-strip {
   position: relative;
@@ -349,14 +370,22 @@ a.lw-dnes-tile:hover, a.lw-dnes-card:hover, a.lw-dnes-mini:hover {
 }
 .lw-dnes-secondary:hover { border-color: color-mix(in srgb, var(--td-gold) 55%, transparent); color: var(--lw-text-primary); }
 
-/* Pole chatu: otvorí Domov s vetou, nič neodošle. */
+/* Pole chatu: otvorí Domov s vetou, nič neodošle. Sedí v doku pripnutom k spodnému okraju posuvnej plochy.
+   Chromium drží sticky prvok nad vnútorným okrajom posuvnej plochy (padding-bottom `.lw-sheet` 48 px), preto Dnes ten
+   okraj aj spodný okraj `.lw-today` ruší a medzeru pod poľom dáva dok: pod poľom je nepriehľadné pozadie stránky,
+   nad ním krátky prechod (≤ medzera 22 px medzi blokmi, takže v pokoji na konci stránky nič nezakryje). */
+.lw-experiment-content > .lw-sheet:has(.lw-dnes) { padding-bottom: 0; }
+.lw-today.lw-dnes { padding-bottom: 0; }
+.lw-dnes-dock { position: sticky; bottom: 0; z-index: 3; margin-top: auto; padding-bottom: 16px; background: var(--lw-surface); }
+.lw-dnes-dock::before {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 20px; pointer-events: none;
+  background: linear-gradient(180deg, transparent, var(--lw-surface));
+}
 .lw-dnes-chat {
-  position: sticky; bottom: 16px; z-index: 3; margin-top: auto;
   display: flex; flex-direction: column; gap: 10px; padding: 14px 16px;
   border: 1px solid color-mix(in srgb, var(--td-gold) 35%, transparent); border-radius: var(--lw-radius-3xl, 22px);
-  background: color-mix(in srgb, var(--lw-surface) 94%, transparent);
+  background: var(--td-glass), var(--lw-surface);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--lw-text-primary) 7%, transparent), 0 24px 60px -24px rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(10px);
 }
 .lw-dnes-chat-suggest { display: flex; flex-wrap: wrap; gap: 6px; }
 .lw-dnes-suggest {

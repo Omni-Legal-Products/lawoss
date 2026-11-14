@@ -131,6 +131,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
   /** Režim po otvorení; voľba sa nepamätá (spec 0020). */
   initialMode?: ViewMode }) {
   const text = liteText(locale);
+  const greeting = text(greetingKey(now.getHours()));
   const [mode, setMode] = useState<ViewMode>(initialMode);
   const month = Boolean(events) && mode === "month";
   const todayIso = today(now);
@@ -146,7 +147,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
       <header className="lw-today-hero" style={reveal(0)}>
         <div className="lw-today-hero-copy">
           <p className="lw-today-date">{longDate(todayIso, locale)}{meta ? <LiveStamp meta={meta} locale={locale} /> : null}</p>
-          <h1 className="lw-today-greeting">{text(greetingKey(now.getHours()))}{name ? <span className="lw-today-name">, {name}</span> : null}</h1>
+          <h1 className="lw-today-greeting" title={name ? `${greeting}, ${name}` : greeting}><span>{greeting}</span>{name ? <span className="lw-today-name">, {name}</span> : null}</h1>
           <p className="lw-today-lead">{leadText(todayLead(model.deadlines, dates, evidence), locale, text)}</p>
         </div>
         <div className="lw-today-actions">
@@ -376,7 +377,7 @@ function ChatBar({ text, filing }: { text: Text; filing: boolean }) {
     navigate(homeRoute());
   };
   const suggestions = [text("chat_suggest_today"), ...(filing ? [text("chat_suggest_file")] : []), text("chat_suggest_week")];
-  return <section className="lw-dnes-chat" aria-label={text("chat_label")} data-lawoss-chatbar="">
+  return <div className="lw-dnes-dock"><section className="lw-dnes-chat" aria-label={text("chat_label")} data-lawoss-chatbar="">
     <div className="lw-dnes-chat-suggest">
       {suggestions.map((suggestion) => <button key={suggestion} type="button" className="lw-dnes-suggest" onClick={() => open(suggestion)}>{suggestion}</button>)}
     </div>
@@ -384,7 +385,7 @@ function ChatBar({ text, filing }: { text: Text; filing: boolean }) {
       <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={text("chat_placeholder")} aria-label={text("chat_placeholder")} />
       <button type="submit" className="lw-dnes-chat-go" disabled={!draft.trim()} aria-label={text("chat_open")} title={text("chat_open")}><ArrowRight aria-hidden size={16} /></button>
     </form>
-  </section>;
+  </section></div>;
 }
 
 function Skeleton({ small = false }: { small?: boolean }) {

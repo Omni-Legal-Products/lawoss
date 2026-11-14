@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
@@ -138,6 +140,32 @@ describe("obrazovka", () => {
     expect(out).not.toContain("Začnite tu");
     expect(out).toContain('<a class="lw-dnes-secondary" href="/welcome?continue=matter"');
     expect(out).not.toContain("lw-today-primary");
+  });
+
+  test("pozdrav v jednom riadku: celé znenie v title, meno samostatne na skrátenie", () => {
+    const out = html(<TodayView model={model} locale="sk" now={now} name="Mgr. Testovací Advokát" />);
+    const h1 = out.match(/<h1 class="lw-today-greeting"[^>]*>[\s\S]*?<\/h1>/)?.[0] ?? "";
+    expect(h1).toMatch(/title="[^"]+, Mgr\. Testovací Advokát"/);
+    expect(h1).toContain('<span class="lw-today-name">, Mgr. Testovací Advokát</span>');
+    expect(html(<TodayView model={model} locale="sk" now={now} />)).not.toContain("lw-today-name");
+    const css = readFileSync(join(import.meta.dir, "../src/lawoss/lite/pages/today.css"), "utf8");
+    expect(css).toMatch(/\.lw-dnes \.lw-today-greeting \{[^}]*white-space: nowrap;/);
+    expect(css).toMatch(/\.lw-dnes \.lw-today-greeting > \.lw-today-name \{[^}]*text-overflow: ellipsis;/);
+    expect(css).toContain('grid-template-areas: "date date" "title actions" "lead lead";');
+  });
+
+  test("pole chatu v doku pri spodnom okraji: nepriehľadné pozadie stránky, bez okraja posuvnej plochy pod ním", () => {
+    const out = html(<TodayView model={model} locale="sk" now={now} />);
+    expect(out).toMatch(/<div class="lw-dnes-dock"><section class="lw-dnes-chat"[^>]*data-lawoss-chatbar=""/);
+    const css = readFileSync(join(import.meta.dir, "../src/lawoss/lite/pages/today.css"), "utf8");
+    const dock = /\.lw-dnes-dock \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(dock).toContain("position: sticky; bottom: 0;");
+    expect(dock).toContain("background: var(--lw-surface);");
+    expect(css).toContain(".lw-experiment-content > .lw-sheet:has(.lw-dnes) { padding-bottom: 0; }");
+    // Pole samé už nie je sticky ani priesvitné.
+    const bar = /\.lw-dnes-chat \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(bar).not.toContain("sticky");
+    expect(bar).not.toContain("94%");
   });
 
   test("pole chatu: tri návrhy (zaradenie len pri dokumentoch), nič neodosiela ani nedáva vetu do adresy", () => {

@@ -1,6 +1,6 @@
 import { DiagnosticMessage, diagnosticText } from "../i18n/diagnostic-message";
 /** @jsxImportSource react */
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, Navigate } from "react-router-dom";
 import { useOptionalLocal } from "@/react-app/kernel/local-provider";
@@ -37,10 +37,10 @@ export type OkfPageMeta = { checkedAt: number; changedAt: number; failed?: boole
 type HasContent = (data: OkfReadResult) => boolean;
 const hasMatters: HasContent = (data) => data.matters.length > 0;
 /** `noWorkspace`: obsah stránky, keď ešte nie je pripojený žiaden priečinok (napr. Klienti po „Začať nanovo“). */
-type PageProps = { title?: string; notice?: ReactNode; children: (data: OkfReadResult, meta: OkfPageMeta, scope: OkfScope | null) => ReactNode; stateText?: StateText; pickWorkspace?: PickWorkspace; rawProblems?: boolean; hasContent?: HasContent; noWorkspace?: ReactNode };
+type PageProps = { title?: string; notice?: ReactNode; children: (data: OkfReadResult, meta: OkfPageMeta, scope: OkfScope | null) => ReactNode; stateText?: StateText; pickWorkspace?: PickWorkspace; rawProblems?: boolean; hasContent?: HasContent; noWorkspace?: ReactNode; retryAfterMs?: number };
 
 /** Retry also reloads the desktop connection, which may be absent during startup. */
-export function OkfPage({ title, notice, children, stateText, pickWorkspace, rawProblems, hasContent, noWorkspace }: PageProps) {
+export function OkfPage({ title, notice, children, stateText, pickWorkspace, rawProblems, hasContent, noWorkspace, retryAfterMs }: PageProps) {
   const text = useMatterText().text;
   const label = stateText ?? text;
   const [attempt, setAttempt] = useState(0);
@@ -48,7 +48,7 @@ export function OkfPage({ title, notice, children, stateText, pickWorkspace, raw
   return (
     <LawossLayout>
       {title ? <h1 className="lw-h1">{title}</h1> : null}
-      <OkfPageQuery key={attempt} notice={notice} stateText={stateText} pickWorkspace={pickWorkspace} rawProblems={rawProblems} hasContent={hasContent} noWorkspace={noWorkspace} retry={<button type="button" className="lw-btn" onClick={() => {
+      <OkfPageQuery key={attempt} notice={notice} stateText={stateText} pickWorkspace={pickWorkspace} rawProblems={rawProblems} hasContent={hasContent} noWorkspace={noWorkspace} retryAfterMs={retryAfterMs} retry={<button type="button" className="lw-btn" onClick={() => {
         void cache.invalidateQueries({ queryKey: ["okf-overview"], refetchType: "none" });
         void cache.invalidateQueries({ queryKey: ["okf-practice-root"] });
         setAttempt((value) => value + 1);
@@ -57,7 +57,7 @@ export function OkfPage({ title, notice, children, stateText, pickWorkspace, raw
   );
 }
 
-function OkfPageQuery({ children, notice, stateText, pickWorkspace = activeWorkspace, rawProblems, hasContent, noWorkspace, retry }: Pick<PageProps, "children" | "notice" | "stateText" | "pickWorkspace" | "rawProblems" | "hasContent" | "noWorkspace"> & { retry: ReactNode }) {
+function OkfPageQuery({ children, notice, stateText, pickWorkspace = activeWorkspace, rawProblems, hasContent, noWorkspace, retryAfterMs, retry }: Pick<PageProps, "children" | "notice" | "stateText" | "pickWorkspace" | "rawProblems" | "hasContent" | "noWorkspace" | "retryAfterMs"> & { retry: ReactNode }) {
   const text = useMatterText().text;
   const { connection, error } = useOkfConnection();
   const workspace = pickWorkspace(connection);
@@ -95,6 +95,7 @@ function OkfPageQuery({ children, notice, stateText, pickWorkspace = activeWorks
     hasContent={hasContent}
     noWorkspace={noWorkspace}
     retry={retry}
+    retryAfterMs={retryAfterMs}
     notice={notice}
   >{children}</OkfPageState>;
 }
@@ -128,15 +129,40 @@ export function OkfPageState(props: {
   missingFolder?: ReactNode;
   /** Obsah namiesto „žiadny priečinok“ (stránka Klienti ponúkne „Pridať klienta“, rozhodnutie 19. 10. 2026). */
   noWorkspace?: ReactNode;
+  /** Bežný režim: počas kostry načítania ukáže „Skúsiť znova“ až po toľkých ms; bez hodnoty hneď (Pokročilý). */
+  retryAfterMs?: number;
 }) {
   const { text: matterText, locale } = useMatterText();
   const node = <>{props.workspace === null && props.firstRun ? null : props.notice}{okfStateNode(props, props.stateText ?? matterText, locale)}</>;
   // „Skúsiť znova“ len tam, kde sa čaká alebo zlyhalo; pri načítaných veciach, prázdnej pamäti a bez priečinka nie je čo opakovať.
   const settled = !props.error && props.connection === "ready" && (props.workspace === null || Boolean(props.data && ((props.hasContent ?? hasMatters)(props.data) || !(props.data.problems.length || props.data.truncated))));
+  // Bežný režim (`retryAfterMs`): počas kostry ešte nič nezlyhalo, tlačidlo až po dlhom čakaní (spojenie pri štarte nemusí prísť).
+  const delayed = props.retryAfterMs !== undefined && showsSkeleton(props);
+  const waitedLong = useWaitedLong(delayed, props.retryAfterMs ?? 0);
   return <>
     {props.data ? <PracticeCoverage data={props.data} scope={props.scope ?? null} failed={props.meta?.failed} excludedWorkspaceIds={props.excludedWorkspaceIds} /> : null}
-    {settled ? node : <>{node}{props.retry}</>}
+    {settled ? node : <>{node}{delayed && !waitedLong ? null : props.retry}</>}
   </>;
+}
+
+/** Stav, v ktorom `okfStateNode` ukazuje kostru načítania (nie chybu, chýbajúci priečinok ani prázdnu pamäť). */
+export function showsSkeleton(props: Pick<Parameters<typeof OkfPageState>[0], "connection" | "workspace" | "error" | "hostAccessDenied" | "data" | "missingFolder" | "hasContent">): boolean {
+  if (props.missingFolder && !(props.data && (props.hasContent ?? hasMatters)(props.data))) return false;
+  if (props.hostAccessDenied || props.error) return false;
+  if (props.connection === "loading") return true;
+  return props.connection === "ready" && props.workspace !== null && !props.data;
+}
+
+/** `true`, keď `waiting` trvá nepretržite aspoň `ms`; koniec čakania odpočet zruší. */
+function useWaitedLong(waiting: boolean, ms: number): boolean {
+  const [long, setLong] = useState(false);
+  useEffect(() => {
+    setLong(false);
+    if (!waiting) return;
+    const timer = setTimeout(() => setLong(true), ms);
+    return () => clearTimeout(timer);
+  }, [waiting, ms]);
+  return long;
 }
 
 function okfStateNode(props: Parameters<typeof OkfPageState>[0], text: StateText, locale: Language): ReactNode {

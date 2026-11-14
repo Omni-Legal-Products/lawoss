@@ -32,6 +32,9 @@ export function liteStateText(locale: Language): StateText {
 }
 
 /** Společné nastavení OkfPage pro lite stránky: prostý jazyk, celá kancelář, bez surových chyb. */
+/** Bežný režim: kostra načítania ponúkne „Skúsiť znova“ až po 15 s; skôr nič nezlyhalo. */
+export const LITE_RETRY_AFTER_MS = 15_000;
+
 export function litePageProps(locale: Language) {
-  return { stateText: liteStateText(locale), pickWorkspace: officeWorkspace, rawProblems: false } as const;
+  return { stateText: liteStateText(locale), pickWorkspace: officeWorkspace, rawProblems: false, retryAfterMs: LITE_RETRY_AFTER_MS } as const;
 }

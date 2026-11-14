@@ -9,8 +9,8 @@ import { LITE_INPUTS_PATH, liteMatterLink, NEW_CLIENT_PATH, NEW_MATTER_PATH } fr
 import type { TodayModel } from "../src/lawoss/lite/today-model";
 import type { Cockpit } from "../../../lawoss/okf/cockpit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { OkfPageState } from "../src/lawoss/domains/okf-page";
-import { liteStateText } from "../src/lawoss/lite/state-text";
+import { OkfPageState, showsSkeleton } from "../src/lawoss/domains/okf-page";
+import { litePageProps, liteStateText } from "../src/lawoss/lite/state-text";
 import { TodayPage } from "../src/lawoss/lite/pages/today-page";
 import { ClientsPage } from "../src/lawoss/lite/pages/clients-page";
 import { LiteMatterPage } from "../src/lawoss/lite/pages/matter-page";
@@ -166,11 +166,11 @@ describe("stavy stránek LAWOSS-lite", () => {
   const base: StateProps = { connection: "ready", workspace: "Kancelář", error: null, data: empty, loading: false };
   const lite = (props: Partial<StateProps>) => html(<OkfPageState {...base} {...props} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>);
 
-  test("celé lite stránky při startu: načítání a znovu, bez technických pojmů", () => {
+  test("celé lite stránky při startu: načítání bez „Try again“ (ukáže se až po dlhom čakaní), bez technických pojmů", () => {
     for (const Page of [TodayPage, ClientsPage, LiteMatterPage]) {
       const out = renderToStaticMarkup(<QueryClientProvider client={new QueryClient()}><MemoryRouter><Page /></MemoryRouter></QueryClientProvider>);
       expect(out).toContain("Loading your cases…");
-      expect(out).toContain("Try again");
+      expect(out).not.toContain("Try again");
       // Navigace LawossLayout je pro chrome (lite shell řeší Task 6); kontrolujeme obsah stránky.
       const sheet = out.slice(out.indexOf('<section class="lw-sheet">'));
       expect(sheet).toContain("Loading your cases…");
@@ -224,6 +224,23 @@ describe("stavy stránek LAWOSS-lite", () => {
     expect(html(<OkfPageState {...base} error={new Error("x")} retry={retry} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>)).toContain("Try again");
     expect(html(<OkfPageState {...base} connection="loading" retry={retry} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>)).toContain("Try again");
     expect(html(<OkfPageState {...base} data={{ ...empty, problems: [{ path: "AK", message: "x" }] }} retry={retry} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>)).toContain("Try again");
+    // Bežný režim (retryAfterMs): kostra načítania ešte nič nezlyhala, „Try again“ až po dlhom čakaní; chyba ho ukáže hneď.
+    const liteProps = { stateText: liteStateText("en"), retryAfterMs: litePageProps("en").retryAfterMs, retry };
+    expect(html(<OkfPageState {...base} {...liteProps} connection="loading">{() => "dashboard"}</OkfPageState>)).not.toContain("Try again");
+    expect(html(<OkfPageState {...base} {...liteProps} data={undefined}>{() => "dashboard"}</OkfPageState>)).not.toContain("Try again");
+    expect(html(<OkfPageState {...base} {...liteProps} error={new Error("x")}>{() => "dashboard"}</OkfPageState>)).toContain("Try again");
+    expect(html(<OkfPageState {...base} {...liteProps} connection="unavailable">{() => "dashboard"}</OkfPageState>)).toContain("Try again");
+    expect(html(<OkfPageState {...base} {...liteProps} data={{ ...empty, problems: [{ path: "AK", message: "x" }] }}>{() => "dashboard"}</OkfPageState>)).toContain("Try again");
+  });
+  test("kostra načítania: len čakanie na spojenie alebo na pamäť otvoreného priečinka", () => {
+    expect(showsSkeleton({ ...base, connection: "loading" })).toBe(true);
+    expect(showsSkeleton({ ...base, data: undefined })).toBe(true);
+    expect(showsSkeleton({ ...base })).toBe(false);
+    expect(showsSkeleton({ ...base, data: undefined, error: new Error("x") })).toBe(false);
+    expect(showsSkeleton({ ...base, data: undefined, hostAccessDenied: true })).toBe(false);
+    expect(showsSkeleton({ ...base, data: undefined, missingFolder: "chýba" })).toBe(false);
+    expect(showsSkeleton({ ...base, data: undefined, workspace: null })).toBe(false);
+    expect(showsSkeleton({ ...base, data: undefined, connection: "unavailable" })).toBe(false);
   });
   test("pro stav zůstává beze změny", () => {
     const out = html(<OkfPageState {...base} workspace={null}>{() => "dashboard"}</OkfPageState>);
