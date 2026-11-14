@@ -23,7 +23,7 @@ export async function prepareOkfDraft(
   if (!capabilities.skills.write || !capabilities.skillResources?.write) throw new Error(t("lawoss.setup.error.skillWrite"));
   const { modified, written } = await refreshOkfSkills(client, workspace.id, [
     { name: NOVY_SPIS_SKILL_NAME, body: novySpisSkillBody(locale), resource: OKF_CLI_RESOURCE_NAME, source: okfCliSource() },
-    { name: OKF_PAMAT_SKILL_NAME, body: pamatSkillBody(), resource: OKF_MEMORY_CLI_RESOURCE_NAME, source: okfMemoryCliSource() },
+    { name: OKF_PAMAT_SKILL_NAME, body: pamatSkillBody(locale), resource: OKF_MEMORY_CLI_RESOURCE_NAME, source: okfMemoryCliSource() },
   ]);
   notifyModifiedOkfSkills(modified, locale ?? currentLocale());
   await reloadAfterSkillWrites(client, workspace.id, written);

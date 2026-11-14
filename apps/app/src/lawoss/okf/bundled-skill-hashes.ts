@@ -9,6 +9,8 @@
  * `git log --follow --full-history` of the four files plus HEAD; when a bundled
  * SKILL.md changes, add the new hash here (a test fails until it is listed).
  */
+import { pamatSkillBody } from "./skill-bundle";
+
 export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "01de6798b2d44beedba136b36b8741732db60f2974a82e5d2b75c0c01391508e", // lawoss/okf-pamat/SKILL.md @ 04d3d2dc
   "04f60d70f08f79216840bb867333255668170d2bab7d7126693fc7f6f2003d71", // lawoss/okf-pamat/SKILL.md @ 168221d2
@@ -72,4 +74,15 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "16c3f1daff9050ef1d48c847cf8cc3267f05323a57879d709b29f1f0ce80a8a8", // lawoss/okf-pamat/SKILL.md @ fix/p3-citanie-bez-karty (čítanie cez lawoss_memory bez karty)
   "8204e24401305451119dc59a1995212808e3f418406de0b792f032e2a5637a06", // lawoss/okf-pamat/SKILL.md @ fix/zapis-pamate-jedna-karta (zápis cez lawoss_memory_write jednou kartou)
   "1059b88ef1966d072b168386c10862d39950f4d4e44e62529ded6a98e61fa271", // lawoss/okf-pamat/SKILL.md @ fix/pamat-klienta-lehota (poznámka klienta, lehota z pokynu advokáta, upratanie nezaradeného)
+]);
+
+/**
+ * Popisy (frontmatter `description`) skillov OKF, ktoré LAWOSS pribalil. Telo SKILL.md sa pri zmene len popisu
+ * nemení, takže hash vyššie ho neobnoví; nainštalovaný skill s niektorým z týchto popisov dostane aktuálny.
+ * Iný popis je úprava používateľa a ostáva. Overenie alfy 12 (14. 11. 2026): /okf-pamat mal anglický popis.
+ */
+export const BUNDLED_OKF_SKILL_DESCRIPTIONS: ReadonlySet<string> = new Set([
+  "Use when reading or writing case memory in an OKF matter folder (spis) or an explicit .lawoss/memory-profile.json workspace — recording facts, decisions, deadlines, subjects, lessons or legal authorities, and projecting them into _STATUS.md. Triggers (SK) — \"zapíš do pamäte\", \"čo vieme o spise\", \"aktualizuj _STATUS\", \"skontroluj pamäť spisu\", \"povýš poznatok\"; (CZ) — \"zapiš do paměti\", \"co víme o spisu\", \"aktualizuj _STATUS\", \"zkontroluj paměť spisu\", \"povyš poznatek\"; (EN) — \"matter memory\", \"case memory\", \"record decision\".", // lawoss/okf-pamat/SKILL.md do alfy 12 (po anglicky)
+  pamatSkillBody("sk").description,
+  pamatSkillBody("cs").description,
 ]);
