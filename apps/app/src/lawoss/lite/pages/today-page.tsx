@@ -370,7 +370,10 @@ function ContinueSection({ model, todayIso, locale, text }: { model: TodayModel;
  * advokát vyberie tam; z Domova klienta (`projectId`) je jeho klient na Domove už vybraný (`/home?project=`).
  * Veta ide cez pamäť (`home-prefill.ts`), nikdy cez adresu.
  */
-export function ChatBar({ text, suggestions, projectId, className }: { text: Text; suggestions: readonly string[]; projectId?: string;
+/** Návrh v poli chatu: text na tlačidle a veta, ktorú pripraví (predvolene tá istá). */
+export type ChatSuggestion = string | { label: string; text: string };
+
+export function ChatBar({ text, suggestions, projectId, className }: { text: Text; suggestions: readonly ChatSuggestion[]; projectId?: string;
   /** Ďalšia trieda doku (Domov klienta: dok mimo sekcie prehľadu, pripnutý na celú stránku). */
   className?: string }) {
   const navigate = useNavigate();
@@ -382,7 +385,10 @@ export function ChatBar({ text, suggestions, projectId, className }: { text: Tex
   };
   return <div className={className ? `lw-dnes-dock ${className}` : "lw-dnes-dock"}><section className="lw-dnes-chat" aria-label={text("chat_label")} data-lawoss-chatbar="">
     <div className="lw-dnes-chat-suggest">
-      {suggestions.map((suggestion) => <button key={suggestion} type="button" className="lw-dnes-suggest" onClick={() => open(suggestion)}>{suggestion}</button>)}
+      {suggestions.map((suggestion) => {
+        const { label, text: prefill } = typeof suggestion === "string" ? { label: suggestion, text: suggestion } : suggestion;
+        return <button key={label} type="button" className="lw-dnes-suggest" onClick={() => open(prefill)}>{label}</button>;
+      })}
     </div>
     <form className="lw-dnes-chat-field" onSubmit={(event) => { event.preventDefault(); open(draft); }}>
       <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={text("chat_placeholder")} aria-label={text("chat_placeholder")} />
