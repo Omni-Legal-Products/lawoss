@@ -14,6 +14,7 @@ import type { ProjectDetails } from "@legalwork/types/workspace";
 import { matchesProjectFilters, useProjectFilterStore } from "../domains/workspace/project-filters";
 import { useProjectSyncStore } from "../domains/workspace/project-sync-store";
 import { defaultProjectFields, useProjectDefaultsStore, withInitialProjectFields } from "../domains/workspace/project-defaults-store";
+import { plainSearchExcerpt } from "@/lawoss/lite/search-excerpt"; // 🟡 LAWOSS: úryvok bez markdownu
 import "./command-palette.css";
 
 export type SessionOption = {
@@ -182,7 +183,7 @@ export function CommandPalette(props: {
                 <div className="search-result-meta">{names[item.kind]}{item.completed ? ` · ${t("tasks.status_done")}` : ""}{project && item.kind !== "projects" ? ` · ${project}` : ""}{item.path && item.excerpt !== item.path ? ` · ${item.path}` : ""}</div>
                 {item.incomplete && <div className="search-result-meta">{t("content_search.partial")}</div>}
                 {item.sources?.some(source => source.page) && <div className="search-result-meta">{t("content_search.pages", { pages: [...new Set(item.sources.flatMap(source => source.page ? [source.page] : []))].join(", ") })}</div>}
-                {trimmed && item.excerpt ? <div className="search-result-excerpt"><Highlight text={item.excerpt} query={trimmed} /></div> : null}
+                {trimmed && item.excerpt ? <div className="search-result-excerpt"><Highlight text={plainSearchExcerpt(item.excerpt)} /* 🟡 LAWOSS */ query={trimmed} /></div> : null}
               </div>
               <CornerDownLeft className="search-result-enter" aria-hidden="true" />
             </CommandItem>;

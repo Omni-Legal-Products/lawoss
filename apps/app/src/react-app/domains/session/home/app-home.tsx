@@ -5,6 +5,7 @@ import type { AssistantProfile } from "@legalwork/types/main-assistant";
 import { AssistantAvatar } from "../sidebar/assistant-appearance";
 import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { clearHomePrefill, peekHomePrefill } from "@/lawoss/lite/home-prefill"; // 🟡 LAWOSS: veta z poľa chatu na Dnes
+import { useHomeClientLabel } from "@/lawoss/lite/client-row-view"; // 🟡 LAWOSS: meno klienta, nie priečinka
 import type { WorkspaceInfo } from "@/app/lib/desktop";
 import type { ModelRef } from "@/app/types";
 import { Button } from "@/components/ui/button";
@@ -69,6 +70,7 @@ export function AppHome(props: AppHomeProps) {
     requestAnimationFrame(focusPrompt);
   });
   const project = props.workspaces.find((workspace) => workspace.id === props.projectId);
+  const clientLabel = useHomeClientLabel(); // 🟡 LAWOSS
   const assistantName = props.assistantProfile?.name ?? t("assistant.title");
   // 🟡 LAWOSS: Asistent je platená plocha Eigenwelt; bez vybraného klienta Domov žiada zvoliť alebo pridať klienta.
   const assistantHidden = isCommercialSurfaceHidden("assistant");
@@ -188,13 +190,13 @@ export function AppHome(props: AppHomeProps) {
             <div className="lw-home-project-bar">
               <DropdownMenu>
                 <DropdownMenuTrigger render={<Button type="button" variant="ghost" disabled={busy} className="lw-home-project-picker" />}>
-                  {project || assistantHidden ? <Folder size={18} /> : <AssistantAvatar icon={props.assistantProfile?.icon} />}<span>{project ? project.displayName || project.name : assistantHidden ? t("home.choose_project") : assistantName}</span><ChevronDown size={14} />
+                  {project || assistantHidden ? <Folder size={18} /> : <AssistantAvatar icon={props.assistantProfile?.icon} />}<span>{project ? clientLabel(project, project.displayName || project.name) /* 🟡 LAWOSS */ : assistantHidden ? t("home.choose_project") : assistantName}</span><ChevronDown size={14} />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="max-h-80 min-w-64 overflow-y-auto">
                   {assistantHidden ? null : <DropdownMenuItem onClick={() => props.onProjectChange(null)}><AssistantAvatar icon={props.assistantProfile?.icon} />{assistantName}</DropdownMenuItem>}
                   <DropdownMenuItem onClick={props.onCreateProject}><Plus size={16} />{t("home.new_project")}</DropdownMenuItem>
                   {props.workspaces.length ? <DropdownMenuSeparator /> : null}
-                  {props.workspaces.map((workspace) => <DropdownMenuItem key={workspace.id} onClick={() => props.onProjectChange(workspace.id)}><Folder size={16} /><span className="truncate">{workspace.displayName || workspace.name}</span></DropdownMenuItem>)}
+                  {props.workspaces.map((workspace) => <DropdownMenuItem key={workspace.id} onClick={() => props.onProjectChange(workspace.id)}><Folder size={16} /><span className="truncate">{clientLabel(workspace, workspace.displayName || workspace.name) /* 🟡 LAWOSS */}</span></DropdownMenuItem>)}
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button type="button" variant="ghost" disabled={busy} onClick={() => fileInput.current?.click()}><Paperclip size={17} />{t("home.files")}</Button>

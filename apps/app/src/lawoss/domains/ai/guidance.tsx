@@ -1,11 +1,13 @@
 /** @jsxImportSource react */
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AI_GUIDANCE_VERSION, type AiGovernanceView } from "@legalwork/types/ai-governance";
 import { t, type Language } from "@/i18n";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { publishAiBoundaries, useAiBoundaries } from "./boundaries-store";
 import { resolveLegalworkConnection, type ResolvedLegalworkConnection } from "@/react-app/shell/legalwork-connection";
+import { useUiMode } from "@/lawoss/lite/ui-mode";
 
 const copy: Record<Language, {title: string; remote: string; reading: string; profile: string; action: string; blocked: string; bounded: string; acknowledge: string; saved: string; failed: string; jurisdiction: string}> = {
   cs: {
@@ -54,8 +56,30 @@ export function createAiGuidanceClient(connection: ResolvedLegalworkConnection) 
   return createLegalworkServerClient({baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken, hostToken: connection.resolvedHostToken});
 }
 
+/**
+ * Test alfy 14. 11. 2026 (Nastavenia › Integrácie): úvod stránky bola stena textu „AI a chránené údaje“ a „Verejný text
+ * v oddelenom prostredí“. S `liteDisclosure` je v bežnom režime celý blok za zbaleným riadkom. Potvrdenie prečítania nič
+ * nepodmieňuje (nepovoľuje AI ani nič neodomyká), preto je zbalený aj pred potvrdením; „Rozumiem“ je vo vnútri ako doteraz.
+ * Text, ovládanie ani potvrdenie sa nemenia; pokročilý režim bez zmeny.
+ */
+function GuidanceDisclosure(props: {enabled: boolean; label: string; children: ReactNode}) {
+  return <GuidanceDisclosureView {...props} lite={useUiMode() === "lite"} />;
+}
+
+/** Test seam: zobrazenie podľa režimu. */
+export function GuidanceDisclosureView({enabled, lite, label, children}: {enabled: boolean; lite: boolean; label: string; children: ReactNode}) {
+  if (!enabled || !lite) return <>{children}</>;
+  return <details className="group text-sm" data-lawoss-ai-guidance-disclosure="">
+    <summary className="flex cursor-pointer list-none items-center gap-2 rounded border border-amber-500/60 px-3 py-2 font-medium group-open:mb-2 [&::-webkit-details-marker]:hidden">
+      <ChevronRight aria-hidden className="size-4 transition-transform group-open:rotate-90 motion-reduce:transition-none" />
+      {label}
+    </summary>
+    {children}
+  </details>;
+}
+
 /** Shared informational view: no checkbox or browser state can activate a provider. */
-export function AiGuidance({locale}: {locale: Language}) {
+export function AiGuidance({locale, liteDisclosure = false}: {locale: Language; liteDisclosure?: boolean}) {
   const text = copy[locale], id = useId();
   const [view, setView] = useState<AiGovernanceView | null>(null);
   const live = useAiBoundaries();
@@ -98,7 +122,8 @@ export function AiGuidance({locale}: {locale: Language}) {
       setSaved(true);
     } catch {setFailed(true);} finally {setBusy(false);}
   };
-  return <aside aria-labelledby={id} data-lawoss-ai-governance="unsupported" className="space-y-2 rounded border border-amber-500/60 p-3 text-sm">
+  return <GuidanceDisclosure enabled={liteDisclosure} label={t("lawoss.lite.ai_guidance_details", locale)}>
+  <aside aria-labelledby={id} data-lawoss-ai-governance="unsupported" className="space-y-2 rounded border border-amber-500/60 p-3 text-sm">
     <h3 id={id} className="font-semibold">{text.title}</h3>
     <p>{text.remote}</p><p>{text.reading}</p><p>{text.profile}</p><p>{text.action}</p>
     {/* AI hranice: shared with the Settings row, so a toggle updates this notice immediately.
@@ -127,5 +152,6 @@ export function AiGuidance({locale}: {locale: Language}) {
       {publicReply ? <output role="status" className="block whitespace-pre-wrap">{publicReply}</output> : null}
       {publicError ? <p role="alert">{publicError}</p> : null}
     </section>
-  </aside>;
+  </aside>
+  </GuidanceDisclosure>;
 }

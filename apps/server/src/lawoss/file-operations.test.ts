@@ -115,7 +115,7 @@ test("the approval is bound to the file's content and a folder's contents, not j
   const fresh = await planFileOperations(config, workspace, folder);
   await expect(applyFileOperations(config, workspace, folder, fresh.operations, "0".repeat(64))).rejects.toMatchObject({ code: "file_operation_changed" });
   await expect(applyFileOperations(config, workspace, folder, fresh.operations, undefined)).rejects.toMatchObject({ code: "file_operation_changed" });
-  expect(await readdir(join(client, "Pripady", "M001"))).toEqual(["novy.txt", "zmluva.txt"]);
+  expect((await readdir(join(client, "Pripady", "M001"))).sort()).toEqual(["novy.txt", "zmluva.txt"]); // poradie readdir nie je zaručené (Linux)
 });
 
 test("one card for a batch: a new folder, moves into it, a copy and a recoverable delete, checked in order", async () => {

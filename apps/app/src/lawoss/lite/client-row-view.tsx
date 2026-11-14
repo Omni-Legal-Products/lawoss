@@ -75,6 +75,22 @@ export function useClientListLabel(): (project: ProjectRef, nativeLabel: string)
   return useCallback((project, nativeLabel) => clientProjectRow({ rows }, project, nativeLabel, locale).label, [rows, locale]);
 }
 
+/**
+ * Meno klienta vo výbere klienta na Domove (test alfy 14. 11. 2026: `/home?project=` ukazoval meno priečinka
+ * `C022-syn-…`). V bežnom režime rovnaké meno ako bočný panel, z jeho zverejnených dát a zapamätaných mien z karty
+ * (nič sa nečíta); Pokročilý režim natívne meno priestoru.
+ */
+export function homeClientLabel(nav: Pick<PublishedClientNav, "rows"> | null, project: ProjectRef, nativeLabel: string, locale: Language, mode: UiMode): string {
+  return mode === "lite" ? clientProjectRow(nav, project, nativeLabel, locale).label : nativeLabel;
+}
+
+export function useHomeClientLabel(): (project: ProjectRef, nativeLabel: string) => string {
+  const nav = useClientNav();
+  const locale = useLocale();
+  const mode = useUiMode();
+  return useCallback((project, nativeLabel) => homeClientLabel(nav, project, nativeLabel, locale, mode), [nav, locale, mode]);
+}
+
 export function useClientProjectRow(project: ProjectRef, nativeLabel: string): ClientRow {
   const facts = useClientNav()?.rows.get(project.id);
   const locale = useLocale();

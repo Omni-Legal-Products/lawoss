@@ -74,6 +74,9 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "16c3f1daff9050ef1d48c847cf8cc3267f05323a57879d709b29f1f0ce80a8a8", // lawoss/okf-pamat/SKILL.md @ fix/p3-citanie-bez-karty (čítanie cez lawoss_memory bez karty)
   "8204e24401305451119dc59a1995212808e3f418406de0b792f032e2a5637a06", // lawoss/okf-pamat/SKILL.md @ fix/zapis-pamate-jedna-karta (zápis cez lawoss_memory_write jednou kartou)
   "1059b88ef1966d072b168386c10862d39950f4d4e44e62529ded6a98e61fa271", // lawoss/okf-pamat/SKILL.md @ fix/pamat-klienta-lehota (poznámka klienta, lehota z pokynu advokáta, upratanie nezaradeného)
+  "5afd267a149ba2ff4f52d8abbacc65a10102fe7bc582be438170dd03f7554c9c", // lawoss/skills/novy-spis/SKILL.md @ fix/alfa14-karty-suhlasu (plán raz, zápis jedným príkazom)
+  "55c13cd22243621289ed1ed70566a6d98909146fa98e03ad21d651585edcfd1b", // lawoss/skills/novy-spis/SKILL.cs.md @ fix/alfa14-karty-suhlasu (plán jednou, zápis jedním příkazem)
+  "98120741273a4f99e6bd2cc9b1e1ed7a160ccffcbb7947831c7933417c38695e", // lawoss/okf-pamat/SKILL.md @ fix/alfa14-karty-suhlasu (úloha s due, prípad podľa časti názvu)
 ]);
 
 /**
