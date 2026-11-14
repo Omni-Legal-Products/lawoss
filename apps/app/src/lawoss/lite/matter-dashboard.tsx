@@ -268,8 +268,8 @@ export function MatterDock({ text, locale, busy, sourceReady, modelGap, onAction
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!onAsk || blocked || modelGap !== null || !draft.trim()) return;
+    // Text ostáva v poli: keď sa chat nepodarí otvoriť, advokát o vetu nepríde (úspech presmeruje preč).
     onAsk(draft);
-    setDraft("");
   };
   return <div className="lw-dnes-dock lw-pripad-dock"><section className="lw-dnes-chat" aria-label={text("chat_label")} data-lawoss-matter-chat="">
     <div className="lw-dnes-chat-suggest">

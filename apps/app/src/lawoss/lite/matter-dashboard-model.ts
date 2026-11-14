@@ -96,7 +96,7 @@ export function matterStage(views: Pick<MatterViews, "strip"> | undefined, readS
  * „Čaká na vás“ pre jeden prípad rovnakými pravidlami ako Dnes (`waitingCounts`), každá položka raz: po termíne má
  * prednosť. Na zaradenie = nespracované vstupy; po termíne = platná lehota alebo úloha po termíne; na overenie =
  * neplatný dátum, lehota z pokynu advokáta, nález validácie, ručný stav alebo nečitateľný záznam; na potvrdenie =
- * kandidát na lehotu (`candidateKeys`). Riadky „blíži sa“ z pozornosti nečakajú (sú v lehotách).
+ * kandidát na lehotu (`candidateKeys`), oboje v okne 14 dní ako na Dnes. Riadky „blíži sa“ z pozornosti nečakajú.
  */
 export type MatterWaiting = { filing: number; overdue: number; verify: number; confirm: number; total: number };
 
@@ -110,6 +110,8 @@ export function matterWaiting(cockpit: Pick<DashboardCockpit, "deadlines" | "tas
     const key = `d\u0000${d.recordId}\u0000${d.date}\u0000${deadlineText(d)}`;
     if (d.invalid || !isCalendarDay(d.date)) add(key, "verify");
     else if (d.date < todayIso) add(key, "overdue");
+    // Rovnaké okno ako Dnes a stĺpec lehôt: čo čaká, má aj riadok, na ktorý sa dá pozrieť.
+    else if (!inHorizon(d.date, todayIso)) continue;
     else if (d.basis === "instruction") add(key, "verify");
     else if (candidates.has(keyOf(d))) add(key, "confirm");
   }

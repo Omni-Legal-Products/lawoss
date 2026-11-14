@@ -108,6 +108,10 @@ describe("dlaždice prípadu", () => {
     const listed = listedOf([overdue, instruction, invalid, plain]);
     expect(matterWaiting(cockpit, listed, NOW)).toEqual({ filing: 1, overdue: 2, verify: 5, confirm: 1, total: 9 });
     expect(matterWaiting(empty, [], NOW).total).toBe(0);
+    // Kandidát a lehota z pokynu mimo 14 dní nemajú riadok v stĺpci ani v evidencii, preto ani nečakajú.
+    const far = { ...empty, deadlines: { confirmed: [], candidates: [dl("W", 40), dl("I", 30, { basis: "instruction" })] } };
+    expect(matterWaiting(far, [], NOW).total).toBe(0);
+    expect(matterRows(far, [], NOW, 5).rows).toEqual([]);
   });
 });
 

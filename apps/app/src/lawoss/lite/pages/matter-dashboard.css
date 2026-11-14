@@ -82,10 +82,14 @@ button.lw-pripad-tile-button:hover { transform: translateY(-2px); border-color: 
 .lw-pripad-all[open] > summary::after { content: "▴"; }
 .lw-pripad-all[open] > summary { margin-bottom: 10px; }
 
-/* Tri stĺpce; bez strán dva. Pod 760 px obsahu pod sebou. */
+/* Tri stĺpce (bez strán dva); pod 760 px obsahu dva (strany pod nimi cez celú šírku), pod 480 px pod sebou. */
 .lw-pripad-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
 .lw-pripad-cols[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @container lw-pripad (width < 760px) {
+  .lw-pripad-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lw-pripad-cols > .lw-pripad-col:nth-child(3) { grid-column: 1 / -1; }
+}
+@container lw-pripad (width < 480px) {
   .lw-pripad-cols, .lw-pripad-cols[data-cols="2"] { grid-template-columns: minmax(0, 1fr); }
 }
 .lw-pripad-col { display: flex; flex-direction: column; gap: 8px; padding: 16px 14px 12px; }
@@ -95,6 +99,7 @@ button.lw-pripad-tile-button:hover { transform: translateY(-2px); border-color: 
 .lw-pripad .lw-dnes-item { width: 100%; gap: 10px; padding: 7px 6px; border: 0; background: transparent; font: inherit; color: inherit; text-align: left; }
 .lw-pripad button.lw-dnes-item { cursor: pointer; }
 .lw-pripad div.lw-dnes-item:hover { background: transparent; }
+.lw-pripad button.lw-dnes-item:hover:not(:disabled) { background: color-mix(in srgb, var(--lw-text-primary) 5%, transparent); }
 .lw-pripad .lw-dnes-item .lw-dnes-dni { width: 52px; padding: 5px 0; }
 .lw-pripad .lw-dnes-item .lw-dnes-dni b { font-size: 18px; }
 .lw-pripad .lw-dnes-item .lw-dnes-dni span { max-width: 48px; font-size: 10.5px; }
@@ -142,6 +147,8 @@ button.lw-pripad-tile-button:hover { transform: translateY(-2px); border-color: 
 .lw-pripad button:focus-visible, .lw-pripad a:focus-visible { outline: 2px solid var(--td-gold); outline-offset: 2px; }
 /* V úzkej karte vedľa chatu sa pole neukáže, chat je hneď vedľa. Stavy a pretiahnutie súborov ostávajú. */
 @container lw-pripad (width < 560px) { .lw-pripad-dock { display: none; } }
+/* Bez doku dáva spodný okraj stránky posledný viditeľný blok. */
+@container lw-pripad (width < 560px) { .lw-matter.lw-pripad > :nth-last-child(2) { margin-bottom: 24px; } }
 
 .lw-pripad-tiles, .lw-pripad-axis, .lw-pripad-cols > .lw-dnes-panel, .lw-pripad-chats { animation: lw-okf-rise 620ms var(--td-ease) both; }
 
