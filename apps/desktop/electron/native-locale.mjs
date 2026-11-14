@@ -1,6 +1,16 @@
 /** Main-owned presentation copy. No renderer-provided labels or policy authority. */
 export const NATIVE_STRINGS = {
   "en": {
+    "reportIssue": "Report a Problem or Idea…",
+    "alphaTitle": "A new LAWOSS alpha is available",
+    "alphaDetail": "Version {version} is ready. Use the download link from your invitation e-mail; your data stays where it is.",
+    "alphaOpen": "Open lawoss.app",
+    "alphaLater": "Later",
+    "trayOpen": "Open {app}",
+    "trayQuit": "Quit {app}",
+    "trayDictationReady": "Dictation ready",
+    "trayDictationOff": "Dictation off",
+    "trayHint": "{app} keeps running here so your dictation shortcut stays available. Right-click the icon to quit.",
     "chevron7Choose": "Choose a PDF to sign",
     "chevron7Confirm": "Continue in Chevron7?",
     "chevron7Detail": "Chevron7 creates a signed copy beside the original and contacts its timestamp service. Choose the certificate and enter the PIN in Chevron7. LAWOSS does not verify the signature.",
@@ -69,6 +79,16 @@ export const NATIVE_STRINGS = {
     "chooseFolder": "Select folder"
   },
   "cs": {
+    "reportIssue": "Nahlásit chybu nebo nápad…",
+    "alphaTitle": "Je k dispozici nová alfa LAWOSS",
+    "alphaDetail": "Verze {version} je připravena. Stáhněte ji z odkazu v e-mailu s pozvánkou; vaše data zůstanou na místě.",
+    "alphaOpen": "Otevřít lawoss.app",
+    "alphaLater": "Později",
+    "trayOpen": "Otevřít {app}",
+    "trayQuit": "Ukončit {app}",
+    "trayDictationReady": "Diktování připraveno",
+    "trayDictationOff": "Diktování vypnuto",
+    "trayHint": "{app} běží dál zde, aby zůstala dostupná zkratka diktování. Ukončíte ji pravým tlačítkem na ikoně.",
     "chevron7Choose": "Vybrat PDF k podpisu",
     "chevron7Confirm": "Pokračovat v Chevron7?",
     "chevron7Detail": "Chevron7 vytvoří podepsanou kopii vedle originálu a kontaktuje službu časového razítka. Certifikát a PIN zadáte v Chevron7. LAWOSS podpis neověřuje.",
@@ -137,6 +157,16 @@ export const NATIVE_STRINGS = {
     "chooseFolder": "Vybrat složku"
   },
   "sk": {
+    "reportIssue": "Nahlásiť chybu alebo nápad…",
+    "alphaTitle": "Je dostupná nová alfa LAWOSS",
+    "alphaDetail": "Verzia {version} je pripravená. Stiahnite ju z odkazu v e-maile s pozvánkou; vaše údaje ostanú na mieste.",
+    "alphaOpen": "Otvoriť lawoss.app",
+    "alphaLater": "Neskôr",
+    "trayOpen": "Otvoriť {app}",
+    "trayQuit": "Ukončiť {app}",
+    "trayDictationReady": "Diktovanie pripravené",
+    "trayDictationOff": "Diktovanie vypnuté",
+    "trayHint": "{app} beží ďalej tu, aby ostala dostupná skratka diktovania. Ukončíte ju pravým tlačidlom na ikone.",
     "chevron7Choose": "Vybrať PDF na podpis",
     "chevron7Confirm": "Pokračovať v Chevron7?",
     "chevron7Detail": "Chevron7 vytvorí podpísanú kópiu vedľa originálu a kontaktuje službu časovej pečiatky. Certifikát a PIN zadáte v Chevron7. LAWOSS podpis neoveruje.",
@@ -205,6 +235,16 @@ export const NATIVE_STRINGS = {
     "chooseFolder": "Vybrať priečinok"
   },
   "de": {
+    "reportIssue": "Problem oder Idee melden…",
+    "alphaTitle": "Eine neue LAWOSS-Alpha ist verfügbar",
+    "alphaDetail": "Version {version} ist bereit. Nutzen Sie den Download-Link aus Ihrer Einladungs-E-Mail; Ihre Daten bleiben, wo sie sind.",
+    "alphaOpen": "lawoss.app öffnen",
+    "alphaLater": "Später",
+    "trayOpen": "{app} öffnen",
+    "trayQuit": "{app} beenden",
+    "trayDictationReady": "Diktat bereit",
+    "trayDictationOff": "Diktat aus",
+    "trayHint": "{app} läuft hier weiter, damit das Diktat-Kürzel verfügbar bleibt. Zum Beenden rechts auf das Symbol klicken.",
     "chevron7Choose": "PDF zum Signieren wählen",
     "chevron7Confirm": "In Chevron7 fortfahren?",
     "chevron7Detail": "Chevron7 erstellt eine signierte Kopie neben dem Original und kontaktiert seinen Zeitstempeldienst. Zertifikat und PIN werden in Chevron7 eingegeben. LAWOSS prüft die Signatur nicht.",
