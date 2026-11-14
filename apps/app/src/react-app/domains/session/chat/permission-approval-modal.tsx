@@ -211,13 +211,6 @@ function isFocusableElement(element: HTMLElement) {
   return style.display !== "none" && style.visibility !== "hidden";
 }
 
-/** 🟡 LAWOSS: the command a shell card approves – the host card's exact command, else the engine's `metadata.command`. */
-function approvedCommand(permission: PendingPermission): string {
-  if (permission.host?.command) return permission.host.command;
-  const command = permission.metadata && typeof permission.metadata === "object" ? permission.metadata.command : undefined;
-  return typeof command === "string" ? command : "";
-}
-
 export function describePermissionRequest(permission: PendingPermission, lite = false): PermissionPresentation {
   const patterns = permission.patterns.filter((pattern) => pattern.trim().length > 0);
   if (permission.permission === "doom_loop") {
@@ -241,8 +234,10 @@ export function describePermissionRequest(permission: PendingPermission, lite = 
   const files = permission.metadata && typeof permission.metadata === "object" ? fileOperationCard(permission.metadata) : null;
   if (files) return { ...files, isDoomLoop: false, note: null };
 
-  // 🟡 LAWOSS (Lite, overenie alfy 14. 11.): /novy-spis command as "Create the case?" – the same permission and buttons.
-  const okf = lite && permission.permission === "bash" && !permission.host?.network ? okfCommandCard(approvedCommand(permission)) : null;
+  // 🟡 LAWOSS (Lite, overenie alfy 14. 11.): the host card of a /novy-spis command as "Create the case?" – the same
+  // permission and buttons. Only the host card (its exact `command`, no tool input to load); other cards stay as they are.
+  const okf = lite && permission.protocol === "host" && permission.permission === "bash" && permission.host?.command && !permission.host.network
+    ? okfCommandCard(permission.host.command) : null;
   if (okf) return { ...okf, permissionLabel: readablePermissionLabel(permission.permission), isDoomLoop: false,
     note: permissionCardNote(permission.message), commandInDetails: true };
 

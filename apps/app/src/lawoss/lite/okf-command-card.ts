@@ -46,11 +46,14 @@ type Step =
   | { tool: "memory"; cmd: "init"; dir: string; apply: boolean }
   | { tool: "memory"; cmd: "validate"; dir: string };
 
-/** `…/skills/<skill>/resources/<file>` absolútne (`/…`, `C:\…`, `C:/…`) alebo `.opencode/skills/…` relatívne, bez `.`/`..`. */
+/**
+ * Len skript skillu nainštalovaného v priečinku klienta, relatívne k nemu: `.opencode/skills/<skill>/resources/<file>`
+ * (oddeľovač `/` aj `\`). Absolútna cesta sa nerozpozná: kópia skriptu inde (napr. v pracovnom priečinku) by inak dostala
+ * čitateľnú kartu. Ostáva to, čo pri `describeMemoryWrite`: zhoda podľa cesty, nie obsahu, a voči pracovnému priečinku príkazu.
+ */
 function isSkillScript(token: string, skill: string, file: string): boolean {
-  if (token.split(/[\\/]/).some((part) => part === "." || part === "..")) return false;
-  const tail = `skills[\\\\/]${skill}[\\\\/]resources[\\\\/]${file.replace(".", "\\.")}$`;
-  return new RegExp(`^(?:\\/|[A-Za-z]:[\\\\/])(?:.+[\\\\/])?${tail}`).test(token) || new RegExp(`^\\.opencode[\\\\/]${tail}`).test(token);
+  const parts = token.split(/[\\/]/);
+  return parts.length === 5 && parts[0] === ".opencode" && parts[1] === "skills" && parts[2] === skill && parts[3] === "resources" && parts[4] === file;
 }
 
 const isFlag = (word: string) => word.startsWith("--");

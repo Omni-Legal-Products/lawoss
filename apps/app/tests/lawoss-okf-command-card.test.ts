@@ -90,9 +90,12 @@ describe("okfCommandCard – rozpozná príkazy /novy-spis", () => {
     expect(card?.scopeValue).toContain("Ďalší údaj (--ico): „12345678“");
   });
 
-  test("Windows a absolútne cesty skillu", () => {
-    expect(okfCommandCard(String.raw`node.exe "C:\Users\a\K\.opencode\skills\novy-spis\resources\okf.js" validate "Spisy\Vec"`)).not.toBeNull();
-    expect(okfCommandCard(`bun /Users/a/K/.opencode/skills/novy-spis/resources/okf.js validate Spisy/Vec`)).not.toBeNull();
+  test("Windows oddeľovač a bun; absolútna cesta (aj podvrhnutá kópia skriptu) sa nerozpozná", () => {
+    expect(okfCommandCard(String.raw`node.exe ".opencode\skills\novy-spis\resources\okf.js" validate "Spisy\Vec"`)).not.toBeNull();
+    expect(okfCommandCard(`bun .opencode/skills/novy-spis/resources/okf.js validate Spisy/Vec`)).not.toBeNull();
+    expect(okfCommandCard(String.raw`node.exe "C:\Users\a\K\.opencode\skills\novy-spis\resources\okf.js" validate "Spisy\Vec"`)).toBeNull();
+    expect(okfCommandCard(`node /Users/a/K/.legalwork/scratch/x/skills/novy-spis/resources/okf.js validate Spisy/Vec`)).toBeNull();
+    expect(okfCommandCard(`node ./.opencode/skills/novy-spis/resources/okf.js validate Spisy/Vec`)).toBeNull();
   });
 
   test("každý jazyk má nadpis", () => {
@@ -186,8 +189,8 @@ describe("karta v chate (PermissionApprovalPanel)", () => {
     expect(card.commandInDetails).toBe(true);
     expect(card.scopeValue).not.toContain("okf.js");
     expect(card.details?.lines.at(-1)).toBe(`Príkaz: ${COMBINED}`);
-    // Príkaz enginu v2 (metadata.command) dostane tú istú kartu.
-    expect(describePermissionRequest({ ...hostPermission(COMBINED), protocol: "v2", host: undefined, metadata: { command: COMBINED } }, true).title).toBe("Založiť prípad?");
+    // Karta enginu (metadata.command, vstup nástroja sa ešte načítava) ostáva bez zmeny, aj jej tlačidlá.
+    expect(describePermissionRequest({ ...hostPermission(COMBINED), protocol: "v2", host: undefined, metadata: { command: COMBINED } }, true).title).toBe("Spustiť príkaz v počítači?");
     expect(describePermissionRequest(hostPermission(`${PLAN}; rm -rf x`), true).title).toBe("Spustiť príkaz v počítači?");
   });
 
