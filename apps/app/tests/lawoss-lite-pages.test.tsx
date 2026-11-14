@@ -36,19 +36,23 @@ describe("stránky LAWOSS-lite", () => {
     const out = html(<TodayView model={model} locale="en" />);
     expect(out).toContain('data-lawoss-lite="today"');
     expect(out).toContain("Odvolání");
-    expect(out).toContain("in 2 days");
-    expect(out).toContain("Podepsat plnou moc");
+    expect(out).toContain("Next deadline: Odvolání, in 2 days.");
+    // Úlohy sú zbalené do jedného riadku s počtom (alfa 14), nie zoznam.
+    expect(out).toContain("Open tasks: 1");
+    expect(out).not.toContain("Podepsat plnou moc");
     // Rozhodnutie MČ 23. 10. 2026 (N-A3-2): len počet a odkaz na podrobný zoznam, nie riadky vstupov.
-    expect(out).toContain('data-lawoss-inputs-count="1"');
+    expect(out).toMatch(/<a class="lw-dnes-mini" data-tone="gold" data-lawoss-waiting="filing" data-lawoss-inputs-count="1" href="\/na-zaradenie"/);
     expect(out).toContain(href(LITE_INPUTS_PATH));
-    expect(out).toContain("Documents not yet in any case.");
     expect(out).not.toContain("IN-1");
     expect(out).not.toContain("datová schránka");
     expect(out).toContain(href(liteMatterLink(matter.path)));
     expect(out).toContain(href(NEW_MATTER_PATH));
-    // pořadí: Lhůty → K zařazení → Úkoly
-    expect(out.indexOf("Odvolání")).toBeLessThan(out.indexOf("Documents not yet in any case."));
-    expect(out.indexOf("Documents not yet in any case.")).toBeLessThan(out.indexOf("Podepsat plnou moc"));
+    // poradie: dlaždice → Čo horí → Čaká na vás → Pokračovať → pole chatu
+    const at = (marker: string) => out.indexOf(marker);
+    expect(at('data-lawoss-tile="nearest"')).toBeLessThan(at('id="lw-dnes-hot"'));
+    expect(at('id="lw-dnes-hot"')).toBeLessThan(at('id="lw-dnes-waiting"'));
+    expect(at('id="lw-dnes-waiting"')).toBeLessThan(at('id="lw-dnes-continue"'));
+    expect(at('id="lw-dnes-continue"')).toBeLessThan(at("data-lawoss-chatbar"));
   });
   test("Dnes a Klienti: jediný vstup „+ New matter“, žádný duplicitní „New client“ (final review I4)", () => {
     for (const out of [html(<TodayView model={model} locale="en" />), html(<ClientsView groups={[]} />)]) {
@@ -57,18 +61,22 @@ describe("stránky LAWOSS-lite", () => {
       expect(out).not.toContain("New client");
     }
   });
-  test("Dnes: lhůta za 1/2/5 dní gramaticky v en/cs/sk (final review I6)", () => {
-    const due = (locale: "en" | "cs" | "sk", daysLeft: number) =>
+  test("Dnes: lhůta za 1/2/5 dní gramaticky v en/cs/sk/de (final review I6), v úvode aj v štvorčeku dní", () => {
+    const due = (locale: "en" | "cs" | "sk" | "de", daysLeft: number) =>
       html(<TodayView model={{ ...model, deadlines: [{ ...model.deadlines[0]!, daysLeft }] }} locale={locale} />);
     const expected = {
-      en: ["tomorrow", "in 2 days", "in 5 days"],
-      cs: ["zítra", "za 2 dny", "za 5 dní"],
-      sk: ["zajtra", "o 2 dni", "o 5 dní"],
+      en: [["tomorrow", "in 2 days", "in 5 days"], ["day", "days", "days"]],
+      cs: [["zítra", "za 2 dny", "za 5 dní"], ["den", "dny", "dní"]],
+      sk: [["zajtra", "o 2 dni", "o 5 dní"], ["deň", "dni", "dní"]],
+      de: [["morgen", "in 2 Tagen", "in 5 Tagen"], ["Tag", "Tage", "Tage"]],
     } as const;
-    for (const [locale, [one, two, five]] of Object.entries(expected) as [keyof typeof expected, readonly string[]][]) {
-      expect(due(locale, 1)).toContain(`>${one}<`);
-      expect(due(locale, 2)).toContain(`>${two}<`);
-      expect(due(locale, 5)).toContain(`>${five}<`);
+    for (const [locale, [lead, unit]] of Object.entries(expected) as [keyof typeof expected, readonly (readonly string[])[]][]) {
+      [1, 2, 5].forEach((days, i) => {
+        const out = due(locale, days);
+        expect(out).toContain(`, ${lead[i]}.</p>`);
+        expect(out).toContain(`<b>${days}</b><span>${unit[i]}</span>`);
+        expect(out).toContain(`${days}<small>${unit[i]}</small>`);
+      });
     }
   });
   test("Věc: /vec bez parametru nebo s neznámou cestou nikdy nevybere jinou věc (final review M1)", () => {
@@ -82,8 +90,19 @@ describe("stránky LAWOSS-lite", () => {
   test("Dnes: prázdné stavy", () => {
     const out = html(<TodayView model={{ deadlines: [], tasks: [], inputs: [], recent: [] }} locale="en" />);
     expect(out).toContain("No recorded deadlines in the next 14 days.");
-    expect(out).toContain("No open tasks.");
-    expect(out).toContain("Nothing waiting to be filed.");
+    expect(out).toContain("No recorded deadline or work date in the next 14 days.");
+    // Bez úloh a prípadov sa sekcia „Pokračovať“ ani riadok úloh neukážu; nula v malých dlaždiciach je tlmená.
+    expect(out).not.toContain("lw-dnes-continue");
+    expect(out.match(/data-zero="true"/g)).toHaveLength(3);
+    expect(out).toContain('data-lawoss-tile="nearest" data-state="none"');
+    // Bez evidencie čítania netvrdí „nič nečaká“ ani „žiadna evidovaná lehota“, ukáže len pomlčku.
+    const unknown = html(<TodayView model={{ deadlines: [], tasks: [], inputs: [], recent: [] }} locale="en" evidence={{ complete: false, recorded: 0, unrecorded: 0 }} />);
+    expect(unknown).not.toContain("nothing waiting");
+    expect(unknown).not.toContain("no recorded deadline");
+    expect(unknown).toContain('data-lawoss-deadlines="not_loaded"');
+    const known = html(<TodayView model={{ deadlines: [], tasks: [], inputs: [], recent: [] }} locale="en" evidence={{ complete: true, recorded: 2, unrecorded: 0 }} />);
+    expect(known).toContain("nothing waiting");
+    expect(known).toContain("no recorded deadline");
   });
   test("Klienti a věci", () => {
     const out = html(<ClientsView groups={[{ key: "client:Novák Jan", client: "Novák Jan", matters: [matter] }]} />);

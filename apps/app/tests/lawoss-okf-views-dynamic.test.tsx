@@ -210,12 +210,15 @@ describe("dynamické pohľady z OKF", () => {
     const m = (i: number) => ({ ...matter, path: `Klienti/K/V${i}`, title: `Vec ${i}` });
     const out = html(<TodayView locale="en" model={{
       deadlines: [{ date: addDays(NOW, 3), title: "DPH", raw: `${addDays(NOW, 3)} Daňové priznanie`, recordId: "O-1", file: "Office/memory/O-1.md", matter: m(0), alsoIn: [m(1), m(2), m(3)], tier: "soon", daysLeft: 3 }],
-      tasks: [{ key: "t", id: "T-1", title: "Spoločná úloha", matters: [m(0), m(1), m(2), m(3)].map((x) => ({ path: x.path, title: x.title })) }],
+      tasks: [{ key: "t", id: "T-1", title: "Spoločná úloha", due: addDays(NOW, 2), matters: [m(0), m(1), m(2), m(3)].map((x) => ({ path: x.path, title: x.title })) }],
       inputs: [], recent: [],
     }} />);
-    expect(out).toContain(">Office");
-    expect(out).not.toContain("Vec 3</");
-    expect(out).toContain("+2 more");
+    // „Čo horí“: lehota kancelárie raz ako „Office“, zdieľaná úloha ukáže dve veci a „+2 more“.
+    const hot = out.slice(out.indexOf('aria-labelledby="lw-dnes-hot"'), out.indexOf("</section>", out.indexOf('aria-labelledby="lw-dnes-hot"')));
+    expect(hot.match(/data-kind="deadline"/g)).toHaveLength(1);
+    expect(hot).toContain(">Office");
+    expect(hot).not.toContain("Vec 3");
+    expect(hot).toContain("Vec 0, Vec 1, +2 more");
   });
 
   test("review: hotová úloha už nenesie lehotu, ktorá by navždy horela", () => {
@@ -262,7 +265,9 @@ describe("dynamické pohľady z OKF", () => {
     const data = { ...overview, inputs, problems: [], truncated: false };
     const today = html(<TodayView locale="en" model={buildToday(data, NOW)} />);
     const page = html(<LiteMatterView matter={overview.matters[0]!} cockpit={buildCockpit(data, "K/A", NOW)!} busy={null} error={null} onAction={() => {}} />);
-    expect(today).toContain(">tomorrow<");
+    // Dnes: veta pod pozdravom „…, tomorrow.“ (štvorček dní ukáže „1 day“), detail rovnaké slovo.
+    expect(today).toContain("Next deadline: Odvolanie, tomorrow.");
+    expect(today).not.toContain("in 1 day");
     expect(page).toContain(">tomorrow<");
     expect(page).not.toContain("in 1 day");
   });

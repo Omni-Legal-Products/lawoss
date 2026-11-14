@@ -10,6 +10,7 @@ import { TodayView } from "../src/lawoss/lite/pages/today-page";
 import { ClientOverviewView } from "../src/lawoss/lite/client-overview";
 import { buildToday, caseDates, type TodayTask } from "../src/lawoss/lite/today-model";
 import { liteMatterLink } from "../src/lawoss/lite/links";
+import { agendaEvents } from "../src/lawoss/lite/agenda-model";
 
 // N-A2-11 a rozhodnutie MČ 23. 10. 2026: Dnes ukazuje termíny z prípadov (úlohy M049-T1 do 25. 10., M049-T2 do 29. 10.)
 // oddelene od evidovaných lehôt a nehovorí „nie sú evidované žiadne lehoty“, kým prípady majú termíny.
@@ -26,6 +27,9 @@ const inputs: MatterInput[] = [{ path: M049, cardFrontmatter: { title: "Reklamá
 ] }];
 const data = { ...buildOverview(inputs, TODAY), inputs };
 const html = (node: ReactElement) => renderToStaticMarkup(<MemoryRouter>{node}</MemoryRouter>);
+/** Sekcia „Čo horí“ (alfa 14): lehoty a termíny z prípadov v jednom zozname, termín so štítkom „pracovný termín“. */
+const hot = (out: string) => out.slice(out.indexOf('aria-labelledby="lw-dnes-hot"'), out.indexOf("</section>", out.indexOf('aria-labelledby="lw-dnes-hot"')));
+const lead = (out: string) => out.match(/<p class="lw-today-lead">(.*?)<\/p>/)?.[1] ?? "";
 const view = (locale: "sk" | "en" = "sk") => {
   const model = buildToday(data, TODAY);
   return html(<TodayView model={model} locale={locale} now={new Date(`${TODAY}T09:00:00`)} evidence={{ complete: true, ...deadlineCoverage(data.inputs) }} />);
@@ -44,44 +48,44 @@ describe("Dnes: termíny z prípadov oddelene od lehôt", () => {
     ];
     expect(caseDates(tasks, TODAY, 14).map((d) => [d.id, d.due, d.daysLeft])).toEqual([["B", "2026-10-20", -4], ["F", "2026-10-27", 3], ["A", "2026-11-06", 13]]);
   });
-  test("bez evidovaných lehôt, ale s termínmi: hlavička a panel nehovoria, že nie je nič evidované", () => {
+  test("bez evidovaných lehôt, ale s termínmi: úvod povie termín, „Čo horí“ termíny ukáže s tichou výhradou", () => {
     expect(deadlineCoverage(data.inputs).recorded).toBe(0);
     const out = view();
-    expect(out).toContain("Termín z prípadu: Vyžiadať chýbajúcu prílohu, zajtra. Kým sa na prehľad spoľahnete, skontrolujte prípady.");
+    expect(lead(out)).toBe("Termín z prípadu: Vyžiadať chýbajúcu prílohu, zajtra.");
     expect(out).not.toContain("V podkladoch prípadov nie sú evidované žiadne lehoty");
-    expect(out).toContain('data-lawoss-deadlines="unrecorded_dates"');
+    expect(hot(out)).toContain('data-lawoss-deadlines="unrecorded_dates"');
     expect(out).not.toContain('data-lawoss-deadlines="unrecorded"');
   });
-  test("termíny majú vlastný nadpis, vysvetlenie rozdielu a odkaz na prípad; bez neskorých a bez dátumu", () => {
+  test("termíny sú v „Čo horí“ so štítkom „pracovný termín“ a odkazom na prípad; bez neskorých a bez dátumu", () => {
     const out = view();
-    const start = out.indexOf("data-lawoss-case-dates");
-    const section = out.slice(start, out.indexOf("</ul></div>", start));
-    expect(section).toContain("Termíny z prípadov");
-    expect(section).toContain("Nie sú to evidované lehoty");
+    const section = hot(out);
+    expect(section.match(/data-kind="case-date"/g)).toHaveLength(2);
+    expect(section).toContain(">pracovný termín<");
+    expect(section).not.toContain(">evidovaná<");
     expect(section).toContain("Vyžiadať chýbajúcu prílohu");
     expect(section).toContain("Pripraviť odpoveď dodávateľovi");
     expect(section.indexOf("Vyžiadať chýbajúcu prílohu")).toBeLessThan(section.indexOf("Pripraviť odpoveď dodávateľovi"));
     expect(section).not.toContain("Bez termínu");
     expect(section).not.toContain("Ďaleký termín");
     expect(section).toContain(`href="${liteMatterLink(M049)}"`);
-    expect(view("en")).toContain("Date from a case: Vyžiadať chýbajúcu prílohu, tomorrow.");
+    expect(lead(view("en"))).toBe("Date from a case: Vyžiadať chýbajúcu prílohu, tomorrow.");
   });
   test("bez termínov ostáva pôvodná veta: naozaj nie je nič evidované", () => {
     const empty: MatterInput[] = [{ path: M049, records: [task("M049-T3", "Bez termínu")] }];
     const d = { ...buildOverview(empty, TODAY), inputs: empty };
     const out = html(<TodayView model={buildToday(d, TODAY)} locale="sk" now={new Date(`${TODAY}T09:00:00`)} evidence={{ complete: true, ...deadlineCoverage(empty) }} />);
-    expect(out).toContain("V podkladoch prípadov nie sú evidované žiadne lehoty");
-    expect(out).toContain('data-lawoss-deadlines="unrecorded"');
-    expect(out).not.toContain("data-lawoss-case-dates");
+    expect(lead(out)).toBe("Lehoty nie sú v podkladoch evidované.");
+    expect(hot(out)).toContain('data-lawoss-deadlines="unrecorded"');
+    expect(out).not.toContain('data-kind="case-date"');
   });
-  test("review: uplynulý termín má prednosť a nie je „po lehote“; „nič nehorí“ nezamlčí termín do 7 dní", () => {
+  test("review: uplynulý termín má prednosť a nie je „po lehote“; úvod nezamlčí termín do 7 dní", () => {
     const passed: MatterInput[] = [{ path: M049, cardFrontmatter: { title: "Reklamácia" }, records: [task("M049-T1", "Uplynulá úloha", "2026-10-20"), task("M049-T2", "Zajtrajšia úloha", "2026-10-25")] }];
     const d1 = { ...buildOverview(passed, TODAY), inputs: passed };
     const out = html(<TodayView model={buildToday(d1, TODAY)} locale="sk" now={new Date(`${TODAY}T09:00:00`)} evidence={{ complete: true, ...deadlineCoverage(passed) }} />);
-    expect(out).toContain("Termín z prípadu: Uplynulá úloha, termín uplynul.");
-    const start = out.indexOf("data-lawoss-case-dates");
-    const section = out.slice(start, out.indexOf("</ul></div>", start));
-    expect(section).toContain(">termín uplynul<");
+    expect(lead(out)).toBe("Termín z prípadu: Uplynulá úloha, termín uplynul.");
+    const section = hot(out);
+    expect(section.indexOf("Uplynulá úloha")).toBeLessThan(section.indexOf("Zajtrajšia úloha"));
+    expect(section).toContain("<b>!</b><span>po termíne</span>");
     expect(section).not.toContain("po lehote");
     // Prípad lehoty eviduje (žiadna do 7 dní), ale termín úlohy je zajtra: hlavička ho povie, nie „nič nehorí“.
     const recorded: MatterInput[] = [{ path: M049, cardFrontmatter: { title: "Reklamácia" }, records: [
@@ -91,10 +95,10 @@ describe("Dnes: termíny z prípadov oddelene od lehôt", () => {
     const d2 = { ...buildOverview(recorded, TODAY), inputs: recorded };
     const calm = html(<TodayView model={buildToday(d2, TODAY)} locale="sk" now={new Date(`${TODAY}T09:00:00`)} evidence={{ complete: true, ...deadlineCoverage(recorded) }} />);
     expect(deadlineCoverage(recorded).recorded).toBe(1);
-    expect(calm).toContain("V evidovaných lehotách tento týždeň nič nehorí. Termín z prípadu: Zajtrajšia úloha, zajtra.");
-    expect(calm).not.toContain("Dobrá chvíľa predbehnúť prácu");
+    expect(lead(calm)).toBe("Termín z prípadu: Zajtrajšia úloha, zajtra.");
+    expect(calm).not.toContain("nič nehorí");
   });
-  test("#242: termín nezakryje počet prípadov bez lehôt; úloha s vlastnou lehotou nie je druhýkrát medzi termínmi", () => {
+  test("#242: počet prípadov bez lehôt je tichý riadok pod „Čo horí“ (aj v Mesiaci); úloha s vlastnou lehotou nie je druhýkrát", () => {
     const OTHER = "Klienti/C017-syn-zuzana-simkova/Spisy/M050-bez-lehot";
     const mixed: MatterInput[] = [
       { path: M049, cardFrontmatter: { title: "Reklamácia" }, records: [
@@ -110,10 +114,23 @@ describe("Dnes: termíny z prípadov oddelene od lehôt", () => {
     expect(caseDates(model.tasks, TODAY, 14, model.deadlines).map((x) => x.id)).toEqual(["M049-T2"]);
     const coverage = deadlineCoverage(mixed);
     expect([coverage.recorded, coverage.unrecorded]).toEqual([1, 1]);
-    // Bez lehôt do 7 dní: prvá veta s počtom prípadov bez lehôt, druhá s termínom.
+    // Rozhodnutie MČ č. 6 (alfa 14): údaj sa z úvodu presunul pod „Čo horí“; nesmie zmiznúť ani pri termíne.
     const farOnly = { ...model, deadlines: model.deadlines.filter((x) => x.recordId === "M049-D9") };
-    const out = html(<TodayView model={farOnly} locale="sk" now={new Date(`${TODAY}T09:00:00`)} evidence={{ complete: true, ...coverage }} />);
-    expect(out).toContain("Prípady bez evidovaných lehôt: 1. Termín z prípadu: Zajtrajšia úloha, zajtra.");
+    const props = { model: farOnly, locale: "sk" as const, now: new Date(`${TODAY}T09:00:00`), evidence: { complete: true, ...coverage } };
+    const out = html(<TodayView {...props} />);
+    expect(lead(out)).toBe("Termín z prípadu: Zajtrajšia úloha, zajtra.");
+    const section = hot(out);
+    expect(section).toContain('<p class="lw-dnes-quiet" data-lawoss-unrecorded="1">');
+    expect(section).toContain("Prípady bez evidovaných lehôt: 1.");
+    expect(section.indexOf("Zajtrajšia úloha")).toBeLessThan(section.indexOf("Prípady bez evidovaných lehôt"));
+    // Aj bez jediného riadku v „Čo horí“ a v režime Mesiac.
+    const empty = html(<TodayView {...props} model={{ ...farOnly, deadlines: [], tasks: [] }} />);
+    expect(hot(empty)).toContain("Prípady bez evidovaných lehôt: 1.");
+    const month = html(<TodayView {...props} events={agendaEvents(d)} initialMode="month" />);
+    expect(month).toContain('data-lawoss-month="full"');
+    expect(month).toContain("Prípady bez evidovaných lehôt: 1.");
+    // Bez úplného čítania počet netvrdí (neprečítaný prípad nie je „bez lehôt“).
+    expect(html(<TodayView {...props} evidence={{ ...props.evidence, complete: false }} />)).not.toContain("data-lawoss-unrecorded");
   });
 });
 
@@ -129,7 +146,10 @@ describe("#251: termín úlohy s inou evidovanou lehotou", () => {
     expect(model.deadlines.map((x) => [x.recordId, x.date, x.tier])).toEqual([["M1-T1", "2026-11-03", "later"]]);
     expect(caseDates(model.tasks, TODAY, 14, model.deadlines).map((x) => [x.id, x.due])).toEqual([["M1-T1", "2026-10-25"]]);
     const out = html(<TodayView model={model} locale="sk" now={new Date(`${TODAY}T09:00:00`)} evidence={{ complete: true, ...deadlineCoverage(hearing) }} />);
-    expect(out).toContain("Termín z prípadu: Pojednávanie, zajtra.");
+    expect(lead(out)).toBe("Termín z prípadu: Pojednávanie, zajtra.");
+    // V „Čo horí“ je zajtrajší termín aj vzdialenejšia lehota, každý raz.
+    expect(hot(out).match(/data-kind="case-date"/g)).toHaveLength(1);
+    expect(hot(out).match(/data-kind="deadline"/g)).toHaveLength(1);
   });
 
   test("P3: os dní ukáže záznam s lehotou v ten istý deň raz, iný deň termínu úlohy osobitne", () => {

@@ -31,7 +31,7 @@
 .lw-today > * { position: relative; z-index: 1; }
 
 /* Postupné odhalení; bez pohybu, když si to systém nepřeje. */
-.lw-today-hero, .lw-today-strip, .lw-today-panel, .lw-today-matters {
+.lw-today-hero, .lw-today-strip, .lw-dnes-tiles, .lw-dnes-panel, .lw-dnes-continue {
   animation: lw-okf-rise 620ms var(--td-ease) both;
   animation-delay: calc(var(--lw-i, 0) * 70ms);
 }
@@ -65,31 +65,6 @@
 }
 .lw-today-lead { margin: 10px 0 0; max-width: 62ch; color: var(--lw-text-secondary); font-size: 15px; line-height: 1.5; }
 
-/* Čísla prehľadu ako v návrhu 0020: pás s ikonou, veľkým číslom, názvom a vysvetlením, oddelený čiarami. */
-.lw-today-stats {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  margin: 10px 0 0;
-  padding: 14px 0;
-  border-top: 1px solid var(--td-line);
-  border-bottom: 1px solid var(--td-line);
-}
-.lw-today-stat { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 12px; padding: 4px 18px; }
-.lw-today-stat + .lw-today-stat { border-left: 1px solid var(--td-line); }
-.lw-today-stat-icon {
-  display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px;
-  color: var(--td-gold);
-  background: color-mix(in srgb, var(--td-gold) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--td-gold) 22%, transparent);
-}
-.lw-today-stat dd { order: -1; display: flex; align-items: center; gap: 12px; margin: 0; font-size: 30px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--lw-text-primary); }
-.lw-today-stat dt { display: grid; gap: 2px; font-size: 13px; color: var(--lw-text-primary); }
-.lw-today-stat dt small { font-size: 11px; color: var(--lw-text-tertiary); }
-.lw-today-stat[data-hot] dd { color: var(--td-hot); }
-.lw-today-stat[data-hot] .lw-today-stat-icon { color: var(--td-hot); background: color-mix(in srgb, var(--td-hot) 12%, transparent); border-color: color-mix(in srgb, var(--td-hot) 28%, transparent); }
-@media (max-width: 720px) { .lw-today-stat + .lw-today-stat { border-left: 0; border-top: 1px solid var(--td-line); } }
-
 /* Poznámka s ikonou namiesto odseku textu. */
 .lw-today-callout {
   display: flex; align-items: flex-start; gap: 9px; margin: 2px 0 10px; padding: 10px 12px;
@@ -101,14 +76,14 @@
 .lw-today-subtitle-info { margin-left: 6px; vertical-align: -1px; color: var(--lw-text-tertiary); }
 
 /* Sklo: panely, pás a karty */
-.lw-today-strip, .lw-today-panel, .lw-today-card {
+.lw-today-strip {
   position: relative;
   border: 1px solid var(--td-line);
   border-radius: var(--td-radius);
   background: var(--td-glass), var(--lw-surface);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--lw-text-primary) 6%, transparent), 0 18px 40px -28px rgba(0, 0, 0, 0.6);
 }
-.lw-today-strip::after, .lw-today-panel::after {
+.lw-today-strip::after {
   content: "";
   position: absolute;
   inset: 0 20% auto;
@@ -189,103 +164,14 @@
 .lw-today-tip b { font-weight: 600; color: var(--lw-text-primary); }
 .lw-today-day > a:hover .lw-today-tip, .lw-today-day > a:focus-visible .lw-today-tip { opacity: 1; transform: translate(-50%, 0); }
 
-/* Mriežka panelov */
-.lw-today-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 18px; align-items: start; }
-.lw-today-side { display: grid; gap: 18px; }
-.lw-today-panel { padding: 16px; }
-.lw-today-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
-.lw-today-deadline, .lw-today-input, .lw-today-task {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 10px;
-  border-radius: 10px;
-  color: inherit;
-  text-decoration: none;
-  transition: background 180ms var(--td-ease);
-}
-.lw-today-deadline:hover, .lw-today-input:hover { background: color-mix(in srgb, var(--lw-text-primary) 5%, transparent); }
-.lw-today-main { display: grid; gap: 2px; min-width: 0; }
-.lw-today-title { font-size: 14px; font-weight: 500; color: var(--lw-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lw-today-main small { display: flex; flex-wrap: wrap; gap: 0 8px; font-size: 12px; color: var(--lw-text-tertiary); }
-.lw-today-main small a { color: inherit; }
-.lw-today-main small a:hover { color: var(--lw-text-secondary); }
-.lw-today-ref { font-family: var(--lw-font-mono); font-size: 11px; color: var(--lw-text-tertiary); letter-spacing: 0.02em; }
-.lw-today-when { display: grid; justify-items: end; gap: 2px; text-align: right; }
-.lw-today-date-short { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--lw-text-secondary); }
-.lw-today-due { font-size: 12px; color: var(--lw-text-tertiary); }
-.lw-today-deadline[data-urgency="hot"] .lw-today-due { color: var(--td-hot); font-weight: 600; }
-.lw-today-deadline[data-urgency="near"] .lw-today-due { color: var(--td-gold); font-weight: 600; }
-
-/* Kalendárny lístok pri lehote */
-.lw-today-cal {
-  display: grid;
-  justify-items: center;
-  width: 44px;
-  padding: 5px 0 6px;
-  border-radius: 9px;
-  border: 1px solid var(--td-line);
-  background: color-mix(in srgb, var(--lw-text-primary) 3%, transparent);
-}
-.lw-today-cal span { font-size: 10px; color: var(--lw-text-tertiary); text-transform: lowercase; }
-.lw-today-cal strong { font-variant-numeric: tabular-nums; font-size: 18px; line-height: 1.1; font-weight: 600; }
-.lw-today-deadline[data-urgency="hot"] .lw-today-cal { border-color: color-mix(in srgb, var(--td-hot) 55%, transparent); background: color-mix(in srgb, var(--td-hot) 10%, transparent); }
-.lw-today-deadline[data-urgency="hot"] .lw-today-cal strong { color: var(--td-hot); }
-.lw-today-deadline[data-urgency="near"] .lw-today-cal { border-color: color-mix(in srgb, var(--td-gold) 55%, transparent); background: color-mix(in srgb, var(--td-gold) 10%, transparent); box-shadow: 0 0 18px -6px color-mix(in srgb, var(--td-gold) 60%, transparent); }
-.lw-today-deadline[data-urgency="near"] .lw-today-cal strong { color: var(--td-gold-hi); }
-
-/* Úlohy */
-.lw-today-ring { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--td-gold) 70%, transparent); }
-
-/* Na zaradenie */
-.lw-today-input .lw-no { font-family: var(--lw-font-mono); font-size: 11px; color: var(--td-gold); min-width: 34px; }
-
 .lw-today-empty { display: flex; align-items: center; gap: 8px; margin: 4px 2px 2px; font-size: 13px; color: var(--lw-text-tertiary); }
 .lw-today-empty svg { color: var(--lw-success, #7fb38a); }
 
-/* Karty vecí */
-.lw-today-matters { display: grid; }
-.lw-today-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
-.lw-today-card {
-  display: grid;
-  gap: 8px;
-  padding: 16px;
-  color: inherit;
-  text-decoration: none;
-  overflow: hidden;
-  transition: transform 260ms var(--td-ease), border-color 260ms var(--td-ease), box-shadow 260ms var(--td-ease);
-}
-.lw-today-card::before {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(140deg, color-mix(in srgb, var(--td-gold) 70%, transparent), transparent 45%);
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  opacity: 0;
-  transition: opacity 260ms var(--td-ease);
-}
-.lw-today-card:hover { transform: translateY(-3px); box-shadow: 0 24px 50px -28px color-mix(in srgb, var(--td-gold) 45%, rgba(0, 0, 0, 0.8)); }
-.lw-today-card:hover::before { opacity: 1; }
-.lw-today-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-.lw-today-card-top .lw-today-title { white-space: normal; font-size: 15px; }
-.lw-today-card-arrow { flex: none; color: var(--lw-text-tertiary); transition: color 200ms, transform 260ms var(--td-ease); }
-.lw-today-card:hover .lw-today-card-arrow { color: var(--td-gold); transform: translate(2px, -2px); }
-.lw-today-card-meta { display: flex; gap: 18px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--td-line); font-variant-numeric: tabular-nums; font-size: 13px; color: var(--lw-text-primary); }
-.lw-today-card-meta span { display: grid; gap: 2px; }
-.lw-today-card-meta small { font-family: var(--lw-font-sans); font-size: 11px; color: var(--lw-text-tertiary); }
-
-
-.lw-today-grid > *, .lw-today-strip, .lw-today-panel { min-width: 0; }
+.lw-today-strip { min-width: 0; }
 
 @container (max-width: 860px) {
-  .lw-today-grid { grid-template-columns: 1fr; }
   .lw-today-hero { grid-template-columns: 1fr; }
-  .lw-today-primary { justify-self: start; }
+  .lw-today-actions { justify-content: flex-start; }
 }
 /* Úzky obsah: dva týždne pod sebou namiesto jedného riadku. */
 @container (max-width: 640px) {
@@ -298,9 +184,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lw-today-hero, .lw-today-strip, .lw-today-panel, .lw-today-matters { animation: none; }
+  .lw-today-hero, .lw-today-strip, .lw-dnes-tiles, .lw-dnes-panel, .lw-dnes-continue { animation: none; }
   .lw-today-dots i[data-urgency="hot"] { animation: none; }
-  .lw-today-card, .lw-today-primary, .lw-today-day > a { transition: none; }
+  .lw-today-day > a { transition: none; }
 }
 
 /* Meno z onboardingu v pozdrave */
@@ -313,39 +199,197 @@
 
 /* Neplatný dátum: pôvodný zápis pod názvom, nie v úzkom stĺpci dátumu */
 .lw-today-raw { font-family: var(--lw-font-mono); font-size: 11px; color: var(--td-hot); overflow-wrap: anywhere; }
-.lw-today-when { max-width: 16ch; }
 
-/* Termíny z prípadov pod lehotami (N-A2-11): oddelené nadpisom a vetou, nie sú to evidované lehoty. */
-.lw-today-case-dates { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--td-line); }
-/* Termín nie je lehota: prerušovaný okraj kalendára a bez červenej/zlatej výplne lehoty. */
-.lw-today-deadline[data-kind="case-date"] .lw-today-cal { border-style: dashed; background: transparent; box-shadow: none; }
-.lw-today-deadline[data-kind="case-date"] .lw-today-cal strong { color: inherit; }
-/* N-A7-4: neplatný dátum úlohy navrchu termínov, pôvodný text ako pri neplatnej lehote. */
-.lw-today-deadline[data-invalid] .lw-today-date-short { color: var(--td-hot); overflow-wrap: anywhere; }
-.lw-today-subtitle { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
-.lw-today-note { margin: 0 0 8px; font-size: 12px; color: var(--lw-text-secondary); }
-
-/* Spec 0020: prepínač Prehľad / Mesiac pri hlavnej akcii, blok „Začnite tu“ a režim Mesiac. */
+/* Prepínač Prehľad / Mesiac a tiché „+ Nový prípad“ v hlavičke; režim Mesiac. */
 .lw-today-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
 .lw-today-month { animation: lw-okf-rise 620ms var(--td-ease) both; }
-.lw-today-start {
-  display: grid;
-  gap: 8px;
-  padding: 20px;
-  border-color: color-mix(in srgb, var(--td-gold) 32%, var(--td-line));
-  background: radial-gradient(420px 160px at 0% 0%, color-mix(in srgb, var(--td-gold) 12%, transparent), transparent 70%), var(--td-glass), var(--lw-surface);
-}
-.lw-today-start[data-urgency="hot"] { border-color: color-mix(in srgb, var(--td-hot) 45%, var(--td-line)); }
-.lw-today-start-label { display: flex; justify-content: space-between; gap: 8px; margin: 0; font-family: var(--lw-font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--td-gold); }
-.lw-today-start-label span { letter-spacing: 0; text-transform: none; font-family: var(--lw-font-sans); color: var(--lw-text-secondary); }
-.lw-today-start[data-urgency="hot"] .lw-today-start-label span { color: var(--td-hot); }
-.lw-today-start-title { margin: 0; font-size: clamp(20px, 2.2vw, 26px); line-height: 1.2; font-weight: 600; color: var(--lw-text-primary); overflow-wrap: anywhere; }
-.lw-today-start-meta { margin: 0; font-size: 14px; color: var(--lw-text-secondary); }
-.lw-today-start-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--td-line); }
-.lw-today-start-when { display: inline-flex; align-items: center; gap: 7px; font-variant-numeric: tabular-nums; font-size: 13px; color: var(--lw-text-secondary); }
-.lw-today-start[data-urgency="hot"] .lw-today-start-when { color: var(--td-hot); font-weight: 600; }
-.lw-today-start-open { text-decoration: none; }
+/* Spisová značka (aj Domov klienta, client-overview.tsx). */
+.lw-today-ref { font-family: var(--lw-font-mono); font-size: 11px; color: var(--lw-text-tertiary); letter-spacing: 0.02em; }
 
-/* N-A5-9: „+N ďalšie“ pod skráteným zoznamom termínov a úloh. */
-.lw-today-more { list-style: none; padding: 6px 4px 0; font-size: 12px; color: var(--lw-text-tertiary); }
-.lw-today-more-link { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; }
+/* ── Dnes ako pasívny prehľad (alfa 14, spec-dnes.md) ───────────────────────
+   Dlaždice s číslami, pás 14 dní, „Čo horí“ | „Čaká na vás“, „Pokračovať“ a pole chatu. Len tokeny (svetlá aj tmavá
+   téma), zaoblenia z dizajn systému §2, zlatá ako glazúra s odleskom len pri hoveri/fokuse (§4b), nikdy zvislý prúžok. */
+.lw-dnes { gap: 22px; }
+.lw-dnes { --dn-radius: var(--lw-radius-2xl, 18px); --dn-radius-sm: var(--lw-radius-xl, 14px); --dn-amber: var(--lw-warning, #d89a4e); --dn-green: var(--lw-success, #8dbb8f); }
+.lw-dnes .lw-today-hero { padding-top: 14px; }
+.lw-dnes .lw-today-lead { margin-top: 8px; font-size: 14px; }
+
+.lw-dnes-tile, .lw-dnes-panel, .lw-dnes-card, .lw-dnes-mini, .lw-dnes .lw-today-strip {
+  position: relative;
+  border: 1px solid var(--td-line);
+  border-radius: var(--dn-radius);
+  background: var(--td-glass), var(--lw-surface);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--lw-text-primary) 6%, transparent), 0 18px 40px -28px rgba(0, 0, 0, 0.6);
+  color: inherit;
+  text-decoration: none;
+  min-width: 0;
+}
+a.lw-dnes-tile, a.lw-dnes-card, a.lw-dnes-mini { transition: transform 160ms var(--td-ease), border-color 160ms var(--td-ease), box-shadow 160ms var(--td-ease); }
+a.lw-dnes-tile:hover, a.lw-dnes-card:hover, a.lw-dnes-mini:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--td-gold) 45%, transparent);
+}
+
+/* Dlaždice */
+.lw-dnes-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+.lw-dnes-tile { display: flex; flex-direction: column; gap: 2px; padding: 18px 20px; overflow: hidden; isolation: isolate; }
+.lw-dnes-tile[data-lawoss-tile="nearest"][data-tone="red"] { border-color: color-mix(in srgb, var(--td-hot) 45%, transparent); }
+.lw-dnes-tile-label { font-size: 12px; color: var(--lw-text-secondary); }
+.lw-dnes-tile-sub { font-size: 13px; color: var(--lw-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw-dnes-tile-title { color: var(--lw-text-primary); }
+.lw-dnes-tile .lw-dnes-pill { align-self: flex-start; margin-top: 6px; }
+.lw-dnes-num { display: flex; align-items: baseline; gap: 6px; min-height: 42px; font-size: 40px; line-height: 1.05; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--lw-text-primary); }
+.lw-dnes-num small { font-size: 15px; font-weight: 500; color: var(--lw-text-secondary); }
+.lw-dnes-num-word { align-items: center; font-size: 24px; }
+.lw-dnes-num[data-tone="red"] { color: var(--td-hot); }
+.lw-dnes-num[data-tone="amber"] { color: var(--dn-amber); }
+.lw-dnes-num[data-tone="gold"] { color: var(--td-gold-hi); }
+.lw-dnes-num[data-tone="green"] { align-items: center; color: var(--dn-green); }
+.lw-dnes-num[data-tone="muted"] { color: var(--lw-text-tertiary); }
+/* Zlatá dlaždica „Čaká na vás“: glazúra s celým rámikom; odlesk prejde raz len pri hoveri. */
+.lw-dnes-tile[data-gold] {
+  border-color: transparent;
+  background: var(--lw-gold-glaze), var(--lw-surface);
+  box-shadow: inset 0 0 0 1px var(--lw-gold-glaze-border), var(--lw-gold-glaze-shadow);
+}
+.lw-dnes-tile[data-gold]::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 30%;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--lw-gold-glaze-sheen);
+  --lw-sheen-from: -135%;
+  --lw-sheen-to: 470%;
+  transform: translateX(var(--lw-sheen-from)) skewX(-18deg);
+}
+.lw-dnes-tile[data-gold]:is(:hover, :focus-within)::after { animation: lw-sheen-once 900ms var(--lw-ease-expo) 1 both; }
+
+/* Štítky */
+.lw-dnes-pill {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  padding: 3px 10px; border-radius: var(--lw-radius-full, 9999px);
+  font-size: 12px; white-space: nowrap;
+  background: color-mix(in srgb, var(--lw-text-primary) 7%, transparent);
+  color: var(--lw-text-secondary);
+}
+.lw-dnes-pill[data-tone="red"] { background: color-mix(in srgb, var(--td-hot) 15%, transparent); color: var(--td-hot); font-weight: 600; }
+.lw-dnes-pill[data-tone="amber"] { background: color-mix(in srgb, var(--dn-amber) 15%, transparent); color: var(--dn-amber); font-weight: 600; }
+.lw-dnes-pill[data-tone="work"] { background: color-mix(in srgb, var(--td-gold) 13%, transparent); color: var(--td-gold-hi); }
+
+/* Pás 14 dní: dni ako zaoblené políčka, termín z prípadu zlatou bodkou (len na Dnes; Domov klienta ostáva). */
+.lw-dnes .lw-today-strip { padding: 18px 20px 16px; }
+.lw-dnes .lw-today-strip::after { content: none; }
+.lw-dnes .lw-today-days::after { display: none; }
+.lw-dnes .lw-today-day > a, .lw-dnes .lw-today-day > span { border-radius: var(--dn-radius-sm); background: color-mix(in srgb, var(--lw-text-primary) 3.5%, transparent); }
+.lw-dnes .lw-today-dots i[data-kind="task"] { background: var(--td-gold); box-shadow: none; }
+
+/* „Čo horí“ | „Čaká na vás“: dva stĺpce, na úzkom obsahu jeden. */
+.lw-dnes-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
+@container (min-width: 820px) { .lw-dnes-cols { grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); } }
+.lw-dnes-panel { padding: 18px 20px; }
+.lw-dnes-h2 { margin: 0 0 10px; font-size: 16px; font-weight: 600; color: var(--lw-text-primary); }
+.lw-dnes-continue > .lw-dnes-h2 { margin-bottom: 12px; }
+.lw-dnes-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.lw-dnes-item { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: var(--dn-radius-sm); color: inherit; text-decoration: none; transition: background 160ms var(--td-ease); }
+.lw-dnes-item:hover { background: color-mix(in srgb, var(--lw-text-primary) 5%, transparent); }
+.lw-dnes-item-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.lw-dnes-item-text b { font-weight: 500; color: var(--lw-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw-dnes-item-text > span { font-size: 12px; color: var(--lw-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw-dnes-dni { flex: none; display: grid; justify-items: center; width: 64px; padding: 7px 0; border-radius: var(--dn-radius-sm); background: color-mix(in srgb, var(--lw-text-primary) 6%, transparent); }
+.lw-dnes-dni b { font-size: 22px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.lw-dnes-dni span { max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--lw-text-secondary); }
+.lw-dnes-dni[data-tone="red"] { background: color-mix(in srgb, var(--td-hot) 14%, transparent); }
+.lw-dnes-dni[data-tone="red"] b { color: var(--td-hot); }
+.lw-dnes-dni[data-tone="amber"] { background: color-mix(in srgb, var(--dn-amber) 14%, transparent); }
+.lw-dnes-dni[data-tone="amber"] b { color: var(--dn-amber); }
+.lw-dnes-item[data-kind="case-date"] .lw-dnes-dni { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--td-gold) 35%, transparent); }
+.lw-dnes-more { display: inline-block; margin: 6px 10px 0; font-size: 12px; color: var(--lw-text-secondary); text-decoration: none; }
+.lw-dnes-more:hover { color: var(--td-gold-hi); }
+.lw-dnes-quiet { display: flex; align-items: center; gap: 6px; margin: 10px 10px 0; font-size: 12px; color: var(--lw-text-tertiary); }
+.lw-dnes-quiet svg { flex: none; }
+.lw-dnes .lw-today-callout { margin: 0; }
+
+/* Tri (štyri) malé dlaždice „Čaká na vás“; nula tlmene. */
+.lw-dnes-minis { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 10px; }
+.lw-dnes-mini { display: flex; flex-direction: column; gap: 6px; padding: 14px; border-radius: var(--dn-radius-sm); }
+.lw-dnes-mini b { font-size: 22px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; }
+.lw-dnes-mini > span:last-child { font-size: 12px; color: var(--lw-text-secondary); }
+.lw-dnes-mini-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: var(--lw-radius-md, 10px); color: var(--td-gold); background: color-mix(in srgb, var(--td-gold) 12%, transparent); }
+.lw-dnes-mini[data-tone="red"] .lw-dnes-mini-icon { color: var(--td-hot); background: color-mix(in srgb, var(--td-hot) 13%, transparent); }
+.lw-dnes-mini[data-tone="red"] b { color: var(--td-hot); }
+.lw-dnes-mini[data-tone="amber"] .lw-dnes-mini-icon { color: var(--dn-amber); background: color-mix(in srgb, var(--dn-amber) 13%, transparent); }
+.lw-dnes-mini[data-tone="amber"] b { color: var(--dn-amber); }
+.lw-dnes-mini[data-zero] b { color: var(--lw-text-tertiary); }
+.lw-dnes-mini[data-zero] .lw-dnes-mini-icon { color: var(--lw-text-tertiary); background: color-mix(in srgb, var(--lw-text-primary) 6%, transparent); }
+
+/* „Pokračovať“ */
+.lw-dnes-continue { display: grid; gap: 12px; }
+.lw-dnes-continue > .lw-dnes-h2 { margin: 0; }
+.lw-dnes-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.lw-dnes-card { display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; }
+.lw-dnes-card-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 24px; }
+.lw-dnes-card-client { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--lw-text-secondary); }
+.lw-dnes-card-title { font-size: 16px; font-weight: 600; color: var(--lw-text-primary); overflow-wrap: anywhere; }
+.lw-dnes-card > .lw-dnes-pill { align-self: flex-start; }
+.lw-dnes-card-line { font-size: 13px; color: var(--lw-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw-dnes-tasks-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border: 1px solid var(--td-line); border-radius: var(--dn-radius-sm); font-size: 13px; color: var(--lw-text-secondary); text-decoration: none; transition: background 160ms var(--td-ease); }
+.lw-dnes-tasks-row:hover { background: color-mix(in srgb, var(--lw-text-primary) 4%, transparent); }
+.lw-dnes-tasks-link { display: inline-flex; align-items: center; gap: 6px; color: var(--td-gold-hi); }
+
+/* Tiché „+ Nový prípad“ (A5: odstráni sa po overení vety v chate). */
+.lw-dnes-secondary {
+  display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--lw-text-primary) 18%, transparent); border-radius: var(--lw-radius-full, 9999px);
+  background: transparent; color: var(--lw-text-secondary); font: inherit; font-size: 13px; text-decoration: none; cursor: pointer;
+  transition: border-color 160ms var(--td-ease), color 160ms var(--td-ease);
+}
+.lw-dnes-secondary:hover { border-color: color-mix(in srgb, var(--td-gold) 55%, transparent); color: var(--lw-text-primary); }
+
+/* Pole chatu: otvorí Domov s vetou, nič neodošle. */
+.lw-dnes-chat {
+  position: sticky; bottom: 16px; z-index: 3;
+  display: flex; flex-direction: column; gap: 10px; padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--td-gold) 35%, transparent); border-radius: var(--lw-radius-3xl, 22px);
+  background: color-mix(in srgb, var(--lw-surface) 94%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--lw-text-primary) 7%, transparent), 0 24px 60px -24px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px);
+}
+.lw-dnes-chat-suggest { display: flex; flex-wrap: wrap; gap: 6px; }
+.lw-dnes-suggest {
+  min-height: 32px; padding: 0 12px; border: 1px solid color-mix(in srgb, var(--lw-text-primary) 14%, transparent); border-radius: var(--lw-radius-full, 9999px);
+  background: color-mix(in srgb, var(--lw-text-primary) 4%, transparent); color: var(--lw-text-secondary); font: inherit; font-size: 13px; cursor: pointer;
+  transition: border-color 160ms var(--td-ease), color 160ms var(--td-ease);
+}
+.lw-dnes-suggest:hover { border-color: color-mix(in srgb, var(--td-gold) 55%, transparent); color: var(--td-gold-hi); }
+.lw-dnes-chat-field { display: flex; align-items: center; gap: 12px; }
+.lw-dnes-chat-field input { flex: 1; min-width: 0; padding: 6px 2px; border: 0; background: transparent; color: var(--lw-text-primary); font: inherit; font-size: 15px; outline: none; }
+.lw-dnes-chat-field input::placeholder { color: var(--lw-text-tertiary); }
+.lw-dnes-chat:focus-within { border-color: color-mix(in srgb, var(--td-gold) 60%, transparent); }
+.lw-dnes-chat-go {
+  display: grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 0;
+  border: 0; border-radius: var(--lw-radius-full, 9999px); cursor: pointer;
+  background: var(--lw-gold-glaze), var(--lw-surface); color: var(--lw-gold-glaze-text);
+  box-shadow: inset 0 0 0 1px var(--lw-gold-glaze-border);
+}
+.lw-dnes-chat-go:disabled { opacity: 0.4; cursor: default; }
+.lw-dnes button:focus-visible, .lw-dnes input:focus-visible { outline: 2px solid var(--td-gold); outline-offset: 2px; }
+
+/* Kostra počas načítania: nikdy číslo 0. */
+.lw-dnes-skel {
+  display: block; width: 64%; height: 40px; margin: 2px 0 4px; border-radius: var(--lw-radius-md, 10px);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--lw-text-primary) 6%, transparent), color-mix(in srgb, var(--lw-text-primary) 12%, transparent), color-mix(in srgb, var(--lw-text-primary) 6%, transparent));
+  background-size: 200% 100%;
+  animation: lw-dnes-skel 1.4s ease-in-out infinite;
+}
+.lw-dnes-skel[data-small] { width: 36px; height: 22px; margin: 0; }
+@keyframes lw-dnes-skel { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .lw-today-month { animation: none; }
+  a.lw-dnes-tile, a.lw-dnes-card, a.lw-dnes-mini, .lw-dnes-item, .lw-dnes-suggest, .lw-dnes-secondary, .lw-dnes-tasks-row { transition: none; }
+  a.lw-dnes-tile:hover, a.lw-dnes-card:hover, a.lw-dnes-mini:hover { transform: none; }
+  .lw-dnes-tile[data-gold]::after { content: none; animation: none; }
+  .lw-dnes-skel { animation: none; }
+}

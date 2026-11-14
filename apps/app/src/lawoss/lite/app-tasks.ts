@@ -43,7 +43,8 @@ export async function readOpenTasks<T>(list: ListTasks<T>, workspaceId: string, 
  * Nedostupný zoznam prehľad nezastaví, ale úplný je len po úspešnom aktuálnom čítaní (načítava sa, chyba, aj pri
  * starších údajoch z cache, je `complete: false`).
  */
-export function useAppTasks(connection: Pick<OkfConnection, "client" | "activeWorkspaceId"> | null, projectId?: string): OpenTasks {
+/** `loading`: prvé čítanie ešte beží (Dnes ukáže kostru, nie nulu); chyba ani neúplný zoznam nie sú načítanie. */
+export function useAppTasks(connection: Pick<OkfConnection, "client" | "activeWorkspaceId"> | null, projectId?: string): OpenTasks & { loading: boolean } {
   const workspaceId = connection?.activeWorkspaceId ?? "";
   const client = connection?.client;
   const query = useQuery({
@@ -52,7 +53,7 @@ export function useAppTasks(connection: Pick<OkfConnection, "client" | "activeWo
     retry: false,
     queryFn: async (): Promise<OpenTasks> => client ? readOpenTasks(client.listTasks, workspaceId, projectId) : currentTasks(undefined, false),
   });
-  return currentTasks(query.data, query.isError);
+  return { ...currentTasks(query.data, query.isError), loading: query.isLoading };
 }
 
 /** Úplný je len výsledok posledného úspešného čítania; cache po chybe nesie úlohy, nie úplnosť. */
