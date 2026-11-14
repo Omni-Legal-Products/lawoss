@@ -16,7 +16,7 @@
 .lw-klient > * { min-width: 0; }
 .lw-klient-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; }
 .lw-klient-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--lw-text-secondary); }
-.lw-klient .lw-klient-quiet { margin: -8px 2px 0; }
+.lw-klient .lw-dnes-quiet.lw-klient-quiet { margin: -8px 2px 0; }
 
 /* Dlaždice: štyri v rade, na užšom obsahu dve, na úzkom (karta vedľa chatu) jedna. */
 .lw-klient .lw-klient-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -67,7 +67,6 @@
 .lw-klient-next { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lw-klient-next svg { flex: none; color: var(--td-gold); }
 .lw-klient-all { justify-self: start; }
-.lw-klient-cases > .lw-dnes-quiet { margin: 0 2px; }
 
 /* „Čaká na vás“: vstupy klienta a otvorené úlohy pod tromi číslami, malým písmom. */
 .lw-klient-cols > .lw-dnes-panel { display: flex; flex-direction: column; gap: 12px; }
@@ -95,11 +94,11 @@
 @container lw-klient (max-width: 560px) { .lw-klient .lw-dnes-dock { display: none; } }
 
 /* Hlavička klienta (upstream `project-home.tsx`) v bežnom režime, len pri klientovi s prehľadom z OKF:
-   zlaté „Nový chat“ nahrádza pole chatu dole (nový chat je aj v bočnom paneli). Prvá skupina v druhom riadku
+   zlaté „Nový chat“ nahrádza pole chatu dole (len keď pole chatu na stránke je, nie pri koreni praxe) (nový chat je aj v bočnom paneli). Prvá skupina v druhom riadku
    hlavičky je práve tlačidlo „Nový chat“ (test lawoss-klient-prehlad-alfa14 stráži túto štruktúru).
    A5: „Pridať poznámku“ a „Nová úloha“ zatiaľ ostávajú ako tiché sekundárne tlačidlá; odstrániť po overení vety
    „Nová úloha“ v chate (pri overení 14. 11. nefungovala). */
-:root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-client-overview]) .lw-project-home-header header > div:nth-child(2) > div:first-child { display: none; }
+:root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header > div:nth-child(2) > div:first-child { display: none; }
 
 /* Iniciály klienta pred názvom (🟡 LAWOSS hák `leading` v project-home.tsx). Názov a iniciály ostanú v jednom riadku
    aj na úzkej šírke; tlačidlá vtedy idú pod ne. */

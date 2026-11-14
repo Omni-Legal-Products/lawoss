@@ -8,7 +8,7 @@ import { LAYER_OF } from "../../../lawoss/okf-pamat/src/schema.ts";
 import type { OkfRecord } from "../../../lawoss/okf-pamat/src/record.ts";
 import { buildOverview, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../lawoss/okf/read";
 import { shellCs, shellDe, shellEn, shellSk } from "../src/lawoss/i18n/shell";
-import { CARDS_SHOWN, caseCards, cardPill, clientDeadlineRows, clientInitials, inputCounts, kindBreakdown, openTaskTotal, phaseMissing, recentChats, termTile } from "../src/lawoss/lite/client-cards";
+import { CARDS_SHOWN, caseCards, cardPill, clientDeadlineRows, clientInitials, inputCounts, kindBreakdown, openTaskTotal, phaseMissing, recentChats, recentChatsKey, termTile } from "../src/lawoss/lite/client-cards";
 import { ClientDashboardView } from "../src/lawoss/lite/client-dashboard";
 import { clientDeadlinesLink, liteMatterLink } from "../src/lawoss/lite/links";
 import { buildToday, caseDates, invalidCaseDates, waitingCounts } from "../src/lawoss/lite/today-model";
@@ -95,6 +95,13 @@ describe("karty prípadov", () => {
     expect(cardPill({ term: { ...term, date: "2026-11-30" } }, TODAY)).toMatchObject({ tone: "neutral" });
     expect(cardPill({ term: { ...term, kind: "work" } }, TODAY)).toMatchObject({ tone: "work" });
     expect(cardPill({}, TODAY)).toEqual({ kind: "none" });
+    // Uplynulý pracovný termín: karta povie „po termíne“ ako panel „Čaká na vás“, nie „bez termínu“.
+    const passed = { openTasks: [{ id: "T", title: "Fotodokumentácia", due: "2026-11-10" }] };
+    expect(cardPill({ matter: passed }, TODAY)).toMatchObject({ kind: "late", term: { kind: "work", date: "2026-11-10" } });
+    expect(cardPill({ matter: passed, term }, TODAY)).toMatchObject({ kind: "late" });
+    const vady = view().match(/<a class="lw-dnes-card lw-klient-card" title="Vady rekonštrukcie".*?<\/a>/)?.[0] ?? "";
+    expect(vady).toContain(">po termíne<");
+    expect(vady).not.toContain("bez termínu");
   });
 
   test("fáza len ak je zapísaná; chýbajúca je jeden tichý riadok pod kartami, nie na každej karte", () => {
@@ -153,6 +160,7 @@ describe("poctivé stavy ako tiché riadky", () => {
     const counts = inputCounts(data.inputs, data.matters.map((m) => m.path));
     const out = view({ inputs: counts });
     expect(out).toContain('data-lawoss-inputs="3"');
+    expect(out).toContain("Dôkazy <b>0</b>");
     expect(out).not.toContain("lw-client-ring");
     expect(view({ inputs: null })).toContain('data-lawoss-inputs="unrecorded"');
     expect(view({ inputs: null })).toContain("Vstupy nie sú evidované.");
@@ -195,6 +203,11 @@ describe("zoznam lehôt a Pokračovať", () => {
     expect(chats.hron).toBeUndefined();
     expect(view({ chats: chats.tatran })).toContain('data-lawoss-chat="b"');
     expect(view()).not.toContain("lw-klient-continue");
+    // Nová správa v chate v ten istý deň zverejnený stav panela nemení; nový chat áno.
+    const later = recentChats([{ ...groups[0]!, sessions: groups[0]!.sessions.map((x) => x.id === "b" ? { ...x, time: { updated: 6 } } : x) }], 3);
+    expect(recentChatsKey(later)).toBe(recentChatsKey({ tatran: chats.tatran ?? [] }));
+    const added = recentChats([{ ...groups[0]!, sessions: [...groups[0]!.sessions, { id: "g", title: "Nový", time: { updated: 7 } }] }], 3);
+    expect(recentChatsKey(added)).not.toBe(recentChatsKey({ tatran: chats.tatran ?? [] }));
   });
 });
 
@@ -231,7 +244,7 @@ describe("pole chatu a stránka", () => {
     expect(home).toMatch(/<\/div>\s*<\/div>\s*<div className="mt-5 flex flex-wrap items-center gap-1\.5">\s*<div className="inline-flex rounded-xl shadow-xs">\s*<Button size="lg"[^>]*>[\s\S]{0,400}?\{t\("projects\.new_chat"\)\}/);
     expect(source("react-app/domains/session/chat/session-page.tsx")).toContain("leading={<ClientInitials workspaceId={props.selectedWorkspaceId} name={projectName} />}");
     const css = source("lawoss/lite/pages/client-dashboard.css");
-    expect(css).toContain(':root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-client-overview]) .lw-project-home-header header > div:nth-child(2) > div:first-child { display: none; }');
+    expect(css).toContain(':root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header > div:nth-child(2) > div:first-child { display: none; }');
     expect(css).toContain("A5:");
     expect(css).toContain("prefers-reduced-motion");
   });

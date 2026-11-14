@@ -29,7 +29,7 @@ import { CandidatesPanel, ModeSwitch, MonthCalendar, type ViewMode } from "./age
 import { CARDS_SHOWN, caseCards, cardStatus, clientTerm, inputCounts, type CardStatus, type CardTerm, type InputCounts } from "./client-cards";
 import { DeadlineStrip, liteText } from "./pages/today-page";
 import { useMinuteTick } from "./live";
-import { useUiMode } from "./ui-mode";
+import { useUiMode, type UiMode } from "./ui-mode";
 import { ClientDashboardView } from "./client-dashboard";
 import { clientInitials } from "./client-cards";
 import "./pages/okf-glass.css";
@@ -55,7 +55,9 @@ function StandaloneClientOverview({ workspaceId }: { workspaceId: string }) {
 }
 
 /** Prehľad z dát panela (export pre testy správania). */
-export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientNav; workspaceId: string }) {
+export function ClientOverviewFrom({ nav, workspaceId, mode }: { nav: PublishedClientNav; workspaceId: string;
+  /** Len pre testy: režim bez úložiska (SSR inak vždy Pokročilé). */
+  mode?: UiMode }) {
   useMinuteTick();
   const locale = useLocale();
   const { scope, data, model } = nav;
@@ -65,7 +67,8 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
   // #271: server vráti len úlohy tohto klienta, nie prvých 200 celého stroja.
   const { tasks: rawAppTasks, complete: appTasksComplete, loading: appTasksLoading } = useAppTasks(nav.connection, workspaceId);
   // Bežný režim: pasívny prehľad (alfa 14, spec-klient.md); Pokročilé ostáva bez zmeny.
-  const lite = useUiMode() === "lite";
+  const uiMode = useUiMode();
+  const lite = (mode ?? uiMode) === "lite";
   const derived = useMemo(() => {
     if (!allowed || !scope || !data) return null;
     // Review #246 (P2): prípad zaregistrovaného vnoreného klienta (skrytého v paneli) patrí jemu, nie vonkajšiemu.
@@ -103,17 +106,13 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
   const otherClients = otherClientFolders(clientRoot, (nav.connection?.workspaces ?? []).filter((w) => model.clients.has(w.id)),
     nav.groups.flatMap((group) => clientGroupDirectory(scope, group) ?? []));
   const folders = <LinkedFolders connection={nav.connection} workspaceId={workspaceId} practiceRoot={scope.practiceRoot ?? null} otherClients={otherClients} locale={locale} />;
-  const partial = data.coverage.status !== "complete" || !appTasksComplete;
-  if (lite) return <ClientDashboardView workspaceId={workspaceId} locale={locale} todayIso={todayIso} matters={own.matters}
-    deadlines={[...own.overdue, ...own.upcomingDeadlines]} partial={partial} deadlineEvidence={deadlineCoverage(ownInputs)} readFailed={!canActOnSource(data, workspaceId)}
-    kinds={kinds} statuses={statuses} inputs={inputs} inputsFailed={intakeFailed || (inputs === null && folderMissing)} events={events} today={todayModel}
-    foreignFolders={foreignFolders} pending={appTasksLoading} chats={nav.chats?.[workspaceId]} folders={folders} chat={model.practiceRootId !== workspaceId} />;
+  // Tie isté údaje pre oba režimy: poctivé stavy (#242, #246, #264, čiastočné čítanie) majú jeden zdroj.
+  const shared = { workspaceId, locale, todayIso, matters: own.matters, deadlines: [...own.overdue, ...own.upcomingDeadlines],
+    partial: data.coverage.status !== "complete" || !appTasksComplete, deadlineEvidence: deadlineCoverage(ownInputs), readFailed: !canActOnSource(data, workspaceId),
+    kinds, statuses, inputs, inputsFailed: intakeFailed || (inputs === null && folderMissing), events, today: todayModel, foreignFolders };
+  if (lite) return <ClientDashboardView {...shared} pending={appTasksLoading} chats={nav.chats?.[workspaceId]} folders={folders} chat={model.practiceRootId !== workspaceId} />;
   return <div className="space-y-4">
-    <ClientOverviewView workspaceId={workspaceId} locale={locale} todayIso={todayIso} matters={own.matters}
-      deadlines={[...own.overdue, ...own.upcomingDeadlines]} soon={own.totals.deadlinesWithin7Days} partial={partial}
-      deadlineEvidence={deadlineCoverage(ownInputs)} readFailed={!canActOnSource(data, workspaceId)} kinds={kinds}
-      statuses={statuses} inputs={inputs} inputsFailed={intakeFailed || (inputs === null && folderMissing)} events={events} today={todayModel}
-      foreignFolders={foreignFolders} />
+    <ClientOverviewView {...shared} soon={own.totals.deadlinesWithin7Days} />
     {folders}
   </div>;
 }

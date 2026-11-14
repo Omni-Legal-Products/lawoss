@@ -149,11 +149,18 @@ export type CardPill =
   | { kind: "due"; term: CardTerm; daysLeft: number; tone: DayTone | "work" }
   | { kind: "none" };
 
-export function cardPill(card: Pick<CaseCard, "term" | "invalid">, todayIso: string): CardPill {
+export function cardPill(card: Pick<CaseCard, "term" | "invalid"> & { matter?: Pick<MatterOverview, "openTasks"> }, todayIso: string): CardPill {
   if (card.invalid !== undefined) return { kind: "invalid", raw: card.invalid };
   const term = card.term;
+  if (term?.overdue) return { kind: "late", term };
+  // Uplynulý pracovný termín (rovnaké pravidlo ako „po termíne“ v „Čaká na vás“): karta nesmie povedať „bez termínu“.
+  // `matterTerm` ho nevracia (karta Pokročilého ostáva), preto sa hľadá tu.
+  const passed = (card.matter?.openTasks ?? []).flatMap((task): CardTerm[] => {
+    const due = task.due?.trim().slice(0, 10);
+    return due && isCalendarDay(due) && due < todayIso ? [{ kind: "work", date: due, title: task.title, overdue: true }] : [];
+  }).sort((a, b) => a.date.localeCompare(b.date))[0];
+  if (passed) return { kind: "late", term: passed };
   if (!term) return { kind: "none" };
-  if (term.overdue) return { kind: "late", term };
   const daysLeft = daysBetween(todayIso, term.date);
   return { kind: "due", term, daysLeft, tone: term.kind === "work" ? "work" : dayTone(daysLeft) };
 }
@@ -196,4 +203,10 @@ export function recentChats(groups: readonly { workspace: { id: string }; status
     .sort((a, b) => when(b) - when(a))
     .slice(0, Math.max(0, limit))
     .map((session): RecentChat => ({ id: session.id, title: session.title.trim(), ...(when(session) ? { updated: when(session) } : {}) }))]));
+}
+
+/** Kľúč posledných chatov na deň presne (blok ukazuje deň a mesiac): nová správa v chate ho nemení. */
+export function recentChatsKey(chats: Readonly<Record<string, readonly RecentChat[]>>): string {
+  const day = (time?: number) => time ? new Date(time).toDateString() : "";
+  return Object.entries(chats).map(([id, list]) => [id, ...list.map((chat) => `${chat.id}\u0002${chat.title}\u0002${day(chat.updated)}`)].join("\u0000")).join("\u0001");
 }

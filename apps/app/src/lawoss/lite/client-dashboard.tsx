@@ -217,7 +217,7 @@ function InputsLine({ counts, failed, evidence, text }: { counts: InputCounts | 
       <span><b>{counts.waiting}</b> {text("inputs_waiting")}</span>
       <span><b>{counts.unfiled}</b> {text("inputs_unfiled")}</span>
     </> : <span>{text(failed ? "inputs_not_loaded" : "inputs_unrecorded")}</span>}
-    <span><b>{evidence}</b> {text("client_overview_evidence").toLocaleLowerCase()}</span>
+    <span>{text("client_overview_evidence")} <b>{evidence}</b></span>
     {counts && failed ? <span className="lw-klient-inputs-note" role="note">{text("inputs_partial")}</span> : null}
   </p>;
 }
