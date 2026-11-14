@@ -119,7 +119,7 @@ describe("stránky LAWOSS-lite", () => {
     expect(out).toContain(">Pridať klienta</a>");
     expect(out.indexOf("Pridať klienta")).toBeLessThan(out.indexOf("Pripojiť existujúci priečinok klienta"));
   });
-  test("Věc: hlavička, pět rychlých akcí, žádný technický pojem", () => {
+  test("Věc: hlavička, pět rychlých akcí (návrhy v poli chatu), žádný technický pojem", () => {
     const out = html(<LiteMatterView matter={matter} cockpit={null} busy={null} error={null} onAction={() => {}} />);
     expect(out).toContain('data-lawoss-lite="matter"');
     expect(out).toContain("OS Praha 2");
@@ -149,11 +149,14 @@ describe("stránky LAWOSS-lite", () => {
       facts: [{ id: "E-1", title: "Rozsudek doručen 10. 9.", kind: "dôkaz", provenance: "zapísané", file: "f", source: "Rozsudek.pdf" }],
       parties: [],
     };
-    const out = html(<LiteMatterView matter={matter} cockpit={cockpit} busy={null} error={null} onAction={() => {}} />);
+    // Prehľad zaradí potvrdenú lehotu; kandidát workflow (Vyjádření) v ňom chýba, preto čaká na potvrdenie.
+    const out = html(<LiteMatterView matter={{ ...matter, deadlines: [{ date: addDays(today(), 1), title: "Odvolání", recordId: "D-1" }] }} cockpit={cockpit} busy={null} error={null} onAction={() => {}} />);
     expect(out).toContain("Vyjádření");
     expect(out).toContain(">check<");
     expect(out).toContain("Zavolat klientovi");
-    expect(out).toContain("next deadline");
+    // Najbližšia potvrdená lehota v dlaždici; kandidát čaká na potvrdenie (alfa 14, spec-pripad.md).
+    expect(out).toMatch(/data-lawoss-tile="nearest"[^]*?title="Odvolání"/);
+    expect(out).toContain("1 to confirm");
     expect(out).toContain("What we know");
     expect(out).toContain("Rozsudek doručen 10. 9.");
     expect(out).not.toContain("Nothing recorded yet.");

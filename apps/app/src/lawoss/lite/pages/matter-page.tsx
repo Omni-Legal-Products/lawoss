@@ -1,35 +1,43 @@
 import { DiagnosticMessage } from "../../i18n/diagnostic-message";
 /** @jsxImportSource react */
 import { revalidateScopeTarget } from "../../okf/scope-target";
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { missingScopeLevels, scopeLevels, type MatterOverview } from "../../../../../../lawoss/okf/read";
-import { buildCockpit, type Cockpit, type CockpitDeadline, type CockpitEvent, type CockpitFact } from "../../../../../../lawoss/okf/cockpit";
+import { buildCockpit, type Cockpit, type CockpitDeadline, type CockpitFact } from "../../../../../../lawoss/okf/cockpit";
 import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
 import { deadlineAnchor, hotDeadlineCount, LiveStamp, useHotTitle, useMinuteTick } from "../live";
 import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
 import { canActOnSource, localMatter, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
-import { daysUntil, deadlineKey, deadlineText, dueText, inHorizon, taskDueView, urgencyOf } from "../../okf/view-rules";
-import { MORE_ACTIONS, QUICK_ACTIONS, quickActionPrompt } from "../quick-actions";
+import { deadlineKey, deadlineText, inHorizon, taskDueView, urgencyOf } from "../../okf/view-rules";
+import { freeTextPrompt, quickActionPrompt } from "../quick-actions";
 import { POSTPROCESS_RESOURCE_NAME, postprocessSource, VYSTUP_SKILL_NAME, vystupSkillBody } from "../../okf/skill-bundle";
-import { clientOf, nextDeadline } from "../today-model";
+import { clientOf } from "../today-model";
 import { LITE_CLIENTS_PATH } from "../links";
 import { openMatterConversation, type MatterConversation } from "../matter-conversations";
 import { isTreeFailure, useMatterConversations } from "../client-tree-data";
 import { saveDocumentsToMatter } from "../matter-intake";
 import { AI_SETTINGS_PATH, useMatterModelGap, type MatterModelGap } from "../matter-model";
 import { buildMatterViews, type MatterViews, type ViewFamily } from "../../../../../../lawoss/okf/views";
-import { MatterViewsPanel, type SourceAccess, type ViewsEdit } from "../matter-views";
+import { MatterViewsPanel, tagText, type SourceAccess, type ViewsEdit } from "../matter-views";
 import { openScopeFile } from "../source-open";
 import { loadCaseCard, locateCaseFile, saveCaseViewTags } from "../case-files";
 import { usePageNavigation } from "../../shell/use-page-navigation";
+import { workspaceViewRoute } from "@/react-app/shell/workspace-routes";
+import { buildTimeline, counterparty, headerKind } from "../matter-dashboard-model";
+import { MatterAxis, MatterChats, MatterColumns, MatterDock, MatterTiles, TimelineList, type DashboardActionId } from "../matter-dashboard";
+import { liteText } from "./today-page";
 import "./lite.css";
 import "./okf-glass.css";
 import "./matter.css";
+import "./today.css";
+import "./matter-dashboard.css";
+
+export { buildTimeline } from "../matter-dashboard-model";
 
 /** Text podľa toho, čo rýchlym akciám chýba (kľúče `lawoss.lite.*`). */
 const MODEL_GAP_TEXT: Record<MatterModelGap, string> = {
@@ -38,7 +46,7 @@ const MODEL_GAP_TEXT: Record<MatterModelGap, string> = {
   unavailable: "model_gap_unavailable",
 };
 
-type ActionId = (typeof QUICK_ACTIONS)[number]["id"] | (typeof MORE_ACTIONS)[number]["id"];
+type ActionId = DashboardActionId;
 /** Z cockpitu stačí to, co lite ukazuje; zbytek zůstává v pro. */
 export type LiteCockpit = Pick<Cockpit, "deadlines" | "tasks" | "attention" | "facts" | "parties"> & Partial<Pick<Cockpit, "events" | "client">>;
 
@@ -62,7 +70,7 @@ function LiteMatterBody({ data, meta, scope, navigate }: { data: OkfReadResult; 
   const [params] = useSearchParams();
   const { connection } = useOkfConnection();
   const running = useRef(false);
-  const [busy, setBusy] = useState<ActionId | null>(null);
+  const [busy, setBusy] = useState<ActionId | "ask" | null>(null);
   const [error, setError] = useState<unknown>(null);
   // „+ Nový rozhovor“ v bočnom strome zlyhal a priviedol sem: povedať to (pod tým aj medzera v modeli, ak je).
   const location = useLocation();
@@ -84,12 +92,15 @@ function LiteMatterBody({ data, meta, scope, navigate }: { data: OkfReadResult; 
   const cockpit = buildCockpit(data, matter.path, today());
   const input = data.inputs.find((entry) => entry.path === matter.path);
 
-  async function onAction(id: ActionId) {
+  // Rýchla akcia alebo vlastná veta z poľa chatu: tie isté kontroly a ten istý nový chat prípadu s pripravenou správou.
+  async function onAction(id: ActionId | "ask", request = "") {
     if (running.current || !matter || !target || meta.failed || !canActOnSource(data, target.workspace.id) || modelGap) return;
+    const identity = { title: matter.title, matterRef: matter.matterRef, path: target.selected.path };
+    const prompt = id === "ask" ? freeTextPrompt(request, identity, locale) : quickActionPrompt(id, identity, locale);
+    if (!prompt) return;
     running.current = true; setBusy(id); setError(null);
     try {
       if (!connection) throw new Error(t("lawoss.integrations.error.registration_denied", locale));
-      const prompt = quickActionPrompt(id, { title: matter.title, matterRef: matter.matterRef, path: target.selected.path }, locale);
       // Jen připraví koncept v nové konverzaci nad věcí; nic se neodesílá.
       // Shared client and office access remains controlled by native Permissions.
       const current = await revalidateScopeTarget(scope,connection,target.workspace.id);
@@ -156,7 +167,8 @@ function LiteMatterBody({ data, meta, scope, navigate }: { data: OkfReadResult; 
   } : undefined;
 
   // Kľúč podľa veci: pri prechode na inú vec sa záložka, zvýraznenie aj potvrdenia vynulujú.
-  return <LiteMatterView key={matter.path} matter={matter} cockpit={cockpit} busy={busy} error={error} onAction={(id) => void onAction(id)}
+  return <LiteMatterView key={matter.path} matter={matter} cockpit={cockpit} busy={busy} error={error} onAction={(id) => void onAction(id)} onAsk={(request) => void onAction("ask", request)}
+    documentsHref={ownerId ? workspaceViewRoute(ownerId, "files") : undefined}
     conversations={conversations.items} conversationsComplete={conversations.status !== "ready" || conversations.complete}
     conversationsError={conversations.status === "error" ? conversations.retry ?? (() => {}) : undefined} onContinue={(c) => void onContinue(c)}
     onFiles={(files) => void onFiles(files)} saved={saved} modelGap={modelGap} sourceReady={sourceReady}
@@ -168,7 +180,7 @@ function LiteMatterBody({ data, meta, scope, navigate }: { data: OkfReadResult; 
     meta={meta} focusDeadline={params.get("lehota")} />;
 }
 
-export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], conversationsComplete = true, conversationsError, onContinue, onFiles, saved = null, modelGap = null, sourceReady = true, scopePaths = [], existingMemorySources = [], truths = {}, client, meta, focusDeadline = null, views, access, viewsEdit, readState = "fresh" }: {
+export function LiteMatterView({ matter, cockpit, busy, error, onAction, onAsk, conversations = [], conversationsComplete = true, conversationsError, onContinue, onFiles, saved = null, modelGap = null, sourceReady = true, scopePaths = [], existingMemorySources = [], truths = {}, client, meta, focusDeadline = null, views, access, viewsEdit, readState = "fresh", documentsHref }: {
   matter: MatterOverview;
   /** Prehľad podľa oblasti a typu práce (`buildMatterViews`); bez neho záložka ostane pri pevných sekciách. */
   views?: MatterViews;
@@ -181,9 +193,11 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
   scopePaths?: readonly string[];
   existingMemorySources?: readonly string[];
   cockpit: LiteCockpit | null;
-  busy: ActionId | null;
+  busy: ActionId | "ask" | null;
   error: unknown;
   onAction: (id: ActionId) => void;
+  /** Vlastná veta z poľa chatu: nový chat prípadu s pripravenou správou (rovnako ako rýchla akcia). */
+  onAsk?: (request: string) => void;
   /** `false`: zdroj veci nie je čerstvo prečítaný alebo prax sa zmenila (#168); akcie sú vypnuté. */
   sourceReady?: boolean;
   /** Všetky rozhovory veci, najnovší prvý. */
@@ -207,16 +221,16 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
   meta?: OkfPageMeta;
   /** `záznam@dátum` z odkazu na lehotu: posunie sa na ňu a krátko ju zvýrazní. */
   focusDeadline?: string | null;
+  /** Dokumenty klienta prípadu (natívne Súbory) pre stĺpec „Strany“. */
+  documentsHref?: string;
 }) {
   const locale = useLocale();
-  const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.lite.${key}`, locale, params);
+  const text = liteText(locale);
   const [tab, setTab] = useState<"overview" | "known">("overview");
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const now = today();
   const all: CockpitDeadline[] = cockpit ? [...cockpit.deadlines.confirmed, ...cockpit.deadlines.candidates] : [];
-  const next = nextDeadline(cockpit ? all : matter.deadlines, now);
-  const nextEntry = next ? all.find((d) => !d.invalid && d.date === next) : undefined;
   // Stejný výřez jako Dnes (view-rules): po lhůtě + horizont; neplatné datum vždy (k ověření).
   const deadlines = all.filter((d) => inHorizon(d.date, now, d.invalid))
     .sort((a, b) => Number(Boolean(b.invalid)) - Number(Boolean(a.invalid)) || a.date.localeCompare(b.date));
@@ -225,21 +239,35 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
   const groups = groupFacts(cockpit?.facts ?? []);
   const timeline = buildTimeline(cockpit?.events ?? [], all, now);
   const tabs = [["overview", "tab_overview"], ["known", "tab_known"]] as const;
-  const daysToNext = next ? daysUntil(now, next) : undefined;
   const [copied, setCopied] = useState<"ok" | "failed" | null>(null);
   const copyTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(copyTimer.current), []);
   const focused = focusDeadline ? deadlineAnchor(...splitFocus(focusDeadline)) : null;
   const [highlight, setHighlight] = useState<string | null>(null);
+  const registerRef = useRef<HTMLDetailsElement | null>(null);
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const highlightTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(highlightTimer.current), []);
+  // Jedna cesta do evidencie pre odkaz na lehotu (`?lehota=`), dlaždicu aj riadky prehľadu: prehľad, otvorený register,
+  // posun na riadok a krátke zvýraznenie. Bez kotvy (pracovný termín, „+N“) len posun na evidenciu.
+  const showInRegister = (anchor?: string | null): number => {
+    setTab("overview");
+    if (registerRef.current) registerRef.current.open = true;
+    return window.requestAnimationFrame(() => {
+      const row = anchor ? document.getElementById(anchor) : null;
+      const motion = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+      (row ?? registerRef.current ?? gridRef.current)?.scrollIntoView({ block: row ? "center" : "start", behavior: motion });
+      if (!row || !anchor) return;
+      setHighlight(anchor);
+      window.clearTimeout(highlightTimer.current);
+      highlightTimer.current = window.setTimeout(() => setHighlight(null), 2200);
+    });
+  };
   useEffect(() => {
     if (!focused) return;
-    setTab("overview");
-    const frame = window.requestAnimationFrame(() => {
-      document.getElementById(focused)?.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-      setHighlight(focused);
-    });
-    const timer = window.setTimeout(() => setHighlight(null), 2200);
-    return () => { window.cancelAnimationFrame(frame); window.clearTimeout(timer); };
+    const frame = showInRegister(focused);
+    return () => window.cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `showInRegister` číta len refy a stabilné settery.
   }, [focused]);
   const copyRef = () => {
     const ref = matter.matterRef;
@@ -253,18 +281,6 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
     if (!navigator.clipboard?.writeText) { done("failed"); return; }
     navigator.clipboard.writeText(ref).then(() => done("ok"), () => done("failed"));
   };
-  const moreMenu = useRef<HTMLDetailsElement | null>(null);
-  useEffect(() => {
-    // „Ďalšie" sa zavrie klikom mimo a klávesom Escape, ako bežná ponuka.
-    const close = (event: Event) => {
-      const menu = moreMenu.current;
-      if (!menu?.open) return;
-      if (event instanceof KeyboardEvent ? event.key === "Escape" : !menu.contains(event.target instanceof Node ? event.target : null)) menu.open = false;
-    };
-    document.addEventListener("pointerdown", close);
-    document.addEventListener("keydown", close);
-    return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", close); };
-  }, []);
   const onTabKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowRight" && event.key !== "ArrowLeft" && event.key !== "Home" && event.key !== "End") return;
     event.preventDefault();
@@ -274,7 +290,10 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
     setTab(ids[next]!);
     document.getElementById(`lite-tab-${ids[next]}`)?.focus();
   };
-  const overdueCount = all.filter((d) => d.invalid || d.date < now).length;
+  const showKnown = () => {
+    setTab("known");
+    window.requestAnimationFrame(() => document.getElementById("lite-tab-known")?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }));
+  };
   // Kotvu (id) dostane len prvý výskyt lehoty; dve rovnaké lehoty v jeden deň nesmú mať rovnaké id.
   const anchored = new Set<string>();
   const anchorFor = (d: CockpitDeadline): string | undefined => {
@@ -286,9 +305,11 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
   const recentPast = timeline.findIndex((entry) => entry.kind === "today");
   const visibleTimeline = recentPast < 0 ? timeline : timeline.slice(0, recentPast + 1 + TIMELINE_PAST_LIMIT);
   const olderTimeline = recentPast < 0 ? [] : timeline.slice(recentPast + 1 + TIMELINE_PAST_LIMIT);
+  const kind = headerKind(views, matter);
+  const against = counterparty(cockpit?.parties ?? []);
 
   return (
-    <div className="lw-matter" data-lawoss-lite="matter" data-dragging={dragging || undefined}
+    <div className="lw-matter lw-pripad" data-lawoss-lite="matter" data-dragging={dragging || undefined}
       onDragOver={(event) => { if (onFiles && event.dataTransfer.types.includes("Files")) { event.preventDefault(); setDragging(true); } }}
       onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
       onDrop={(event) => {
@@ -296,74 +317,39 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
         event.preventDefault(); setDragging(false);
         onFiles([...event.dataTransfer.files]);
       }}>
-      <header className="lw-matter-hero" style={reveal(0)}>
-        <div className="lw-matter-hero-copy">
-          <p className="lw-matter-topline"><Link className="lw-matter-crumb" to={LITE_CLIENTS_PATH}>{client ?? text("clients_title")}</Link>{meta ? <LiveStamp meta={meta} locale={locale} /> : null}</p>
-          <h1 className="lw-h1">{matter.title}</h1>
-          <p className="lw-matter-meta">
-            {matter.matterRef ? <button type="button" className="lw-matter-ref lw-matter-copy" onClick={copyRef} title={text("copy_ref")} aria-label={`${text("copy_ref")}: ${matter.matterRef}`} data-copied={copied ?? undefined}>
-              {matter.matterRef}<span className="lw-matter-copy-state" aria-live="polite">{copied === "ok" ? text("copied") : copied === "failed" ? text("copy_failed") : ""}</span>
-            </button> : null}
-            {matter.court ? <span>{matter.court}</span> : null}
-            {next ? <span className="lw-matter-next-inline">{text("matter_next_deadline", { date: formatDay(next, locale) })}</span> : null}
-          </p>
-        </div>
-        {next && daysToNext !== undefined ? (
-          <div className="lw-matter-countdown" data-urgency={urgencyOf(next, now)} role="group" aria-label={`${text("next_deadline")}: ${formatDay(next, locale)}${nextEntry ? `, ${deadlineText(nextEntry)}` : ""}`}>
-            <span className="lw-matter-countdown-label">{text("next_deadline")}</span>
-            <strong>{daysToNext <= 0 ? formatDay(next, locale) : daysToNext}</strong>
-            <span>{dueText(next, now, locale)}</span>
-            {nextEntry ? <small>{deadlineText(nextEntry)}</small> : null}
-            {overdueCount > 0 ? <em className="lw-matter-countdown-overdue">+{overdueCount} {text("overdue")}</em> : null}
-          </div>
-        ) : null}
+      <header className="lw-pripad-head" style={reveal(0)}>
+        <p className="lw-matter-topline"><Link className="lw-matter-crumb" to={LITE_CLIENTS_PATH}>{client ?? text("clients_title")}</Link>{meta ? <LiveStamp meta={meta} locale={locale} /> : null}</p>
+        <h1 className="lw-h1">{matter.title}</h1>
+        {/* Jeden riadok štítkov: druh, spisová značka (kopírovanie), súd a jednoznačná protistrana. */}
+        <p className="lw-pripad-pills">
+          {kind ? <span className="lw-dnes-pill" data-lawoss-matter-kind="">{tagText(`kind:${kind}`, locale) ?? kind}</span> : null}
+          {matter.matterRef ? <button type="button" className="lw-dnes-pill lw-matter-ref lw-matter-copy" onClick={copyRef} title={text("copy_ref")} aria-label={`${text("copy_ref")}: ${matter.matterRef}`} data-copied={copied ?? undefined}>
+            {matter.matterRef}<span className="lw-matter-copy-state" aria-live="polite">{copied === "ok" ? text("copied") : copied === "failed" ? text("copy_failed") : ""}</span>
+          </button> : null}
+          {matter.court ? <span className="lw-dnes-pill">{matter.court}</span> : null}
+          {against ? <span className="lw-dnes-pill" data-lawoss-matter-against="">{text("pripad_against", { name: against })}</span> : null}
+        </p>
       </header>
 
-      <div className="lw-matter-dock" style={reveal(1)}>
-        <div className="lw-matter-actions">
-          {QUICK_ACTIONS.map((action, index) => (
-            <button key={action.id} type="button" className={index === 0 ? "lw-matter-action is-primary" : "lw-matter-action"} disabled={!sourceReady || busy !== null || (modelGap !== null && !(action.id === "add_document" && onFiles))} aria-busy={busy === action.id}
-              onClick={() => action.id === "add_document" && onFiles ? fileInput.current?.click() : onAction(action.id)}>{t(action.labelKey, locale)}</button>
-          ))}
-          <details className="lw-matter-more" ref={moreMenu}>
-            <summary>{text("matter_more")}</summary>
-            <div className="lw-matter-more-list" aria-label={text("more_actions")}>
-              {MORE_ACTIONS.map((action) => (
-                <button key={action.id} type="button" className="lw-matter-action" disabled={!sourceReady || busy !== null || modelGap !== null} aria-busy={busy === action.id} onClick={() => { if (moreMenu.current) moreMenu.current.open = false; onAction(action.id); }}>{t(action.labelKey, locale)}</button>
-              ))}
-            </div>
-          </details>
+      {/* Stavy ostávajú viditeľné aj v úzkej karte vedľa chatu, kde sa pole chatu neukazuje. */}
+      {saved ? <div className="lw-status ok" role="status">{text("intake_saved", { names: saved })}</div> : null}
+      {modelGap ? (
+        <div className="lw-status warn lw-matter-model-gap" role="status" data-lawoss-lite="model-gap" data-gap={modelGap}>
+          <span>{text(MODEL_GAP_TEXT[modelGap])}</span>
+          <Link to={AI_SETTINGS_PATH}>{text("model_gap_open")}</Link>
         </div>
-        {onFiles ? <input ref={fileInput} type="file" multiple hidden data-lawoss-lite="intake-input"
-          onChange={(event) => { const files = [...(event.target.files ?? [])]; event.target.value = ""; onFiles(files); }} /> : null}
-        {onFiles ? <p className="lw-matter-drop">{text(dragging ? "intake_drop" : "intake_hint")}</p> : null}
-        {saved ? <div className="lw-status ok" role="status">{text("intake_saved", { names: saved })}</div> : null}
-        {modelGap ? (
-          <div className="lw-status warn lw-matter-model-gap" role="status" data-lawoss-lite="model-gap" data-gap={modelGap}>
-            <span>{text(MODEL_GAP_TEXT[modelGap])}</span>
-            <Link to={AI_SETTINGS_PATH}>{text("model_gap_open")}</Link>
-          </div>
-        ) : null}
-        {error ? <div className="lw-status err" role="alert"><DiagnosticMessage value={error} fallback={text("action_error_generic")} /></div> : null}
-      </div>
-
+      ) : null}
+      {error ? <div className="lw-status err" role="alert"><DiagnosticMessage value={error} fallback={text("action_error_generic")} /></div> : null}
       {conversationsError ? <div className="lw-status warn" role="status" data-lawoss-lite="conversations-error">
         <span>{text("tree_load_error")}</span> <button type="button" className="lw-matter-action" onClick={conversationsError}>{text("state_retry")}</button>
       </div> : null}
-      {conversations.length > 0 ? (
-        <section className="lw-matter-panel lw-matter-conversations" data-lawoss-lite="conversations" style={reveal(2)}>
-          <h2 className="lw-matter-section">{text("conversations_title")}</h2>
-          {conversationsComplete ? null : <p className="lw-matter-empty">{text("conversations_partial")}</p>}
-          <div className="lw-matter-conv-list">
-            {conversations.map((c) => (
-              <button key={c.id} type="button" className="lw-matter-conv" disabled={!sourceReady || busy !== null} onClick={() => onContinue?.(c)}>
-                <span className="lw-matter-conv-title">{c.title ?? text("conversation_untitled")}</span>
-                <span className="lw-matter-conv-meta"><span className="lw-matter-mono">{formatStamp(c.updated, locale)}</span><span className="lw-matter-conv-go">{text("conversation_continue")}</span></span>
-              </button>
-            ))}
-          </div>
-        </section>
-      ) : null}
+      {onFiles ? <input ref={fileInput} type="file" multiple hidden data-lawoss-lite="intake-input"
+        onChange={(event) => { const files = [...(event.target.files ?? [])]; event.target.value = ""; onFiles(files); }} /> : null}
+
+      <MatterTiles matter={matter} cockpit={cockpit} views={views} readState={readState} todayIso={now} locale={locale} text={text} onReveal={showInRegister} />
+      <MatterAxis timeline={timeline} eventCount={cockpit?.events?.length ?? 0} locale={locale} text={text} />
+      <MatterColumns matter={matter} cockpit={cockpit} views={views} readState={readState} todayIso={now} locale={locale} text={text} onReveal={showInRegister} onKnown={showKnown} documentsHref={documentsHref} />
+      <MatterChats conversations={conversations} complete={conversationsComplete} disabled={!sourceReady || busy !== null} onContinue={onContinue} locale={locale} text={text} />
 
       <div className="lw-matter-tabs" role="tablist" style={reveal(3)} onKeyDown={onTabKey}>
         {tabs.map(([id, key]) => (
@@ -374,10 +360,10 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
       </div>
 
       <div id="lite-panel-overview" role="tabpanel" aria-labelledby="lite-tab-overview" hidden={tab !== "overview"}>
-        {views ? <MatterViewsPanel views={views} locale={locale} access={access} edit={viewsEdit} readState={readState} /> : null}
+        {views ? <MatterViewsPanel views={views} locale={locale} access={access} edit={viewsEdit} readState={readState} stripOmit={STRIP_IN_TILES} /> : null}
         {/* S prehľadom podľa typu je pôvodný register (časová os, lehoty, úlohy, strany) podrobnosťou na vyžiadanie. */}
-        <RegisterWrap collapsed={Boolean(views)} open={Boolean(focused)} label={text("ov_register")}>
-        <div className="lw-matter-grid">
+        <RegisterWrap collapsed={Boolean(views)} open={Boolean(focused)} label={text("ov_register")} detailsRef={registerRef}>
+        <div className="lw-matter-grid" ref={gridRef}>
           <section className="lw-matter-panel lw-matter-timeline" style={reveal(4)}>
             <h2 className="lw-matter-section">{text("matter_timeline")}</h2>
             {timeline.length === 0 ? <p className="lw-matter-empty">{text("matter_timeline_empty")}</p> : <>
@@ -499,15 +485,21 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
         <ul>{existingMemorySources.map((path) => <li className="break-all" key={path}>{path}</li>)}</ul>
         <Link className="underline" to="/settings/extensions">{text("memory_integrations")}</Link>
       </details> : null}
+
+      <MatterDock text={text} locale={locale} busy={busy} sourceReady={sourceReady} modelGap={modelGap} onAction={onAction} onAsk={onAsk}
+        onAddDocument={onFiles ? () => fileInput.current?.click() : undefined} hint={onFiles ? text(dragging ? "intake_drop" : "intake_hint") : undefined} />
     </div>
   );
 }
 
+/** Fáza a ďalší krok sú v dlaždici „Kde vec stojí“; lišta prehľadu ich v bežnom režime neopakuje. */
+const STRIP_IN_TILES = ["phase", "next_step"] as const;
+
 const TIMELINE_PAST_LIMIT = 8;
 
 /** Pôvodný register pod prehľadom podľa typu: zbalený („Podrobný register“), otvorený pri odkaze na lehotu. */
-function RegisterWrap({ collapsed, open, label, children }: { collapsed: boolean; open: boolean; label: string; children: ReactNode }) {
-  return collapsed ? <details className="lw-matter-register" data-lawoss-register="" open={open || undefined}><summary>{label}</summary>{children}</details> : <>{children}</>;
+function RegisterWrap({ collapsed, open, label, detailsRef, children }: { collapsed: boolean; open: boolean; label: string; detailsRef: RefObject<HTMLDetailsElement | null>; children: ReactNode }) {
+  return collapsed ? <details ref={detailsRef} className="lw-matter-register" data-lawoss-register="" open={open || undefined}><summary>{label}</summary>{children}</details> : <>{children}</>;
 }
 const parseDay = (iso: string) => new Date(`${iso}T00:00:00Z`);
 /** `záznam@dátum` → [záznam, dátum]; ID záznamu môže obsahovať aj `@`, dátum je za posledným. */
@@ -516,16 +508,6 @@ const splitFocus = (value: string): [string, string] => {
   return at < 0 ? [value, ""] : [value.slice(0, at), value.slice(at + 1)];
 };
 
-function TimelineList({ entries, locale, text }: { entries: readonly TimelineEntry[]; locale: string; text: (key: string, params?: Record<string, string | number>) => string }) {
-  return <ol className="lw-matter-axis">
-    {entries.map((entry) => entry.kind === "today"
-      ? <li key="today" className="lw-matter-axis-today"><span>{text("strip_today")}</span></li>
-      : <li key={entry.key} data-future={entry.future || undefined} data-urgency={entry.urgency}>
-        <span className="lw-matter-axis-date">{formatDay(entry.date, locale)}</span>
-        <span className="lw-matter-axis-text">{entry.text}{entry.future ? <small>{text("matter_upcoming")}</small> : null}</span>
-      </li>)}
-  </ol>;
-}
 const weekdayShort = (iso: string, locale: string) => new Intl.DateTimeFormat(locale, { weekday: "short", timeZone: "UTC" }).format(parseDay(iso)).replace(".", "");
 const dayOfMonth = (iso: string) => parseDay(iso).getUTCDate();
 const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "--lw-i": index });
@@ -544,31 +526,7 @@ function kindTitle(kind: string): string | undefined {
   return spaced ? spaced[0].toUpperCase() + spaced.slice(1) : undefined;
 }
 
-type TimelineEntry = { kind: "event"; key: string; date: string; text: string; future: boolean; urgency?: "hot" | "near" | "calm" } | { kind: "today" };
 
-/**
- * Časová os s rovnakým oknom ako zoznamy (view-rules): blížiace sa lehoty do horizontu nad dneškom,
- * pod ním zaznamenané udalosti a lehoty po termíne, najnovšie prvé.
- */
-export function buildTimeline(events: readonly CockpitEvent[], deadlines: readonly CockpitDeadline[], todayIso: string): TimelineEntry[] {
-  const dated = deadlines.filter((d) => !d.invalid && inHorizon(d.date, todayIso));
-  const future: TimelineEntry[] = dated.filter((d) => d.date >= todayIso)
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .map((d, i) => ({ kind: "event", key: `d/${deadlineKey(d, i)}`, date: d.date, text: deadlineText(d), future: true, urgency: urgencyOf(d.date, todayIso) }));
-  const past = [
-    ...events.filter((e) => e.date.slice(0, 10) <= todayIso)
-      .map((e, i) => ({ kind: "event" as const, key: `e/${e.recordId}/${e.date}/${i}`, date: e.date.slice(0, 10), text: e.text, future: false })),
-    ...dated.filter((d) => d.date < todayIso)
-      .map((d, i) => ({ kind: "event" as const, key: `p/${deadlineKey(d, i)}`, date: d.date, text: deadlineText(d), future: false, urgency: "hot" as const })),
-  ].sort((a, b) => b.date.localeCompare(a.date));
-  if (future.length === 0 && past.length === 0) return [];
-  return [...future, { kind: "today" }, ...past];
-}
-
-/** Den a čas poslední změny konverzace, např. „čt 24. 9. 14:32“. */
-function formatStamp(ms: number, locale: string): string {
-  return ms ? new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(ms)) : "-";
-}
 
 /** Skill vyhotovení dokumentu do složky věci - konverzace nad věcí běží v ní. */
 async function installVystupSkill(client: Parameters<NonNullable<Parameters<typeof openMatterSession>[5]>>[0], workspaceId: string): Promise<void> {

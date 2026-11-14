@@ -32,6 +32,9 @@ const fact = (id: string, kind: string, title: string): CockpitFact => ({ id, ki
 const deadline = (recordId: string, days: number, over: Partial<CockpitDeadline> = {}): CockpitDeadline =>
   ({ date: addDays(NOW, days), title: "Spis", recordId, provenance: "zapísané", file: "f", overdue: days < 0, confirmed: true, ...over });
 
+/** Prehľad prípadu zaradí každú zapísanú lehotu, ktorú má cockpit (kandidát workflow by v ňom chýbal). */
+const listed = (cockpit: LiteCockpit) => ({ ...matter, deadlines: [...cockpit.deadlines.confirmed, ...cockpit.deadlines.candidates].map((d) => ({ date: d.date, title: d.title, recordId: d.recordId, ...(d.label ? { raw: `${d.date} ${d.label}` } : {}) })) });
+
 describe("dynamické pohľady z OKF", () => {
   test("text lehoty za dátumom, inak nič", () => {
     expect(deadlineLabel("2026-10-09 Lehota na vyjadrenie k žalobe")).toBe("Lehota na vyjadrenie k žalobe");
@@ -61,11 +64,12 @@ describe("dynamické pohľady z OKF", () => {
       parties: [],
       events: [],
     };
-    const out = html(<LiteMatterView matter={matter} cockpit={cockpit} busy={null} error={null} onAction={() => {}} truths={{ "X-1": "Súd odročil na november." }} client="Novák" />);
+    const out = html(<LiteMatterView matter={listed(cockpit)} cockpit={cockpit} busy={null} error={null} onAction={() => {}} truths={{ "X-1": "Súd odročil na november." }} client="Novák" />);
     expect(out).toContain("Hearing note");
     expect(out).toContain("Súd odročil na november.");
     expect(out).toContain("Lehota na vyjadrenie");
-    expect(out).toContain("lw-matter-countdown");
+    // Odpočet je dlaždica „Najbližšia lehota“ prehľadu prípadu (alfa 14, spec-pripad.md).
+    expect(out).toContain('data-lawoss-tile="nearest" data-kind="deadline"');
     expect(out).toContain(">Novák<");
     // Žiadne subjekty ani čakajúce záznamy: ich sekcie sa vôbec nevykreslia.
     expect(out).not.toContain("data-lawoss-parties");
@@ -185,10 +189,13 @@ describe("dynamické pohľady z OKF", () => {
       deadlines: { confirmed: [twice, { ...twice, label: "Plná moc" }, deadline("M-1", -3, { label: "Zmeškaná" })], candidates: [] },
       tasks: [], attention: [], facts: [fact("Z-1", "", "Bez typu")], parties: [], events: [],
     };
-    const page = html(<LiteMatterView matter={matter} cockpit={cockpit} busy={null} error={null} onAction={() => {}} />);
+    const page = html(<LiteMatterView matter={listed(cockpit)} cockpit={cockpit} busy={null} error={null} onAction={() => {}} />);
     expect(page.split(`id="${deadlineAnchor("M-1", addDays(NOW, 2))}"`).length - 1).toBe(1);
     expect(page).toContain("Other records");
-    expect(page).toContain("+1 overdue");
+    // Lehota po termíne je v dlaždici „Čaká na vás“ (každá položka raz) a dlaždica najbližšej lehoty povie „po termíne“.
+    expect(page).toContain('data-lawoss-waiting-total="1"');
+    expect(page).toContain("1 past due");
+    expect(page).toMatch(/data-lawoss-tile="nearest"[^>]*data-state="overdue"/);
   });
 
   test("hraničné prípady: Dnes s lehotou po termíne a s veľa lehotami v jeden deň", () => {
@@ -265,10 +272,12 @@ describe("dynamické pohľady z OKF", () => {
     const data = { ...overview, inputs, problems: [], truncated: false };
     const today = html(<TodayView locale="en" model={buildToday(data, NOW)} />);
     const page = html(<LiteMatterView matter={overview.matters[0]!} cockpit={buildCockpit(data, "K/A", NOW)!} busy={null} error={null} onAction={() => {}} />);
-    // Dnes: veta pod pozdravom „…, tomorrow.“ (štvorček dní ukáže „1 day“), detail rovnaké slovo.
+    // Dnes: veta pod pozdravom „…, tomorrow.“ (štvorček dní ukáže „1 day“); dlaždica najbližšej lehoty na Dnes aj
+    // v prehľade prípadu (alfa 14) ukáže to isté číslo s jednotkou, nikde „in 1 day“.
     expect(today).toContain("Next deadline: Odvolanie, tomorrow.");
     expect(today).not.toContain("in 1 day");
-    expect(page).toContain(">tomorrow<");
+    expect(today).toMatch(/data-lawoss-tile="nearest"[^]*?>1<small>day<\/small>/);
+    expect(page).toMatch(/data-lawoss-tile="nearest"[^]*?>1<small>day<\/small>/);
     expect(page).not.toContain("in 1 day");
   });
 
