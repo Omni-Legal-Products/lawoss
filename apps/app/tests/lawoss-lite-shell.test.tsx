@@ -9,13 +9,13 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { liteSettingsTabs, isMainRailItemVisible, isMainRailShown, isSidebarHeaderToolsVisible, isSidebarItemVisible, isWorkspaceSwitcherVisible, isLandingPath, landingPath } from "../src/lawoss/lite/visibility";
 import { SettingsSidebar } from "../src/react-app/domains/settings/shell/settings-page";
 import { t } from "@/i18n";
-import { LAWOSS_ROUTES } from "../src/lawoss/shell/routes";
+import { LAWOSS_ROUTES, lawossRouteTitle } from "../src/lawoss/shell/routes";
 import { LiteNav, LiteNavView, restoresOfficeScope } from "../src/lawoss/lite/lite-nav";
 import { UiModeSwitchView } from "../src/lawoss/lite/ui-mode-switch";
 import { LawossNav, LawossLayout } from "../src/lawoss/shell/layout";
 import { LEHOTY_PATH, LITE_MATTER_PATH, NEW_CLIENT_PATH } from "../src/lawoss/lite/links";
 import { LiteSidebarFooterView, registersText } from "../src/lawoss/lite/sidebar-footer";
-import { deadlineAttentionCount, feedbackPageUrl, registersSummary } from "../src/lawoss/lite/sidebar-model";
+import { clientRowActive, deadlineAttentionCount, feedbackPageUrl, registersSummary, routeProject } from "../src/lawoss/lite/sidebar-model";
 import { publishMcpStatuses } from "../src/lawoss/lite/mcp-status-store";
 import type { McpStatusMap } from "../src/app/types";
 import { GeneralSettingsView } from "../src/react-app/domains/settings/pages/general-view";
@@ -261,4 +261,88 @@ test("alfa 14: bežný režim bez ľavej lišty (okrem zbaleného panela) a bez 
   expect(sidebar).toContain("{(!customizingNavigation || collapsed) && isMainRailShown(uiMode, collapsed) && <MainActionRail");
   expect(sidebar).toContain("{isSidebarHeaderToolsVisible(uiMode) && <div className=\"ml-auto flex shrink-0 items-center gap-0.5\">");
   expect(sidebar).toContain('{uiMode === "lite" && <LiteSidebarFooter workspaceId={props.selectedWorkspaceId} />}');
+});
+
+describe("alfa 14, bežný režim: aktívna je len položka otvorenej trasy", () => {
+  const row = (pathname: string, extra: Partial<Parameters<typeof clientRowActive>[0]> = {}) =>
+    clientRowActive({ mode: "lite", projectId: "tatran", isSelected: true, focused: null, pathname, search: "", ...extra });
+
+  test("trasa patrí projektu: natívne stránky projektu a lehoty klienta; globálne stránky nikomu", () => {
+    expect(routeProject("/workspace/tatran/project", "")).toBe("tatran");
+    expect(routeProject("/workspace/tatran/files", "")).toBe("tatran");
+    expect(routeProject("/workspace/tatran/session/s1", "")).toBe("tatran");
+    expect(routeProject(`/workspace/${encodeURIComponent("ws 1/a")}/project`, "")).toBe("ws 1/a");
+    expect(routeProject(LEHOTY_PATH, "?klient=tatran")).toBe("tatran");
+    for (const path of ["/dnes", LEHOTY_PATH, "/klienti", "/na-zaradenie", "/settings/general", "/home"]) expect(routeProject(path, "")).toBeNull();
+  });
+
+  test("na Dnes a Lehotách a úlohách vybraný (rozbalený) klient nie je aktívny; na svojej trase áno", () => {
+    expect(row("/dnes")).toBe(false);
+    expect(row(LEHOTY_PATH)).toBe(false);
+    expect(row("/klienti")).toBe(false);
+    expect(row("/settings/general")).toBe(false);
+    expect(row("/workspace/tatran/project")).toBe(true);
+    expect(row("/workspace/tatran/session/s1")).toBe(true);
+    expect(row(LEHOTY_PATH, { search: "?klient=tatran" })).toBe(true);
+    // Trasa iného projektu: tento nie je aktívny, ani keď je natívne vybraný.
+    expect(row("/workspace/ine/project")).toBe(false);
+    expect(row(LEHOTY_PATH, { search: "?klient=ine" })).toBe(false);
+  });
+
+  test("vec, klient a chat stromu (focused) rozhodujú v oboch režimoch; Pokročilý inak natívne podľa výberu", () => {
+    expect(row("/vec", { focused: "tatran", isSelected: false })).toBe(true);
+    expect(row("/vec", { focused: "ine" })).toBe(false);
+    expect(row("/dnes", { mode: "pro" })).toBe(true);
+    expect(row("/dnes", { mode: "pro", isSelected: false })).toBe(false);
+    expect(row("/vec", { mode: "pro", focused: "ine" })).toBe(false);
+  });
+
+  test("globálny riadok a riadok klienta nie sú aktívne naraz", () => {
+    const cases: [string, string][] = [["/dnes", ""], [LEHOTY_PATH, ""], [LEHOTY_PATH, "?klient=tatran"], ["/workspace/tatran/project", ""]];
+    for (const [pathname, search] of cases) {
+      const nav = renderToStaticMarkup(<QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={[`${pathname}${search}`]}><SidebarProvider><LiteNavView mode="lite" /></SidebarProvider></MemoryRouter>
+      </QueryClientProvider>);
+      const globalActive = / data-active(=""|[ >])/.test(nav);
+      expect(globalActive && row(pathname, { search })).toBe(false);
+      // Na globálnych stránkach je aktívny práve globálny riadok (test nie je prázdny).
+      if (pathname === "/dnes" || (pathname === LEHOTY_PATH && !search)) expect(globalActive).toBe(true);
+    }
+  });
+
+  test("zlatá glazúra riadku klienta sa stlmí, keď je aktívna položka pod ním; len v bežnom režime", () => {
+    const css = readFileSync(join(import.meta.dir, "../src/lawoss/shell/lawoss.css"), "utf8");
+    const rule = /:root\[data-lawoss-ui="lite"\] \.lw-chat-sidebar li:has\(\.lw-sidebar-session\[data-active\]\) \.lw-sidebar-item\[data-active\] \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(rule).toContain("box-shadow: none;");
+    expect(rule).not.toContain("gold");
+    expect(css).toContain(':root[data-lawoss-ui="lite"] .lw-chat-sidebar li:has(.lw-sidebar-session[data-active]) .lw-sidebar-item[data-active]::after { content: none; animation: none; }');
+  });
+});
+
+describe("alfa 14, bežný režim: riadok klienta bez kolízie lehoty a akcií", () => {
+  const css = readFileSync(join(import.meta.dir, "../src/lawoss/shell/lawoss.css"), "utf8");
+  test("akcie riadku si miesto berú len viditeľné (hover, zameranie klávesnicou, otvorená ponuka), lehota sa vtedy skryje", () => {
+    expect(css).toContain('div:has(> [data-workspace-actions]):not(:hover, :has(:focus-visible), :has([data-popup-open])) [data-workspace-drag-handle] { padding-right: 0; }');
+    expect(css).toContain('div:has(> [data-workspace-actions]):not(:hover, :has(:focus-visible), :has([data-popup-open])) > [data-workspace-actions] > * { opacity: 0; }');
+    expect(css).toContain('div:has(> [data-workspace-actions]):is(:hover, :has(:focus-visible), :has([data-popup-open])) [data-lawoss-row-due] { display: none; }');
+    // Fokus po kliknutí (focus-within) akcie neukáže a miesto nerezervuje.
+    expect(css).not.toMatch(/workspace-actions[^\n]*focus-within/);
+  });
+  test("prázdne miesto bodky neprečítaného sa nerezervuje; lehota sa nezmenšuje", () => {
+    expect(css).toContain(':root[data-lawoss-ui="lite"] .lw-chat-sidebar [data-workspace-drag-handle] + span:empty { display: none; }');
+    expect(css).toMatch(/\.lw-row-due \{ flex: none; white-space: nowrap;/);
+  });
+});
+
+describe("alfa 14: názov stránky Lehoty a úlohy ako riadok v bočnom paneli", () => {
+  test("bežný režim: nadpis okna ako riadok (sk, cs, en); Pokročilý ostáva Lehoty", () => {
+    expect(lawossRouteTitle(LEHOTY_PATH, "lite")).toBe(t("lawoss.lite.nav_deadlines_tasks"));
+    expect(lawossRouteTitle(LEHOTY_PATH, "pro")).toBe(t("lawoss.shell.deadlines"));
+    expect(lawossRouteTitle("/dnes", "lite")).toBe(t("lawoss.lite.nav_today"));
+    expect(t("lawoss.lite.nav_deadlines_tasks", "sk")).toBe("Lehoty a úlohy");
+    expect(t("lawoss.lite.nav_deadlines_tasks", "cs")).toBe("Lhůty a úkoly");
+    expect(t("lawoss.lite.nav_deadlines_tasks", "en")).toBe("Deadlines and tasks");
+    const page = readFileSync(join(import.meta.dir, "../src/lawoss/domains/lehoty/lehoty-page.tsx"), "utf8");
+    expect(page).toContain('useUiMode() === "lite" ? t("lawoss.lite.nav_deadlines_tasks", locale) : text("deadlinesTitle")');
+  });
 });

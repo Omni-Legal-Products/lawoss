@@ -17,6 +17,7 @@ import { clientDeadlines, overviewOwners, ownerOfFolder } from "../../lite/clien
 import { usePublishedClientNav, type PublishedClientNav } from "../../lite/client-nav";
 import { comparable, within } from "../../lite/matter-conversations";
 import { LEHOTY_PATH } from "../../lite/links";
+import { useUiMode } from "../../lite/ui-mode";
 import type { UpcomingDeadline } from "../../../../../../lawoss/okf/read";
 
 /**
@@ -24,10 +25,12 @@ import type { UpcomingDeadline } from "../../../../../../lawoss/okf/read";
  * Lehoty klienta v bočnom paneli, MČ 19. 10. 2026): prax sa číta od klienta a register ukáže len jeho veci.
  */
 export function LehotyPage() {
-  const { text } = useMatterText();
+  const { text, locale } = useMatterText();
+  // Bežný režim (alfa 14): nadpis ako riadok v bočnom paneli („Lehoty a úlohy“), Pokročilý „Lehoty“.
+  const title = useUiMode() === "lite" ? t("lawoss.lite.nav_deadlines_tasks", locale) : text("deadlinesTitle");
   const client = useSearchParams()[0].get("klient");
   const pick = client ? (connection: OkfConnection | null) => connection?.workspaces.find((w) => w.id === client) ?? activeWorkspace(connection) : undefined;
-  return <OkfPage title={text("deadlinesTitle")} pickWorkspace={pick}>{(data, _meta, scope) => client
+  return <OkfPage title={title} pickWorkspace={pick}>{(data, _meta, scope) => client
     ? <ClientRegister data={data} scope={scope} workspaceId={client} />
     : <><DeadlineWorkflowPanel data={data} scope={scope} /><RealRegister data={data} /></>}</OkfPage>;
 }

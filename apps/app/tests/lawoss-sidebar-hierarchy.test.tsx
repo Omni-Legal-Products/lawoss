@@ -202,6 +202,13 @@ describe("stav a lehota v riadku: len to, čo je v súboroch", () => {
     expect(html(<ClientRowStatusLineView row={late} mode="pro" />)).toContain("data-lawoss-row-status");
     // Bez lehoty v bežnom režime len meno.
     expect(html(<ClientRowLabelView row={clientProjectRow(null, tatran, SLUG, "sk")} mode="lite" />)).not.toContain("data-lawoss-row-due");
+    // Bežný režim: meno klienta na jeden riadok (skrátené trojbodkou), celé meno v bublinke; Pokročilý na dva riadky.
+    expect(label).not.toContain("line-clamp-2");
+    expect(label).toMatch(/<span class="block truncate" title="[^"]+" data-lawoss-row-label=""/);
+    expect(label).toContain(`title="${late.label}\n${late.tooltip}"`);
+    expect(html(<ClientRowLabelView row={late} mode="pro" />)).toContain("line-clamp-2");
+    // Lehota vpravo sa nezmenšuje, meno sa zmenší pred ňou.
+    expect(label).toMatch(/<span class="min-w-0 flex-1"><span class="block truncate"[^>]*>[^<]+<\/span><\/span><span class="lw-row-due/);
   });
 
   test("alfa 14: lehota vpravo slovom do 14 dní, potom dátum; zmeškaná a na overenie ako doteraz", () => {

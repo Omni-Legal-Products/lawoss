@@ -6,6 +6,7 @@
  * Fakty riadkov počíta panel raz (`buildClientRows`); tu sa doplní len natívne meno a jazyk.
  */
 import { useCallback, useMemo } from "react";
+import { useLocation } from "react-router-dom";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { cn } from "@/lib/utils";
@@ -16,6 +17,7 @@ import type { ClientRowFacts } from "./client-row-data";
 import { dueTextClass, rowDeadlineText, rowDueText, urgencyTextClass } from "./client-row-text";
 import { useClientNav, useClientNavData, usePublishedClientNav, type PublishedClientNav } from "./client-nav";
 import { JUST_CHANGED_CLASS, useJustChanged } from "./just-changed";
+import { clientRowActive } from "./sidebar-model";
 import { useUiMode, type UiMode } from "./ui-mode";
 
 type ProjectRef = { id: string; path?: string | null };
@@ -87,10 +89,14 @@ export function useClientDisplayName(projectId: string, nativeLabel: string, pat
   return useClientProjectRow({ id: projectId, path }, nativeLabel).label;
 }
 
-/** Riadok klienta je aktívny podľa trasy (vec alebo chat vo veci patrí jemu); inak natívny vybraný projekt. */
+/**
+ * Riadok klienta je aktívny podľa trasy (vec alebo chat vo veci patrí jemu); inak Pokročilý natívny vybraný projekt,
+ * bežný len trasa tohto projektu (na Dnes či Lehotách a úlohách nie, `clientRowActive`).
+ */
 export function useClientRowActive(projectId: string, isSelected: boolean): boolean {
   const focused = useClientNav()?.focused;
-  return focused ? focused === projectId : isSelected;
+  const { pathname, search } = useLocation();
+  return clientRowActive({ mode: useUiMode(), projectId, isSelected, focused, pathname, search });
 }
 
 /**
@@ -105,7 +111,11 @@ export function ClientRowLabel({ row }: { row: ClientRow }) {
 }
 
 export function ClientRowLabelView({ row, mode, justChanged = false }: { row: ClientRow; mode: UiMode; justChanged?: boolean }) {
-  const name = <span className={row.client ? "line-clamp-2 whitespace-normal break-words" : "block truncate"} title={row.tooltip}
+  // Bežný režim (alfa 14): meno vždy na jeden riadok skrátené trojbodkou, celé meno v bublinke; lehota vpravo
+  // sa nikdy neskracuje ani neprekrýva (`.lw-row-due`, akcie riadku pri hoveri v lawoss.css).
+  const lite = mode === "lite";
+  const name = <span className={row.client && !lite ? "line-clamp-2 whitespace-normal break-words" : "block truncate"}
+    title={lite && row.client ? [row.label, row.tooltip].filter(Boolean).join("\n") : row.tooltip}
     data-lawoss-row-label="" data-lawoss-native-name={row.nativeLabel}>{row.label}</span>;
   if (mode !== "lite" || !row.due) return name;
   return <span className={cn("flex min-w-0 items-baseline gap-2 rounded-[var(--lw-radius-xs)]", justChanged && JUST_CHANGED_CLASS)} data-lawoss-just-changed={justChanged ? "" : undefined}>

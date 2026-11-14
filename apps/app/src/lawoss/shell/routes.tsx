@@ -18,6 +18,7 @@ import { LiteMatterPage } from "../lite/pages/matter-page";
 import { InputsPage } from "../lite/pages/inputs-page";
 import { LITE_CLIENTS_PATH, LITE_INPUTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, NEW_MATTER_PATH } from "../lite/links";
 import { isExperimentHidden, isUpstreamRouteHidden } from "../feature-flags";
+import { currentUiMode, type UiMode } from "../lite/ui-mode";
 import { LawossLanding } from "../lite/landing";
 
 /** Skrytý experiment (alfa) presmeruje na náhradu, inak ukáže svoju obrazovku. Staré odkazy tak nevedú do prázdna. */
@@ -53,8 +54,14 @@ export const LAWOSS_ROUTES: ReadonlyArray<{ path: string; element: ReactElement;
   { path: TRIAGE_PATH, element: <TriagePage />, title: "lawoss.triage.title" },
 ];
 
+/**
+ * Bežný režim (alfa 14): stránka sa volá ako jej riadok v bočnom paneli („Lehoty a úlohy“), Pokročilý natívne.
+ * Ten istý kľúč ako riadok (`lite-nav.tsx`), aby sa názvy nerozišli.
+ */
+const LITE_TITLES: Readonly<Record<string, string>> = { "/lehoty": "lawoss.lite.nav_deadlines_tasks" };
+
 /** Header title for a LAWOSS screen in the shared shell, so it never reads as a chat. */
-export function lawossRouteTitle(pathname: string): string | undefined {
-  const key = LAWOSS_ROUTES.find((route) => route.path === pathname)?.title;
+export function lawossRouteTitle(pathname: string, mode: UiMode = currentUiMode()): string | undefined {
+  const key = (mode === "lite" ? LITE_TITLES[pathname] : undefined) ?? LAWOSS_ROUTES.find((route) => route.path === pathname)?.title;
   return key ? t(key) : undefined;
 }

@@ -525,6 +525,26 @@
 .lw-nav-meta { margin-left: auto; flex: none; font-family: var(--lw-font-mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--lw-text-tertiary); }
 .lw-nav-meta[data-tone="warning"] { color: var(--lw-warning); }
 .lw-row-due { flex: none; white-space: nowrap; font-family: var(--lw-font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+/* Alfa 14, bežný režim: riadok klienta. Tlačidlá Nový chat a Možnosti priečinka (`[data-workspace-actions]`) si
+   miesto v riadku berú len vtedy, keď sú vidieť: pri hoveri, zameraní klávesnicou (`:focus-visible`, nie fokus po
+   kliknutí, ktorý by ich nechal svietiť) a pri otvorenej ponuke. Vtedy ich miesto preberie lehota vpravo, ktorá sa
+   skryje; inak lehota sedí vpravo a meno sa skráti pred ňou. Prázdne miesto bodky neprečítaného chatu sa nerezervuje
+   a tlačidlá sa posunú k šípke. Bez animácie (žiadny pohyb pri prefers-reduced-motion). Pokročilý režim natívne. */
+@media (hover: hover) {
+  :root[data-lawoss-ui="lite"] .lw-chat-sidebar div:has(> [data-workspace-actions]):not(:hover, :has(:focus-visible), :has([data-popup-open])) [data-workspace-drag-handle] { padding-right: 0; }
+  :root[data-lawoss-ui="lite"] .lw-chat-sidebar div:has(> [data-workspace-actions]):not(:hover, :has(:focus-visible), :has([data-popup-open])) > [data-workspace-actions] > * { opacity: 0; }
+  :root[data-lawoss-ui="lite"] .lw-chat-sidebar div:has(> [data-workspace-actions]):is(:hover, :has(:focus-visible), :has([data-popup-open])) [data-lawoss-row-due] { display: none; }
+}
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar [data-workspace-drag-handle] + span:empty { display: none; }
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar div:has(> [data-workspace-actions]):has([data-workspace-drag-handle] + span:empty) > [data-workspace-actions] { right: 2.5rem; }
+/* Alfa 14, bežný režim: zlatá je len položka otvorenej trasy. Keď je aktívna položka pod klientom (Prehľad, Dokumenty,
+   Chaty, prípad, chat), riadok klienta ostane len jemne zvýraznený ako predok, bez glazúry a odlesku. */
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar li:has(.lw-sidebar-session[data-active]) .lw-sidebar-item[data-active] {
+  background: color-mix(in srgb, var(--sidebar-accent) 50%, transparent);
+  color: var(--sidebar-foreground);
+  box-shadow: none;
+}
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar li:has(.lw-sidebar-session[data-active]) .lw-sidebar-item[data-active]::after { content: none; animation: none; }
 .lw-registers-dot { flex: none; width: 7px; height: 7px; border-radius: var(--lw-radius-full); background: var(--lw-text-tertiary); }
 .lw-registers-dot[data-state="ready"] { background: var(--lw-success); }
 .lw-registers-dot[data-state="failing"] { background: var(--lw-warning); }

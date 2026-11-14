@@ -6,6 +6,8 @@ import type { McpStatusMap } from "@/app/types";
 import type { Language } from "@/i18n";
 import { MARKETPLACE_MCP_SERVERS } from "../domains/marketplace/mcp-servers";
 import type { OkfReadResult } from "../okf/read-model";
+import { LEHOTY_PATH } from "./links";
+import type { UiMode } from "./ui-mode";
 
 /**
  * Počet lehôt po termíne a do 7 dní z už prečítaného prehľadu praxe (súčty z `buildOverview`, žiadne ďalšie čítanie).
@@ -49,4 +51,33 @@ const REPORT_SITE = "https://lawoss.app";
 export function feedbackPageUrl(locale: Language): string {
   const site = locale === "sk" ? "sk" : locale === "cs" ? "cz" : "en";
   return `${REPORT_SITE}/${site}/alfa/hlasenie`;
+}
+
+/** Segment cesty ako ID projektu (`workspaceViewRoute` ho kóduje); poškodený segment ostane, ako je. */
+function decodeSegment(segment: string): string {
+  try { return decodeURIComponent(segment); } catch { return segment; }
+}
+
+/**
+ * Projekt, ktorému patrí trasa bežného režimu mimo stromu klienta: natívne stránky projektu (`/workspace/<id>/…`:
+ * Prehľad, Dokumenty, Chaty, chat) a lehoty jedného klienta (`/lehoty?klient=<id>`). Ostatné trasy (Dnes, Lehoty
+ * a úlohy, Klienti, Na zaradenie, Nastavenia…) sú globálne: `null`.
+ */
+export function routeProject(pathname: string, search: string): string | null {
+  const workspace = /^\/workspace\/([^/]+)(?:\/|$)/.exec(pathname)?.[1];
+  if (workspace) return decodeSegment(workspace);
+  return pathname === LEHOTY_PATH ? new URLSearchParams(search).get("klient") : null;
+}
+
+/**
+ * Riadok klienta je aktívny (zlatá glazúra v bežnom režime). Trasa vo veci, klientovi alebo chate stromu (`focused`)
+ * rozhoduje v oboch režimoch. Inak Pokročilý režim natívne podľa vybraného projektu; bežný len vtedy, keď trasa
+ * patrí tomuto projektu: na globálnej stránke (Dnes, Lehoty a úlohy) ostane klient rozbalený, ale nie aktívny,
+ * aby nesvietili dve položky naraz. Keď je aktívna položka pod klientom, glazúru riadku klienta stlmí CSS
+ * (`lawoss.css`, bežný režim).
+ */
+export function clientRowActive(input: { mode: UiMode; projectId: string; isSelected: boolean; focused?: string | null; pathname: string; search: string }): boolean {
+  if (input.focused) return input.focused === input.projectId;
+  if (input.mode !== "lite") return input.isSelected;
+  return routeProject(input.pathname, input.search) === input.projectId;
 }
