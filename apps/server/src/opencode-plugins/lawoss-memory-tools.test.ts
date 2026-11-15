@@ -67,6 +67,11 @@ test("lawoss_memory posts the case folder of this chat to its own client and nev
     expect(fixed).toContain("rows with the state pending in the input register VSTUPY.md of the client's folder and of every case");
     expect(fixed).toContain("Speak to the lawyer in plain language.");
     expect(fixed).toContain("say in one sentence what the user can do next");
+    // #426: a client without Spisy/ (not onboarded) has no case memory; the agent must not invent or describe it.
+    expect(fixed).toContain("A client folder without a Spisy/ folder, without a client card and without a memory/ folder is not yet onboarded into the office standard and has no case memory.");
+    expect(fixed).toContain("say plainly that no deadlines or tasks are recorded for this client because it has no case memory yet");
+    expect(fixed).toContain("Never say that memory, a register or records of this client exist and never describe what they contain.");
+    expect(fixed).toContain("Offer either to go through the documents in the folder and look for deadlines in them, or to onboard the client into the office standard first.");
     // The text is fixed: a second read gives the same bytes (prompt caching).
     expect((await plugin.system()).join("\n")).toBe(fixed);
   } finally {
