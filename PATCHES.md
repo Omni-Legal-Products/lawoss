@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Alfa 13: nálezy z testu (#422–#428) (2026-11-15)
+
+Nálezy MČ z testu alfy 13 (issues #422, #426, #427, #428). Hlavička behu nástrojov (#427) je pri riadku `tool-run.tsx` (N-A8-5).
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/workspace/project-home.tsx`, `apps/app/src/lawoss/lite/pages/client-dashboard.css` (LAWOSS, + test `tests/lawoss-klient-prehlad-alfa14.test.tsx`) | #428: v bežnom režime hlavička Prehľadu klienta neponúka „Pridať poznámku“ ani „Nová úloha“. Tlačidlá skrýva len CSS (`:root[data-lawoss-ui="lite"]`, 2. a 3. dieťa riadku tlačidiel; prázdny riadok bez iniciál a nahrávania sa skryje celý). Kontextovú ponuku hlavičky (portál) CSS nedosiahne: +1 import `useUiMode`, +1 riadok `noteTaskHidden` s komentárom a podmienka pri dvoch `ContextMenuItem`. Režim Pokročilé je bez zmeny. |
+
 ## Alfa 14: čitateľné karty súhlasu pri novom prípade a úlohe vetou (2026-11-15)
 
 Nálezy z testu vetvy alfa 14 (`test-vetva-alfa14.md` č. 1 a 3): nový prípad vetou ukázal päť kariet „Spustiť príkaz v počítači?“ so surovým `node …/okf.js`, úloha vetou sa zapísala ako lehota.

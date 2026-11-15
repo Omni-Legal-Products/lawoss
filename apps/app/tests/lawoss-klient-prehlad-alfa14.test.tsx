@@ -282,7 +282,15 @@ describe("pole chatu a stránka", () => {
     expect(source("react-app/domains/session/chat/session-page.tsx")).toContain("leading={<ClientInitials workspaceId={props.selectedWorkspaceId} name={projectName} />}");
     const css = source("lawoss/lite/pages/client-dashboard.css");
     expect(css).toContain(':root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header > div:nth-child(2) > div:first-child { display: none; }');
-    expect(css).toContain("A5:");
+    expect(css).toContain("A5 (#428):");
+    // #428: „Pridať poznámku“ a „Nová úloha“ sú 2. a 3. dieťa riadku tlačidiel (hneď za skupinou „Nový chat“) a bežný
+    // režim ich skryje; kontextová ponuka (portál) ich skrýva podmienkou v TSX. Režim Pokročilé ich ukazuje.
+    expect(home).toMatch(/<\/DropdownMenu> : null\}\s*<\/div>\s*<Button [^>]*onClick=\{\(\) => setNoteOpen\(true\)\}>[^\n]*\n\s*<Button [^>]*onClick=\{\(\) => setTaskOpen\(true\)\}>/);
+    expect(css).toContain(':root[data-lawoss-ui="lite"] .lw-project-home-header header > div:nth-child(2) > button:is(:nth-child(2), :nth-child(3)) { display: none; }');
+    expect(css).toContain(':root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header > div:nth-child(2):not(:has(> button:nth-child(n+4))) { display: none; }');
+    expect(home).toContain('const noteTaskHidden = useUiMode() === "lite";');
+    expect(home).toContain('{!noteTaskHidden && <ContextMenuItem onClick={() => setNoteOpen(true)}>');
+    expect(home).toContain('{!noteTaskHidden && <ContextMenuItem onClick={() => setTaskOpen(true)}>');
     expect(css).toContain("prefers-reduced-motion");
     // „Pridať poznámku“ a „Nová úloha“ v riadku názvu: oba riadky hlavičky sú `display: contents` (len CSS, len s iniciálami).
     expect(css).toContain(':root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) > div:is(:first-child, :nth-child(2)) { display: contents; }');

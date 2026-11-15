@@ -142,9 +142,14 @@
 /* Hlavička klienta (upstream `project-home.tsx`) v bežnom režime, len pri klientovi s prehľadom z OKF:
    zlaté „Nový chat“ nahrádza pole chatu dole (len keď pole chatu na stránke je, nie pri koreni praxe) (nový chat je aj v bočnom paneli). Prvá skupina v druhom riadku
    hlavičky je práve tlačidlo „Nový chat“ (test lawoss-klient-prehlad-alfa14 stráži túto štruktúru).
-   A5: „Pridať poznámku“ a „Nová úloha“ zatiaľ ostávajú ako tiché sekundárne tlačidlá; odstrániť po overení vety
-   „Nová úloha“ v chate (pri overení 14. 11. nefungovala). */
+   A5 (#428): „Pridať poznámku“ a „Nová úloha“ (2. a 3. dieťa riadku tlačidiel) sú v bežnom režime skryté vždy;
+   poznámku a úlohu advokát zadá vetou v chate. Režim Pokročilé ich ukazuje. Kontextovú ponuku (portál) CSS nedosiahne,
+   tam ich skrýva podmienka `noteTaskHidden` v project-home.tsx. */
 :root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header > div:nth-child(2) > div:first-child { display: none; }
+:root[data-lawoss-ui="lite"] .lw-project-home-header header > div:nth-child(2) > button:is(:nth-child(2), :nth-child(3)) { display: none; }
+/* Bez iniciál a bez tlačidla nahrávania by po skrytí ostal prázdny riadok s okrajom `mt-5`. S iniciálami je riadok
+   `display: contents` (pravidlo nižšie má vyššiu špecifickosť) a medzeru nenechá. */
+:root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header > div:nth-child(2):not(:has(> button:nth-child(n+4))) { display: none; }
 
 /* Iniciály klienta pred názvom (🟡 LAWOSS hák `leading` v project-home.tsx). Bez poľa chatu (koreň praxe) ostanú
    iniciály a názov v jednom riadku a tlačidlá pod nimi. */
@@ -155,8 +160,8 @@
   font-size: 16px; font-weight: 600; letter-spacing: 0.02em;
 }
 :root[data-lawoss-ui="lite"] .lw-project-home-header header > div:first-child:has(> .lw-klient-initials) { flex-flow: row wrap; align-items: center; gap: 12px 14px; }
-/* Hlavička klienta v jednom riadku: iniciály, názov (ceruzka ostáva pri ňom), tiché „Pridať poznámku“ a „Nová úloha“,
-   potom pripnutie, zdieľanie a Personalizácia. Len CSS nad upstream značkami: oba riadky hlavičky sú `display: contents`
+/* Hlavička klienta v jednom riadku: iniciály, názov (ceruzka ostáva pri ňom), prípadné ďalšie tlačidlá riadku
+   (poznámka a úloha sú od #428 skryté), potom pripnutie, zdieľanie a Personalizácia. Len CSS nad upstream značkami: oba riadky hlavičky sú `display: contents`
    a poradie dáva `order` (poradie fokusu ostáva podľa DOM: názov, ikony, potom tlačidlá). Na úzkej šírke sa riadok
    zalomí. Len s poľom chatu na stránke (ako skrytie „Nový chat“): pri koreni praxe ostanú upstream riadky. */
 :root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
@@ -167,7 +172,7 @@
 :root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header:has(> div:first-child > .lw-klient-initials) > div:nth-child(2) > button { height: 32px; padding-inline: 10px; color: var(--lw-text-secondary); }
 :root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header > div:first-child:has(> .lw-klient-initials) > :last-child { order: 3; }
 /* Názov klienta jedným riadkom s „…“ (spec-lehoty.md C); celý názov je v bočnom paneli aj v titulku okna (upstream
-   `h1` nemá `title`, len CSS). Pri nedostatku miesta „Pridať poznámku“ a „Nová úloha“ len ako ikony: text sa neskryje,
+   `h1` nemá `title`, len CSS). Pri nedostatku miesta tlačidlá riadku (pred #428 „Pridať poznámku“ a „Nová úloha“) len ako ikony: text sa neskryje,
    len oreže (`overflow: hidden`), takže ostáva menom tlačidla pre čítačku. */
 :root[data-lawoss-ui="lite"] [data-testid="project-home"]:has([data-lawoss-chatbar]) .lw-project-home-header header > div:first-child:has(> .lw-klient-initials) > :nth-child(2) h1 {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal;

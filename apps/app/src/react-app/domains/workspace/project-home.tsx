@@ -32,6 +32,7 @@ import { useProjectFavoritesStore } from "./project-favorites-store";
 import { defaultProjectFields, useProjectDefaultsStore, withInitialProjectFields } from "./project-defaults-store";
 import { t } from "@/i18n";
 import { isHiddenSettingsTab, isProjectViewHidden } from "@/lawoss/feature-flags";
+import { useUiMode } from "@/lawoss/lite/ui-mode"; // 🟡 LAWOSS (#428)
 import { projectErrorMessage } from "./project-errors";
 import { ProjectShareButton, ProjectSyncNotice } from "./project-sync";
 import { deleteProjectNote } from "./delete-project-note";
@@ -65,6 +66,8 @@ export function ProjectHome(props: {
   const recordingStarting = useRecorderStore((state) => state.starting || Boolean(state.importing) || Boolean(state.recording && state.recording.id === state.dictationRecordingId));
   const recordingFinalizing = useRecorderStore((state) => state.finalizing);
   const recorderHidden = isHiddenSettingsTab("recorder");
+  // 🟡 LAWOSS (#428): v bežnom režime poznámka a úloha nie sú v kontextovej ponuke hlavičky (tlačidlá skrýva client-dashboard.css).
+  const noteTaskHidden = useUiMode() === "lite";
   const recordLabel = t(recordingFinalizing ? "recorder.finishing" : recordingActive ? "recorder.stop_recording" : "recorder.record");
   const isFavorite = useProjectFavoritesStore((state) => state.favoriteIds.includes(workspaceId));
   const toggleFavorite = useProjectFavoritesStore((state) => state.toggleFavorite);
@@ -156,8 +159,8 @@ export function ProjectHome(props: {
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem disabled={sessionStarting || recordingFinalizing} onClick={() => { void newSession(recordingActive); }}><SquarePen strokeWidth={1.5} />{t("projects.new_chat")}</ContextMenuItem>
-          <ContextMenuItem onClick={() => setNoteOpen(true)}><StickyNote />{t("projects.add_note")}</ContextMenuItem>
-          <ContextMenuItem onClick={() => setTaskOpen(true)}><SquareCheck />{t("tasks.new_task")}</ContextMenuItem>
+          {!noteTaskHidden && <ContextMenuItem onClick={() => setNoteOpen(true)}><StickyNote />{t("projects.add_note")}</ContextMenuItem>}
+          {!noteTaskHidden && <ContextMenuItem onClick={() => setTaskOpen(true)}><SquareCheck />{t("tasks.new_task")}</ContextMenuItem>}
           {!recorderHidden && <ContextMenuItem disabled={recordingStarting || recordingFinalizing} onClick={props.onStartRecording}><Mic />{recordLabel}</ContextMenuItem>}
           <ContextMenuSeparator />
           <ContextMenuItem onClick={() => toggleFavorite(workspaceId)}><Pin />{favoriteLabel}</ContextMenuItem>
