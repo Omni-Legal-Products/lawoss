@@ -314,6 +314,11 @@ test("#417: nová úloha prípadu: náhľad s názvom prípadu, potom riadok pok
   expect(decision.task).toBeUndefined();
   await f.write({ matter: f.cases[1], record: record("D-001", "decision", "L2", "Rozhodnutie", "SYN"), reason: "SYN", apply: true, approved: decision.approved });
   expect(await stat(join(f.cases[1]!, "VSTUPY.md")).catch(() => null)).toBeNull();
+  // A task with `deadlines` (e.g. from a document) is not the lawyer's instruction: no row, no task part.
+  const dated = record("T-001", "task", "L2", "Odpoveď na žalobu", "SYN", "state: pending\ndeadlines: [\"2026-12-01 Odpoveď na žalobu\"]\n");
+  const fromDocument = previewOf(await f.write({ matter: f.cases[1], record: dated, reason: "SYN" }));
+  expect(fromDocument.type).toBe("task");
+  expect(fromDocument.task).toBeUndefined();
   const fresh = previewOf(await f.write({ matter: f.cases[1], record: task(), reason: "SYN" }));
   expect(fresh.task).toMatchObject({ case: "Nájom skladu", inputId: "IN-001" });
   await f.write({ matter: f.cases[1], record: task(), reason: "SYN", apply: true, approved: fresh.approved });

@@ -279,7 +279,9 @@ export async function writeMatterMemoryForChat(config: ServerConfig, workspace: 
   const file = await canonicalPath(plan.file);
   if (!writable(file, own)) throw notOwn("written");
   // #417: a new task of a case is the lawyer's instruction like a deadline: its row in the case's input register.
-  const task = !client && plan.kind === "create" && plan.type === "task" ? await taskRegister(target, own) : null;
+  // A task with `deadlines` may come from a document, so it is not registered as the lawyer's instruction.
+  const instructed = !client && plan.kind === "create" && plan.type === "task" && !plan.fields.some((field) => field.startsWith("deadlines:"));
+  const task = instructed ? await taskRegister(target, own) : null;
   // Bound to the file, the preview and the exact bytes of the record that will be written (and the register as shown).
   const token = createHash("sha256").update(`${file}\0${plan.recordHash}\0${preview.out}${task ? `\0${task.register}\0${registerHash(task.before)}\0${task.inputId}` : ""}`).digest("hex");
   const shown = shownPath(file, own.root);
