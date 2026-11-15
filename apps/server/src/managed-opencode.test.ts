@@ -23,7 +23,7 @@ if (process.env.LEGALWORK_MANAGED_EXECUTABLE_FIXTURE !== "1") {
       const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       const output = stdout + stderr;
       expect(code, output).toBe(0);
-      expect(output).toContain("15 pass");
+      expect(output).toContain("17 pass");
       expect(output).toContain("0 fail");
     } finally {
       clearTimeout(timeout);
@@ -239,6 +239,26 @@ test("matching version from another PID cannot mark the managed process ready", 
   expect(published).toBe(false);
   expect(() => process.kill(Number(readFileSync(counter + ".pid", "utf8")), 0)).toThrow();
 }, 10000);
+
+// LAWOSS #454: the lifecycle restarts only an engine that exits on its own after startup.
+test("#454: an engine killed after startup reports its unexpected exit", async () => {
+  const { bin, counter, candidateBuild } = await fakeBin();
+  const server = await createManagedOpencodeServer({ bin, candidateBuild, cwd: dir!, env: { FAKE_OPENCODE_COUNTER: counter } });
+  try {
+    process.kill(Number(readFileSync(counter + ".pid", "utf8")), "SIGKILL");
+    expect(await server.unexpectedExit).toEqual({ code: null, signal: "SIGKILL" });
+    expect(server.running()).toBe(false);
+  } finally { await server.close(); }
+}, 20000);
+
+test("#454: an intentional close never reports an unexpected exit", async () => {
+  const { bin, counter, candidateBuild } = await fakeBin();
+  const server = await createManagedOpencodeServer({ bin, candidateBuild, cwd: dir!, env: { FAKE_OPENCODE_COUNTER: counter } });
+  await server.close();
+  expect(server.running()).toBe(false);
+  const outcome = await Promise.race([server.unexpectedExit.then(() => "reported"), new Promise(resolve => setTimeout(resolve, 500, "silent"))]);
+  expect(outcome).toBe("silent");
+}, 20000);
 
 function startupConfig(): ServerConfig {
   return { host: "127.0.0.1", port: 0, token: "test", hostToken: "host", workspaces: [], authorizedRoots: [],

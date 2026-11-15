@@ -44,7 +44,7 @@ for (const scenario of ["publish", "rollback", "close"]) {
       const workspace = { id: "project", path: ${JSON.stringify(root)}, name: "Project", preset: "starter", workspaceType: "local" };
       const config = { workspaces: [workspace] };
       const lifecycle = await startManagedEngineLifecycle({ config, database: "synthetic-no-database", service: {}, create: async mode => {
-        const entry = { mode, url: "http://127.0.0.1:" + (32100 + created.length), username: "synthetic", password: "synthetic", closed: false, async close() { this.closed = true; } };
+        const entry = { mode, url: "http://127.0.0.1:" + (32100 + created.length), username: "synthetic", password: "synthetic", closed: false, unexpectedExit: new Promise(() => {}), async close() { this.closed = true; } };
         created.push(entry); return entry;
       } });
       const originalURL = config.opencodeBaseUrl, originalAffinity = config.managedImageAffinity(workspace);
@@ -133,7 +133,7 @@ test("catalog reload defers active sessions, admission and service-mode sign-ins
     const workspace = { id: "project", path: ${JSON.stringify(root)}, name: "Project", preset: "starter", workspaceType: "local" }, config = { workspaces: [workspace] };
     const lifecycle = await startManagedEngineLifecycle({ config, database: "synthetic", service: {}, create: async mode => {
       assert.equal(created.filter(entry => !entry.closed).length, 0, "previous child must close before replacement starts");
-      const child = { mode, url: "http://127.0.0.1:" + (32500 + created.length), username: "synthetic", password: "synthetic", closed: false, async close() { this.closed = true; } };
+      const child = { mode, url: "http://127.0.0.1:" + (32500 + created.length), username: "synthetic", password: "synthetic", closed: false, unexpectedExit: new Promise(() => {}), async close() { this.closed = true; } };
       created.push(child); return child;
     } });
     try {

@@ -7,7 +7,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
-import type { LegalworkServerStatus } from "../../../../app/lib/legalwork-server";
+import type { LegalworkServerClient, LegalworkServerStatus } from "../../../../app/lib/legalwork-server";
+// 🟡 LAWOSS #454: pripojený server ešte neznamená bežiaci engine.
+import { useEngineHealth, type EngineHealth } from "../../../../lawoss/shell/engine-health";
 
 const STATUS_BAR_BOOT_STARTED_AT = Date.now();
 const STATUS_BAR_INITIALIZING_MS = 15_000;
@@ -46,6 +48,7 @@ type StatusIndicatorProps = {
   mcpConnectedCount: number;
   loading?: boolean;
   initializing: boolean;
+  engineHealth: EngineHealth | null;
 };
 
 function StatusIndicator(props: StatusIndicatorProps) {
@@ -58,6 +61,21 @@ function StatusIndicator(props: StatusIndicatorProps) {
         </span>
         <span className="truncate text-muted-foreground text-xs">
           {t("session.loading_detail")}
+        </span>
+      </div>
+    );
+  }
+
+  if (props.engineHealth === "restarting" || props.engineHealth === "unavailable") {
+    const restarting = props.engineHealth === "restarting";
+    return (
+      <div className="flex min-w-0 items-center gap-2.5" role="status">
+        <StatusDot variant={restarting ? "loading" : "disconnected"} />
+        <span className="shrink-0 font-medium text-foreground text-xs">
+          {t(restarting ? "lawoss.status.engine_restarting" : "lawoss.status.engine_unavailable")}
+        </span>
+        <span className="truncate text-muted-foreground text-xs">
+          {t(restarting ? "lawoss.status.engine_restarting_hint" : "lawoss.status.engine_unavailable_hint")}
         </span>
       </div>
     );
@@ -126,10 +144,12 @@ export type StatusBarProps = {
   loading?: boolean;
   showSettingsButton?: boolean;
   initializing?: boolean;
+  legalworkServerClient?: Pick<LegalworkServerClient, "health"> | null;
 };
 
 export function StatusBar(props: StatusBarProps) {
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const engineHealth = useEngineHealth(props.legalworkServerClient);
   const [initializing, setInitializing] = useState(
     () => Date.now() - STATUS_BAR_BOOT_STARTED_AT < STATUS_BAR_INITIALIZING_MS,
   );
@@ -165,6 +185,7 @@ export function StatusBar(props: StatusBarProps) {
           mcpConnectedCount={props.mcpConnectedCount}
           loading={props.loading}
           initializing={initializing}
+          engineHealth={engineHealth}
         />
 
         <div className="flex items-center gap-1">

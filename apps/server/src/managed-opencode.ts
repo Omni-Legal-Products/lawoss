@@ -14,6 +14,7 @@ import { engineStartTimeoutMs } from "./lawoss/engine-start-timeout.js";
 import { killProcessTree } from "./lawoss/process-tree.js";
 // LAWOSS: engine a jeho MCP neprežijú pád appky (rozpočet RAM 2 GB, #367).
 import { watchEngineParent } from "./lawoss/engine-parent-watchdog.js";
+import type { EngineExit } from "./lawoss/engine-restart.js";
 
 export type ManagedOpencodeServer = {
   url: string;
@@ -21,6 +22,8 @@ export type ManagedOpencodeServer = {
   password: string;
   pid: number | null;
   running: () => boolean;
+  // 🟡 LAWOSS #454: resolves only when the engine exits on its own after startup, never after close().
+  unexpectedExit: Promise<EngineExit>;
   execution: OpencodeExecutionSnapshot;
   close: () => Promise<void>;
 };
@@ -406,17 +409,23 @@ export async function createManagedOpencodeServer(options: {
       options.onAuthenticated?.({ url, username, password, pid: child.pid ?? null });
       await waitForMigration(child, url, username, password, options.signal, options.onMigrationProgress);
       options.signal?.removeEventListener("abort", abortStartup);
-      child.once("exit", (code, signal) => {
+      let reportUnexpectedExit: (exit: EngineExit) => void = () => {};
+      const unexpectedExit = new Promise<EngineExit>((resolve) => { reportUnexpectedExit = resolve; });
+      const onExitAfterStartup = (code: number | null, signal: NodeJS.Signals | null) => {
         if (!closing) {
           console.error(`[managed-opencode] engine exited after startup (code ${code}, signal ${signal})${lastStderr.trim() ? `: ${lastStderr.trim()}` : ""}`);
+          reportUnexpectedExit({ code, signal });
         }
-      });
+      };
+      if (child.exitCode !== null || child.signalCode !== null) onExitAfterStartup(child.exitCode, child.signalCode);
+      else child.once("exit", onExitAfterStartup);
       return {
         url,
         username,
         password,
         pid: child.pid ?? null,
         running: () => child.exitCode === null && child.signalCode === null,
+        unexpectedExit,
         execution: { command, args, cwd: options.cwd, env: injectedEnv },
         close: () => {
           closing = true;

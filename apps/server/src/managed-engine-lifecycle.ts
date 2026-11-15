@@ -13,6 +13,8 @@ import type { ServerConfig } from "./types.js";
 import { engineStorageDir } from "./engine-storage.js";
 import { legacyMcpCredentialImportPending, migrateLegacyMcpCredentials } from "./legacy-mcp-credentials.js";
 import { importLegacyProviderCredentials } from "./legacy-provider-credentials.js";
+// 🟡 LAWOSS #454: engine, ktorý po štarte sám skončí, sa znova spustí (lawoss/engine-restart.ts).
+import { createEngineRestartBudget, sleepUnlessAborted, type EngineExit, type EngineRestartOptions } from "./lawoss/engine-restart.js";
 
 /** One engine at a time. Plain serve makes history readable while the global
  * native recovery sweep is held; only upstream service mode resumes old work. */
@@ -22,6 +24,7 @@ export async function startManagedEngineLifecycle(options: {
   legacyMcpAuthPath?: string;
   service: ManagedOpencodeServiceOptions;
   create: (mode: "service" | "recovery", beforeSpawn?: () => Promise<void>) => Promise<ManagedOpencodeServer>;
+  restart?: EngineRestartOptions;
 }) {
   const { config } = options;
   const legacyMcpSource = options.legacyMcpAuthPath;
@@ -39,6 +42,14 @@ export async function startManagedEngineLifecycle(options: {
   let catalogReloading = false;
   let events: AbortController | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  // 🟡 LAWOSS #454
+  const restartBudget = createEngineRestartBudget(options.restart);
+  const lifetime = new AbortController();
+  let outage: "restarting" | "failed" | undefined;
+  let restarting: Promise<void> | undefined;
+  const outageError = () => outage === "restarting"
+    ? new ApiError(503, "engine_restarting", "The agent engine stopped unexpectedly and is restarting. Retry this action in a moment.")
+    : new ApiError(503, "engine_restart_failed", "The agent engine stopped and could not be restarted. Restart the app.");
   const prepareStoppedApprovals = async () => {
     if (endpointLive) throw new Error("Saved approval migration requires a stopped managed engine.");
     const migrated = await migrateStoppedNativeSavedApprovals(config, options.database);
@@ -53,6 +64,12 @@ export async function startManagedEngineLifecycle(options: {
   await prepareStoppedApprovals();
   const held = (await inspectNativeEngineRecovery(options.database)).sessions;
   const heldIDs = new Set(held.map(session => session.id));
+  // 🟡 LAWOSS #454: work interrupted by a crash is held like work found at startup.
+  const holdInterrupted = async () => {
+    for (const session of (await inspectNativeEngineRecovery(options.database)).sessions) {
+      if (!heldIDs.has(session.id)) { held.push(session); heldIDs.add(session.id); }
+    }
+  };
   const prepareLegacyPolicies = async () => {
     await restoreRegisteredLegacySessionPermissions(config, client());
     await assertRegisteredLegacySessionPermissionsReady(config, client());
@@ -88,6 +105,7 @@ export async function startManagedEngineLifecycle(options: {
       workspace.directory = workspace.path;
     }
     endpointLive = true;
+    restartBudget.started(); supervise(engine);
     // Session get/update is passive in the released API. Restore original chat
     // policies before service promotion can resume any interrupted agent work.
     try { await prepareLegacyPolicies(); } catch (error) { remember(error); }
@@ -114,7 +132,7 @@ export async function startManagedEngineLifecycle(options: {
   };
   const refresh = (explicit = true) => {
     checking ??= (async () => {
-      if (closed || mode === "service" || mode === "promoting" || serviceStartupFailed && !explicit) return;
+      if (closed || outage || mode === "service" || mode === "promoting" || serviceStartupFailed && !explicit) return;
       if (!await authenticationIdle()) { scheduleIdleRetry(1000); return; }
       if (admissions > 0 || Object.keys(await client().session.active()).length > 0) { failure = undefined; scheduleIdleRetry(); return; }
       const current = await inspectNativeEngineRecovery(options.database);
@@ -160,7 +178,7 @@ export async function startManagedEngineLifecycle(options: {
   };
   const reloadCatalog = () => {
     if (catalogReload) return catalogReload;
-    if (closed || mode !== "service" || checking || admissions > 0) return Promise.resolve(false);
+    if (closed || outage || mode !== "service" || checking || admissions > 0) return Promise.resolve(false);
     let reloaded = false;
     checking = (async () => {
       // Close admission before asynchronous idle checks. Existing sessions and
@@ -176,15 +194,59 @@ export async function startManagedEngineLifecycle(options: {
     catalogReload = checking.then(() => reloaded).finally(() => { catalogReload = undefined; });
     return catalogReload;
   };
-  let attemptedService = false;
-  try { await preflight(); attemptedService = true; engine = await createStopped("service", preflight); mode = "service"; }
-  catch (error) { remember(error); serviceStartupFailed = attemptedService; engine = await createStopped("recovery"); }
-  await publish();
+  const start = async () => {
+    let attemptedService = false;
+    try { await preflight(); attemptedService = true; engine = await createStopped("service", preflight); mode = "service"; }
+    catch (error) { remember(error); serviceStartupFailed = attemptedService; mode = "recovery"; engine = await createStopped("recovery"); }
+    await publish();
+  };
+  // 🟡 LAWOSS #454: restart through the same start path (DB-lock retry included) with a bounded budget.
+  const supervise = (current: ManagedOpencodeServer) => {
+    void current.unexpectedExit.then((exit) => {
+      if (closed || engine !== current) return;
+      // Queue behind a running restart: its new engine can exit before that restart returns.
+      const next = (restarting ?? Promise.resolve()).then(() => restartAfterExit(current, exit));
+      restarting = next;
+      void next.finally(() => { if (restarting === next) restarting = undefined; });
+    });
+  };
+  const restartAfterExit = async (current: ManagedOpencodeServer, exit: EngineExit) => {
+    await checking;
+    if (closed || engine !== current) return;
+    restartBudget.exited();
+    outage = "restarting"; config.managedEngineStatus = "starting";
+    endpointLive = false; imageAffinity.disconnect(); events?.abort(); events = undefined;
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = undefined; }
+    console.error(`[managed-engine] engine stopped unexpectedly (code ${exit.code}, signal ${exit.signal}); restarting`);
+    for (let delay = restartBudget.nextDelay(); delay !== null; delay = restartBudget.nextDelay()) {
+      await sleepUnlessAborted(delay, lifetime.signal);
+      if (closed) return;
+      try {
+        await stopManagedOpencodeService(options.service);
+        await holdInterrupted();
+        await start();
+        outage = undefined;
+        if (mode === "service") failure = undefined;
+        if (mode === "recovery") monitor();
+        console.warn(`[managed-engine] engine restarted in ${mode} mode`);
+        return;
+      } catch (error) {
+        if (closed) return;
+        remember(error); config.managedEngineStatus = "starting";
+        console.error(`[managed-engine] engine restart failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    outage = "failed"; config.managedEngineStatus = "error";
+    remember(outageError());
+    console.error("[managed-engine] engine restart attempts exhausted");
+  };
+  await start();
   config.managedImageAffinity = imageAffinity.resolve;
   config.managedEngineRecoveryState = () => ({ mode, heldSessions: mode === "service" ? [] : held, ...(failure ? { error: failure } : {}) });
   config.retryManagedEngineRecovery = refresh;
   config.reloadManagedEngineCatalog = reloadCatalog;
   config.withManagedEngineAdmission = async (sessionID, action) => {
+    if (outage) throw outageError();
     if (mode === "promoting" || catalogReloading) throw new ApiError(503, "engine_recovery_transition", catalogReloading
       ? "OpenCode is updating its model list. Retry this action when the update finishes."
       : "OpenCode is enabling native restart recovery. Retry this action when the engine reconnects.");
@@ -213,7 +275,8 @@ export async function startManagedEngineLifecycle(options: {
     reloadCatalog,
     async close() {
       closed = true; endpointLive = false; imageAffinity.disconnect(); delete config.managedImageAffinity; events?.abort(); if (retryTimer) clearTimeout(retryTimer);
-      await checking; await engine.close();
+      lifetime.abort();
+      await checking; await restarting; await engine.close();
       delete config.managedEngineRecoveryState; delete config.retryManagedEngineRecovery; delete config.reloadManagedEngineCatalog; delete config.withManagedEngineAdmission; delete config.observeManagedEngineResponse;
     },
   };

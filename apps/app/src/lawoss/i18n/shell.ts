@@ -29,6 +29,11 @@ export const shellEn = {
   "lawoss.shell.menu.edit": "Edit",
   "lawoss.shell.menu.view": "View",
   "lawoss.shell.menu.help": "Help",
+  // #454: status bar while the engine is down after a crash (lawoss/shell/engine-health.ts).
+  "lawoss.status.engine_restarting": "Agent is restarting",
+  "lawoss.status.engine_restarting_hint": "The agent stopped unexpectedly. The app is starting it again.",
+  "lawoss.status.engine_unavailable": "Agent unavailable",
+  "lawoss.status.engine_unavailable_hint": "The agent could not be restarted. Restart the app.",
 
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Something went wrong. Try again, or choose a different folder.",
@@ -978,6 +983,11 @@ export const shellCs = {
   "lawoss.shell.menu.edit": "Úpravy",
   "lawoss.shell.menu.view": "Zobrazení",
   "lawoss.shell.menu.help": "Nápověda",
+  // #454: stavový řádek, když engine po pádu neběží (lawoss/shell/engine-health.ts).
+  "lawoss.status.engine_restarting": "Agent se restartuje",
+  "lawoss.status.engine_restarting_hint": "Agent se nečekaně ukončil. Aplikace ho spouští znovu.",
+  "lawoss.status.engine_unavailable": "Agent je nedostupný",
+  "lawoss.status.engine_unavailable_hint": "Agenta se nepodařilo znovu spustit. Restartujte aplikaci.",
 
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Něco se nepodařilo. Zkuste to znovu, nebo vyberte jinou složku.",
@@ -1942,6 +1952,11 @@ export const shellSk = {
   "lawoss.shell.menu.edit": "Úpravy",
   "lawoss.shell.menu.view": "Zobrazenie",
   "lawoss.shell.menu.help": "Pomocník",
+  // #454: stavový riadok, keď engine po páde nebeží (lawoss/shell/engine-health.ts).
+  "lawoss.status.engine_restarting": "Agent sa reštartuje",
+  "lawoss.status.engine_restarting_hint": "Agent sa nečakane ukončil. Aplikácia ho spúšťa znova.",
+  "lawoss.status.engine_unavailable": "Agent je nedostupný",
+  "lawoss.status.engine_unavailable_hint": "Agenta sa nepodarilo znova spustiť. Reštartujte aplikáciu.",
 
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Niečo sa nepodarilo. Skúste to znova, alebo vyberte iný priečinok.",
@@ -2906,6 +2921,11 @@ export const shellDe = {
   "lawoss.shell.menu.edit": "Bearbeiten",
   "lawoss.shell.menu.view": "Ansicht",
   "lawoss.shell.menu.help": "Hilfe",
+  // #454: stavový riadok, keď engine po páde nebeží (lawoss/shell/engine-health.ts).
+  "lawoss.status.engine_restarting": "Agent wird neu gestartet",
+  "lawoss.status.engine_restarting_hint": "Der Agent wurde unerwartet beendet. Die App startet ihn neu.",
+  "lawoss.status.engine_unavailable": "Agent nicht verfügbar",
+  "lawoss.status.engine_unavailable_hint": "Der Agent konnte nicht neu gestartet werden. Starten Sie die App neu.",
 
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Etwas ist nicht gelungen. Versuchen Sie es erneut oder wählen Sie einen anderen Ordner.",
