@@ -1402,8 +1402,18 @@ var nestedClientCode = (clientName, name) => {
 var looksLikeMatterFolder = (name) => codeOf(name) !== undefined || looksLikeMatterName(name);
 var MATTERS_DIR_NAMES = new Set(["spisy", "veci", "pripady", "matters"]);
 var isMattersDirName = (name) => MATTERS_DIR_NAMES.has(fold(name));
-var COURT_FILE_NUMBER = /(?:^|[^\p{L}\d])\d{1,3} ?\p{Lu}{1,4}\p{Ll}{0,3}[ _/]\d{1,6}[_/](?:19|20)\d{2}(?![\p{L}\d])/u;
-var hasCourtFileNumber = (name) => COURT_FILE_NUMBER.test(name.normalize("NFC"));
+var SPACED_REGISTERS = ["C", "Cb", "Co", "Cob", "Cdo", "Obdo", "T", "To", "Tdo", "S", "Sa", "Sž", "K", "R", "Er", "Ek", "Em", "CoPr", "NcC", "INS", "ÚS"];
+var CASE_START = "(?:^|[^\\p{L}\\d])";
+var CASE_TAIL = "\\d{1,6}[_/-](?:19|20)\\d{2}(?![\\p{L}\\d])";
+var COURT_FILE_NUMBERS = [
+  new RegExp(`${CASE_START}\\d{1,3}\\p{Lu}\\p{L}{0,5}[_-]${CASE_TAIL}`, "u"),
+  new RegExp(`${CASE_START}\\d{1,3}[ _]?(?:${SPACED_REGISTERS.join("|")})[ _]${CASE_TAIL}`, "u"),
+  new RegExp(`${CASE_START}(?:[IVX]{1,4}|Pl)\\. ?ÚS[ _]${CASE_TAIL}`, "u")
+];
+var hasCourtFileNumber = (name) => {
+  const text = name.normalize("NFC");
+  return COURT_FILE_NUMBERS.some((pattern) => pattern.test(text));
+};
 var hasMatterCode = (name) => codeOf(name) !== undefined || hasCourtFileNumber(name);
 var isClientMatterFolder = (name, client) => client.matterCard || (client.mattersDir ? hasMatterCode(name) : looksLikeMatterFolder(name));
 

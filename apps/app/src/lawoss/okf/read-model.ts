@@ -22,7 +22,7 @@ import { addDays, buildOverview, deadlineTier, ISO_DAY, isCalendarDay, missingSc
 import type { OkfRecord } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
 import { parseWorkingProfile, PROFILE_FILE } from "../../../../../lawoss/okf/src/profile";
-import { isClientMatterFolder, isMattersDirName, nestedClientCode } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
+import { hasCourtFileNumber, isClientMatterFolder, isMattersDirName, nestedClientCode } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { validateStore } from "../../../../../lawoss/okf-pamat/src/validate.ts";
 import { selectSourceSnapshot } from "./practice-read-state";
@@ -92,7 +92,8 @@ const CLIENT_CARDS = ["client.md", "klient.md"];
 const AK_CLIENT = /^AK\/[^/]+\/[^/]+$/;
 /** Pracovní podsložky uvnitř klienta nebo věci - nejsou to samostatné věci. */
 const WORK_DIRS = new Set(["DS", "Prilohy", "Přílohy", "research", "drafts", "final", "analysis", "sources", "qa", "logs"]);
-const isWorkDir = (name: string): boolean => WORK_DIRS.has(name) || /^\d{2}_/.test(name) || name.startsWith("_");
+// #431: číslovaný pracovný priečinok („01_Podklady“), nie spisová značka so senátom a podčiarkovníkom („25_Cdo_1234_2023“).
+const isWorkDir = (name: string): boolean => WORK_DIRS.has(name) || (/^\d{2}_/.test(name) && !hasCourtFileNumber(name)) || name.startsWith("_");
 const RESERVED = new Set(["index.md", "log.md", "INDEX.md"]);
 /**
  * Chyba kontroly, ktorá robí zdroj neúplným. Neplatný dátum (`DATE_INVALID`) nie: záznam sa načíta,

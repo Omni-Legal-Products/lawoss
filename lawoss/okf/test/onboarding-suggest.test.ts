@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PRACTICE_MIN_CLIENTS, suggestOnboardingLevel, surveyFolder } from "../src/onboarding/suggest.ts";
-import { CZ_LEGAL_FORMS, SK_LEGAL_FORMS, codeOf, hasLegalForm, isClientMatterFolder, isMattersDirName, looksLikeMatterFolder, looksLikeMatterName } from "../src/onboarding/suggest-patterns.ts";
+import { CZ_LEGAL_FORMS, SK_LEGAL_FORMS, codeOf, hasCourtFileNumber, hasLegalForm, isClientMatterFolder, isMattersDirName, looksLikeMatterFolder, looksLikeMatterName } from "../src/onboarding/suggest-patterns.ts";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
@@ -347,6 +347,22 @@ test("#431: vedľa priečinka prípadov nie sú prípadom bežné mená s čísl
   const root = await tree(["Klient/client.md", "Klient/spisy/M001 Spor/a.pdf", ...[...ordinary, ...coded.filter(name => !name.includes("/"))].map(name => `Klient/${name}/x.pdf`)], "okf-suggest-431-");
   const matters = (await suggestOnboardingLevel(join(root, "Klient"))).units.find(entry => entry.path === "")?.matters.map(matter => matter.path).sort();
   expect(matters).toEqual(["spisy/M001 Spor", ...coded.filter(name => !name.includes("/"))].sort());
+});
+
+test("#431: vedľa priečinka prípadov sú prípadom aj registre s malými písmenami, pomlčka a Ústavný súd; bežné mená nie", async () => {
+  const courts = ["2CoPr_3_2024", "5CoKR_12_2023", "4CbPv_1_2022", "1NcKR_2_2024", "3OdK_45_2023", "6CoCsp_12_2023", "3CoE_5_2022", "2NcC_1_2024",
+    "12Cb_45_2026", "12Cb-45-2026", "3C-12-2024", "3 C 12-2024", "25 Cdo 1234-2023", "25_Cdo_1234_2023", "1T_5_2025", "I. ÚS 123_2020", "II. ÚS 45-2021",
+    "I. ÚS 123_2020".normalize("NFD"), "Odvolanie 8C 123_2023", "15 C 123/2023", "43 INS 8294_2021"];
+  const ordinary = ["02 Mzdy 11-2024", "3 DPH 12 2024", "Byt 3A 12-2024", "12 Fa 3-2024", "2025-01 Spor", "Zmluvy 2024", "Faktúry 11_2024"];
+  for (const name of courts) expect([name, hasCourtFileNumber(name)]).toEqual([name, true]);
+  for (const name of courts) expect([name, isClientMatterFolder(name, { matterCard: false, mattersDir: true })]).toEqual([name, true]);
+  for (const name of ordinary) expect([name, hasCourtFileNumber(name)]).toEqual([name, false]);
+  for (const name of ordinary) expect([name, isClientMatterFolder(name, { matterCard: false, mattersDir: true })]).toEqual([name, false]);
+  // Náhľad onboardingu nad skutočným stromom: tie isté prípady vedľa Spisy/.
+  const shown = courts.filter((name, index) => courts.indexOf(name.normalize("NFC")) === index && name === name.normalize("NFC") && !name.includes("/"));
+  const root = await tree(["Klient/client.md", "Klient/Spisy/M001 Spor/a.pdf", ...[...ordinary, ...shown].map(name => `Klient/${name}/x.pdf`)], "okf-suggest-431b-");
+  const matters = (await suggestOnboardingLevel(join(root, "Klient"))).units.find(entry => entry.path === "")?.matters.map(matter => matter.path).sort();
+  expect(matters).toEqual(["Spisy/M001 Spor", ...shown].sort());
 });
 
 test("#223: interný kód aj v NFD (Č001) a bez falošných pozitív bežných skratiek", () => {

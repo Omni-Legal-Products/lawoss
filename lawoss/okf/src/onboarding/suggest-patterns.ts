@@ -102,13 +102,32 @@ export const looksLikeMatterFolder = (name: string): boolean => codeOf(name) !==
 const MATTERS_DIR_NAMES = new Set(["spisy", "veci", "pripady", "matters"]);
 export const isMattersDirName = (name: string): boolean => MATTERS_DIR_NAMES.has(fold(name));
 /**
- * Spisová značka súdu v mene priečinka, prísnejšie ako `findCaseNumber` pri triedení: senát, značka registra a číslo
- * s rokom oddeleným lomkou alebo podčiarkovníkom, ktorým advokát lomku v mene priečinka nahrádza („15 C 123/2023“,
- * „12Cb_45_2026“, „Odvolanie 8C 123_2023“). Mesiac a rok s pomlčkou či medzerou („02 Mzdy 11-2024“, „3 DPH 12 2024“)
- * spisovou značkou nie sú.
+ * Registre súdov, ktoré sa v mene priečinka smú písať aj s medzerou („3 C 12-2024“, „25 Cdo 1234-2023“, „8C 123_2023“).
+ * Zámerne neúplný, konzervatívny zoznam bežných registrov SR a ČR (civilný, obchodný, odvolací, dovolací, trestný,
+ * správny, konkurzný, exekučný, insolvenčný, ústavný): s medzerou by inak bola spisovou značkou aj „12 Fa 3-2024“
+ * (faktúra) či „02 Mzdy 11-2024“. Register zlepený so senátom a oddelený podčiarkovníkom alebo pomlčkou
+ * („2CoPr_3_2024“, „12Cb-45-2026“) zoznam nepotrebuje.
  */
-const COURT_FILE_NUMBER = /(?:^|[^\p{L}\d])\d{1,3} ?\p{Lu}{1,4}\p{Ll}{0,3}[ _/]\d{1,6}[_/](?:19|20)\d{2}(?![\p{L}\d])/u;
-export const hasCourtFileNumber = (name: string): boolean => COURT_FILE_NUMBER.test(name.normalize("NFC"));
+const SPACED_REGISTERS = ["C", "Cb", "Co", "Cob", "Cdo", "Obdo", "T", "To", "Tdo", "S", "Sa", "Sž", "K", "R", "Er", "Ek", "Em", "CoPr", "NcC", "INS", "ÚS"];
+const CASE_START = "(?:^|[^\\p{L}\\d])";
+/** Číslo a rok oddelené lomkou alebo jej bežnou náhradou v mene priečinka (podčiarkovník, pomlčka). */
+const CASE_TAIL = "\\d{1,6}[_/-](?:19|20)\\d{2}(?![\\p{L}\\d])";
+/**
+ * Spisová značka súdu v mene priečinka, prísnejšie ako `findCaseNumber` pri triedení: senát, register a číslo s rokom.
+ * Register zlepený so senátom (veľké písmeno a najviac päť ďalších písmen) s `_` či `-` za ním („2CoPr_3_2024“,
+ * „1NcKR_2_2024“, „1T_5_2025“); register zo `SPACED_REGISTERS` aj s medzerou („3 C 12-2024“, „25_Cdo_1234_2023“,
+ * „Odvolanie 8C 123_2023“); Ústavný súd („I. ÚS 123_2020“, „Pl. ÚS 1_2020“). Mesiac a rok („02 Mzdy 11-2024“,
+ * „3 DPH 12 2024“), číslo bytu („Byt 3A 12-2024“) ani faktúra („12 Fa 3-2024“) spisovou značkou nie sú.
+ */
+const COURT_FILE_NUMBERS = [
+  new RegExp(`${CASE_START}\\d{1,3}\\p{Lu}\\p{L}{0,5}[_-]${CASE_TAIL}`, "u"),
+  new RegExp(`${CASE_START}\\d{1,3}[ _]?(?:${SPACED_REGISTERS.join("|")})[ _]${CASE_TAIL}`, "u"),
+  new RegExp(`${CASE_START}(?:[IVX]{1,4}|Pl)\\. ?ÚS[ _]${CASE_TAIL}`, "u"),
+];
+export const hasCourtFileNumber = (name: string): boolean => {
+  const text = name.normalize("NFC");
+  return COURT_FILE_NUMBERS.some((pattern) => pattern.test(text));
+};
 /** Silný znak veci v názve: interný kód („M001 …“) alebo spisová značka súdu („8C 123_2023“). */
 export const hasMatterCode = (name: string): boolean => codeOf(name) !== undefined || hasCourtFileNumber(name);
 /**

@@ -564,6 +564,18 @@ test("#431: vedľa spisy/ (aj malými písmenami) nie sú prípadom bežné men�
   expect(out.matters.map((m) => m.path).sort()).toEqual(["spisy/M002 Nájom", ...coded].sort());
 });
 
+test("#431: vedľa Spisy/ sú prípadom aj registre s malými písmenami, pomlčka a Ústavný súd; bežné mená nie", async () => {
+  const courts = ["2CoPr_3_2024", "5CoKR_12_2023", "4CbPv_1_2022", "1NcKR_2_2024", "3OdK_45_2023", "6CoCsp_12_2023", "3CoE_5_2022", "2NcC_1_2024",
+    "12Cb_45_2026", "12Cb-45-2026", "3C-12-2024", "3 C 12-2024", "25 Cdo 1234-2023", "25_Cdo_1234_2023", "1T_5_2025", "I. ÚS 123_2020", "II. ÚS 45-2021"];
+  const ordinary = ["02 Mzdy 11-2024", "3 DPH 12 2024", "Byt 3A 12-2024", "12 Fa 3-2024", "2025-01 Spor", "Zmluvy 2024", "Faktúry 11_2024"];
+  const out = await readWorkspaceMemory(fakeClient({
+    "client.md": "---\ntitle: Klient\n---\n",
+    "Spisy/M002 Nájom/zmluva.pdf": "%PDF",
+    ...Object.fromEntries([...ordinary, ...courts].map((name) => [`${name}/a.pdf`, "%PDF"])),
+  }), "ws", TODAY);
+  expect(out.matters.map((m) => m.path).sort()).toEqual(["Spisy/M002 Nájom", ...courts].sort());
+});
+
 test("N-A4-4: vnorený klient s vlastnou kartou nie je prípadom vonkajšieho klienta ani jeho skupinou", async () => {
   const out = await readWorkspaceMemory(fakeClient({
     "client.md": "---\ntitle: SYN Hron, a. s.\n---\n",
