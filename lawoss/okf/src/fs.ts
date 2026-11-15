@@ -1,6 +1,6 @@
 /** Súborová vrstva OKF — jediné miesto, ktoré číta a píše na disk. */
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
   CARD_ALIASES,
@@ -21,7 +21,7 @@ import {
 } from "./core.ts";
 import { LOCALIZED_TEMPLATES } from "./templates.ts";
 import { readConfiguredLawyerName } from "../../okf-pamat/src/config.ts";
-import { findOfficeDir } from "../../okf-pamat/src/store.ts";
+import { findOfficeDir, LEGACY_OFFICE_DIR, OFFICE_DIR } from "../../okf-pamat/src/store.ts";
 import { contained, missing } from "../../okf-pamat/src/workspace-memory-fs.ts";
 import { decodeText } from "../../okf-pamat/src/text-decode.ts";
 import { parseFrontmatter as parseConfig } from "../../okf-pamat/src/record.ts";
@@ -66,8 +66,43 @@ export function inheritedJurisdiction(dir: string): Jurisdiction | undefined {
   }
   const office = findOfficeDir(dir);
   const path = office ? join(office, "okf.config") : undefined;
-  if (!path || !existsSync(path) || !statSync(path).isFile()) return undefined;
-  return known(parseConfig(decodeText(readFileSync(path))).get("jurisdiction"));
+  const fromOffice = path && existsSync(path) && statSync(path).isFile() ? known(parseConfig(decodeText(readFileSync(path))).get("jurisdiction")) : undefined;
+  return fromOffice ?? known(officeProfileJurisdiction(dir));
+}
+
+/** Premenná, ktorou appka LAWOSS dá enginu (a jeho príkazom) cestu k profilu kancelárie z onboardingu. */
+export const OFFICE_PROFILE_ENV = "LAWOSS_OFFICE_PROFILE";
+const OFFICE_FOLDERS = new Set([OFFICE_DIR, LEGACY_OFFICE_DIR].map((name) => name.toLowerCase()));
+
+/** Kanonická cesta aj k ešte nezaloženému priečinku: realpath najbližšieho existujúceho predka a zvyšok mena. */
+function canonicalTarget(path: string): string {
+  let existing = resolve(path);
+  const rest: string[] = [];
+  while (!existsSync(existing) && dirname(existing) !== existing) { rest.unshift(basename(existing)); existing = dirname(existing); }
+  try { return join(realpathSync(existing), ...rest); } catch { return resolve(path); }
+}
+
+/**
+ * #415: posledná možnosť po príznaku, karte klienta a `okf.config` kancelárie. Kancelária založená appkou nemusí mať
+ * `okf.config` (štandard OKF ho nevyžaduje a appka ho nevymýšľa) a karty klientov jurisdikciu nenesú; vie ju len profil
+ * kancelárie z onboardingu appky. Appka dá enginu cestu k nemu (`LAWOSS_OFFICE_PROFILE`), profil sa číta pri každom
+ * príkaze (zmena po štarte enginu platí hneď) a platí len pre priečinky pod praxou tejto kancelárie.
+ */
+export function officeProfileJurisdiction(dir: string, env: Record<string, string | undefined> = process.env): string | undefined {
+  const file = env[OFFICE_PROFILE_ENV]?.trim();
+  if (!file || !isAbsolute(file) || !existsSync(file)) return undefined;
+  try {
+    const raw: unknown = JSON.parse(decodeText(readFileSync(file)));
+    if (!raw || typeof raw !== "object") return undefined;
+    const officeRoot: unknown = Reflect.get(raw, "officeRoot"), jurisdiction: unknown = Reflect.get(raw, "jurisdiction");
+    if (typeof officeRoot !== "string" || !isAbsolute(officeRoot) || typeof jurisdiction !== "string") return undefined;
+    const office = realpathSync(officeRoot);
+    const practice = OFFICE_FOLDERS.has(basename(office).toLowerCase()) ? dirname(office) : office;
+    const target = canonicalTarget(dir);
+    return target === practice || target.startsWith(practice.endsWith(sep) ? practice : practice + sep) ? jurisdiction : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Všetky .md pod `root`, relatívne cesty, bez šablón a skrytých priečinkov. */

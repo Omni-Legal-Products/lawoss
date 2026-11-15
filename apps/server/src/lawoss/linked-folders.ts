@@ -45,10 +45,20 @@ async function existingCanonical(path: string): Promise<string | null> {
   return path ? await canonicalPath(path).catch(() => null) : null;
 }
 
+/** Profil kancelárie z onboardingu (koreň, jurisdikcia, jazyk). */
+export const officeProfilePath = (config: ServerConfig): string => join(runtimeStorageDir(config), "lawoss-onboarding", "profile.json");
+
+/**
+ * #415: prostredie enginu s cestou k profilu kancelárie. CLI `okf` z nej pri novom prípade vezme jurisdikciu kancelárie,
+ * keď ju nemá príznak, karta klienta ani `okf.config` (kancelária appky ho mať nemusí). Cesta je stála, profil sa číta
+ * pri každom príkaze, takže platí aj kancelária založená po štarte enginu.
+ */
+export const officeProfileEnv = (config: ServerConfig): { LAWOSS_OFFICE_PROFILE: string } => ({ LAWOSS_OFFICE_PROFILE: officeProfilePath(config) });
+
 /** Koreň praxe z profilu onboardingu (ako `agent-client-boundary.ts`); bez profilu `null`. */
 export async function officeRoot(config: ServerConfig): Promise<string | null> {
   try {
-    const raw: unknown = JSON.parse(await readFile(join(runtimeStorageDir(config), "lawoss-onboarding", "profile.json"), "utf8"));
+    const raw: unknown = JSON.parse(await readFile(officeProfilePath(config), "utf8"));
     const root = raw && typeof raw === "object" && "officeRoot" in raw && typeof raw.officeRoot === "string" ? raw.officeRoot : null;
     return root ? await existingCanonical(root) : null;
   } catch {

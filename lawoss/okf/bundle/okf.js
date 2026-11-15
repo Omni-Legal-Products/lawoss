@@ -5827,7 +5827,7 @@ function existingCard2(type, exists) {
 
 // src/fs.ts
 import { existsSync as existsSync3, lstatSync as lstatSync4, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync2, realpathSync as realpathSync4, statSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { basename as basename8, dirname as dirname11, join as join15, relative as relative9, resolve as resolve13, sep as sep10 } from "node:path";
+import { basename as basename8, dirname as dirname11, isAbsolute as isAbsolute10, join as join15, relative as relative9, resolve as resolve13, sep as sep10 } from "node:path";
 function readText(path) {
   return readFileSync2(path, "utf8");
 }
@@ -5864,9 +5864,42 @@ function inheritedJurisdiction(dir) {
   }
   const office = findOfficeDir(dir);
   const path = office ? join15(office, "okf.config") : undefined;
-  if (!path || !existsSync3(path) || !statSync(path).isFile())
+  const fromOffice = path && existsSync3(path) && statSync(path).isFile() ? known(parseFrontmatter2(decodeText(readFileSync2(path))).get("jurisdiction")) : undefined;
+  return fromOffice ?? known(officeProfileJurisdiction(dir));
+}
+var OFFICE_PROFILE_ENV = "LAWOSS_OFFICE_PROFILE";
+var OFFICE_FOLDERS = new Set([OFFICE_DIR, LEGACY_OFFICE_DIR].map((name) => name.toLowerCase()));
+function canonicalTarget(path) {
+  let existing = resolve13(path);
+  const rest = [];
+  while (!existsSync3(existing) && dirname11(existing) !== existing) {
+    rest.unshift(basename8(existing));
+    existing = dirname11(existing);
+  }
+  try {
+    return join15(realpathSync4(existing), ...rest);
+  } catch {
+    return resolve13(path);
+  }
+}
+function officeProfileJurisdiction(dir, env = process.env) {
+  const file = env[OFFICE_PROFILE_ENV]?.trim();
+  if (!file || !isAbsolute10(file) || !existsSync3(file))
     return;
-  return known(parseFrontmatter2(decodeText(readFileSync2(path))).get("jurisdiction"));
+  try {
+    const raw = JSON.parse(decodeText(readFileSync2(file)));
+    if (!raw || typeof raw !== "object")
+      return;
+    const officeRoot = Reflect.get(raw, "officeRoot"), jurisdiction = Reflect.get(raw, "jurisdiction");
+    if (typeof officeRoot !== "string" || !isAbsolute10(officeRoot) || typeof jurisdiction !== "string")
+      return;
+    const office = realpathSync4(officeRoot);
+    const practice = OFFICE_FOLDERS.has(basename8(office).toLowerCase()) ? dirname11(office) : office;
+    const target = canonicalTarget(dir);
+    return target === practice || target.startsWith(practice.endsWith(sep10) ? practice : practice + sep10) ? jurisdiction : undefined;
+  } catch {
+    return;
+  }
 }
 function listMarkdown(root) {
   const out = [];
@@ -6110,7 +6143,7 @@ function newMatterFolder2(date, title) {
 
 // src/naming-fs.ts
 import { closeSync as closeSync3, constants as constants12, fstatSync as fstatSync3, fsyncSync, lstatSync as lstatSync5, mkdirSync as mkdirSync3, openSync as openSync3, opendirSync, readSync as readSync3, realpathSync as realpathSync5, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
-import { basename as basename9, dirname as dirname12, extname, isAbsolute as isAbsolute10, join as join16, relative as relative10, resolve as resolve14, sep as sep11 } from "node:path";
+import { basename as basename9, dirname as dirname12, extname, isAbsolute as isAbsolute11, join as join16, relative as relative10, resolve as resolve14, sep as sep11 } from "node:path";
 
 // ../okf-pamat/src/workspace-memory-types.ts
 var WORKSPACE_MEMORY_LIMITS = Object.freeze({ profileBytes: 256 * 1024, journalBytes: 4 * 1024 * 1024, sourceBytes: 2 * 1024 * 1024, totalBytes: 16 * 1024 * 1024, sources: 256 });
@@ -6623,7 +6656,7 @@ function parseNamingPlan(value) {
     throw new NamingSchemaError("Invalid naming plan");
   exactKeys(value, ["schema", "operationId", "fingerprint", "matterRootPhysical", "rootIdentity", "request", "profile", "memoryProfile", "documents", "markdown", "limits", "totalBytes", "linkScope"]);
   const request = parseNamingRequest(value.request);
-  if (value.schema !== "lawoss.document-naming.plan/v1" || value.operationId !== request.operationId || typeof value.fingerprint !== "string" || typeof value.matterRootPhysical !== "string" || !isAbsolute10(value.matterRootPhysical) || typeof value.rootIdentity !== "string" || !/^[0-9]+:[0-9]+$/.test(value.rootIdentity) || !object3(value.profile) || typeof value.profile.naming !== "string" || !object3(value.profile.roles) || !isPin(value.profile) || value.profile.path !== PROFILE_FILE || value.memoryProfile !== null && (!isPin(value.memoryProfile) || value.memoryProfile.path !== ".lawoss/memory-profile.json") || !Array.isArray(value.documents) || value.documents.length !== request.documents.length || !Array.isArray(value.markdown) || value.markdown.length !== request.markdownFiles.length || namingFingerprint(value.limits) !== namingFingerprint(NAMING_LIMITS) || typeof value.totalBytes !== "number" || !Number.isSafeInteger(value.totalBytes) || value.totalBytes < 0 || value.totalBytes > NAMING_LIMITS.totalBytes || value.linkScope !== "selected-files-only; unselected links are not verified")
+  if (value.schema !== "lawoss.document-naming.plan/v1" || value.operationId !== request.operationId || typeof value.fingerprint !== "string" || typeof value.matterRootPhysical !== "string" || !isAbsolute11(value.matterRootPhysical) || typeof value.rootIdentity !== "string" || !/^[0-9]+:[0-9]+$/.test(value.rootIdentity) || !object3(value.profile) || typeof value.profile.naming !== "string" || !object3(value.profile.roles) || !isPin(value.profile) || value.profile.path !== PROFILE_FILE || value.memoryProfile !== null && (!isPin(value.memoryProfile) || value.memoryProfile.path !== ".lawoss/memory-profile.json") || !Array.isArray(value.documents) || value.documents.length !== request.documents.length || !Array.isArray(value.markdown) || value.markdown.length !== request.markdownFiles.length || namingFingerprint(value.limits) !== namingFingerprint(NAMING_LIMITS) || typeof value.totalBytes !== "number" || !Number.isSafeInteger(value.totalBytes) || value.totalBytes < 0 || value.totalBytes > NAMING_LIMITS.totalBytes || value.linkScope !== "selected-files-only; unselected links are not verified")
     throw new NamingSchemaError("Invalid naming plan fields");
   for (const [i, d] of value.documents.entries()) {
     const document = request.documents[i];

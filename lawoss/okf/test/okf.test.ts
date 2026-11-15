@@ -4,7 +4,7 @@ import { realpathSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSyn
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { parseFrontmatter, planEntity, renderTemplate, validateMarkdown } from "../src/core.ts";
 import { apply, detect, plan, render, validate } from "../src/fs.ts";
@@ -237,6 +237,55 @@ describe("kontrakt spisu", () => {
     const c = capture();
     expect(run(["plan", "spis", join(root, "Klienti", "Gama", "Spisy", "A"), "--title", "Vec"], c.out)).toBe(2);
     expect(c.lines.join("\n")).toContain("--sk");
+  });
+
+  describe("#415: kancelária bez okf.config – jurisdikcia z profilu kancelárie appky", () => {
+    const cwd = process.cwd(), saved = process.env.LAWOSS_OFFICE_PROFILE;
+    afterEach(() => { process.chdir(cwd); if (saved === undefined) delete process.env.LAWOSS_OFFICE_PROFILE; else process.env.LAWOSS_OFFICE_PROFILE = saved; });
+    // Kancelária z onboardingu appky: Office/ bez okf.config, karta klienta bez jurisdikcie, profil mimo kancelárie.
+    const office = (officeRoot: (practice: string) => string, jurisdiction = "sk") => {
+      const practice = join(root, "Prax"), client = join(practice, "Klienti", "Alfa");
+      mkdirSync(join(practice, "Office", "memory"), { recursive: true });
+      writeFileSync(join(practice, "Office", "AGENTS.md"), "# Kancelária\n");
+      mkdirSync(client, { recursive: true });
+      writeFileSync(join(client, "client.md"), "---\ntype: klient\ntitle: Alfa\n---\n");
+      const profile = join(root, "app-storage", "lawoss-onboarding", "profile.json");
+      mkdirSync(dirname(profile), { recursive: true });
+      writeFileSync(profile, JSON.stringify({ officeRoot: officeRoot(practice), jurisdiction, language: "sk" }));
+      process.env.LAWOSS_OFFICE_PROFILE = profile;
+      return { practice, client, profile };
+    };
+
+    test("nový prípad bez --sk/--cz dostane jurisdikciu profilu, bez otázky; príznak vyhráva (src aj bundle)", () => {
+      const { client, profile } = office((practice) => join(practice, "Office"));
+      process.chdir(client);
+      const c = capture();
+      expect(run(["plan", "spis", "--title", "Spor", "--date", "2026-11-15", "--json"], c.out)).toBe(0);
+      expect(run(["apply", "spis", "--title", "Spor", "--date", "2026-11-15"], () => {})).toBe(0);
+      expect(parseFrontmatter(readFileSync(join(client, "Spisy", "2026-11 Spor", "matter.md"), "utf8"))?.jurisdiction).toBe("sk");
+      expect(run(["apply", "spis", "--title", "Česká vec", "--cz", "--date", "2026-11-15"], () => {})).toBe(0);
+      expect(parseFrontmatter(readFileSync(join(client, "Spisy", "2026-11 Česká vec", "matter.md"), "utf8"))?.jurisdiction).toBe("cz");
+      const cli = fileURLToPath(new URL("../bundle/okf.js", import.meta.url));
+      const bundled = spawnSync("node", [cli, "apply", "spis", "--title", "Z bundlu", "--date", "2026-11-15"], { cwd: client, encoding: "utf8", env: { ...process.env, LAWOSS_OFFICE_PROFILE: profile } });
+      expect(bundled.status).toBe(0);
+      expect(parseFrontmatter(readFileSync(join(client, "Spisy", "2026-11 Z bundlu", "matter.md"), "utf8"))?.jurisdiction).toBe("sk");
+    });
+
+    test("profil s koreňom praxe platí tiež; iná kancelária, neplatná jurisdikcia alebo bez profilu: chyba ako doteraz", () => {
+      const { client, profile } = office((practice) => practice, "cz");
+      process.chdir(client);
+      expect(run(["apply", "spis", "--title", "Nájem", "--date", "2026-11-15"], () => {})).toBe(0);
+      expect(parseFrontmatter(readFileSync(join(client, "Spisy", "2026-11 Nájem", "matter.md"), "utf8"))?.jurisdiction).toBe("cz");
+      for (const other of [{ officeRoot: join(root, "Iná", "Office"), jurisdiction: "sk" }, { officeRoot: join(root, "Prax", "Office"), jurisdiction: "at" }]) {
+        mkdirSync(other.officeRoot, { recursive: true });
+        writeFileSync(profile, JSON.stringify(other));
+        const c = capture();
+        expect(run(["plan", "spis", "--title", "Vec", "--date", "2026-11-15"], c.out)).toBe(2);
+        expect(c.lines.join("\n")).toContain("--sk");
+      }
+      delete process.env.LAWOSS_OFFICE_PROFILE;
+      expect(run(["plan", "spis", "--title", "Vec", "--date", "2026-11-15"], () => {})).toBe(2);
+    });
   });
 
   describe("#416: nový prípad bez <dir> – priečinok určí pravidlo CLI", () => {

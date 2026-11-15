@@ -40,6 +40,7 @@ import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./managed-engine-lifecycle.js";
 import { legacyMcpAuthPath } from "./legacy-mcp-credentials.js";
 import { prepareIsolatedEngineHome } from "./lawoss/engine-home.js";
+import { officeProfileEnv } from "./lawoss/linked-folders.js"; // 🟡 LAWOSS #415
 import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
 import { issueWikiAgentTicket } from "./wiki/agent-access.js";
 import { settleEngineAgentTicket } from "./lawoss/engine-agent-ticket.js";
@@ -308,6 +309,8 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
             XDG_CONFIG_HOME: join(engineHome, "config"),
             XDG_STATE_HOME: service.stateDirectory,
             ...isolatedEngineEnv,
+            // 🟡 LAWOSS #415: cesta k profilu kancelárie pre jurisdikciu nového prípadu (lawoss/linked-folders.ts).
+            ...officeProfileEnv(config),
             OPENCODE_CONFIG_CONTENT: await legalworkMandatoryRuntimeConfigContent(config),
             OPENCODE_DB: database,
           },
