@@ -5895,8 +5895,7 @@ function officeProfileJurisdiction(dir, env = process.env) {
       return;
     const office = realpathSync4(officeRoot);
     const practice = OFFICE_FOLDERS.has(basename8(office).toLowerCase()) ? dirname11(office) : office;
-    const target = canonicalTarget(dir);
-    return target === practice || target.startsWith(practice.endsWith(sep10) ? practice : practice + sep10) ? jurisdiction : undefined;
+    return contained(practice, canonicalTarget(dir)) ? jurisdiction : undefined;
   } catch {
     return;
   }

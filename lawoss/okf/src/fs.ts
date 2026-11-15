@@ -98,8 +98,7 @@ export function officeProfileJurisdiction(dir: string, env: Record<string, strin
     if (typeof officeRoot !== "string" || !isAbsolute(officeRoot) || typeof jurisdiction !== "string") return undefined;
     const office = realpathSync(officeRoot);
     const practice = OFFICE_FOLDERS.has(basename(office).toLowerCase()) ? dirname(office) : office;
-    const target = canonicalTarget(dir);
-    return target === practice || target.startsWith(practice.endsWith(sep) ? practice : practice + sep) ? jurisdiction : undefined;
+    return contained(practice, canonicalTarget(dir)) ? jurisdiction : undefined;
   } catch {
     return undefined;
   }
