@@ -37,6 +37,7 @@ import { nativeTool } from "./native-tool.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
 import { askOrDeclined } from "./lawoss-declined-card.js";
 import { NEW_CLIENT_SYSTEM, newClientTool } from "./lawoss-new-client.js";
+import { annotateExtensionListing, EXTENSION_LISTING_TOOL, INTEGRATIONS_SYSTEM, integrationsTool } from "./lawoss-integrations.js";
 
 const args = z.object({
   action: z.enum(["preamble", "read"]).describe("preamble: rules, lessons and the do-not-cite list, at the start of work on a case. read: the full memory of the case with its client and office scope."),
@@ -50,13 +51,13 @@ const writeArgs = z.object({
   if_revision: z.string().regex(/^[0-9a-f]{64}$/).optional().describe("For a change of an existing record: its Revision SHA-256 from lawoss_memory read. Omit for a new record."),
   matter: z.string().min(1).max(4096).optional().describe("The case folder: relative to this chat's folder or absolute inside this client's folder or its linked folders. Omit for this chat's folder."),
   scope: z.enum(["case", "client"]).optional().describe("client: a record for the whole client (a client_note such as how the client wants to be contacted, a subject or a screening), kept in the client's own memory and read with every case of this client. Omit or case: a record of one case."),
-  instruction: z.string().min(1).max(1000).optional().describe("Only for a new task the lawyer asked for in this chat: the lawyer's sentence that asks for it, quoted as written. It is registered as the lawyer's instruction in the case's input register. Omit it for a task you derived from a document; that record cites the document in its sources instead."),
+  instruction: z.string().min(1).max(1000).regex(/\S/).optional().describe("Only for a new task the lawyer asked for in this chat: the lawyer's sentence that asks for it, quoted as written. It is registered as the lawyer's instruction in the case's input register. Omit it for a task you derived from a document; that record cites the document in its sources instead."),
 });
 
 const deadlineArgs = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("The calendar date the lawyer stated, as YYYY-MM-DD. Only a date the lawyer gave explicitly; never derive or compute it. If the lawyer gave no date, ask instead of calling."),
   what: z.string().min(1).max(200).describe("What the deadline is for, a few words in the user's language, e.g. \"Odpoveď protistrane\"."),
-  instruction: z.string().min(1).max(1000).describe("The lawyer's sentence that states the deadline, quoted as written."),
+  instruction: z.string().min(1).max(1000).regex(/\S/).describe("The lawyer's sentence that states the deadline, quoted as written."),
   matter: z.string().min(1).max(4096).optional().describe("The case folder the deadline belongs to: relative to this chat's folder or absolute inside this client's folder. Omit for this chat's folder when the chat is in the case."),
 });
 
@@ -65,8 +66,16 @@ const preview = z.object({
   previousTruth: z.string().optional(), history: z.array(z.string()), fields: z.array(z.string()), reason: z.string(), approved: z.string(),
   scope: z.literal("client").optional(),
   deadline: z.object({ case: z.string(), date: z.string(), what: z.string(), basis: z.string(), register: z.string(), inputId: z.string() }).optional(),
-  task: z.object({ case: z.string(), register: z.string(), inputId: z.string() }).optional(),
+  task: z.object({ case: z.string(), register: z.string(), inputId: z.string(), instruction: z.string() }).optional(),
 });
+
+/** A blank `instruction` would reach the server as a generic argument error; say what is wrong instead. */
+function nonBlankInstruction(raw: unknown): void {
+  const instruction: unknown = raw && typeof raw === "object" ? Reflect.get(raw, "instruction") : undefined;
+  if (typeof instruction === "string" && !instruction.trim()) {
+    throw new Error("instruction is empty: give the lawyer's sentence quoted as written, or omit instruction for a task you derived from a document. Nothing was written.");
+  }
+}
 
 /** The card's permission: the same rule as lawoss_files (lawoss/tool-permission-defaults.ts), so YOLO and edit denials apply. */
 const PERMISSION = "lawoss_file_change";
@@ -87,6 +96,8 @@ const SYSTEM = [
   "glob and grep return files only, so an empty folder never appears in their results. To see everything inside a folder, including empty subfolders, call read on the folder's path: it lists the entries one per line, subfolders with a trailing /, and an empty folder shows (0 entries). Never conclude that a folder is missing from glob or grep alone.",
   // #423: nový klient vetou v každom chate klienta (lawoss-new-client.ts).
   NEW_CLIENT_SYSTEM,
+  // #434: integrácie advokáta sú registre a doplnky (MCP), nie cloudové konektory (lawoss-integrations.ts).
+  INTEGRATIONS_SYSTEM,
 ].join("\n");
 
 async function post(context: OpenCodeContext, workspace: string, route: string, body: unknown): Promise<string> {
@@ -170,6 +181,7 @@ export default Plugin.define({
         schema: writeArgs,
         // The tool asks its own `lawoss_file_change` card with the text; no second card for its name.
         permission: "domain",
+        prevalidate: nonBlankInstruction,
         execute: writeMemory,
       }));
       editor.add(nativeTool(ctx, {
@@ -177,10 +189,15 @@ export default Plugin.define({
         description: "Record a deadline the lawyer stated in chat with an explicit date, in one call: registers the lawyer's instruction in the case's input register and writes the deadline into the case memory, marked as given by the lawyer's instruction and not verified from a document. Shows the user one approval card with the case, the date, what it is for and both files (no card when YOLO Mode is on); a declined card writes nothing, and either both files are written or neither. The date must be the one the lawyer gave; a missing or computed date is refused.",
         schema: deadlineArgs,
         permission: "domain",
+        prevalidate: nonBlankInstruction,
         execute: writeDeadline,
       }));
       editor.add(newClientTool(ctx));
+      editor.add(integrationsTool(ctx));
     });
-    return async () => { await Promise.all([context.dispose(), tools.dispose()]); };
+    const listing = await ctx.tool.hook("execute.after", (event) => {
+      if (event.status === "completed" && event.tool === EXTENSION_LISTING_TOOL) event.result = annotateExtensionListing(event.result);
+    });
+    return async () => { await Promise.all([context.dispose(), tools.dispose(), listing.dispose()]); };
   },
 });

@@ -553,6 +553,43 @@ test("#431: pri Veci/ platí to isté; bez Spisy/ a Veci/ ostáva heuristika ná
   expect(flat.matters.map((m) => m.path)).toEqual(["2025-01 Spor"]);
 });
 
+test("#431: starší podpriečinok Matters/ či Případy/ neprepne ploché usporiadanie na prísne pravidlo", async () => {
+  for (const legacy of ["Matters", "Případy", "matters", "Pripady"]) {
+    const out = await readWorkspaceMemory(fakeClient({
+      "client.md": "---\ntitle: Klient\n---\n",
+      [`${legacy}/poznamky.txt`]: "x",
+      "2025-01 Spor/Žaloba.pdf": "%PDF",
+    }), "ws", TODAY);
+    expect([legacy, out.matters.map((m) => m.path)]).toEqual([legacy, ["2025-01 Spor"]]);
+  }
+  // Veci/ aj inou veľkosťou písmen je priečinok prípadov ako Spisy/.
+  const veci = await readWorkspaceMemory(fakeClient({ "client.md": "---\ntitle: Klient\n---\n", "VECI/2026-01 Spor/a.pdf": "%PDF", "2025-01 Spor/a.pdf": "%PDF" }), "ws", TODAY);
+  expect(veci.matters.map((m) => m.path)).toEqual(["VECI/2026-01 Spor"]);
+});
+
+test("#431: vedľa spisy/ (aj malými písmenami) nie sú prípadom bežné mená s číslom a rokom; kód a spisová značka súdu áno", async () => {
+  const ordinary = ["02 Mzdy 11-2024", "3 DPH 12 2024", "Byt 3A 12-2024", "12 Fa 3-2024"];
+  const coded = ["M001 Úhrada", "12Cb_45_2026", "3 C 12_2024", "Odvolanie 8C 123_2023", "43 INS 8294_2021"];
+  const out = await readWorkspaceMemory(fakeClient({
+    "client.md": "---\ntitle: Klient\n---\n",
+    "spisy/M002 Nájom/zmluva.pdf": "%PDF",
+    ...Object.fromEntries([...ordinary, ...coded].map((name) => [`${name}/a.pdf`, "%PDF"])),
+  }), "ws", TODAY);
+  expect(out.matters.map((m) => m.path).sort()).toEqual(["spisy/M002 Nájom", ...coded].sort());
+});
+
+test("#431: vedľa Spisy/ sú prípadom aj registre s malými písmenami, pomlčka a Ústavný súd; bežné mená nie", async () => {
+  const courts = ["2CoPr_3_2024", "5CoKR_12_2023", "4CbPv_1_2022", "1NcKR_2_2024", "3OdK_45_2023", "6CoCsp_12_2023", "3CoE_5_2022", "2NcC_1_2024",
+    "12Cb_45_2026", "12Cb-45-2026", "3C-12-2024", "3 C 12-2024", "25 Cdo 1234-2023", "25_Cdo_1234_2023", "1T_5_2025", "I. ÚS 123_2020", "II. ÚS 45-2021"];
+  const ordinary = ["02 Mzdy 11-2024", "3 DPH 12 2024", "Byt 3A 12-2024", "12 Fa 3-2024", "2025-01 Spor", "Zmluvy 2024", "Faktúry 11_2024"];
+  const out = await readWorkspaceMemory(fakeClient({
+    "client.md": "---\ntitle: Klient\n---\n",
+    "Spisy/M002 Nájom/zmluva.pdf": "%PDF",
+    ...Object.fromEntries([...ordinary, ...courts].map((name) => [`${name}/a.pdf`, "%PDF"])),
+  }), "ws", TODAY);
+  expect(out.matters.map((m) => m.path).sort()).toEqual(["Spisy/M002 Nájom", ...courts].sort());
+});
+
 test("N-A4-4: vnorený klient s vlastnou kartou nie je prípadom vonkajšieho klienta ani jeho skupinou", async () => {
   const out = await readWorkspaceMemory(fakeClient({
     "client.md": "---\ntitle: SYN Hron, a. s.\n---\n",

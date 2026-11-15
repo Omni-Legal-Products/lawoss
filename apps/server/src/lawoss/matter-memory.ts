@@ -178,12 +178,12 @@ export type MatterMemoryWritePreview = {
   scope?: "client";
   /** A deadline from the lawyer's instruction in chat: what the card says besides the record. */
   deadline?: MatterMemoryDeadline;
-  /** A new task of a case (#417): the case by name and the input register row `inputId` written with it. */
+  /** A new task of a case (#417): the case by name, the input register row `inputId` written with it and that row's sentence. */
   task?: MatterMemoryTask;
 };
 /** `register`: the case's input register that gets the instruction's row `inputId`; `basis`: not verified from a document. */
 export type MatterMemoryDeadline = { case: string; date: string; what: string; basis: string; register: string; inputId: string };
-export type MatterMemoryTask = { case: string; register: string; inputId: string };
+export type MatterMemoryTask = { case: string; register: string; inputId: string; instruction: string };
 export type MatterMemoryWriteResult = { status: "written"; target: string; id: string; text: string; register?: string; inputId?: string };
 
 /** A path for the lawyer, relative to the client's folder. */
@@ -285,7 +285,8 @@ export async function writeMatterMemoryForChat(config: ServerConfig, workspace: 
   // #417: a new task the lawyer asked for in chat (with the lawyer's sentence in `instruction`) is the lawyer's
   // instruction like a deadline: its row in the case's input register. Without it (a task derived from a document,
   // which cites the document itself) or with `deadlines` (those go through `lawoss_memory_deadline`) there is no row.
-  const said = instruction?.replace(/\s+/g, " ");
+  // The card quotes exactly what the register row will hold: a table cell has no `|` or control characters (`cellText`).
+  const said = instruction?.replace(/[\u0000-\u001f|]/g, " ").replace(/\s+/g, " ").trim();
   const instructed = said !== undefined && !client && plan.kind === "create" && plan.type === "task" && !plan.fields.some((field) => field.startsWith("deadlines:"));
   const task = instructed ? await taskRegister(target, own) : null;
   // Bound to the file, the preview and the exact bytes of the record that will be written (and the register as shown).
@@ -295,7 +296,7 @@ export async function writeMatterMemoryForChat(config: ServerConfig, workspace: 
     return { status: "preview", target: shown, kind: plan.kind, title: plan.title, type: plan.type, truth: plan.truth,
       ...(plan.previousTruth === undefined ? {} : { previousTruth: plan.previousTruth }),
       history: plan.history, fields: plan.fields, reason, approved: token, ...(client ? { scope: "client" as const } : {}),
-      ...(task ? { task: { case: await caseName(target), register: shownPath(task.register, own.root), inputId: task.inputId } } : {}) };
+      ...(task ? { task: { case: await caseName(target), register: shownPath(task.register, own.root), inputId: task.inputId, instruction: said ?? "" } } : {}) };
   }
   const changed = () => new ApiError(409, "memory_write_changed", "The case memory or the record changed after the card was shown. Nothing was written. Read the memory again and prepare a new proposal.");
   if (approved !== token) throw changed();

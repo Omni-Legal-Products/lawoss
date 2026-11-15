@@ -1400,7 +1400,23 @@ var nestedClientCode = (clientName, name) => {
   return DIGITS.exec(clientName.normalize("NFC"))?.[1] !== DIGITS.exec(name.normalize("NFC"))?.[1] && !startsWithMatterWord(code.rest);
 };
 var looksLikeMatterFolder = (name) => codeOf(name) !== undefined || looksLikeMatterName(name);
-var hasMatterCode = (name) => codeOf(name) !== undefined || findCaseNumber(name) !== undefined;
+var MATTERS_DIR_NAMES = new Set(["spisy", "veci"]);
+var isMattersDirName = (name) => MATTERS_DIR_NAMES.has(fold(name));
+var LEGACY_MATTERS_DIR_NAMES = new Set(["pripady", "případy", "matters"]);
+var isLegacyMattersDirName = (name) => LEGACY_MATTERS_DIR_NAMES.has(name.normalize("NFC").toLowerCase());
+var SPACED_REGISTERS = ["C", "Cb", "Co", "Cob", "Cdo", "Obdo", "T", "To", "Tdo", "S", "Sa", "Sž", "K", "R", "Er", "Ek", "Em", "CoPr", "NcC", "INS", "ÚS"];
+var CASE_START = "(?:^|[^\\p{L}\\d])";
+var CASE_TAIL = "\\d{1,6}[_/-](?:19|20)\\d{2}(?![\\p{L}\\d])";
+var COURT_FILE_NUMBERS = [
+  new RegExp(`${CASE_START}\\d{1,3}\\p{Lu}\\p{L}{0,5}[_-]${CASE_TAIL}`, "u"),
+  new RegExp(`${CASE_START}\\d{1,3}[ _]?(?:${SPACED_REGISTERS.join("|")})[ _]${CASE_TAIL}`, "u"),
+  new RegExp(`${CASE_START}(?:[IVX]{1,4}|Pl)\\. ?ÚS[ _]${CASE_TAIL}`, "u")
+];
+var hasCourtFileNumber = (name) => {
+  const text = name.normalize("NFC");
+  return COURT_FILE_NUMBERS.some((pattern) => pattern.test(text));
+};
+var hasMatterCode = (name) => codeOf(name) !== undefined || hasCourtFileNumber(name);
 var isClientMatterFolder = (name, client) => client.matterCard || (client.mattersDir ? hasMatterCode(name) : looksLikeMatterFolder(name));
 
 // src/onboarding/suggest.ts
@@ -1414,7 +1430,6 @@ var WEAK_SCORE = 0.5;
 var SURVEY_DEPTH = 4;
 var UNIT_LIMIT = 200;
 var UNIT_MATTERS = 50;
-var MATTER_FOLDERS = new Set(["spisy", "pripady", "případy", "matters"]);
 var SURVEY_ENTRIES = 50000;
 var CLIENT_CARDS = new Set(["client.md", "klient.md"]);
 var MATTER_CARDS = new Set(["matter.md", "spis.md", "project.md", "projekt.md"]);
@@ -1487,7 +1502,7 @@ function matchPattern(index, pattern) {
 }
 function matterLevelDirs(index, parent) {
   const dirs = childrenOf(index, parent).filter((entry) => entry.kind === "directory");
-  const filed = dirs.filter((entry) => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase())).flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
+  const filed = dirs.filter((entry) => isMattersDirName(nameOf(entry.path)) || isLegacyMattersDirName(nameOf(entry.path))).flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
   return [...dirs, ...filed];
 }
 function codedHierarchy(index, candidates) {
@@ -1541,13 +1556,14 @@ var depthOf = (path) => path ? path.split("/").length : 0;
 function mattersOf(index, files, unit, unitName) {
   const prefix = unit ? `${unit}/` : "";
   const dirs = childrenOf(index, unit).filter((entry) => entry.kind === "directory");
-  const folders = dirs.filter((entry) => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase()));
+  const folders = dirs.filter((entry) => isMattersDirName(nameOf(entry.path)) || isLegacyMattersDirName(nameOf(entry.path)));
+  const standard = folders.some((entry) => isMattersDirName(nameOf(entry.path)));
   const card = (entry, cards) => childrenOf(index, entry.path).some((child) => child.kind === "file" && cards.has(nameOf(child.path).toLowerCase()));
   const nestedClient = (entry) => card(entry, CLIENT_CARDS) && !card(entry, MATTER_CARDS);
   const filed = folders.flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
   const matterCard = (entry) => [...MATTER_CARDS].some((card) => files.has(`${entry.path}/${card}`));
   const otherCode = (entry) => !matterCard(entry) && nestedClientCode(unitName, nameOf(entry.path));
-  const beside = dirs.filter((entry) => !folders.includes(entry) && !otherCode(entry) && isClientMatterFolder(nameOf(entry.path), { matterCard: matterCard(entry), mattersDir: folders.length > 0 }));
+  const beside = dirs.filter((entry) => !folders.includes(entry) && !otherCode(entry) && isClientMatterFolder(nameOf(entry.path), { matterCard: matterCard(entry), mattersDir: standard }));
   const named = (entry) => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) });
   const nested = [...filed.filter(nestedClient), ...dirs.filter((entry) => !folders.includes(entry) && (nestedClient(entry) || otherCode(entry)))];
   return { matters: [...filed, ...beside].filter((entry) => !nestedClient(entry)).map(named), nested: nested.map(named) };
@@ -5827,7 +5843,7 @@ function existingCard2(type, exists) {
 
 // src/fs.ts
 import { existsSync as existsSync3, lstatSync as lstatSync4, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync2, realpathSync as realpathSync4, statSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { basename as basename8, dirname as dirname11, isAbsolute as isAbsolute10, join as join15, relative as relative9, resolve as resolve13, sep as sep10 } from "node:path";
+import { basename as basename8, dirname as dirname11, join as join15, relative as relative9, resolve as resolve13, sep as sep10 } from "node:path";
 import { fileURLToPath } from "node:url";
 function readText(path) {
   return readFileSync2(path, "utf8");
@@ -5866,9 +5882,9 @@ function inheritedJurisdiction(dir) {
   const office = findOfficeDir(dir);
   const path = office ? join15(office, "okf.config") : undefined;
   const fromOffice = path && existsSync3(path) && statSync(path).isFile() ? known(parseFrontmatter2(decodeText(readFileSync2(path))).get("jurisdiction")) : undefined;
-  return fromOffice ?? known(officeProfileJurisdiction(dir)) ?? known(officeFactsJurisdiction());
+  return fromOffice ?? known(officeFactsJurisdiction());
 }
-var OFFICE_FACTS_FILE = "office.json";
+var OFFICE_FACTS_FILE = ".office.json";
 function officeFactsJurisdiction(file = fileURLToPath(new URL(`./${OFFICE_FACTS_FILE}`, import.meta.url))) {
   try {
     if (!existsSync3(file) || !lstatSync4(file).isFile())
@@ -5876,39 +5892,6 @@ function officeFactsJurisdiction(file = fileURLToPath(new URL(`./${OFFICE_FACTS_
     const raw = JSON.parse(decodeText(readFileSync2(file)));
     const jurisdiction = raw && typeof raw === "object" ? Reflect.get(raw, "jurisdiction") : undefined;
     return typeof jurisdiction === "string" ? jurisdiction : undefined;
-  } catch {
-    return;
-  }
-}
-var OFFICE_PROFILE_ENV = "LAWOSS_OFFICE_PROFILE";
-var OFFICE_FOLDERS = new Set([OFFICE_DIR, LEGACY_OFFICE_DIR].map((name) => name.toLowerCase()));
-function canonicalTarget(path) {
-  let existing = resolve13(path);
-  const rest = [];
-  while (!existsSync3(existing) && dirname11(existing) !== existing) {
-    rest.unshift(basename8(existing));
-    existing = dirname11(existing);
-  }
-  try {
-    return join15(realpathSync4(existing), ...rest);
-  } catch {
-    return resolve13(path);
-  }
-}
-function officeProfileJurisdiction(dir, env = process.env) {
-  const file = env[OFFICE_PROFILE_ENV]?.trim();
-  if (!file || !isAbsolute10(file) || !existsSync3(file))
-    return;
-  try {
-    const raw = JSON.parse(decodeText(readFileSync2(file)));
-    if (!raw || typeof raw !== "object")
-      return;
-    const officeRoot = Reflect.get(raw, "officeRoot"), jurisdiction = Reflect.get(raw, "jurisdiction");
-    if (typeof officeRoot !== "string" || !isAbsolute10(officeRoot) || typeof jurisdiction !== "string")
-      return;
-    const office = realpathSync4(officeRoot);
-    const practice = OFFICE_FOLDERS.has(basename8(office).toLowerCase()) ? dirname11(office) : office;
-    return contained(practice, canonicalTarget(dir)) ? jurisdiction : undefined;
   } catch {
     return;
   }
@@ -6155,7 +6138,7 @@ function newMatterFolder2(date, title) {
 
 // src/naming-fs.ts
 import { closeSync as closeSync3, constants as constants12, fstatSync as fstatSync3, fsyncSync, lstatSync as lstatSync5, mkdirSync as mkdirSync3, openSync as openSync3, opendirSync, readSync as readSync3, realpathSync as realpathSync5, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
-import { basename as basename9, dirname as dirname12, extname, isAbsolute as isAbsolute11, join as join16, relative as relative10, resolve as resolve14, sep as sep11 } from "node:path";
+import { basename as basename9, dirname as dirname12, extname, isAbsolute as isAbsolute10, join as join16, relative as relative10, resolve as resolve14, sep as sep11 } from "node:path";
 
 // ../okf-pamat/src/workspace-memory-types.ts
 var WORKSPACE_MEMORY_LIMITS = Object.freeze({ profileBytes: 256 * 1024, journalBytes: 4 * 1024 * 1024, sourceBytes: 2 * 1024 * 1024, totalBytes: 16 * 1024 * 1024, sources: 256 });
@@ -6668,7 +6651,7 @@ function parseNamingPlan(value) {
     throw new NamingSchemaError("Invalid naming plan");
   exactKeys(value, ["schema", "operationId", "fingerprint", "matterRootPhysical", "rootIdentity", "request", "profile", "memoryProfile", "documents", "markdown", "limits", "totalBytes", "linkScope"]);
   const request = parseNamingRequest(value.request);
-  if (value.schema !== "lawoss.document-naming.plan/v1" || value.operationId !== request.operationId || typeof value.fingerprint !== "string" || typeof value.matterRootPhysical !== "string" || !isAbsolute11(value.matterRootPhysical) || typeof value.rootIdentity !== "string" || !/^[0-9]+:[0-9]+$/.test(value.rootIdentity) || !object3(value.profile) || typeof value.profile.naming !== "string" || !object3(value.profile.roles) || !isPin(value.profile) || value.profile.path !== PROFILE_FILE || value.memoryProfile !== null && (!isPin(value.memoryProfile) || value.memoryProfile.path !== ".lawoss/memory-profile.json") || !Array.isArray(value.documents) || value.documents.length !== request.documents.length || !Array.isArray(value.markdown) || value.markdown.length !== request.markdownFiles.length || namingFingerprint(value.limits) !== namingFingerprint(NAMING_LIMITS) || typeof value.totalBytes !== "number" || !Number.isSafeInteger(value.totalBytes) || value.totalBytes < 0 || value.totalBytes > NAMING_LIMITS.totalBytes || value.linkScope !== "selected-files-only; unselected links are not verified")
+  if (value.schema !== "lawoss.document-naming.plan/v1" || value.operationId !== request.operationId || typeof value.fingerprint !== "string" || typeof value.matterRootPhysical !== "string" || !isAbsolute10(value.matterRootPhysical) || typeof value.rootIdentity !== "string" || !/^[0-9]+:[0-9]+$/.test(value.rootIdentity) || !object3(value.profile) || typeof value.profile.naming !== "string" || !object3(value.profile.roles) || !isPin(value.profile) || value.profile.path !== PROFILE_FILE || value.memoryProfile !== null && (!isPin(value.memoryProfile) || value.memoryProfile.path !== ".lawoss/memory-profile.json") || !Array.isArray(value.documents) || value.documents.length !== request.documents.length || !Array.isArray(value.markdown) || value.markdown.length !== request.markdownFiles.length || namingFingerprint(value.limits) !== namingFingerprint(NAMING_LIMITS) || typeof value.totalBytes !== "number" || !Number.isSafeInteger(value.totalBytes) || value.totalBytes < 0 || value.totalBytes > NAMING_LIMITS.totalBytes || value.linkScope !== "selected-files-only; unselected links are not verified")
     throw new NamingSchemaError("Invalid naming plan fields");
   for (const [i, d] of value.documents.entries()) {
     const document = request.documents[i];

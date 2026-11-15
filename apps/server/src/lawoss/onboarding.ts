@@ -151,8 +151,19 @@ export function registerOnboardingRoutes(options: {
   const profilePath = join(storage, "profile.json");
   const busy = new Set<string>();
   let profileQueue: Promise<unknown> = Promise.resolve();
-  // #415: klienti zavedení skôr dostanú `office.json` pri štarte servera (na pozadí, jeden po druhom).
-  void refreshAllOfficeFacts(config);
+  // #415: `.office.json` vedľa okf.js klientov beží na vlastnom reťazci na pozadí, nikdy v `profileQueue`: zaseknutý
+  // sieťový disk tak nezdrží uloženie profilu ani ďalšie zmeny. Každé prechádzanie číta profil až pri svojom štarte,
+  // takže posledné vždy zodpovedá poslednému uloženému profilu (aj po presune praxe); čakajúce sa zlúčia do jedného.
+  let factsQueue: Promise<void> = Promise.resolve();
+  let factsPending = false;
+  const scheduleOfficeFacts = () => {
+    if (factsPending) return;
+    factsPending = true;
+    factsQueue = factsQueue.then(() => { factsPending = false; return refreshAllOfficeFacts(config); })
+      .catch((error: unknown) => { console.warn("[lawoss] .office.json", error instanceof Error ? error.message : String(error)); });
+  };
+  // Klienti zavedení skôr ho dostanú pri štarte servera.
+  scheduleOfficeFacts();
   const ensureStorage = async () => { await mkdir(storage, { recursive: true, mode: 0o700 }); await canonicalDirectory(storage); };
   const readProfile = async (): Promise<Profile | null> => { try { return profileSchema.parse(await readJson(profilePath)); } catch (error) { if (missing(error)) return null; throw error; } };
   const body = (ctx: RequestContext) => options.readJsonBodyLimited(ctx.request, 64 * 1024);
@@ -219,7 +230,7 @@ export function registerOnboardingRoutes(options: {
         catch (error) { if (!missing(error)) throw error; profile.trial = false; }
       }
       await ensureStorage(); await writeJson(profilePath, profile, true);
-      await refreshAllOfficeFacts(config); // #415: jurisdikcia kancelárie vedľa okf.js klientov.
+      scheduleOfficeFacts(); // #415: jurisdikcia kancelárie vedľa okf.js klientov, po uložení a bez čakania.
       return profile;
     };
     const pending = profileQueue.then(change); profileQueue = pending.catch(() => undefined); return pending;
@@ -245,7 +256,7 @@ export function registerOnboardingRoutes(options: {
       const moved = (path: string | undefined) => path && inside(input.previousRoot, path) ? join(folder, relative(input.previousRoot, path)) : path;
       const profile = profileSchema.parse({ ...previous, officeRoot: folder, clientRoot: moved(previous.clientRoot), subjectRoot: moved(previous.subjectRoot), matterRoot: moved(previous.matterRoot), foundRoot: moved(previous.foundRoot) });
       await ensureStorage(); await writeJson(profilePath, profile, true);
-      await refreshAllOfficeFacts(config);
+      scheduleOfficeFacts();
       return { profile, grants: await rebaseOfficeGrants(config, resolve(input.previousRoot), folder) };
     };
     const pending = profileQueue.then(change); profileQueue = pending.catch(() => undefined); return pending;

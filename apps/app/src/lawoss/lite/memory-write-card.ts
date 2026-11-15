@@ -16,8 +16,8 @@ import { currentLocale, t } from "@/i18n";
 import type { FileOperationDetails } from "./file-operation-card";
 
 type Deadline = { case: string; date: string; what: string; register: string };
-/** #417: a new task of a case is registered among the case's inputs like a deadline. */
-type Task = { case: string; register: string };
+/** #417: a new task of a case is registered among the case's inputs like a deadline, with the lawyer's sentence. */
+type Task = { case: string; register: string; instruction?: string };
 type MemoryWrite = { target: string; kind: "create" | "update"; title: string; type: string; truth: string; previousTruth?: string; history: string[]; fields: string[]; reason?: string; client?: true; deadline?: Deadline; task?: Task };
 
 /** The deadline's part of the preview; incomplete data gives no deadline card (the plain memory card still shows the record). */
@@ -29,11 +29,12 @@ function deadlineOf(raw: unknown): Deadline | null {
   return { case: name, date, what, register };
 }
 
-/** The task's case and register; incomplete data gives no such lines. */
+/** The task's case, register and the sentence registered there; incomplete data gives no such lines. */
 function taskOf(raw: unknown): Task | null {
   if (!raw || typeof raw !== "object") return null;
-  const name: unknown = Reflect.get(raw, "case"), register: unknown = Reflect.get(raw, "register");
-  return typeof name === "string" && name && typeof register === "string" && register ? { case: name, register } : null;
+  const name: unknown = Reflect.get(raw, "case"), register: unknown = Reflect.get(raw, "register"), said: unknown = Reflect.get(raw, "instruction");
+  if (typeof name !== "string" || !name || typeof register !== "string" || !register) return null;
+  return { case: name, register, ...(typeof said === "string" && said.trim() ? { instruction: said.trim() } : {}) };
 }
 
 /** The whole date with its year (a deadline next year must not look like next week); the ISO day stays beside it. */
@@ -96,7 +97,10 @@ function taskDue(write: MemoryWrite): string | null {
 
 /** The case by name and the register that gets the instruction's row, with the same words as a deadline (#417). */
 const taskCase = (write: MemoryWrite): string[] => write.task ? [t("lawoss.memory_write.deadline_case", undefined, { name: write.task.case })] : [];
-const taskRegister = (write: MemoryWrite): string[] => write.task ? [t("lawoss.memory_write.deadline_register", undefined, { path: write.task.register })] : [];
+/** The register line also quotes the sentence that becomes the row, so the lawyer sees what is recorded as the instruction. */
+const taskRegister = (write: MemoryWrite): string[] => !write.task ? [] : [write.task.instruction
+  ? t("lawoss.memory_write.task_register", undefined, { text: write.task.instruction, path: write.task.register })
+  : t("lawoss.memory_write.deadline_register", undefined, { path: write.task.register })];
 
 /** One card for the lawyer's task: the case, what to do, by when, the files and every field of the new record. */
 function taskCard(write: MemoryWrite, due: string): Card {

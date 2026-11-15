@@ -7,7 +7,8 @@ import { withoutLawossHome } from "../home-workspace";
  */
 import { workspaceBootstrap } from "@/app/lib/desktop";
 import type { WorkspaceInfo } from "@/app/lib/desktop-types";
-import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { createLegalworkServerClient, readLegalworkServerSettings, type LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { okfConnectionForRemount, rememberOkfConnection, storedSettingsKey, workspaceConnectionKey } from "@/lawoss/shell/route-snapshot";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { toSessionTransportDirectory, type TransportDirectory } from "@/app/lib/session-scope";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
@@ -72,8 +73,14 @@ export async function loadOkfConnection(): Promise<OkfConnection> {
   const list = await client.listWorkspaces();
   const workspaces = withoutLawossHome(mergeRouteWorkspaces(list.items, desktopWorkspaces));
   const activeWorkspaceId = resolveActiveWorkspaceId(workspaces, readActiveWorkspaceId() ?? list.activeId);
-  return { client, baseUrl: normalizedBaseUrl, token: resolvedToken, workspaces, activeWorkspaceId, authGeneration: authenticationGeneration(normalizedBaseUrl, resolvedToken, resolvedHostToken) };
+  const connection = { client, baseUrl: normalizedBaseUrl, token: resolvedToken, workspaces, activeWorkspaceId, authGeneration: authenticationGeneration(normalizedBaseUrl, resolvedToken, resolvedHostToken) };
+  // #418: a remount of the page (e.g. after closing Settings) starts from this connection while it is current.
+  rememberOkfConnection({ settingsKey: storedSettingsKey(readLegalworkServerSettings()), connectionKey: workspaceConnectionKey(normalizedBaseUrl, resolvedToken, resolvedHostToken), connection });
+  return connection;
 }
+
+/** #418: the last resolved connection while the stored settings are unchanged and no other connection resolved since. */
+export const keptOkfConnection = (): OkfConnection | null => okfConnectionForRemount(storedSettingsKey(readLegalworkServerSettings()));
 
 /**
  * Založí session vo workspace, uloží prompt ako draft (presne tak, ako to robí

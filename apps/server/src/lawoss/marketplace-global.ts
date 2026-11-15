@@ -155,8 +155,22 @@ export async function installGlobalPlugin(config: ServerConfig, url: string): Pr
   assertMarketplaceUrl(url);
   const pluginId = `${MARKETPLACE_ID_PREFIX}${url.replace(/^.*\/tree\/[a-f0-9]{40}\//, "")}`;
   const existing = (await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[pluginId];
-  if (existing) return { status: "already_installed", item: existing };
-  return { status: "installed", item: await installGlobal(config, await resolveClaudePluginBundle({ url })) };
+  if (existing && !(await missingMcp(config, existing)).length) return { status: "already_installed", item: existing };
+  // #436: a plugin whose connection was removed in Settings installs again (connection back); the lawyer's edited
+  // files stay as they are, like `keep` in an update.
+  const kept = existing ? (await pluginFileChanges(globalPluginTarget(), existing)).filter((change) => change.state === "modified").map((change) => change.path) : [];
+  return { status: "installed", item: await installGlobal(config, await resolveClaudePluginBundle({ url }), kept.length ? new Set(kept) : undefined) };
+}
+
+/**
+ * #436: connections of a plugin installed for all clients that are no longer in the shared row (removed in
+ * Settings › Integrations). Such a plugin is not shown as installed, so the lawyer can install it again.
+ */
+export async function missingMcp(config: ServerConfig, plugin: CloudImportedPlugin): Promise<string[]> {
+  const names = mcpNames(plugin);
+  if (!names.length) return [];
+  const map = runtimeMcpMap(await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID));
+  return names.filter((name) => !Object.hasOwn(map, name));
 }
 
 export type UpdateOutcome =

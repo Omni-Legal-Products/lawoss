@@ -1,5 +1,6 @@
 /** UI copy only. Persisted identifiers, profile contents and tool contracts stay unchanged. */
 export const integrationsEn = {
+  "lawoss.integrations.remove_pending": "Removing the connection is taking longer than usual and may still be finishing. The list has been refreshed; if the connection is still there, try again in a moment.",
   "lawoss.integrations.mcp_failure.inspection": "The register could not start: this network inspects encrypted connections and blocked the download of its components. Try another network (for example a phone hotspot) or ask your administrator to allow registry.npmjs.org, then open the integration again.",
   "lawoss.integrations.mcp_failure.offline": "The register could not start: its components could not be downloaded. Check the internet connection and try again.",
   "lawoss.integrations.mcp_failure.timeout": "The register did not start in time. Try again; the first start downloads its components and can take a minute.",
@@ -300,6 +301,7 @@ export const integrationsEn = {
   "lawoss.integrations.providerOverwrite.removeCancelled": "Nothing was disconnected. The other clients keep their own provider settings.",
 };
 export const integrationsCs = {
+  "lawoss.integrations.remove_pending": "Odebrání připojení trvá déle než obvykle a možná ještě probíhá. Seznam se obnovil; pokud tam připojení zůstalo, zkuste to za chvíli znovu.",
   "lawoss.integrations.mcp_failure.inspection": "Registr se nepodařilo spustit: tato síť kontroluje šifrovaná spojení a zablokovala stažení jeho součástí. Zkuste jinou síť (například hotspot z telefonu) nebo požádejte správce o výjimku pro registry.npmjs.org a integraci otevřete znovu.",
   "lawoss.integrations.mcp_failure.offline": "Registr se nepodařilo spustit: nepodařilo se stáhnout jeho součásti. Zkontrolujte připojení k internetu a zkuste to znovu.",
   "lawoss.integrations.mcp_failure.timeout": "Registr se nespustil včas. Zkuste to znovu; první spuštění stahuje součásti a může trvat minutu.",
@@ -600,6 +602,7 @@ export const integrationsCs = {
   "lawoss.integrations.providerOverwrite.removeCancelled": "Nic se neodpojilo. Ostatní klienti si ponechali vlastní nastavení poskytovatele.",
 } satisfies Record<keyof typeof integrationsEn, string>;
 export const integrationsSk = {
+  "lawoss.integrations.remove_pending": "Odstránenie pripojenia trvá dlhšie než zvyčajne a možno ešte prebieha. Zoznam sa obnovil; ak tam pripojenie ostalo, skúste to o chvíľu znova.",
   "lawoss.integrations.mcp_failure.inspection": "Register sa nepodarilo spustiť: táto sieť kontroluje šifrované spojenia a zablokovala stiahnutie jeho súčastí. Skúste inú sieť (napríklad hotspot z telefónu) alebo požiadajte správcu o výnimku pre registry.npmjs.org a integráciu otvorte znova.",
   "lawoss.integrations.mcp_failure.offline": "Register sa nepodarilo spustiť: nepodarilo sa stiahnuť jeho súčasti. Skontrolujte pripojenie na internet a skúste to znova.",
   "lawoss.integrations.mcp_failure.timeout": "Register sa nespustil včas. Skúste to znova; prvé spustenie sťahuje súčasti a môže trvať minútu.",
@@ -900,6 +903,7 @@ export const integrationsSk = {
   "lawoss.integrations.providerOverwrite.removeCancelled": "Nič sa neodpojilo. Ostatní klienti si ponechali vlastné nastavenie poskytovateľa.",
 } satisfies Record<keyof typeof integrationsEn, string>;
 export const integrationsDe = {
+  "lawoss.integrations.remove_pending": "Das Entfernen der Verbindung dauert länger als üblich und läuft möglicherweise noch. Die Liste wurde aktualisiert; ist die Verbindung noch da, versuchen Sie es gleich noch einmal.",
   "lawoss.integrations.mcp_failure.inspection": "Das Register konnte nicht starten: Dieses Netzwerk prüft verschlüsselte Verbindungen und hat den Download seiner Komponenten blockiert. Versuchen Sie ein anderes Netzwerk (z. B. einen Handy-Hotspot) oder bitten Sie Ihren Administrator um eine Ausnahme für registry.npmjs.org und öffnen Sie die Integration erneut.",
   "lawoss.integrations.mcp_failure.offline": "Das Register konnte nicht starten: Seine Komponenten konnten nicht geladen werden. Prüfen Sie die Internetverbindung und versuchen Sie es erneut.",
   "lawoss.integrations.mcp_failure.timeout": "Das Register ist nicht rechtzeitig gestartet. Versuchen Sie es erneut; der erste Start lädt Komponenten und kann eine Minute dauern.",

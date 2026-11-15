@@ -31,7 +31,7 @@ import {
 import type { WorkspaceConnectionState } from "@/app/types";
 import { normalizeDirectoryPath } from "@/app/utils";
 import { effectiveSessionDirectory, isWithinClientFolder } from "@/lawoss/shell/session-directory";
-import { initialWorkspaceRouteState, rememberWorkspaceRoute, storedSettingsKey, withoutRemountRetrying, workspaceConnectionKey, workspaceRouteForRemount } from "@/lawoss/shell/route-snapshot"; // 🟡 LAWOSS #418
+import { initialWorkspaceRouteState, rememberWorkspaceRoute, settledSessions, storedSettingsKey, withoutRemountRetrying, workspaceConnectionKey, workspaceRouteForRemount } from "@/lawoss/shell/route-snapshot"; // 🟡 LAWOSS #418
 import { t } from "@/i18n";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { avoidLawossHomeId, conversationWorkspaceId, defaultWorkspaceId, withoutLawossHome } from "../../lawoss/home-workspace";
@@ -133,7 +133,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const [hasLoadedServerWorkspaces, setHasLoadedServerWorkspaces] = useState(remount.hasLoadedServerWorkspaces);
   const hasLoadedServerWorkspacesRef = useRef(remount.hasLoadedServerWorkspaces);
   const [workspaceOrderIds, setWorkspaceOrderIds] = useState<string[]>(() => readWorkspaceOrderIds());
-  const [sessionsByWorkspaceId, setSessionsByWorkspaceId] = useState<Record<string, RouteSession[]>>({});
+  const [sessionsByWorkspaceId, setSessionsByWorkspaceId] = useState<Record<string, RouteSession[]>>(remount.sessionsByWorkspaceId); // 🟡 LAWOSS #418
   const [errorsByWorkspaceId, setErrorsByWorkspaceId] = useState<Record<string, string | null>>({});
   const [workspaceConnectionOverrides, setWorkspaceConnectionOverrides] = useState<Record<string, WorkspaceConnectionState>>({});
   const [routeError, setRouteError] = useState<string | null>(null);
@@ -183,7 +183,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     setWorkspaceOrderIds(nextOrder);
     writeWorkspaceOrderIds(nextOrder);
   }, [workspaces]);
-  const sessionsByWorkspaceIdRef = useRef<Record<string, RouteSession[]>>({});
+  const sessionsByWorkspaceIdRef = useRef<Record<string, RouteSession[]>>(remount.sessionsByWorkspaceId); // 🟡 LAWOSS #418
   const pendingCreatedSessionIdsRef = useRef<Record<string, Record<string, number>>>({});
   const startupRetryTimerRef = useRef<number | null>(null);
   const [retryingWorkspaceIds, setRetryingWorkspaceIds] = useState<string[]>(remount.retryingWorkspaceIds);
@@ -434,6 +434,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         setLoading(true);
         workspacesRef.current = [];
         setWorkspaces([]);
+        sessionsByWorkspaceIdRef.current = {};
+        setSessionsByWorkspaceId({});
         if (!desktopList) desktopWorkspaces = [];
       }
       remountConnectionKeyRef.current = null;
@@ -586,8 +588,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   useEffect(() => {
     if (!hasLoadedServerWorkspaces || !client || !baseUrl || !token) return;
     rememberWorkspaceRoute({ settingsKey: storedSettingsKey(readLegalworkServerSettings()), connectionKey: workspaceConnectionKey(baseUrl, token, hostToken),
-      client, baseUrl, token, hostToken, workspaces });
-  }, [baseUrl, client, hasLoadedServerWorkspaces, hostToken, token, workspaces]);
+      client, baseUrl, token, hostToken, workspaces, sessionsByWorkspaceId: settledSessions(sessionsByWorkspaceId, retryingWorkspaceIds) });
+  }, [baseUrl, client, hasLoadedServerWorkspaces, hostToken, token, workspaces, sessionsByWorkspaceId, retryingWorkspaceIds]);
 
   // Changing the URL selects a known project without rerunning desktop boot,
   // reconnecting the server, or reloading every project's sessions.

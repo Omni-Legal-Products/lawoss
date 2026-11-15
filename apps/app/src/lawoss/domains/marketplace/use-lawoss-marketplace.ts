@@ -23,7 +23,8 @@ export async function loadMarketplaceApi(): Promise<LawossMarketplaceApi | null>
 
 /** Id pluginov z katalógu, ktoré sú nainštalované pre všetkých klientov. */
 export function globalInstalledIds(view: MarketplaceView | null, entries: readonly MarketplaceEntry[]): Set<string> {
-  const installed = new Set((view?.global ?? []).map((plugin) => plugin.pluginId));
+  // #436: a plugin whose connection was removed in Settings is offered again (install brings the connection back).
+  const installed = new Set((view?.global ?? []).filter((plugin) => !view?.globalMissingMcp?.[plugin.pluginId]?.length).map((plugin) => plugin.pluginId));
   return new Set(entries.filter((entry) => entry.install.action === "plugin" && installed.has(catalogPluginId(entry))).map((entry) => entry.id));
 }
 
