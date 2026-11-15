@@ -7,6 +7,7 @@ Katalóg `Omni-Legal-Products/lawoss-marketplace` dodáva runtime registrov ako 
 | Súbor | Zmena |
 |---|---|
 | `apps/server/src/claude-plugin-bundle.ts`, nový `apps/server/src/lawoss/marketplace-limits.ts` (LAWOSS, + test `lawoss/marketplace-limits.test.ts`) | Pri Node balíku sa limit veľkosti prostriedkov berie z `pluginResourceLimits(source, ref, root)` (+1 import, 1 riadok, v dvoch riadkoch kontroly premenná namiesto čísla; texty chýb sa pri všeobecnom zdroji nemenia). Vyšší limit (8 MiB na súbor, 24 MiB spolu) len pre vyriešený zdroj presne `Omni-Legal-Products/lawoss-marketplace`, ref ako 40 hex znakov (pripnutý commit) a koreň `plugins/<názov>/`; ostatné importy z GitHubu ostávajú pri 1 MiB a 8 MiB. Zoznam povolených mien, 128 súborov a odmietnutie súboru s NUL sa nemenia. |
+| `apps/server/src/lawoss/plugin-source-fetch.ts` (LAWOSS, + testy `plugin-source-fetch.test.ts`, `marketplace-global.test.ts`) | Limit 20 s (10 s pri opakovaní) platí na nečinnosť a `fetchPluginSource` prečíta telo sám; predtým pevný limit na celú odpoveď prerušil 6 MB súbor na linke pod ~2,5 Mbit/s uprostred `response.text()` bez opakovania a bez kódu `plugin_source_unreachable`. Upstream súbor bez ďalšej zmeny. |
 
 ## Alfa 13: nálezy z testu (#422–#428) (2026-11-15)
 

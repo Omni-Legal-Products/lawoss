@@ -146,6 +146,41 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     expect((await installGlobalPlugin(config, url(SHA1))).status).toBe("already_installed");
   });
 
+  // #420, #421: katalóg dodáva runtime registra ako jeden zbalený súbor (slovlex 6,25 MB + 2,08 MB).
+  test("pribalený runtime nad 1 MiB sa nainštaluje aj aktualizuje celý a nie je uložený v zázname inštalácie", async () => {
+    const MIB = 1024 * 1024;
+    const SHA3 = "3".repeat(40);
+    const SHA4 = "4".repeat(40);
+    const big = (version: string, size: number) => `// ${version}\n${"x".repeat(size - version.length - 4)}`;
+    repo[SHA3] = { ...pluginFiles("1.0.0", "Verzia jedna."), "plugins/demo/dist/index.js": big("1.0.0", 6 * MIB), "plugins/demo/dist/pdf.worker.mjs": big("1.0.0", 2 * MIB) };
+    repo[SHA4] = { ...pluginFiles("1.2.0", "Verzia dva."), "plugins/demo/dist/index.js": big("1.2.0", 6.5 * MIB), "plugins/demo/dist/pdf.worker.mjs": big("1.2.0", 2 * MIB) };
+    const config = serverConfig(root);
+    const resourceDir = join(root, "config", "opencode", "plugin-resources", "demo-plugin");
+    const runtime = async (version: string) => {
+      for (const digest of await readdir(resourceDir)) {
+        const content = await readFile(join(resourceDir, digest, "dist", "index.js"), "utf8").catch(() => "");
+        if (content.startsWith(`// ${version}\n`)) return { digest, bytes: Buffer.byteLength(content) };
+      }
+      return null;
+    };
+    const recordBytes = async () => JSON.stringify(await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).length;
+
+    const installed = await installGlobalPlugin(config, url(SHA3));
+    expect(installed.status).toBe("installed");
+    expect(await runtime("1.0.0")).toMatchObject({ digest: expect.stringMatching(/^[a-f0-9]{64}$/), bytes: 6 * MIB });
+    // Záznam inštalácie (configJson v runtime.sqlite) a odpoveď trasy nesú len cesty a hash, nie obsah.
+    expect(JSON.stringify(installed.item).length).toBeLessThan(64 * 1024);
+    expect(await recordBytes()).toBeLessThan(64 * 1024);
+
+    const checked = await runMarketplaceCheck(marketplaceStatePath(config), "manual");
+    if (checked.lastCheck?.status !== "ok") throw new Error("expected ok check");
+    const state = { ...checked, lastCheck: { ...checked.lastCheck, release: { ...checked.lastCheck.release, sha: SHA4, plugins: [{ name: "demo", version: "1.2.0", path: "plugins/demo" }] } } };
+    const updated = await updateGlobalPlugin(config, PLUGIN_ID, state, {});
+    expect(updated.status).toBe("updated");
+    expect(await runtime("1.2.0")).toMatchObject({ bytes: 6.5 * MIB });
+    expect(await recordBytes()).toBeLessThan(64 * 1024);
+  });
+
   test("globálne sa inštaluje len z LAWOSS Marketplace na pripnutom commite", async () => {
     const config = serverConfig(root);
     await expect(installGlobalPlugin(config, "https://github.com/someone/else/tree/main/plugins/demo")).rejects.toThrow();
