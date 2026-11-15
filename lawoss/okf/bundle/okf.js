@@ -3,7 +3,8 @@
 // @bun
 
 // src/cli.ts
-import { realpathSync as realpathSync6 } from "fs";
+import { existsSync as existsSync4, realpathSync as realpathSync6 } from "fs";
+import { dirname as dirname13, join as join17, relative as relative11, resolve as resolve15 } from "path";
 import { fileURLToPath } from "url";
 
 // src/onboarding/cli.ts
@@ -3632,6 +3633,10 @@ title: ${yaml(request.title)}
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.clientRoot, [directory(name), file(`${name}/subject.md`, card), directory(`${name}/memory`), file(`${name}/memory/.keep`, "")]) };
 }
 var MATTERS_DIR = "Spisy";
+function newMatterFolder(date, title) {
+  const name = `${date.slice(0, 7)} ${safeSegment(title)}`;
+  return { name, folder: `${MATTERS_DIR}/${name}` };
+}
 var CLIENT_CARDS2 = ["client.md", "klient.md"];
 async function clientCard(clientRoot) {
   for (const name of CLIENT_CARDS2) {
@@ -3649,7 +3654,7 @@ async function clientCard(clientRoot) {
 function buildMatterOperations(input) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !["contentious", "non_contentious"].includes(input.kind))
     throw new Error("Valid date and matter kind are required.");
-  const area = safeSegment(input.area), name = input.folder?.split("/").pop() ?? `${input.date.slice(0, 7)} ${safeSegment(input.title)}`, folder = input.folder ?? `${MATTERS_DIR}/${name}`;
+  const area = safeSegment(input.area), name = input.folder?.split("/").pop() ?? newMatterFolder(input.date, input.title).name, folder = input.folder ?? `${MATTERS_DIR}/${name}`;
   const generated = planEntity({ type: "spis", dir: folder, title: input.title, language: input.language, jurisdiction: input.jurisdiction, date: input.date, workingProfile: input.workingProfile, matterKind: input.kind === "contentious" ? "dispute" : "other", ...input.clientTitle ? { klient: input.clientTitle } : {}, ...input.clientCardPath ? { clientCardPath: input.clientCardPath } : {}, ...input.extras?.caseNumber ? { spzn: input.extras.caseNumber } : {}, ...input.extras?.counterparty ? { protistrana: input.extras.counterparty } : {}, ...input.extras?.court ? { sud: input.extras.court } : {} }, LOCALIZED_TEMPLATES, () => false);
   const template = templateOperations(folder, generated.entries).filter((operation) => operation.path !== folder);
   const operations = [directory(folder), ...template.map((operation) => operation.path === `${folder}/matter.md` && operation.kind === "file" ? file(operation.path, (operation.content ?? "").replace("type: spis", `type: matter
@@ -3664,7 +3669,7 @@ async function planNewMatter(request) {
   safeSegment(request.area);
   if (request.subject !== undefined && /[\\/]/.test(request.subject))
     throw new Error("Matter subject must be the subject folder name, not a path.");
-  const name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join8(request.parent, MATTERS_DIR, name);
+  const name = newMatterFolder(request.date, request.title).name, target = join8(request.parent, MATTERS_DIR, name);
   const clientRoot = await realpath(request.clientRoot), parentRoot = await realpath(request.parent);
   if (!contained(clientRoot, parentRoot))
     throw new Error("Matter parent must be within the inspected client root.");
@@ -5798,6 +5803,20 @@ async function runTriage(argv, out = console.log) {
 }
 // src/core.ts
 var ENTITY_TYPES2 = ["klient", "spis", "projekt"];
+var CARD_ALIASES2 = {
+  klient: ["client.md", "klient.md"],
+  spis: ["matter.md", "spis.md"],
+  projekt: ["project.md", "projekt.md"]
+};
+function existingCard2(type, exists) {
+  const cards = CARD_ALIASES2[type].filter(exists);
+  if (cards.length > 1)
+    throw new Error(`Viac kariet entity: ${cards.join(", ")}. Najprv zosúlaď ich obsah.`);
+  return cards[0];
+}
+function today2() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 // src/fs.ts
 import { existsSync as existsSync3, lstatSync as lstatSync4, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync2, realpathSync as realpathSync4, statSync, writeFileSync as writeFileSync2 } from "node:fs";
@@ -6059,6 +6078,19 @@ ${body}
       kept.push("index.md");
   }
   return { written, kept };
+}
+
+// src/onboarding/entities.ts
+var safeSegment2 = (value) => {
+  const trimmed = value.trim().replace(/[. ]+$/, "");
+  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*\u0001-\u001f\u007f-\u009f]|^\./.test(trimmed) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(trimmed) || VOLATILE_ENTRY.test(trimmed))
+    throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
+  return trimmed;
+};
+var MATTERS_DIR2 = "Spisy";
+function newMatterFolder2(date, title) {
+  const name = `${date.slice(0, 7)} ${safeSegment2(title)}`;
+  return { name, folder: `${MATTERS_DIR2}/${name}` };
 }
 
 // src/naming-fs.ts
@@ -6915,9 +6947,25 @@ function jurisdictionFrom(flags, type, dir) {
   }
   return;
 }
+function newMatterDir(flags) {
+  const title = str(flags, "title");
+  if (!title)
+    throw new Error("Nov\xFD pr\xEDpad bez <dir> potrebuje --title; prie\u010Dinok sa odvod\xED z neho.");
+  let client = resolve15(".");
+  while (!existingCard2("klient", (name) => existsSync4(join17(client, name)))) {
+    if (dirname13(client) === client)
+      throw new Error("Nov\xFD pr\xEDpad bez <dir> spusti v prie\u010Dinku klienta (s kartou klienta) alebo uve\u010F <dir>.");
+    client = dirname13(client);
+  }
+  const target = join17(client, newMatterFolder2(str(flags, "date") ?? today2(), title).folder);
+  const dir = relative11(resolve15("."), target).split("\\").join("/");
+  if (existsSync4(target))
+    throw new Error(`Prie\u010Dinok ${dir} u\u017E existuje; nov\xFD pr\xEDpad ho nezalo\u017E\xED znova. Pre existuj\xFAci prie\u010Dinok ho uve\u010F ako <dir>.`);
+  return dir;
+}
 function inputFrom(positional, flags) {
   const type = entityType(positional[1]);
-  const dir = positional[2];
+  const dir = positional[2] ?? (type === "spis" ? newMatterDir(flags) : undefined);
   if (!dir)
     throw new Error("ch\xFDba <dir>");
   const title = str(flags, "title") ?? dir.split(/[\\/]/).filter(Boolean).pop() ?? "";

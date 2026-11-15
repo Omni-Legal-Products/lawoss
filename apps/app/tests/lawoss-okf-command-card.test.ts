@@ -57,6 +57,24 @@ describe("okfCommandCard – rozpozná príkazy /novy-spis", () => {
     expect(card?.scopeValue).not.toContain("Jurisdikcia");
   });
 
+  test("#416: nový prípad bez priečinka: plán aj zápis majú čitateľnú kartu, priečinok určí pravidlo", () => {
+    setLocale("sk");
+    const plan = okfCommandCard(`${OKF} plan spis --title "Spor o dielo" --matter-kind dispute`);
+    expect(plan?.title).toBe("Pripraviť plán založenia prípadu?");
+    expect(plan?.scopeValue).toContain("Priečinok: Spisy/RRRR-MM <názov prípadu> (nový)");
+    const apply = okfCommandCard(`${OKF} apply spis --title "Spor o dielo" && ${OKF} validate "Spisy/2026-11 Spor o dielo" && ${OKF} render .`);
+    expect(apply?.title).toBe("Založiť prípad?");
+    expect(apply?.scopeValue).toContain("Vytvoriť chýbajúce súbory prípadu v Spisy/RRRR-MM <názov prípadu> (nový)");
+    expect(apply?.scopeValue).toContain("Skontrolovať štruktúru prípadu v Spisy/2026-11 Spor o dielo");
+    for (const locale of ["cs", "en", "de"] as const) {
+      setLocale(locale);
+      expect(okfCommandCard(`${OKF} plan spis --title A`)?.scopeValue).toContain(t("lawoss.okf_command.new_case_folder"));
+    }
+    // Bez názvu by CLI odmietlo; klient bez priečinka nie je tvar CLI.
+    expect(okfCommandCard(`${OKF} plan spis --sk`)).toBeNull();
+    expect(okfCommandCard(`${OKF} plan klient --title A`)).toBeNull();
+  });
+
   test("apply + validate + render: „Založiť prípad?“ so všetkými krokmi", () => {
     setLocale("sk");
     const card = okfCommandCard(APPLY_CHAIN);

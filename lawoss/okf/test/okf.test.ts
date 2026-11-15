@@ -8,6 +8,7 @@ import { parseFrontmatter, planEntity, renderTemplate, validateMarkdown } from "
 import { apply, detect, plan, render, validate } from "../src/fs.ts";
 import { TEMPLATES } from "../src/templates.ts";
 import { run } from "../src/cli.ts";
+import { buildMatterOperations, newMatterFolder } from "../src/onboarding/entities.ts";
 import { readStandingAuthorization } from "../../okf-pamat/src/config.ts";
 const dirSymlinkSkip = symlinkSkipReason("dir");
 
@@ -234,6 +235,59 @@ describe("kontrakt spisu", () => {
     const c = capture();
     expect(run(["plan", "spis", join(root, "Klienti", "Gama", "Spisy", "A"), "--title", "Vec"], c.out)).toBe(2);
     expect(c.lines.join("\n")).toContain("--sk");
+  });
+
+  describe("#416: nový prípad bez <dir> – priečinok určí pravidlo CLI", () => {
+    const cwd = process.cwd();
+    afterEach(() => { process.chdir(cwd); });
+    const client = () => {
+      const dir = join(root, "Klienti", "Alfa");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "client.md"), "---\ntype: klient\ntitle: Alfa\n---\n");
+      return dir;
+    };
+
+    test("plan aj apply odvodia Spisy/<RRRR-MM> <názov> tým istým pravidlom ako formulár", () => {
+      const dir = client();
+      process.chdir(dir);
+      const c = capture();
+      expect(run(["plan", "spis", "--title", "Spor o dielo", "--sk", "--date", "2026-11-15", "--json"], c.out)).toBe(0);
+      expect(JSON.parse(c.lines.join("\n")).dir).toBe("Spisy/2026-11 Spor o dielo");
+      expect(newMatterFolder("2026-11-15", "Spor o dielo").folder).toBe("Spisy/2026-11 Spor o dielo");
+      expect(buildMatterOperations({ title: "Spor o dielo", date: "2026-11-15", kind: "contentious", area: "Spory", jurisdiction: "sk" }).folder).toBe("Spisy/2026-11 Spor o dielo");
+      expect(existsSync(join(dir, "Spisy"))).toBe(false);
+      expect(run(["apply", "spis", "--title", "Spor o dielo", "--sk", "--date", "2026-11-15"], () => {})).toBe(0);
+      expect(existsSync(join(dir, "Spisy", "2026-11 Spor o dielo", "matter.md"))).toBe(true);
+      // Druhý raz už priečinok existuje: nový prípad ho nezaloží znova.
+      const again = capture();
+      expect(run(["plan", "spis", "--title", "Spor o dielo", "--sk", "--date", "2026-11-15"], again.out)).toBe(2);
+      expect(again.lines.join("\n")).toContain("už existuje");
+    });
+
+    test("z podpriečinka klienta nájde klienta nad sebou; výslovný <dir> ostáva bez zmeny", () => {
+      const dir = client();
+      mkdirSync(join(dir, "01_Podklady"), { recursive: true });
+      process.chdir(join(dir, "01_Podklady"));
+      const c = capture();
+      expect(run(["plan", "spis", "--title", "Nájom", "--cz", "--date", "2026-01-02", "--json"], c.out)).toBe(0);
+      expect(JSON.parse(c.lines.join("\n")).dir).toBe("../Spisy/2026-01 Nájom");
+      process.chdir(dir);
+      expect(run(["apply", "spis", "Spor 2025", "--title", "Starý spor", "--sk"], () => {})).toBe(0);
+      expect(existsSync(join(dir, "Spor 2025", "matter.md"))).toBe(true);
+    });
+
+    test("bez karty klienta, bez --title alebo s nebezpečným názvom odmietne", () => {
+      process.chdir(root);
+      const outside = capture();
+      expect(run(["plan", "spis", "--title", "Vec", "--sk"], outside.out)).toBe(2);
+      expect(outside.lines.join("\n")).toContain("v priečinku klienta");
+      process.chdir(client());
+      const noTitle = capture();
+      expect(run(["plan", "spis", "--sk"], noTitle.out)).toBe(2);
+      expect(noTitle.lines.join("\n")).toContain("--title");
+      expect(run(["plan", "spis", "--title", "../Iný klient", "--sk"], () => {})).toBe(2);
+      expect(run(["plan", "klient", "--title", "X"], () => {})).toBe(2);
+    });
   });
 
   test("naraz --sk aj --cz je chyba, nie tiché víťazstvo jednej", () => {

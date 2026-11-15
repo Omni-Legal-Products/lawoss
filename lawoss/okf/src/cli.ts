@@ -6,6 +6,7 @@
  *   okf plan <typ> <dir> --title "…" [--sk|--cz] [--ico X] [--klient X] [--protistrana X]
  *            [--protistrana-ico X] [--oblast X] [--desc X] [--advokat X] [--language cs|sk|en] [--json]
  *   okf apply <typ> <dir> --title "…" [--sk|--cz] [rovnaké flagy]        ← až po potvrdení človekom
+ *   okf plan|apply spis --title "…" [flagy]    nový prípad bez <dir>: priečinok Spisy/<RRRR-MM> <názov> v klientovi (#416)
  *   okf validate <dir> [--json]                                 exit 1 pri chybe
  *   okf render <dir> [--json]
  *   okf naming <dir> --manifest request.json [--out plan.json] [--json]
@@ -16,13 +17,15 @@
  * Ľudská brána je ZÁMERNE mimo CLI: `plan` nič nezapíše; `apply` volá ten,
  * kto plán ukázal advokátovi a dostal súhlas.
  */
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runOnboarding } from "./onboarding/cli.ts";
 import { runTriage } from "./triage/cli.ts";
 
-import { resolveDocumentLanguage, type DocumentLanguage, ENTITY_TYPES, type ClientType, type MatterKind, type MatterMode, type EntityType, type Jurisdiction, type PlanInput } from "./core.ts";
+import { existingCard, resolveDocumentLanguage, today, type DocumentLanguage, ENTITY_TYPES, type ClientType, type MatterKind, type MatterMode, type EntityType, type Jurisdiction, type PlanInput } from "./core.ts";
 import { apply, detect, inheritedJurisdiction, plan, render, validate } from "./fs.ts";
+import { newMatterFolder } from "./onboarding/entities.ts";
 import { NamingSchemaError, isNamingSchemaError, parseNamingRequest, applyDocumentNaming, parseNamingPlan, planDocumentNaming, readNamingJson, writeNamingPlanOutsideMatter } from "./naming-fs.ts";
 
 type Flags = Record<string, string | boolean>;
@@ -92,9 +95,28 @@ function jurisdictionFrom(flags: Flags, type: EntityType, dir: string): Jurisdic
   return undefined;
 }
 
+/**
+ * #416: nový prípad bez `<dir>`. Priečinok určí to isté pravidlo ako formulár (`newMatterFolder`):
+ * `Spisy/<RRRR-MM> <názov>` v najbližšom klientovi (karta klienta v aktuálnom priečinku alebo nad ním),
+ * relatívne k aktuálnemu priečinku. Existujúci priečinok sa takto nezakladá; ten treba uviesť výslovne.
+ */
+function newMatterDir(flags: Flags): string {
+  const title = str(flags, "title");
+  if (!title) throw new Error("Nový prípad bez <dir> potrebuje --title; priečinok sa odvodí z neho.");
+  let client = resolve(".");
+  while (!existingCard("klient", (name) => existsSync(join(client, name)))) {
+    if (dirname(client) === client) throw new Error("Nový prípad bez <dir> spusti v priečinku klienta (s kartou klienta) alebo uveď <dir>.");
+    client = dirname(client);
+  }
+  const target = join(client, newMatterFolder(str(flags, "date") ?? today(), title).folder);
+  const dir = relative(resolve("."), target).split("\\").join("/");
+  if (existsSync(target)) throw new Error(`Priečinok ${dir} už existuje; nový prípad ho nezaloží znova. Pre existujúci priečinok ho uveď ako <dir>.`);
+  return dir;
+}
+
 function inputFrom(positional: string[], flags: Flags): PlanInput {
   const type = entityType(positional[1]);
-  const dir = positional[2];
+  const dir = positional[2] ?? (type === "spis" ? newMatterDir(flags) : undefined);
   if (!dir) throw new Error("chýba <dir>");
   const title = str(flags, "title") ?? dir.split(/[\\/]/).filter(Boolean).pop() ?? "";
   return {
