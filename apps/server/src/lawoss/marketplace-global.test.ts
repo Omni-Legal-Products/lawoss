@@ -146,6 +146,41 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     expect((await installGlobalPlugin(config, url(SHA1))).status).toBe("already_installed");
   });
 
+  test("#441: opätovná inštalácia po odstránenom pripojení vráti len to pripojenie: vypnutý súrodenec, jeho nastavenie aj verzia ostanú", async () => {
+    const SHA3 = "3".repeat(40), SHA4 = "4".repeat(40);
+    const twoMcp = (version: string, body: string) => ({
+      ...pluginFiles(version, body),
+      "plugins/demo/.mcp.json": JSON.stringify({ mcpServers: { demo: { command: "node", args: ["scripts/run.mjs", "mcp"] }, druhy: { command: "node", args: ["scripts/run.mjs", "druhy"] } } }),
+    });
+    repo[SHA3] = twoMcp("1.0.0", "Verzia jedna.");
+    repo[SHA4] = twoMcp("1.1.0", "Verzia dva.");
+    const config = serverConfig(root);
+    const installed = await installGlobalPlugin(config, url(SHA3));
+    const names = Object.keys(await runtimeMcpMapForWorkspace(config, "ws_a")).sort();
+    expect(names).toHaveLength(2);
+    const [removed, sibling] = names as [string, string];
+    // The lawyer saves their own setup for the sibling and turns it off, then removes the other connection.
+    const shared = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers ?? {};
+    await addMcp(config, "ws_a", sibling, { ...shared[sibling], environment: { DEMO_TOKEN: "moje-nastavenie" } }, "global");
+    await setMcpEnabled(config, "ws_a", sibling, false);
+    const siblingBefore = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.[sibling];
+    if (!siblingBefore) throw new Error("expected the sibling connection");
+    expect(siblingBefore).toMatchObject({ disabled: true, environment: { DEMO_TOKEN: "moje-nastavenie" } });
+    expect(await removeMcp(config, "ws_a", removed)).toEqual(["global"]);
+    expect(await missingMcp(config, installed.item)).toEqual([removed]);
+
+    // The catalog meanwhile points at a newer commit; the reinstall still takes the installed version.
+    const again = await installGlobalPlugin(config, url(SHA4));
+    expect(again.status).toBe("installed");
+    expect(again.item.lawossProvenance).toEqual({ source: { owner: "Omni-Legal-Products", repo: "lawoss-marketplace", ref: SHA3, dir: "plugins/demo" }, version: "1.0.0" });
+    expect(await readFile(skillPath(), "utf8")).toContain("Verzia jedna.");
+    const after = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers ?? {};
+    expect(after[removed]).toBeDefined();
+    expect(after[removed]?.disabled).not.toBe(true);
+    expect(after[sibling]).toEqual(siblingBefore);
+    expect(await missingMcp(config, again.item)).toEqual([]);
+  });
+
   // #420, #421: katalóg dodáva runtime registra ako jeden zbalený súbor (slovlex 6,25 MB + 2,08 MB).
   test("pribalený runtime nad 1 MiB sa nainštaluje aj aktualizuje celý a nie je uložený v zázname inštalácie", async () => {
     const MIB = 1024 * 1024;

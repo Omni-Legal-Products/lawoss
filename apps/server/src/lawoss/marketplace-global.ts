@@ -164,11 +164,35 @@ export async function installGlobalPlugin(config: ServerConfig, url: string): Pr
   assertMarketplaceUrl(url);
   const pluginId = `${MARKETPLACE_ID_PREFIX}${url.replace(/^.*\/tree\/[a-f0-9]{40}\//, "")}`;
   const existing = (await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[pluginId];
-  if (existing && !(await missingMcp(config, existing)).length) return { status: "already_installed", item: existing };
-  // #436: a plugin whose connection was removed in Settings installs again (connection back); the lawyer's edited
-  // files stay as they are, like `keep` in an update.
-  const kept = existing ? (await pluginFileChanges(globalPluginTarget(), existing)).filter((change) => change.state === "modified").map((change) => change.path) : [];
-  return { status: "installed", item: await installGlobal(config, await resolveClaudePluginBundle({ url, trustedRefs: await savedReleaseRefs(config) }), kept.length ? new Set(kept) : undefined) };
+  if (!existing) return { status: "installed", item: await installGlobal(config, await resolveClaudePluginBundle({ url, trustedRefs: await savedReleaseRefs(config) })) };
+  if (!(await missingMcp(config, existing)).length) return { status: "already_installed", item: existing };
+  return { status: "installed", item: await reinstallRemovedMcp(config, existing, url) };
+}
+
+/**
+ * #436: a plugin whose connection was removed in Settings installs again (connection back); the lawyer's edited
+ * files stay as they are, like `keep` in an update. #441: only the removed connections come back. The installed
+ * version is installed again (not the catalog's), and every connection still present keeps its entry as it is:
+ * off stays off (also while publishing) and its saved setup stays.
+ */
+async function reinstallRemovedMcp(config: ServerConfig, existing: CloudImportedPlugin, catalogUrl: string): Promise<CloudImportedPlugin> {
+  const target = globalPluginTarget();
+  const kept = (await pluginFileChanges(target, existing)).filter((change) => change.state === "modified").map((change) => change.path);
+  const source = existing.lawossProvenance?.source;
+  const installedUrl = source?.dir ? marketplacePluginUrl(source.ref, source.dir) : null;
+  const url = installedUrl && PLUGIN_URL.test(installedUrl) ? installedUrl : catalogUrl;
+  // The installed commit passed the installer's limits when it was installed; the same immutable commit keeps them.
+  const trustedRefs = [...await savedReleaseRefs(config), ...(url === installedUrl && source ? [source.ref] : [])];
+  const bundle = await resolveClaudePluginBundle({ url, trustedRefs });
+  const shared = runtimeMcpMap(await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID));
+  const present = mcpNames(existing).flatMap((name) => {
+    const entry = shared[name];
+    return entry ? [{ name, entry }] : [];
+  });
+  const disabled = await disabledMcp(config, GLOBAL_MCP_ID, present.map(({ name }) => name));
+  const item = await installGlobal(config, bundle, kept.length ? new Set(kept) : undefined, new Set(disabled));
+  for (const { name, entry } of present) await addMcp(config, target.recordId, name, entry, "global");
+  return item;
 }
 
 /**
