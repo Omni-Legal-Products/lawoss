@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PRACTICE_MIN_CLIENTS, suggestOnboardingLevel, surveyFolder } from "../src/onboarding/suggest.ts";
-import { CZ_LEGAL_FORMS, SK_LEGAL_FORMS, codeOf, hasLegalForm, isClientMatterFolder, looksLikeMatterFolder, looksLikeMatterName } from "../src/onboarding/suggest-patterns.ts";
+import { CZ_LEGAL_FORMS, SK_LEGAL_FORMS, codeOf, hasLegalForm, isClientMatterFolder, isMattersDirName, looksLikeMatterFolder, looksLikeMatterName } from "../src/onboarding/suggest-patterns.ts";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
@@ -333,6 +333,20 @@ test("#431: pri Spisy/ je vedľa neho prípad len s kartou, kódom alebo spisovo
     expect(isClientMatterFolder("2025-01 Nájom", { matterCard: false, mattersDir })).toBe(!mattersDir);
     expect(isClientMatterFolder("Zmluvy", { matterCard: false, mattersDir })).toBe(false);
   }
+});
+
+test("#431: vedľa priečinka prípadov nie sú prípadom bežné mená s číslom a rokom; kód a spisová značka súdu áno", async () => {
+  const ordinary = ["02 Mzdy 11-2024", "3 DPH 12 2024", "Byt 3A 12-2024", "12 Fa 3-2024"];
+  const coded = ["M001 Úhrada", "M004-SYN Vyúčtovanie", "12Cb_45_2026", "3 C 12_2024", "15 C 123/2023", "Odvolanie 8C 123_2023", "43 INS 8294_2021"];
+  for (const name of ordinary) expect(isClientMatterFolder(name, { matterCard: false, mattersDir: true })).toBe(false);
+  for (const name of coded) expect(isClientMatterFolder(name, { matterCard: false, mattersDir: true })).toBe(true);
+  // Priečinok prípadov bez ohľadu na veľkosť písmen a diakritiku, aj v NFD; iné mená nie.
+  for (const name of ["Spisy", "spisy", "SPISY", "Veci", "Případy", "Případy".normalize("NFD"), "pripady", "Matters"]) expect(isMattersDirName(name)).toBe(true);
+  for (const name of ["Spis", "Zmluvy", "Spisy-klient", "01_Podklady"]) expect(isMattersDirName(name)).toBe(false);
+  // Náhľad onboardingu: pri „spisy/“ malými písmenami platí to isté pravidlo ako pri „Spisy/“.
+  const root = await tree(["Klient/client.md", "Klient/spisy/M001 Spor/a.pdf", ...[...ordinary, ...coded.filter(name => !name.includes("/"))].map(name => `Klient/${name}/x.pdf`)], "okf-suggest-431-");
+  const matters = (await suggestOnboardingLevel(join(root, "Klient"))).units.find(entry => entry.path === "")?.matters.map(matter => matter.path).sort();
+  expect(matters).toEqual(["spisy/M001 Spor", ...coded.filter(name => !name.includes("/"))].sort());
 });
 
 test("#223: interný kód aj v NFD (Č001) a bez falošných pozitív bežných skratiek", () => {

@@ -22,7 +22,7 @@ import { addDays, buildOverview, deadlineTier, ISO_DAY, isCalendarDay, missingSc
 import type { OkfRecord } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
 import { parseWorkingProfile, PROFILE_FILE } from "../../../../../lawoss/okf/src/profile";
-import { isClientMatterFolder, nestedClientCode } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
+import { isClientMatterFolder, isMattersDirName, nestedClientCode } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { validateStore } from "../../../../../lawoss/okf-pamat/src/validate.ts";
 import { selectSourceSnapshot } from "./practice-read-state";
@@ -85,7 +85,6 @@ export const MAX_DISCOVERY_DIRECTORIES = 1000;
 const MAX_DISCOVERY_DEPTH = 16;
 const SKIP_DIRECTORIES = new Set(["memory", "Office", "_kancelaria", "node_modules", "vendor", "dist", "build", "target", "coverage"]);
 const childPath = (dir: string, name: string): string => dir ? `${dir}/${name}` : name;
-const MATTERS_DIR = "Spisy";
 const MEMORY_DIR = "memory";
 const CARD_FILES = ["matter.md", "spis.md", "project.md", "projekt.md"];
 const CLIENT_CARDS = ["client.md", "klient.md"];
@@ -231,7 +230,7 @@ export async function readWorkspaceMemory(
     // Klient s kartou (client.md/klient.md) je OKF klient - i bez věcí zůstává klientem, ne věcí.
     const hasClientCard = entries.some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
     if (hasClientCard) clientPaths.push(path);
-    if (AK_CLIENT.test(path) && !hasClientCard && !entries.some((e) => e.kind === "dir" && [MATTERS_DIR, "Veci"].includes(e.name))) {
+    if (AK_CLIENT.test(path) && !hasClientCard && !entries.some((e) => e.kind === "dir" && isMattersDirName(e.name))) {
       const matters = entries.filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name) && !isWorkDir(e.name));
       const ownFiles = entries.some((e) => e.kind === "file" && !e.name.startsWith("."));
       if (matters.length === 0 || ownFiles) paths.push(path);
@@ -241,14 +240,14 @@ export async function readWorkspaceMemory(
       }
       return;
     }
-    // #431 (15. 11. 2026): klient so `Spisy/` alebo `Veci/` (aj prázdnym, ktoré vznikne pri zavedení) má prípady v ňom,
+    // #431: klient so `Spisy/` alebo `Veci/` (`isMattersDirName`, aj prázdnym, ktoré vznikne pri zavedení) má prípady v ňom,
     // v priečinkoch s kartou prípadu a v priečinkoch s kódom či spisovou značkou (`isClientMatterFolder`); slovo veci
     // ani dátum tam nestačia. Celá heuristika názvu platí len pre staré ploché usporiadanie bez nich.
-    const hasMattersDir = entries.some((e) => e.kind === "dir" && [MATTERS_DIR, "Veci"].includes(e.name));
+    const hasMattersDir = entries.some((e) => e.kind === "dir" && isMattersDirName(e.name));
     for (const child of entries.filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name))) {
       if (scanned >= MAX_DISCOVERY_DIRECTORIES || paths.length >= MAX_MATTERS) { truncated = true; break; }
       // Preserve empty legacy matters only inside a recognised client or the existing AK profile.
-      if ([MATTERS_DIR, "Veci"].includes(child.name) && (clientFolder || path.startsWith("AK/"))) {
+      if (isMattersDirName(child.name) && (clientFolder || path.startsWith("AK/"))) {
         for (const matter of await dirs(child.path)) await discover(matter, true, depth + 2, clientFolder);
       // Priamy podpriečinok klienta s kartou pomenovaný ako vec (`2025-01 Spor`, spisová značka) je vec aj bez
       // karty; rovnaký vzor ako rozpoznanie a roztriedenie (suggest-patterns.ts), D1 2026-10-09.

@@ -94,12 +94,27 @@ export const nestedClientCode = (clientName: string, name: string): boolean => {
 };
 /** Podpriečinok klienta pomenovaný ako vec: kód („M001 Úhrada…“), dátum, spisová značka alebo slovo veci. */
 export const looksLikeMatterFolder = (name: string): boolean => codeOf(name) !== undefined || looksLikeMatterName(name);
-/** Silný znak veci v názve: interný kód („M001 …“) alebo spisová značka („8C 123/2023“). */
-export const hasMatterCode = (name: string): boolean => codeOf(name) !== undefined || findCaseNumber(name) !== undefined;
 /**
- * #431 (15. 11. 2026): je podpriečinok klienta prípadom? Karta prípadu áno vždy. Keď má klient `Spisy/` alebo `Veci/`,
- * vedľa nich je prípadom už len priečinok so silným znakom (kód alebo spisová značka); slovo veci ani dátum na začiatku
- * nestačia. Bez nich (staré ploché usporiadanie) platí celá heuristika názvu. Jediné pravidlo pre prehľad
+ * Priečinok prípadov klienta: `Spisy` (štandard OKF a šablóny SK, CZ aj EN) a staršie mená, ktoré prehľad a náhľad
+ * onboardingu už prijímali (`Veci`, `Pripady`/`Případy`, `Matters`). Bez ohľadu na veľkosť písmen a diakritiku, aj v NFD
+ * (macOS, SMB). Jediné pravidlo pre prehľad (read-model v appke) aj náhľad onboardingu (`suggest.ts`).
+ */
+const MATTERS_DIR_NAMES = new Set(["spisy", "veci", "pripady", "matters"]);
+export const isMattersDirName = (name: string): boolean => MATTERS_DIR_NAMES.has(fold(name));
+/**
+ * Spisová značka súdu v mene priečinka, prísnejšie ako `findCaseNumber` pri triedení: senát, značka registra a číslo
+ * s rokom oddeleným lomkou alebo podčiarkovníkom, ktorým advokát lomku v mene priečinka nahrádza („15 C 123/2023“,
+ * „12Cb_45_2026“, „Odvolanie 8C 123_2023“). Mesiac a rok s pomlčkou či medzerou („02 Mzdy 11-2024“, „3 DPH 12 2024“)
+ * spisovou značkou nie sú.
+ */
+const COURT_FILE_NUMBER = /(?:^|[^\p{L}\d])\d{1,3} ?\p{Lu}{1,4}\p{Ll}{0,3}[ _/]\d{1,6}[_/](?:19|20)\d{2}(?![\p{L}\d])/u;
+export const hasCourtFileNumber = (name: string): boolean => COURT_FILE_NUMBER.test(name.normalize("NFC"));
+/** Silný znak veci v názve: interný kód („M001 …“) alebo spisová značka súdu („8C 123_2023“). */
+export const hasMatterCode = (name: string): boolean => codeOf(name) !== undefined || hasCourtFileNumber(name);
+/**
+ * #431: je podpriečinok klienta prípadom? Karta prípadu áno vždy. Keď má klient priečinok prípadov (`isMattersDirName`),
+ * vedľa neho je prípadom už len priečinok so silným znakom (kód alebo spisová značka súdu); slovo veci ani dátum na
+ * začiatku nestačia. Bez neho (staré ploché usporiadanie) platí celá heuristika názvu. Jediné pravidlo pre prehľad
  * (read-model v appke) aj náhľad onboardingu (`suggest.ts`), aby náhľad nesľúbil prípady, ktoré sa potom neukážu.
  * Kód iného klienta (`nestedClientCode`) vylučuje volajúci pred týmto pravidlom.
  */

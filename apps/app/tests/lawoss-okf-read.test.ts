@@ -553,6 +553,17 @@ test("#431: pri Veci/ platí to isté; bez Spisy/ a Veci/ ostáva heuristika ná
   expect(flat.matters.map((m) => m.path)).toEqual(["2025-01 Spor"]);
 });
 
+test("#431: vedľa spisy/ (aj malými písmenami) nie sú prípadom bežné mená s číslom a rokom; kód a spisová značka súdu áno", async () => {
+  const ordinary = ["02 Mzdy 11-2024", "3 DPH 12 2024", "Byt 3A 12-2024", "12 Fa 3-2024"];
+  const coded = ["M001 Úhrada", "12Cb_45_2026", "3 C 12_2024", "Odvolanie 8C 123_2023", "43 INS 8294_2021"];
+  const out = await readWorkspaceMemory(fakeClient({
+    "client.md": "---\ntitle: Klient\n---\n",
+    "spisy/M002 Nájom/zmluva.pdf": "%PDF",
+    ...Object.fromEntries([...ordinary, ...coded].map((name) => [`${name}/a.pdf`, "%PDF"])),
+  }), "ws", TODAY);
+  expect(out.matters.map((m) => m.path).sort()).toEqual(["spisy/M002 Nájom", ...coded].sort());
+});
+
 test("N-A4-4: vnorený klient s vlastnou kartou nie je prípadom vonkajšieho klienta ani jeho skupinou", async () => {
   const out = await readWorkspaceMemory(fakeClient({
     "client.md": "---\ntitle: SYN Hron, a. s.\n---\n",

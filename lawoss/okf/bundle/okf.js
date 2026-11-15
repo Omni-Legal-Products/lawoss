@@ -1400,7 +1400,11 @@ var nestedClientCode = (clientName, name) => {
   return DIGITS.exec(clientName.normalize("NFC"))?.[1] !== DIGITS.exec(name.normalize("NFC"))?.[1] && !startsWithMatterWord(code.rest);
 };
 var looksLikeMatterFolder = (name) => codeOf(name) !== undefined || looksLikeMatterName(name);
-var hasMatterCode = (name) => codeOf(name) !== undefined || findCaseNumber(name) !== undefined;
+var MATTERS_DIR_NAMES = new Set(["spisy", "veci", "pripady", "matters"]);
+var isMattersDirName = (name) => MATTERS_DIR_NAMES.has(fold(name));
+var COURT_FILE_NUMBER = /(?:^|[^\p{L}\d])\d{1,3} ?\p{Lu}{1,4}\p{Ll}{0,3}[ _/]\d{1,6}[_/](?:19|20)\d{2}(?![\p{L}\d])/u;
+var hasCourtFileNumber = (name) => COURT_FILE_NUMBER.test(name.normalize("NFC"));
+var hasMatterCode = (name) => codeOf(name) !== undefined || hasCourtFileNumber(name);
 var isClientMatterFolder = (name, client) => client.matterCard || (client.mattersDir ? hasMatterCode(name) : looksLikeMatterFolder(name));
 
 // src/onboarding/suggest.ts
@@ -1414,7 +1418,6 @@ var WEAK_SCORE = 0.5;
 var SURVEY_DEPTH = 4;
 var UNIT_LIMIT = 200;
 var UNIT_MATTERS = 50;
-var MATTER_FOLDERS = new Set(["spisy", "pripady", "případy", "matters"]);
 var SURVEY_ENTRIES = 50000;
 var CLIENT_CARDS = new Set(["client.md", "klient.md"]);
 var MATTER_CARDS = new Set(["matter.md", "spis.md", "project.md", "projekt.md"]);
@@ -1487,7 +1490,7 @@ function matchPattern(index, pattern) {
 }
 function matterLevelDirs(index, parent) {
   const dirs = childrenOf(index, parent).filter((entry) => entry.kind === "directory");
-  const filed = dirs.filter((entry) => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase())).flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
+  const filed = dirs.filter((entry) => isMattersDirName(nameOf(entry.path))).flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
   return [...dirs, ...filed];
 }
 function codedHierarchy(index, candidates) {
@@ -1541,7 +1544,7 @@ var depthOf = (path) => path ? path.split("/").length : 0;
 function mattersOf(index, files, unit, unitName) {
   const prefix = unit ? `${unit}/` : "";
   const dirs = childrenOf(index, unit).filter((entry) => entry.kind === "directory");
-  const folders = dirs.filter((entry) => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase()));
+  const folders = dirs.filter((entry) => isMattersDirName(nameOf(entry.path)));
   const card = (entry, cards) => childrenOf(index, entry.path).some((child) => child.kind === "file" && cards.has(nameOf(child.path).toLowerCase()));
   const nestedClient = (entry) => card(entry, CLIENT_CARDS) && !card(entry, MATTER_CARDS);
   const filed = folders.flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
