@@ -504,31 +504,46 @@ test("priečinok pomenovaný ako vec (`2025-01 Spor`) je vecou klienta aj bez ka
   expect(groupByClient(out.matters, out.inputs, out.clients).map((g) => [g.client, g.matters.length])).toEqual([["Samostatný klient", 2]]);
 });
 
-test("po pomocných súboroch: prípady s kódom vedľa prázdneho Spisy/ ostanú prípadmi (N-A2-3)", async () => {
+test("#431: pri Spisy/ (aj prázdnom z pomocných súborov) pôvodné podpriečinky nie sú prípady; mení N-A2-3", async () => {
   // Klient z onboardingu `2-jeden-neusporiadany-klient`: karta, pracovné priečinky, prázdny Spisy/ a M00x vedľa neho.
+  // N-A2-3 (23. 10.) ich bral ako prípady; MČ 15. 11. (#431): pri Spisy/ sú prípady len v ňom alebo s kartou prípadu.
   const files = {
     "client.md": "---\ntitle: SYN Tatran Automatika\n---\n",
     "Spisy/.keep": "", "00_Na_zatriedenie/.keep": "", "01_Podklady/.keep": "",
     "M001 Úhrada dodávok riadiacich jednotiek/Podklady.pdf": "%PDF",
     "M002 Vady rekonštrukcie výrobnej haly/poznamky.txt": "",
-    "M003 Vysporiadanie odchádzajúceho spoločníka/Zapis.rtf": "",
+    "Žaloba o zaplatenie/navrh.pdf": "%PDF",
     "IMG_0001/foto.png": "",
   };
   const out = await readWorkspaceMemory(fakeClient(files), "ws", TODAY);
-  expect(out.matters.map((m) => m.path).sort()).toEqual([
-    "M001 Úhrada dodávok riadiacich jednotiek", "M002 Vady rekonštrukcie výrobnej haly", "M003 Vysporiadanie odchádzajúceho spoločníka",
-  ]);
-  expect(groupByClient(out.matters, out.inputs, out.clients).map((g) => [g.client, g.matters.length])).toEqual([["SYN Tatran Automatika", 3]]);
-  // Po usporiadaní do Spisy/ sa nič nestratí ani nezdvojí.
+  expect(out.matters).toEqual([]);
+  expect(groupByClient(out.matters, out.inputs, out.clients).map((g) => [g.client, g.matters.length])).toEqual([["SYN Tatran Automatika", 0]]);
+  // Po usporiadaní do Spisy/: prípady v ňom; pôvodný priečinok vedľa nie, ten s kartou prípadu áno.
   const sorted = await readWorkspaceMemory(fakeClient({
     "client.md": files["client.md"],
     "Spisy/M001 Úhrada dodávok riadiacich jednotiek/Podklady.pdf": "%PDF",
     "Spisy/M002 Vady rekonštrukcie výrobnej haly/poznamky.txt": "",
     "M003 Vysporiadanie odchádzajúceho spoločníka/Zapis.rtf": "",
+    "M004 Nájom haly/matter.md": "---\ntitle: Nájom haly\n---\n",
   }), "ws", TODAY);
   expect(sorted.matters.map((m) => m.path).sort()).toEqual([
-    "M003 Vysporiadanie odchádzajúceho spoločníka", "Spisy/M001 Úhrada dodávok riadiacich jednotiek", "Spisy/M002 Vady rekonštrukcie výrobnej haly",
+    "M004 Nájom haly", "Spisy/M001 Úhrada dodávok riadiacich jednotiek", "Spisy/M002 Vady rekonštrukcie výrobnej haly",
   ]);
+});
+
+test("#431: pri Veci/ platí to isté; bez Spisy/ a Veci/ ostáva heuristika názvu (staré ploché usporiadanie)", async () => {
+  const veci = await readWorkspaceMemory(fakeClient({
+    "client.md": "---\ntitle: Klient\n---\n",
+    "Veci/2026-01 Spor/zaloba.pdf": "%PDF",
+    "2025-01 Spor/Žaloba.pdf": "%PDF",
+  }), "ws", TODAY);
+  expect(veci.matters.map((m) => m.path)).toEqual(["Veci/2026-01 Spor"]);
+  const flat = await readWorkspaceMemory(fakeClient({
+    "client.md": "---\ntitle: Klient\n---\n",
+    "2025-01 Spor/Žaloba.pdf": "%PDF",
+    "Zmluvy/zmluva.pdf": "%PDF",
+  }), "ws", TODAY);
+  expect(flat.matters.map((m) => m.path)).toEqual(["2025-01 Spor"]);
 });
 
 test("N-A4-4: vnorený klient s vlastnou kartou nie je prípadom vonkajšieho klienta ani jeho skupinou", async () => {
@@ -543,9 +558,10 @@ test("N-A4-4: vnorený klient s vlastnou kartou nie je prípadom vonkajšieho kl
     "Archív/Iný klient/Spisy/X/matter.md": "---\ntitle: Cudzia vec\n---\n",
     "Spisy/C098 Vnorený v Spisy/client.md": "---\ntitle: Ďalší vnorený\n---\n",
   }), "ws", TODAY);
-  expect(out.matters.map((m) => m.path).sort()).toEqual(["M001 Spor o dielo", "Spisy/M002 Nájom"]);
+  // #431: „M001 Spor o dielo“ bez karty vedľa Spisy/ nie je prípad.
+  expect(out.matters.map((m) => m.path).sort()).toEqual(["Spisy/M002 Nájom"]);
   expect(out.clients).toEqual([{ path: "", title: "SYN Hron, a. s." }]);
-  expect(groupByClient(out.matters, out.inputs, out.clients).map((g) => [g.client, g.matters.length])).toEqual([["SYN Hron, a. s.", 2]]);
+  expect(groupByClient(out.matters, out.inputs, out.clients).map((g) => [g.client, g.matters.length])).toEqual([["SYN Hron, a. s.", 1]]);
   // Vnorený klient otvorený priamo ostáva klientom so svojimi prípadmi.
   const own = await readWorkspaceMemory(fakeClient({
     "client.md": "---\ntitle: SYN Vnorený\n---\n",

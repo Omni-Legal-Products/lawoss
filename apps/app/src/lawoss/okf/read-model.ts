@@ -241,6 +241,9 @@ export async function readWorkspaceMemory(
       }
       return;
     }
+    // #431 (15. 11. 2026): klient so `Spisy/` alebo `Veci/` (aj prázdnym, ktoré vznikne pri zavedení) má prípady len
+    // v ňom a v priečinkoch s kartou prípadu; heuristika názvu platí len pre staré ploché usporiadanie bez nich.
+    const hasMattersDir = entries.some((e) => e.kind === "dir" && [MATTERS_DIR, "Veci"].includes(e.name));
     for (const child of entries.filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name))) {
       if (scanned >= MAX_DISCOVERY_DIRECTORIES || paths.length >= MAX_MATTERS) { truncated = true; break; }
       // Preserve empty legacy matters only inside a recognised client or the existing AK profile.
@@ -251,7 +254,7 @@ export async function readWorkspaceMemory(
       } else {
         const coded = hasClientCard && !isWorkDir(child.name) && clientCoded(path, child.name);
         if (coded) codedChildren.add(child.path);
-        await discover(child.path, hasClientCard && !isWorkDir(child.name) && looksLikeMatterFolder(child.name) && !coded, depth + 1, clientFolder);
+        await discover(child.path, hasClientCard && !hasMattersDir && !isWorkDir(child.name) && looksLikeMatterFolder(child.name) && !coded, depth + 1, clientFolder);
       }
     }
   };
