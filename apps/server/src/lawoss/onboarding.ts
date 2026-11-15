@@ -16,7 +16,7 @@ import { registrationName, withClientCardTitles } from "./client-card-title.js";
 import { registerTriageRoutes } from "./triage.js";
 import { readOfficeMemory } from "./office-memory.js";
 import { assertClientFolderNotNested } from "./nested-client.js";
-import { unadoptedClientFolders } from "./unadopted-clients.js";
+import { practiceRootOf, unadoptedClientFolders } from "./unadopted-clients.js";
 import { folderGone, inferPracticeMove, movedClientOf, previewMovedFolder, rebaseOfficeGrants, syncOfficeGrant } from "./moved-practice.js";
 import { executeOnboarding, inspectCardLevel, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, suggestOnboardingLevel, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
 
@@ -376,7 +376,7 @@ export function registerOnboardingRoutes(options: {
     const input = newClientSchema.parse(raw), profile = await readProfile();
     if (!profile?.officeRoot || await missingDirectory(profile.officeRoot)) throw new ApiError(409, "new_client_no_office", "No office is connected in LAWOSS, so a client cannot be created. Nothing was created.");
     // Ako `clientsFolderOf` formulára: `Klienti` vedľa priečinka kancelárie (Office, _kancelaria), inak v koreni praxe.
-    const office = resolve(profile.officeRoot), parent = join(["office", "_kancelaria"].includes(basename(office).toLowerCase()) ? dirname(office) : office, "Klienti");
+    const office = resolve(profile.officeRoot), parent = join(practiceRootOf(office), "Klienti");
     if (await missingDirectory(parent)) throw new ApiError(409, "new_client_no_clients_folder", `The office has no clients folder (${parent}). Nothing was created.`, { parent });
     // Meno priečinka ako `safeSegment` plánovača: bez medzier a bodiek na konci.
     if (/[\\/]/.test(input.name)) throw new ApiError(400, "new_client_name", "A client name cannot contain / or \\. Nothing was created.");

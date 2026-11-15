@@ -5,7 +5,7 @@
  * rovnako ako návrh úrovne v `lawoss/okf/src/onboarding/suggest.ts`). Obsah súborov klienta sa nečíta.
  */
 import { readdir, readFile } from "node:fs/promises";
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { realpath } from "./canonical-path.js";
 
 export type UnadoptedClientFolder = { path: string; name: string };
@@ -16,6 +16,15 @@ const DEFAULT_PATTERN = "Klienti/*";
 const MAX_SEGMENTS = 4;
 /** Horná hranica výsledku; registrovaní klienti sa odfiltrujú skôr, takže neskorý vložený priečinok nevypadne. */
 const MAX_FOLDERS = 500;
+
+/**
+ * Koreň praxe z `officeRoot` profilu. Sprievodca ukladá priečinok kancelárie (`<prax>/Office` alebo `_kancelaria`),
+ * iné toky koreň praxe; `Klienti` leží vždy v koreni praxe vedľa kancelárie (ako `clientsFolderOf` v appke).
+ */
+export function practiceRootOf(officeRoot: string): string {
+  const office = resolve(officeRoot);
+  return OFFICE_DIRS.some(name => name.toLowerCase() === basename(office).toLowerCase()) ? dirname(office) : office;
+}
 
 const missing = (error: unknown) => error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR");
 
@@ -50,10 +59,10 @@ const inside = (root: string, path: string) => { const rel = relative(root, path
 /**
  * Priečinky zodpovedajúce vzoru klientov kancelárie, ktoré nie sú koreňom žiadneho registrovaného priečinka ani ho
  * neobsahujú (vonkajší priečinok registrovaného klienta by zavedenie odmietlo ako vnoreného klienta). Porovnáva
- * kanonické cesty; koreň kancelárie sám nie je klient.
+ * kanonické cesty; koreň kancelárie sám nie je klient. `officeRoot` môže byť koreň praxe aj jej `Office`/`_kancelaria`.
  */
 export async function unadoptedClientFolders(officeRoot: string, registeredPaths: readonly string[]): Promise<UnadoptedClientFolder[]> {
-  const office = await canonical(officeRoot);
+  const office = await canonical(practiceRootOf(officeRoot));
   const segments = (await clientPattern(office)).split("/").filter(Boolean);
   if (!segments.length || segments.length > MAX_SEGMENTS || segments.some(segment => segment === "." || segment === "..")) return [];
   let level = [office];

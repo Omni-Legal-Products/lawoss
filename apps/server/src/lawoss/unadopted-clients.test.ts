@@ -7,7 +7,7 @@ import { join, relative } from "node:path";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
-import { unadoptedClientFolders } from "./unadopted-clients.js";
+import { practiceRootOf, unadoptedClientFolders } from "./unadopted-clients.js";
 
 const roots: string[] = [], stops: (() => void | Promise<void>)[] = [];
 const originalData = process.env.LEGALWORK_DATA_DIR, originalTokens = process.env.LEGALWORK_TOKEN_STORE;
@@ -73,6 +73,18 @@ describe("unadoptedClientFolders", () => {
     await writeFile(join(office, "Office", "okf.config"), "client_path: ../*\n");
     expect(await unadoptedClientFolders(office, [])).toEqual([]);
   });
+
+  test("officeRoot ako priečinok kancelárie (Office, _kancelaria, aj inou veľkosťou písmen) aj ako koreň praxe", async () => {
+    const practice = await tempRoot();
+    await mkdir(join(practice, "Klienti", "Novák"), { recursive: true });
+    await mkdir(join(practice, "Office"));
+    const expected = [{ path: join(practice, "Klienti", "Novák"), name: "Novák" }];
+    for (const root of [practice, join(practice, "Office"), join(practice, "_kancelaria"), join(practice, "office"), `${join(practice, "Office")}/`])
+      expect({ root, found: await unadoptedClientFolders(root, []) }).toEqual({ root, found: expected });
+    expect([practiceRootOf(join(practice, "Office")), practiceRootOf(join(practice, "_KANCELARIA")), practiceRootOf(practice)]).toEqual([practice, practice, practice]);
+    // Iný podpriečinok nie je kancelária: jeho Klienti/ sa hľadajú v ňom.
+    expect(practiceRootOf(join(practice, "Klienti"))).toBe(join(practice, "Klienti"));
+  });
 });
 
 const common = { language: "sk", jurisdiction: "sk", date: "2026-11-15", clientType: "fo" };
@@ -94,8 +106,10 @@ test("route ponúkne vložený priečinok, zavedenie pridá len súbory OKF a pr
 
   // Bez kancelárie v profile nič.
   expect(await call("unadopted-clients")).toEqual({ folders: [] });
-  await apply({ action: "office", parent: office, title: "SYN Kancelária", jurisdiction: "sk", language: "sk", lawyerName: "SYN Advokát" });
-  await call("profile", { lawyerName: "SYN Advokát", jurisdiction: "sk", language: "sk", officeRoot: office });
+  const created = await apply({ action: "office", parent: office, title: "SYN Kancelária", jurisdiction: "sk", language: "sk", lawyerName: "SYN Advokát" });
+  // Sprievodca uloží `result.root` kroku kancelárie, teda `<prax>/Office` (lawoss-welcome-page.tsx), nie koreň praxe.
+  expect(created.root).toBe(join(office, "Office"));
+  await call("profile", { lawyerName: "SYN Advokát", jurisdiction: "sk", language: "sk", officeRoot: created.root });
 
   // Advokát vloží priečinok s vlastnými dokumentmi a pokynmi; jeden klient je už zavedený.
   const dropped = join(office, "Klienti", "SYN Novák");
@@ -108,7 +122,10 @@ test("route ponúkne vložený priečinok, zavedenie pridá len súbory OKF a pr
   await apply({ action: "existing", root: registered, mode: "convert", title: "SYN Zavedený", confirmUnknownClient: true, ...common });
 
   const listed = await call("unadopted-clients");
-  expect(listed).toEqual({ officeRoot: office, folders: [{ path: dropped, name: "SYN Novák" }] });
+  expect(listed).toEqual({ officeRoot: created.root, folders: [{ path: dropped, name: "SYN Novák" }] });
+  // Rovnako s koreňom praxe v profile (iné toky, napr. „Toto som našiel“).
+  await call("profile", { officeRoot: office });
+  expect(await call("unadopted-clients")).toEqual({ officeRoot: office, folders: [{ path: dropped, name: "SYN Novák" }] });
 
   // Obrazovka „Toto sme našli“ navrhne pre vložený priečinok klienta (nie prípad ani prax).
   expect((await call("suggest", { root: dropped })).level).toBe("client");
@@ -126,4 +143,6 @@ test("route ponúkne vložený priečinok, zavedenie pridá len súbory OKF a pr
   console.log(`#425 zavedenie pridalo: ${added.join(", ")}`);
 
   expect(await call("unadopted-clients")).toEqual({ officeRoot: office, folders: [] });
+  await call("profile", { officeRoot: created.root });
+  expect(await call("unadopted-clients")).toEqual({ officeRoot: created.root, folders: [] });
 });
