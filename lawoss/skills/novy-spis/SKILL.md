@@ -24,7 +24,7 @@ Ak `node` ani `bun` nie sú k dispozícii, **zastav sa a povedz to** — nesnaž
 | `okf validate <dir>` | pravidlá OKF v0.1; exit 1 pri chybe | nič |
 | `okf render <dir>` | pregeneruje `index.md` a `CLAUDE.md` mirror | iba odvodené |
 
-**Priečinok nového prípadu nevymýšľaj.** Pri novom prípade vynechaj `<dir>` (`okf plan spis --title "…" [flagy]`): CLI určí priečinok samo pravidlom kancelárie `Spisy/<RRRR-MM> <názov>` v priečinku klienta (to isté pravidlo ako formulár) a vypíše ho v pláne. `<dir>` uveď pri `spis` len pre existujúci priečinok, ktorý advokát pomenoval (napr. zavedenie štruktúry prípadu na mieste).
+**Priečinok nového prípadu nevymýšľaj.** Pri novom prípade vynechaj `<dir>` (`okf plan spis --title "…" [flagy]`): CLI určí priečinok samo pravidlom kancelárie `Spisy/<RRRR-MM> <názov>` v priečinku klienta (to isté pravidlo ako formulár) a vypíše ho v pláne. `<dir>` uveď pri `spis` len pre existujúci priečinok, ktorý advokát pomenoval (napr. zavedenie štruktúry prípadu na mieste), alebo pre presný cieľový priečinok z požiadavky formulára LAWOSS. Ak CLI názov odmietne (napr. pre znak `/` alebo `:`), povedz to advokátovi a navrhni upravený názov prípadu; priečinok nevymýšľaj.
 
 `<typ>` ∈ `klient` · `spis` · `projekt`. Flagy: `--ico`, `--klient`, `--protistrana`, `--protistrana-ico`, `--oblast`, `--desc`, `--spzn`, `--sud`, `--advokat`, `--client-type fo|fo-podnikatel|po|iny`, `--country ISO-kód`, `--citizenship ISO-kódy`, `--residence-country ISO-kód`, `--identifier-type`, `--identifier`, `--matter-kind dispute|advisory|transaction|other`, `--mode bounded|ongoing`. Pridaj `--json`, keď potrebuješ výstup spracovať.
 

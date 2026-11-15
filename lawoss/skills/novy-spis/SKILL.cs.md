@@ -24,7 +24,7 @@ Pokud není k dispozici `node` ani `bun`, **zastav se a řekni to** - nesnaž se
 | `okf validate <dir>` | pravidla OKF v0.1; exit 1 při chybě | nic |
 | `okf render <dir>` | přegeneruje `index.md` a `CLAUDE.md` mirror | jen odvozené |
 
-**Složku nové věci nevymýšlej.** U nové věci vynech `<dir>` (`okf plan spis --title "…" [flagy]`): CLI určí složku samo pravidlem kanceláře `Spisy/<RRRR-MM> <název>` ve složce klienta (totéž pravidlo jako formulář) a vypíše ji v plánu. `<dir>` uveď u `spis` jen pro existující složku, kterou advokát pojmenoval (např. zavedení struktury věci na místě).
+**Složku nové věci nevymýšlej.** U nové věci vynech `<dir>` (`okf plan spis --title "…" [flagy]`): CLI určí složku samo pravidlem kanceláře `Spisy/<RRRR-MM> <název>` ve složce klienta (totéž pravidlo jako formulář) a vypíše ji v plánu. `<dir>` uveď u `spis` jen pro existující složku, kterou advokát pojmenoval (např. zavedení struktury věci na místě), nebo pro přesnou cílovou složku z požadavku formuláře LAWOSS. Pokud CLI název odmítne (např. kvůli znaku `/` nebo `:`), řekni to advokátovi a navrhni upravený název věci; složku nevymýšlej.
 
 `<typ>` ∈ `klient` · `spis` · `projekt`. Flagy: `--ico`, `--klient`, `--protistrana`, `--protistrana-ico`, `--oblast`, `--desc`, `--spzn`, `--sud`, `--advokat`, `--client-type fo|fo-podnikatel|po|iny`, `--country ISO-kód`, `--citizenship ISO-kódy`, `--residence-country ISO-kód`, `--identifier-type`, `--identifier`, `--matter-kind dispute|advisory|transaction|other`, `--mode bounded|ongoing`. Přidej `--json`, když potřebuješ výstup zpracovat.
 
