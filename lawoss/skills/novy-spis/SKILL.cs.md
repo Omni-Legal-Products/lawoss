@@ -45,6 +45,7 @@ Pokud není k dispozici `node` ani `bun`, **zastav se a řekni to** - nesnaž se
 8. Vypiš vytvořené soubory, nezpracované vstupy a neúplné ověření. Ruční přidání podkladu nebo komunikace začíná zápisem do `VSTUPY.md` se zdrojem, časem a `pending`. Používej vytvořené pracovní složky a jejich pravidla pojmenování. V `KOMUNIKACNE-KANALY.md` eviduj povolený účet, konkrétní kontakt/vlákno a poslední úplnou kontrolu. Vytvoření evidence nepovoluje čtení všech schránek ani odesílání zpráv.
 
 ## Pravidla (vždy)
+- **Nový klient kanceláře:** pokud máš nástroj `lawoss_new_client` (LAWOSS), založ klienta jím, i z chatu jiného klienta: složka v `Klienti/` kanceláře vznikne po jedné kartě stejnou cestou jako formulář klienta. Neodmítej to proto, že složka leží mimo tento chat, a složku ani kartu klienta nezakládej ručně ani přes `okf apply klient`. Ověření v rejstříku před založením je pak volitelné, jen když o něj advokát požádá (karta zůstane `registry_status: unverified`).
 - Piš jen do složky, kterou jsi právě založil nebo kterou ti advokát určil. Sourozence nikdy neměň.
 - `apply` nepřepisuje existující soubory - ani když jejich obsah vypadá špatně. Pokud je potřeba změna v existujícím souboru, navrhni ji a nech rozhodnout člověka.
 - `CLAUDE.md` je mirror `AGENTS.md`; nikdy ho neupravuj samostatně, spusť `render`.

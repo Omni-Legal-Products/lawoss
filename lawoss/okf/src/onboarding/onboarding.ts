@@ -70,7 +70,9 @@ export function parseOnboardingRequest(value: unknown): OnboardingRequest {
     if (language !== undefined && language !== "sk" && language !== "cs" && language !== "en") throw new Error("Invalid language.");
     const jurisdiction = value.jurisdiction; if (jurisdiction !== "sk" && jurisdiction !== "cz") throw new Error("Invalid jurisdiction.");
     if (language !== "sk" && language !== "cs" && language !== "en") throw new Error("Invalid language.");
-    return { action: "client", parent: string(value.parent, "parent"), name: string(value.name, "name"), title: string(value.title, "title"), clientType, jurisdiction, date: isoDate(value.date), language };
+    const ico = optionalString(value.ico, "ico"), description = optionalString(value.description, "description");
+    if (ico !== undefined && !/^\d{6,8}$/.test(ico)) throw new Error("Invalid identification number.");
+    return { action: "client", parent: string(value.parent, "parent"), name: string(value.name, "name"), title: string(value.title, "title"), clientType, jurisdiction, date: isoDate(value.date), language, ...(ico ? { ico } : {}), ...(description ? { description } : {}) };
   }
   if (value.action === "subject") return { action: "subject", clientRoot: string(value.clientRoot, "clientRoot"), name: string(value.name, "name"), title: string(value.title, "title") };
   if (value.action === "matter") {

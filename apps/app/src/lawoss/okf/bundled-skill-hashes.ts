@@ -34,6 +34,7 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "5626a0d6950460f6c7ac1269cd9dd533dd85d63582015a2286694a2b0816b79d", // lawoss/okf-pamat/SKILL.md @ 21a4bc44
   "5a4e2523f4cf7fce2827101e9dbbf2647ef00274a3302172e1f36c14df2568c6", // lawoss/skills/novy-spis/SKILL.cs.md @ 221da141
   "620c5a37406db608c75da2e348e2b42dd75cae6ff777c6f4aee429ba5c56c2a7", // lawoss/okf-pamat/SKILL.md @ 790a86c0
+  "69106d7749a61f85289a7091dd0fa368b740b0da514fc3e156646909ec341218", // lawoss/skills/novy-spis/SKILL.cs.md @ #423, nový klient nástrojem lawoss_new_client
   "711fb73e3392ca523e31eae3ab31e19b7b4d2a3b3322ce75e8c02fdd405774bb", // lawoss/skills/novy-spis/SKILL.cs.md @ #422, bez okf.config a se zamítnutou kartou
   "79b13383c649b2a9ba81bcb3ab2167d48b4744a0215090d735a2e007c2c8f0f4", // lawoss/okf-pamat/SKILL.md @ 1bc3f128
   "7a4323b22532d72555d01d39b6af4857406e007b3da42d72f473861b3502e223", // lawoss/skills/novy-spis/SKILL.md @ 221da141
@@ -42,6 +43,7 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "8937c0e1a2fb5c0f405866ab7fbbfad1573ee84637a079ba4bc3364221841d2a", // lawoss/okf-pamat/SKILL.md @ f6bcae3c
   "8ca9ccca2915d9030465ecddb994d788cb0eac78d50f18c15d9715693cfe76ca", // lawoss/okf-pamat/SKILL.md @ 4aa50376
   "93124c750445011a94aa1d871dbb8bca036dbb3c572931440da9e5caf28f0c80", // lawoss/okf-pamat/SKILL.md @ f0fc1a01
+  "a2c70788ed40633426e6e2c610d8e8ffba149a5da4674daeb12ab48de6238d52", // lawoss/skills/novy-spis/SKILL.md @ #423, nový klient nástrojom lawoss_new_client
   "a6147662fc53862c5c362b6aa34fb188b59891c8aeea92bd2b4f7efcdcc1aef3", // lawoss/okf-pamat/SKILL.md @ e362496e
   "baae5bd4694a0c087d7874984b7d19fbda0776ea92ba8796d0a235016da51962", // lawoss/okf-pamat/SKILL.md @ 4614bc41
   "bb5fb85573e1eb75bf1b7485f6d27fd00c62ac48536f5e8dd2780c0a161db39f", // lawoss/okf-pamat/SKILL.md @ f8153756

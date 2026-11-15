@@ -45,6 +45,7 @@ Ak `node` ani `bun` nie sú k dispozícii, **zastav sa a povedz to** — nesnaž
 8. Vypíš vytvorené súbory, nespracované vstupy a neúplné preverenie. Ručné pridanie podkladu alebo komunikácie začína zápisom do `VSTUPY.md` so zdrojom, časom a `pending`. Používaj vytvorené pracovné priečinky a ich pravidlá pomenovania. V `KOMUNIKACNE-KANALY.md` eviduj povolený účet, konkrétny kontakt/thread a poslednú úplnú kontrolu. Vytvorenie evidencie nepovoľuje čítanie všetkých schránok ani odosielanie správ.
 
 ## Pravidlá (vždy)
+- **Nový klient kancelárie:** ak máš nástroj `lawoss_new_client` (LAWOSS), založ klienta ním, aj z chatu iného klienta: priečinok v `Klienti/` kancelárie vznikne po jednej karte tou istou cestou ako formulár klienta. Neodmietaj to preto, že priečinok leží mimo tohto chatu, a priečinok ani kartu klienta nezakladaj ručne ani cez `okf apply klient`. Preverenie v registri pred založením je vtedy voliteľné, len keď o to advokát požiada (karta ostane `registry_status: unverified`).
 - Píš iba do priečinka, ktorý si práve založil alebo ktorý ti advokát určil. Súrodencov nikdy nemeň.
 - `apply` neprepisuje existujúce súbory — ani keď ich obsah vyzerá zle. Ak treba zmenu v existujúcom súbore, navrhni ju a nechaj rozhodnúť človeka.
 - `CLAUDE.md` je mirror `AGENTS.md`; nikdy ho neupravuj samostatne, spusti `render`.

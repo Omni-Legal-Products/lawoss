@@ -7,6 +7,8 @@ import { z } from "zod";
 import { ApiError } from "../errors.js";
 import { runtimeStorageDir, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import { registerLocalProject } from "../routes/workspaces.js";
+import { noteProjectRenamed } from "../project-sync.js";
+import { engineAgent } from "./file-operations.js";
 import { addRoute, type RequestContext, type Route } from "../routes/registry.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { externalAppFilesRoot } from "./workspace-app-files.js";
@@ -83,6 +85,8 @@ const assertClientFolders = async (config: ServerConfig, preview: Parameters<typ
     if (moved) throw new ApiError(409, "onboarding_client_moved", "This folder may belong to a registered client whose folder was not found. Choose whether to reconnect it or add it as a new client. Nothing was changed.", { ...moved, folderPath: folder });
   }
 };
+/** Miestny deň advokáta (ako karta z obrazovky „Toto som našiel“), nie UTC. */
+const localDay = () => { const now = new Date(); return [now.getFullYear(), now.getMonth() + 1, now.getDate()].map((part, index) => String(part).padStart(index ? 2 : 4, "0")).join("-"); };
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
 
 async function canonicalDirectory(path: string): Promise<string> {
@@ -263,8 +267,7 @@ export function registerOnboardingRoutes(options: {
     if (!officeRoot || await missingDirectory(officeRoot)) return { folders: [] };
     return { officeRoot, folders: await unadoptedClientFolders(officeRoot, config.workspaces.map(workspace => workspace.path)) };
   });
-  route("POST", "plan", async ctx => {
-    const input = await body(ctx);
+  const plan = async (input: Record<string, unknown>) => {
     // Vybraný existujúci priečinok sa overí ešte pred prehliadkou: odmietnutie má prednosť pred inou chybou plánu.
     if (input.action === "existing" && typeof input.root === "string" && isAbsolute(input.root)) await assertClientFolderNotNested(config, input.root, input.mode === "trial_clone" ? "copy" : "in_place");
     const preview = await previewOnboarding(input);
@@ -292,9 +295,10 @@ export function registerOnboardingRoutes(options: {
     const ticket: Ticket = { version: 1, id, fingerprint, preview: confirmedPreview, name, ...(officeMemoryRoot ? { officeMemoryRoot } : {}), ...(confirmedNewClient ? { confirmedNewClient } : {}) };
     await writeJson(join(storage, `${id}.json`), ticket);
     return { id, fingerprint, preview: { ...preview, operations: preview.plan?.operations.map(operation => operation.path) ?? [], warnings: preview.mode === "trial_clone" ? ["trial_clone"] : [], label: preview.target ?? preview.root, officeMemoryRoot } };
-  });
-  route("POST", "apply", async ctx => {
-    const input = z.strictObject({ id: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/), confirm: z.literal(true) }).parse(await body(ctx));
+  };
+  route("POST", "plan", async ctx => plan(await body(ctx)));
+  const applyTicketSchema = z.strictObject({ id: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/), confirm: z.literal(true) });
+  const apply = async (input: z.output<typeof applyTicketSchema>) => {
     if (busy.has(input.id)) throw new ApiError(409, "onboarding_busy", "This onboarding operation is already running.");
     busy.add(input.id);
     try {
@@ -355,6 +359,43 @@ export function registerOnboardingRoutes(options: {
       const subjectRoot = currentProfile?.subjectRoot && result.matterRoot && inside(clientRoot, currentProfile.subjectRoot) && inside(currentProfile.subjectRoot, result.matterRoot) ? currentProfile.subjectRoot : null;
       return { ...(result.matterRoot ? { subjectRoot } : {}), result: repeated || result.status === "already_applied" ? "already_applied" : "applied", ...result, appFiles, workspace: options.serializeWorkspace(workspace), activeId: workspace.id, workspaces: config.workspaces.map(options.serializeWorkspace) };
     } finally { busy.delete(input.id); }
+  };
+  route("POST", "apply", async ctx => apply(applyTicketSchema.parse(await body(ctx))));
+  // #423: `lawoss_new_client` (opencode-plugins/lawoss-new-client.ts) zakladá klienta vetou v chate tou istou cestou ako
+  // formulár klienta (`plan` a `apply` vyššie). Len poverenie chatu, zápis až po jeho karte. Kanceláriu, priečinok Klienti,
+  // jurisdikciu a jazyk berie server z profilu, cestu agent nezadáva; existujúci priečinok sa neprepíše (kolízia mena).
+  const agentRoute = (path: string, handler: (input: Record<string, unknown>) => Promise<unknown>) => addRoute(options.routes, "POST", `/workspace/:id/lawoss/new-client/${path}`, "client", async ctx => {
+    if (!["collaborator", "owner"].includes(ctx.actor?.scope ?? "") || !await engineAgent(config, ctx.actor)) throw new ApiError(403, "new_client_agent_only", "Only a chat's new-client tool, after the user's approval, can use this route.");
+    options.ensureWritable(config);
+    try { return options.jsonResponse(await handler(await body(ctx))); }
+    catch (error) { if (error instanceof ApiError) throw error; throw new ApiError(400, "new_client_failed", error instanceof Error ? error.message : "Creating the client failed."); }
+  });
+  const newClientSchema = z.object({ name: z.string().trim().min(1).max(120), clientType: z.enum(["fo", "fo-podnikatel", "po", "iny"]).optional(),
+    ico: z.string().regex(/^\d{6,8}$/).optional(), note: z.string().trim().min(1).max(1000).optional() });
+  agentRoute("plan", async raw => {
+    const input = newClientSchema.parse(raw), profile = await readProfile();
+    if (!profile?.officeRoot || await missingDirectory(profile.officeRoot)) throw new ApiError(409, "new_client_no_office", "No office is connected in LAWOSS, so a client cannot be created. Nothing was created.");
+    // Ako `clientsFolderOf` formulára: `Klienti` vedľa priečinka kancelárie (Office, _kancelaria), inak v koreni praxe.
+    const office = resolve(profile.officeRoot), parent = join(["office", "_kancelaria"].includes(basename(office).toLowerCase()) ? dirname(office) : office, "Klienti");
+    if (await missingDirectory(parent)) throw new ApiError(409, "new_client_no_clients_folder", `The office has no clients folder (${parent}). Nothing was created.`, { parent });
+    // Meno priečinka ako `safeSegment` plánovača: bez medzier a bodiek na konci.
+    if (/[\\/]/.test(input.name)) throw new ApiError(400, "new_client_name", "A client name cannot contain / or \\. Nothing was created.");
+    const target = join(parent, input.name.replace(/[. ]+$/, ""));
+    if (!await missingDirectory(target)) throw new ApiError(409, "new_client_exists", `A folder with this name already exists (${target}). Nothing was created or overwritten.`, { target });
+    const planned = await plan({ action: "client", parent, name: input.name, title: input.name, clientType: input.clientType ?? "po", jurisdiction: profile.jurisdiction,
+      date: localDay(), language: profile.language === "de" ? "en" : profile.language, ...(input.ico ? { ico: input.ico } : {}), ...(input.note ? { description: input.note.replace(/\s+/g, " ") } : {}) });
+    return { id: planned.id, fingerprint: planned.fingerprint, office, parent, target: planned.preview.target ?? target, name: input.name };
+  });
+  agentRoute("apply", async raw => {
+    const input = z.object({ id: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/) }).parse(raw);
+    const ticket = await readTicket(join(storage, `${input.id}.json`));
+    if (ticket.preview.action !== "client" || ticket.preview.mode !== "new") throw new ApiError(403, "new_client_agent_only", "This tool can only create a new client.");
+    const applied = await apply({ ...input, confirm: true });
+    const clientRoot = applied.clientRoot ?? applied.root;
+    const workspace = config.workspaces.find(item => item.path === clientRoot);
+    // Bočný panel si zoznam klientov prečíta znova (revízia zoznamu); nový klient nemá väzbu na firmu, nič sa nesynchronizuje.
+    if (workspace) await noteProjectRenamed(config, workspace.id, workspace.name);
+    return { created: true, path: clientRoot, name: workspace?.name ?? ticket.name };
   });
   route("POST", "recover", async ctx => {
     const input = z.strictObject({ id: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/), confirm: z.literal(true), action: z.enum(["finish", "rollback"]) }).parse(await body(ctx));

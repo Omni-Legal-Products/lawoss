@@ -36,6 +36,7 @@ import { listWorkspaces, serverUrl, workspaceToolHeaders, type OpenCodeContext }
 import { nativeTool } from "./native-tool.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
 import { askOrDeclined } from "./lawoss-declined-card.js";
+import { NEW_CLIENT_SYSTEM, newClientTool } from "./lawoss-new-client.js";
 
 const args = z.object({
   action: z.enum(["preamble", "read"]).describe("preamble: rules, lessons and the do-not-cite list, at the start of work on a case. read: the full memory of the case with its client and office scope."),
@@ -82,6 +83,8 @@ const SYSTEM = [
   "Speak to the lawyer in plain language. Use the names of cases and documents, not codes such as M001 or IN-003, and leave out internal words (L1, L2, L3, gate, VSTUPY.md, record types, tool names) unless the user asks for technical detail. When something cannot be done, say in one sentence what the user can do next.",
   "To see which files and folders exist, use the engine's glob, grep and read tools instead of ls, find or tree in the shell: they need no approval card. Use the shell only when no other tool can do the task.",
   "glob and grep return files only, so an empty folder never appears in their results. To see everything inside a folder, including empty subfolders, call read on the folder's path: it lists the entries one per line, subfolders with a trailing /, and an empty folder shows (0 entries). Never conclude that a folder is missing from glob or grep alone.",
+  // #423: nový klient vetou v každom chate klienta (lawoss-new-client.ts).
+  NEW_CLIENT_SYSTEM,
 ].join("\n");
 
 async function post(context: OpenCodeContext, workspace: string, route: string, body: unknown): Promise<string> {
@@ -172,6 +175,7 @@ export default Plugin.define({
         permission: "domain",
         execute: writeDeadline,
       }));
+      editor.add(newClientTool(ctx));
     });
     return async () => { await Promise.all([context.dispose(), tools.dispose()]); };
   },

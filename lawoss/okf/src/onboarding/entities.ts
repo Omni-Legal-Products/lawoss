@@ -22,7 +22,8 @@ export type CreatePreview = { mode: "new"; appFiles: "inside"; target: string; c
 export type MapPreview = { mode: "map"; appFiles: "outside"; root: string; sourceDigest: string; externalProfile: { version: 1; matterId: string; roots: { id: string; path: string }[]; sources: { id: string; root: string; path: string; role: "case_memory"; required: true; writable: false; anchors: string[] }[] } };
 export type TrialClonePreview = { mode: "trial_clone"; appFiles: "inside"; source: string; sourceDigest: string; target: string; trial: true };
 export type OfficeRequest = { parent: string; name?: string; jurisdiction: "sk" | "cz"; title: string; language: "sk" | "cs" | "en"; lawyerName: string };
-export type ClientRequest = { parent: string; name: string; title: string; clientType: "fo" | "fo-podnikatel" | "po" | "iny"; jurisdiction: "sk" | "cz"; date: string; language?: "sk" | "cs" | "en" };
+// `ico` a `description` (#423): klient vetou v chate; formulár ich neposiela, karta ich potom má prázdne ako doteraz.
+export type ClientRequest = { parent: string; name: string; title: string; clientType: "fo" | "fo-podnikatel" | "po" | "iny"; jurisdiction: "sk" | "cz"; date: string; language?: "sk" | "cs" | "en"; ico?: string; description?: string };
 export type SubjectRequest = { clientRoot: string; name: string; title: string };
 export type MatterRequest = { clientRoot: string; parent: string; title: string; date: string; kind: MatterKind; area: string; jurisdiction: "sk" | "cz"; subject?: string; language?: "sk" | "cs" | "en" };
 
@@ -169,7 +170,7 @@ export async function planPracticeOffice(request: PracticeRequest): Promise<Crea
 }
 export async function planNewClient(request: ClientRequest): Promise<CreatePreview> {
   const name = safeSegment(request.name), target = join(request.parent, name), language = request.language ?? "sk";
-  const generated = planEntity({ type: "klient", dir: target, title: request.title, clientType: request.clientType, language, jurisdiction: request.jurisdiction, date: request.date }, LOCALIZED_TEMPLATES, () => false);
+  const generated = planEntity({ type: "klient", dir: target, title: request.title, clientType: request.clientType, language, jurisdiction: request.jurisdiction, date: request.date, ...(request.ico ? { ico: request.ico } : {}), ...(request.description ? { description: request.description } : {}) }, LOCALIZED_TEMPLATES, () => false);
   return { mode: "new", appFiles: "inside", target, clientRoot: target, plan: await rootPlan(request.parent, templateOperations(name, generated.entries)) };
 }
 export async function planNewSubject(request: SubjectRequest): Promise<CreatePreview> {
