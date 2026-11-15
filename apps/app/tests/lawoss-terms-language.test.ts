@@ -113,7 +113,7 @@ describe("EN a DE: Client / Case / Chats a Mandant / Fall / Chats (N-11)", () =>
 
 describe("SK a CS: Prípad / Případ namiesto spisu (N-3, F1, N-6)", () => {
   // Právne pojmy a doslovný názov priečinka: „Číslo spisu“, priečinok „Spisy“.
-  const LEFT_TO_C1 = new Set(["lawoss.setup.wizard.clientRootHint", "projects.schema.matter_number"]);
+  const LEFT_TO_C1 = new Set(["lawoss.setup.wizard.clientRootHint", "projects.schema.matter_number", "lawoss.okf_command.new_case_folder"]);
   const OLD = /(?<![-\p{L}/])[Ss]pis(y|u|e|ov|om|och|mi|ů|ům|ech|em)?(?![\p{L}])/u;
   test("slovníky nehovoria o spise vo význame prípadu", () => {
     for (const dict of [shellSk, shellCs, mattersSk, mattersCs, setupSk, setupCs, integrationsSk, integrationsCs]) {
