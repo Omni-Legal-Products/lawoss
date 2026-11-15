@@ -152,6 +152,8 @@ const writeSchema = z.object({
   ifRevision: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   /** `client`: a client-level record in the client's own memory, read with every case of that client. */
   scope: z.enum(["case", "client"]).optional(),
+  /** #417: for a new task the lawyer asked for in chat, the lawyer's sentence as written (like the deadline tool's). */
+  instruction: z.string().trim().min(1).max(1000).optional(),
   apply: z.boolean().optional(),
   approved: z.string().max(128).optional(),
   sessionID: z.string().optional(),
@@ -249,9 +251,11 @@ async function writeTarget(config: ServerConfig, own: OwnFolders, matter: string
  * folder, another client or an office; only a layer L2 record that stays in the case is written (no approver's name,
  * no deletion). With `scope: "client"` the record goes to the client's own memory instead (subject, screening or a
  * client note, layer L2), under the same boundary. `kind: "instruction_deadline"` is `writeInstructionDeadline`.
- * A new task of a case (#417, "pripomeň mi …") is the lawyer's instruction too: the preview names the case and the
- * apply writes the instruction's row (Truth, closed with the task's ID) to the case's `VSTUPY.md` like a deadline.
- * A change of a task (done, new term) adds no row.
+ * A new task of a case the lawyer asked for in chat (#417, "pripomeň mi …") is the lawyer's instruction too, but only
+ * with `instruction` (the lawyer's sentence, as `lawoss_memory_deadline` takes it): the preview names the case and the
+ * apply writes the instruction's row (that sentence, closed with the task's ID) to the case's `VSTUPY.md` like a
+ * deadline. A task the agent derived from a document has no `instruction`, cites the document in its own record and
+ * gets no row. A change of a task (done, new term) adds no row.
  */
 export async function writeMatterMemoryForChat(config: ServerConfig, workspace: WorkspaceInfo, body: unknown,
   linkedFolders: (config: ServerConfig, workspace: WorkspaceInfo) => Promise<readonly string[]> = documentLinkedFolders, now = new Date()): Promise<MatterMemoryWritePreview | MatterMemoryWriteResult> {
@@ -259,7 +263,7 @@ export async function writeMatterMemoryForChat(config: ServerConfig, workspace: 
   if (body && typeof body === "object" && "kind" in body && body.kind === "instruction_deadline") return writeInstructionDeadline(config, workspace, body, linkedFolders, now);
   const parsed = writeSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "memory_arguments", "Send the case folder, the whole record, the reason and, for a change of an existing record, its revision.");
-  const { matter, record, reason, ifRevision, apply = false, approved } = parsed.data;
+  const { matter, record, reason, ifRevision, instruction, apply = false, approved } = parsed.data;
   const client = parsed.data.scope === "client";
   if (!isAbsolute(matter) || matter.includes("\0") || record.includes("\0")) throw new ApiError(400, "memory_arguments", "Use the absolute path of this client's case folder.");
   const own = await ownFolders(config, workspace, linkedFolders);
@@ -278,12 +282,14 @@ export async function writeMatterMemoryForChat(config: ServerConfig, workspace: 
   if (client && !CLIENT_RECORD_TYPES.includes(plan.type)) throw refused(`A client-level record is only ${CLIENT_RECORD_TYPES.join(", ")}.`);
   const file = await canonicalPath(plan.file);
   if (!writable(file, own)) throw notOwn("written");
-  // #417: a new task of a case is the lawyer's instruction like a deadline: its row in the case's input register.
-  // A task with `deadlines` may come from a document, so it is not registered as the lawyer's instruction.
-  const instructed = !client && plan.kind === "create" && plan.type === "task" && !plan.fields.some((field) => field.startsWith("deadlines:"));
+  // #417: a new task the lawyer asked for in chat (with the lawyer's sentence in `instruction`) is the lawyer's
+  // instruction like a deadline: its row in the case's input register. Without it (a task derived from a document,
+  // which cites the document itself) or with `deadlines` (those go through `lawoss_memory_deadline`) there is no row.
+  const said = instruction?.replace(/\s+/g, " ");
+  const instructed = said !== undefined && !client && plan.kind === "create" && plan.type === "task" && !plan.fields.some((field) => field.startsWith("deadlines:"));
   const task = instructed ? await taskRegister(target, own) : null;
   // Bound to the file, the preview and the exact bytes of the record that will be written (and the register as shown).
-  const token = createHash("sha256").update(`${file}\0${plan.recordHash}\0${preview.out}${task ? `\0${task.register}\0${registerHash(task.before)}\0${task.inputId}` : ""}`).digest("hex");
+  const token = createHash("sha256").update(`${file}\0${plan.recordHash}\0${preview.out}${task ? `\0${task.register}\0${registerHash(task.before)}\0${task.inputId}\0${said}` : ""}`).digest("hex");
   const shown = shownPath(file, own.root);
   if (!apply) {
     return { status: "preview", target: shown, kind: plan.kind, title: plan.title, type: plan.type, truth: plan.truth,
@@ -295,7 +301,7 @@ export async function writeMatterMemoryForChat(config: ServerConfig, workspace: 
   if (approved !== token) throw changed();
   if (task) {
     const shownRegister = shownPath(task.register, own.root);
-    const row = instructionInputRow(task.inputId, receivedStamp(now), plan.truth.replace(/\s+/g, " ").trim().slice(0, 1000), plan.id);
+    const row = instructionInputRow(task.inputId, receivedStamp(now), said ?? "", plan.id);
     const text = await writeWithInputRow(task.register, task.before, row, basename(target), () => write(target, record, { ...options, apply: true }), changed,
       (failure) => new ApiError(500, "memory_task_partial", `The task was not written, and the row ${task.inputId} could not be removed from ${shownRegister}. Tell the user to remove that row. ${failure.trim()}`));
     return { status: "written", target: shown, id: plan.id, text, register: shownRegister, inputId: task.inputId };

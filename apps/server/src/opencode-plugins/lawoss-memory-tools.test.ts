@@ -168,8 +168,10 @@ test("lawoss_memory_write of a new task: one card with the case and both files, 
     const plugin = await lawossNativePlugin(MemoryTools);
     const cards: { permission: string; patterns: string[]; metadata: Record<string, unknown> }[] = [];
     const context = { directory: "/synthetic/K1", sessionID: "ses_memory", ask: async (card: { permission: string; patterns: string[]; metadata: Record<string, unknown> }) => { cards.push(card); } };
-    await plugin.tool.lawoss_memory_write.execute({ record: "---\nokf: 1\n---", reason: "Pokyn advokáta v chate", matter: "Spisy/M001" }, context);
-    expect(bodies[1]).toMatchObject({ apply: true, approved: "c".repeat(64) });
+    await plugin.tool.lawoss_memory_write.execute({ record: "---\nokf: 1\n---", reason: "Pokyn advokáta v chate", matter: "Spisy/M001", instruction: task.truth }, context);
+    // The lawyer's sentence reaches the server in both calls; without it the server registers no instruction.
+    expect(bodies[0]).toMatchObject({ instruction: task.truth });
+    expect(bodies[1]).toMatchObject({ apply: true, approved: "c".repeat(64), instruction: task.truth });
     expect(cards).toHaveLength(1);
     expect(cards[0]).toMatchObject({ permission: "lawoss_file_change", patterns: ["Spisy/M001/memory/T-001-vyziadat-prilohu.md", "Spisy/M001/VSTUPY.md"],
       metadata: { lawossMemory: { type: "task", task: { case: "Spor o úhradu dodávok", register: "Spisy/M001/VSTUPY.md", inputId: "IN-002" } } } });

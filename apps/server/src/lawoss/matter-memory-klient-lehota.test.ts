@@ -273,7 +273,7 @@ test("#417: nová úloha prípadu: náhľad s názvom prípadu, potom riadok pok
   const earlier = "---\ntype: input-register\n---\n\n# Vstupy\n\n| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |\n|---|---|---|---|---|---|\n| IN-001 | 2026-11-01T10:00:00+01:00 | e-mail | 01_Podklady/zmluva.pdf | pending | |\n";
   await writeFile(register, earlier);
   const before = await snapshot(f.root);
-  const body = { matter: dir, record: task(), reason: "Pokyn advokáta v chate" };
+  const body = { matter: dir, record: task(), reason: "Pokyn advokáta v chate", instruction: TASK_SENTENCE };
   const preview = previewOf(await f.write(body));
   expect(preview).toMatchObject({ status: "preview", kind: "create", type: "task", title: "Vyžiadať prílohu č. 4",
     task: { case: "Spor o úhradu dodávok", register: "Spisy/M001-Spor-o-uhradu/VSTUPY.md", inputId: "IN-002" } });
@@ -319,16 +319,24 @@ test("#417: nová úloha prípadu: náhľad s názvom prípadu, potom riadok pok
   const fromDocument = previewOf(await f.write({ matter: f.cases[1], record: dated, reason: "SYN" }));
   expect(fromDocument.type).toBe("task");
   expect(fromDocument.task).toBeUndefined();
-  const fresh = previewOf(await f.write({ matter: f.cases[1], record: task(), reason: "SYN" }));
+  // A new task without the lawyer's sentence (derived from a document, which the record cites) is not the lawyer's
+  // instruction either: no row, no task part, no register.
+  const derived = record("T-001", "task", "L2", "Doložiť prílohu č. 4", "Zmluva čl. 5 vyžaduje prílohu č. 4.", "state: pending\ndue: 2026-11-18\nsources: [\"01_Podklady/zmluva.pdf\"]\n");
+  const fromContract = previewOf(await f.write({ matter: f.cases[1], record: derived, reason: "SYN" }));
+  expect(fromContract.type).toBe("task");
+  expect(fromContract.task).toBeUndefined();
+  const fresh = previewOf(await f.write({ matter: f.cases[1], record: task(), reason: "SYN", instruction: TASK_SENTENCE }));
   expect(fresh.task).toMatchObject({ case: "Nájom skladu", inputId: "IN-001" });
-  await f.write({ matter: f.cases[1], record: task(), reason: "SYN", apply: true, approved: fresh.approved });
+  // The approval covers the lawyer's sentence: another sentence after the card is refused.
+  expect((await refusal(f.write({ matter: f.cases[1], record: task(), reason: "SYN", instruction: "Iná veta.", apply: true, approved: fresh.approved })))?.code).toBe("memory_write_changed");
+  await f.write({ matter: f.cases[1], record: task(), reason: "SYN", instruction: TASK_SENTENCE, apply: true, approved: fresh.approved });
   expect(await rowsOf(join(f.cases[1]!, "VSTUPY.md"))).toHaveLength(1);
 });
 
 test("#417: zlyhanie zápisu úlohy vráti VSTUPY.md späť; zmena registra po karte sa odmietne", async () => {
   const f = await fixture();
   const dir = f.cases[0]!, register = join(dir, "VSTUPY.md");
-  const body = { matter: dir, record: task(), reason: "SYN" };
+  const body = { matter: dir, record: task(), reason: "SYN", instruction: TASK_SENTENCE };
   // A register created by this call disappears again.
   const first = previewOf(await f.write(body));
   await mkdir(join(dir, ".okf-write.lock"));
