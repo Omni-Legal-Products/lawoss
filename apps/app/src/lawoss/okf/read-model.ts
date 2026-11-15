@@ -40,13 +40,22 @@ export const FOLDER_UNAVAILABLE = "project_folder_unavailable";
 export const isFolderUnavailable = (error: unknown): boolean => error instanceof LegalworkServerError && error.code === FOLDER_UNAVAILABLE;
 export type OkfSourceReadState = { source: "workspace" | "office"; workspaceId?: string; checkedAt: number; lastSuccessAt: number | null; state: "fresh" | "stale" | "unavailable" | "truncated" };
 export type OkfCoverage = { status: "complete" | "partial" | "failed"; scopeKey: string; sources: readonly OkfSourceReadState[] };
-type SourceSnapshot = { inputs: MatterInput[]; clients: OkfClient[]; office?: OfficeBundle | null };
+/**
+ * #460: cesty, ktoré úplné čítanie klienta vypísalo alebo prečítalo, a odtlačok ich `stat` zo servera. Kým sa odtlačok
+ * nezmení, tichá obnova použije snímku namiesto nového čítania stromu.
+ */
+type ChangeBaseline = { day: string; paths: readonly string[]; token: string; readAt: number };
+type SourceSnapshot = { inputs: MatterInput[]; clients: OkfClient[]; foreignClientFolders?: string[]; office?: OfficeBundle | null; change?: ChangeBaseline };
 export type OkfReadOptions = {
   signal?: AbortSignal; previous?: OkfReadResult; now?: () => number;
+  /** #460: obnova po vlastnej akcii appky (invalidácia) číta celý strom aj pri nezmenenom odtlačku. */
+  fullRead?: boolean;
   /** Relatívne cesty (NFC) zaregistrovaných priečinkov vo vnútri čítaného priečinka (`OkfScopeMember.nested`). */
   registeredNested?: readonly string[];
   /** Meno čítaného priečinka na disku (posledný segment cesty): kód klienta, keď je klient koreňom (N-A4-4). */
   rootName?: string;
+  /** #460: sem sa zapíše každá vypísaná a prečítaná cesta (podklad odtlačku zmeny). */
+  touched?: Set<string>;
 };
 export type OkfReadResult = Overview & {
   coverage: OkfCoverage;
@@ -134,6 +143,7 @@ export async function readWorkspaceMemory(
   const fileContents = fileContentCacheFor(client);
   // Rozpočet RAM (#367): nezmenený súbor sa pri tichej obnove nečíta znova. Platnosť overí výpis z tohto čítania.
   const readFile = async (path: string) => {
+    options.touched?.add(path);
     const parent = cache.get(path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
     const entry = parent ? (await parent).find((e) => e.path === path && e.kind === "file") : undefined;
     options.signal?.throwIfAborted();
@@ -144,6 +154,7 @@ export async function readWorkspaceMemory(
     return file;
   };
   const list = (path: string, optional = false): Promise<Listing["entries"]> => {
+    options.touched?.add(path);
     let pending = cache.get(path);
     if (!pending) {
       pending = client.listWorkspaceDirectory(workspaceId, path, { signal: options.signal }).then((result) => {
@@ -542,7 +553,7 @@ export type OkfScope = {
   /** Koreň praxe, ak rozsah skladá klientov praxe; jeho `Office/` číta hostiteľ. */
   practiceRoot?: string;
 };
-export type OkfScopeClient = OkfReadClient & Partial<Pick<LegalworkServerClient, "lawossOfficeMemory">>;
+export type OkfScopeClient = OkfReadClient & Partial<Pick<LegalworkServerClient, "lawossOfficeMemory" | "lawossOkfChangeToken">>;
 
 const queryPath = (path: string | undefined): string => {
   // A drive root is absolute; the normalized drive-relative spelling Z: is not.
@@ -710,8 +721,17 @@ export async function readScopeMemory(client: OkfScopeClient, scope: OkfScope, t
   const checkedAt = (options.now ?? Date.now)();
   const sources: OkfSourceReadState[] = [];
   const snapshots: Record<string, SourceSnapshot> = {};
-  const parts = await mapLimit(scope.members, 2, member => readWorkspaceMemory(client, member.workspace.id, todayIso, { ...options, ...(member.nested ? { registeredNested: member.nested } : {}),
-    rootName: member.workspace.path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "" }));
+  const parts = await mapLimit(scope.members, 2, async (member): Promise<MemberRead> => {
+    const id = member.workspace.id;
+    const unchanged = await unchangedSnapshot(client, id, previous, todayIso, options);
+    if (unchanged) return { ...unchanged, problems: [], truncated: false };
+    const touched = new Set<string>();
+    const readAt = (options.now ?? Date.now)();
+    const part = await readWorkspaceMemory(client, id, todayIso, { ...options, touched, ...(member.nested ? { registeredNested: member.nested } : {}),
+      rootName: member.workspace.path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "" });
+    const change = !part.problems.length && !part.truncated ? await changeBaseline(client, id, [...touched], todayIso, readAt, options.signal) : undefined;
+    return change ? { ...part, change } : part;
+  });
   let truncated = false;
   const select = (id: string, source: "workspace" | "office", current: SourceSnapshot, issues: ReadProblem[], cut: boolean): SourceSnapshot => {
     problems.push(...issues);
@@ -725,7 +745,8 @@ export async function readScopeMemory(client: OkfScopeClient, scope: OkfScope, t
     sources.push(selected.state);
     return selected.state.state === "fresh" ? selected.snapshot : { ...selected.snapshot, inputs: selected.snapshot.inputs.map(input => ({ ...input, deadlineWorkflowEvidence: {} })) };
   };
-  const selected = parts.map((part,i) => select(scope.members[i].workspace.id, "workspace", { inputs: part.inputs, clients: part.clients ?? [] }, part.problems.map(p => ({ ...p, path: joinPath(scope.members[i].prefix,p.path) })), part.truncated));
+  const selected = parts.map((part,i) => select(scope.members[i].workspace.id, "workspace", { inputs: part.inputs, clients: part.clients ?? [],
+    ...(part.foreignClientFolders ? { foreignClientFolders: part.foreignClientFolders } : {}), ...(part.change ? { change: part.change } : {}) }, part.problems.map(p => ({ ...p, path: joinPath(scope.members[i].prefix,p.path) })), part.truncated));
   let office: OfficeBundle | null = null;
   if (scope.practiceRoot) {
     const officeProblems: ReadProblem[] = [];
@@ -744,6 +765,33 @@ export async function readScopeMemory(client: OkfScopeClient, scope: OkfScope, t
   const foreignClientFolders = parts.flatMap((part,i) => (part.foreignClientFolders ?? []).map(path => joinPath(scope.members[i].prefix,path))).sort();
   return { ...buildOverview(inputs,todayIso), inputs, clients, problems, truncated, ...(foreignClientFolders.length ? { foreignClientFolders } : {}),
     coverage: { scopeKey: key, status, sources }, sourceSnapshots: snapshots };
+}
+
+type MemberRead = Pick<OkfReadResult, "inputs" | "clients" | "problems" | "truncated" | "foreignClientFolders"> & { change?: ChangeBaseline };
+/** Strop ciest v jednej žiadosti (`OKF_CHANGE_TOKEN_MAX_PATHS` v `apps/server/src/lawoss/okf-change-token.ts`). */
+const OKF_CHANGE_TOKEN_MAX_PATHS = 20_000;
+/** Súbor zmenený tesne pred čítaním alebo počas neho: odtlačok mohol vzniknúť až po výpise a zmenu by zakryl. */
+const CHANGE_RACY_MS = 2_000;
+
+/** #460: odtlačok ciest po úplnom čítaní; bez podpory servera, pri chybe alebo čerstvej zmene nič (ďalšia obnova číta celý strom). */
+async function changeBaseline(client: OkfScopeClient, workspaceId: string, paths: string[], day: string, readAt: number, signal?: AbortSignal): Promise<ChangeBaseline | undefined> {
+  if (!client.lawossOkfChangeToken || !paths.length || paths.length > OKF_CHANGE_TOKEN_MAX_PATHS) return undefined;
+  try {
+    const { token, newest } = await client.lawossOkfChangeToken(workspaceId, paths, { signal });
+    return newest < readAt - CHANGE_RACY_MS ? { day, paths, token, readAt } : undefined;
+  } catch { signal?.throwIfAborted(); return undefined; }
+}
+
+/** #460: snímka klienta z posledného úplného čítania, ak sa na disku nič z neho nezmenilo; inak `null` a číta sa celý strom. */
+async function unchangedSnapshot(client: OkfScopeClient, workspaceId: string, previous: OkfReadResult | undefined, day: string, options: OkfReadOptions): Promise<SourceSnapshot | null> {
+  const snapshot = previous?.sourceSnapshots?.[JSON.stringify(["workspace", workspaceId])];
+  const change = snapshot?.change;
+  const fresh = previous?.coverage.sources.some(s => s.source === "workspace" && s.workspaceId === workspaceId && s.state === "fresh");
+  if (!snapshot || !change || !fresh || options.fullRead || !client.lawossOkfChangeToken || change.day !== day) return null;
+  if ((options.now ?? Date.now)() - change.readAt >= OKF_FULL_READ_MS) return null;
+  try {
+    return (await client.lawossOkfChangeToken(workspaceId, change.paths, { signal: options.signal })).token === change.token ? snapshot : null;
+  } catch { options.signal?.throwIfAborted(); return null; }
 }
 
 /** Jedno čítanie koreňa praxe pre `usePracticeRoot` aj `useOkfScope` (rovnaký kľúč = jedna cache). */
@@ -878,6 +926,8 @@ export function officeOf(workspaces: readonly RouteWorkspace[], active: RouteWor
 
 /** Ako často sa pohľady z OKF ticho obnovujú, kým je okno aktívne. */
 export const OKF_REFRESH_MS = 15_000;
+/** #460: najdlhšie, čo prehľad stojí len na odtlačku zmeny; potom úplné čítanie aj bez zmeny (disk bez spoľahlivého času zmeny). */
+export const OKF_FULL_READ_MS = 5 * 60_000;
 /** Strop pre veľkú kanceláriu: obnova nesmie bežať dlhšie, než trvá samotné čítanie. */
 const OKF_REFRESH_MAX_MS = 120_000;
 /** Posledná dĺžka čítania podľa rozsahu; dlhé čítanie predĺži interval. */
@@ -905,7 +955,9 @@ export function okfOverviewQueryOptions(connection: OverviewConnection | null, s
       const started = Date.now();
       const previous = queries.getQueryData<OkfReadResult>(queryKey) ?? queries.getQueriesData<OkfReadResult>({ queryKey: queryKey.slice(0,-1) })
         .flatMap(([,data]) => data ? [data] : []).sort((a,b) => Math.max(...b.coverage.sources.map(s => s.checkedAt)) - Math.max(...a.coverage.sources.map(s => s.checkedAt)))[0];
-      try { return await readScopeMemory(client, scope, day, { signal, previous }); }
+      // #460: invalidácia po vlastnej akcii appky číta celý strom; interval a návrat do okna stačí overiť odtlačkom.
+      const fullRead = queries.getQueryState(queryKey)?.isInvalidated === true;
+      try { return await readScopeMemory(client, scope, day, { signal, previous, fullRead }); }
       finally { readDurations.set(key, Date.now() - started); }
     },
     refetchOnWindowFocus: true,

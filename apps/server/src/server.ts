@@ -12,6 +12,7 @@ import { protectedEngineFetch, protectedSessionResponse, registerProtectedRuntim
 import { retainWikiAgentRuntime } from "./wiki/agent-access.js";
 import { governedOcrTransport, requireGovernedEngineDispatch, requireAiBoundariesAdmission } from "./lawoss/ai-governance-engine.js";
 import { registerDeadlineRoutes } from "./lawoss/deadlines/routes.js";
+import { registerOkfChangeTokenRoutes } from "./lawoss/okf-change-token.js";
 import { acquireRuntimeDbLifetime, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { resolveWorkspaceFilePath, recheckWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { LawossDocuments } from "./lawoss/documents/service.js";
@@ -2146,6 +2147,8 @@ function createRoutes(
   registerAiGovernanceRoutes({routes, config, jsonResponse, readJsonBodyLimited, getPublicEngineBinary: publicEngineBinary, pinnedEngineVersion: OPENCODE_VERSION});
   registerYoloModeRoutes({routes, config, jsonResponse, readJsonBodyLimited});
   registerFileOperationRoutes({ routes, config, jsonResponse, readJsonBodyLimited, requireClientScope, resolveWorkspace });
+  // 🟡 LAWOSS #460: odtlačok zmeny pre tichú obnovu prehľadu OKF (lawoss/okf-change-token.ts).
+  registerOkfChangeTokenRoutes({ routes, config, jsonResponse, readJsonBodyLimited, resolveWorkspace });
   registerProtectedDocumentRoutes({routes, runtime: protectedDocuments, jsonResponse, readJsonBodyLimited});
   registerProtectedDocumentProfileRoutes({config, routes, jsonResponse});
   registerLawossDocumentRoutes({ routes, config, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });

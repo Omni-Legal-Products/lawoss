@@ -146,7 +146,8 @@ export function useClientNavData(live?: { groups?: readonly WorkspaceSessionGrou
     pending, failed, rootUnknown: practiceRoot === undefined, incomplete: Boolean(data && (data.truncated || data.problems.length > 0)),
   }), [pending, failed, practiceRoot, data]);
   // B3: fakty riadkov klientov raz pre celý panel; karty v koreňoch priečinkov nezávisle od výberu (I-1, I-4).
-  const rootCards = useRootCards(connection, data);
+  // #460: nový objekt prehľadu vzniká pri každej obnove (čas kontroly); karty sa čítajú znova len pri zmene klientov.
+  const rootCards = useRootCards(connection, data?.clients);
   const todayIso = today();
   const rows = useMemo(() => buildClientRows({ workspaces: connection?.workspaces ?? [], scope, data, groups, model, excludedWorkspaceIds, rootCards, todayIso, reading: pending }),
     [connection?.workspaces, scope, data, groups, model, excludedWorkspaceIds, rootCards, todayIso, pending]);

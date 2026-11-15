@@ -72,7 +72,7 @@ export function useRootCards(connection: OkfConnection | null, refreshKey?: unkn
     refetchOnWindowFocus: false,
     queryFn: ({ signal }) => client ? readRootCards(client, projects, signal) : Promise.resolve(NO_CARDS),
   });
-  // Nové čítanie prehľadu (iný objekt dát) = karty sa prečítajú znova, prvé načítanie sa nezdvojuje.
+  // Zmenený `refreshKey` (klienti z prehľadu) = karty sa prečítajú znova, prvé načítanie sa nezdvojuje.
   const queryClient = useQueryClient();
   const seen = useRef(refreshKey);
   useEffect(() => {

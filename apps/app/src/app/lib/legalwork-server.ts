@@ -3451,6 +3451,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, signal: options?.signal },
       ),
 
+    // 🟡 LAWOSS #460: odtlačok zmeny ciest z posledného čítania prehľadu OKF (apps/server/src/lawoss/okf-change-token.ts).
+    lawossOkfChangeToken: (workspaceId: string, paths: readonly string[], options?: { signal?: AbortSignal }) =>
+      requestJson<{ token: string; newest: number }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/okf/change-token`, { token, hostToken, method: "POST", body: { paths }, readOnly: true, signal: options?.signal }),
+
     statWorkspaceFile: (workspaceId: string, path: string) =>
       requestJson<LegalworkWorkspaceFileStat>(
         baseUrl,
