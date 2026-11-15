@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Vlastná projekcia bez potvrdenia (#439) (2026-11-15)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/engine-project.ts`, `apps/server/src/lawoss/outside-stale-projection.ts` (LAWOSS, + test `lawoss/generated-projection-adoption.test.ts`) | #439: keď chýba súkromné potvrdenie `nativeEngineProject.projection` (reinštalácia, reset dát, nový kontajner, ten istý priečinok na inom počítači), `writeProjectProjection` považoval aj vlastný vygenerovaný `.opencode/opencode.json` za autorský. S autorským `opencode.jsonc` vedľa neho bol pracovný priestor „Unavailable“ (409 `project_engine_configuration_conflict`), bez neho server zapísal druhú projekciu do `opencode.jsonc` a stará ostala. Teraz `findGeneratedProjection` nájde bežný súbor (nie odkaz) s presne bajtami generátora (`isGeneratedProjectionText`), server ho pod zámkom projektu prepíše a obnoví potvrdenie. Upravený alebo autorský súbor sa neprevezme ani nezmení. V upstream súbore +1 import, 2 riadky pred zoznamom kandidátov a 1 podmienka pri kontrole vlastníctva (🟡 LAWOSS #439). |
+
 ## Katalóg registrov: pribalené runtime z LAWOSS Marketplace (#420, #421) (2026-11-16)
 
 Katalóg `Omni-Legal-Products/lawoss-marketplace` dodáva runtime registrov ako jeden súbor zbalený cez esbuild (bez `npm ci`, kvôli firewallom s rozbaľovaním TLS). Súbory majú 1,2–6,3 MB (slovlex spolu 8,5 MB), importér ich odmietal (`unsupported_plugin_resources`).

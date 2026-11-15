@@ -60,6 +60,21 @@ export function isGeneratedProjectionText(config: ServerConfig, text: string): b
 }
 
 /**
+ * LAWOSS #439: a regular `.opencode/opencode.json(c)` (no symlink) whose bytes are exactly the generator's document.
+ * Without the private receipt (reinstall, app data reset, another computer) the server re-adopts it instead of treating
+ * it as authored; authored or edited files never match.
+ */
+export async function findGeneratedProjection(config: ServerConfig, directory: string): Promise<string | undefined> {
+  for (const name of NAMES) {
+    const path = join(directory, ".opencode", name);
+    const stat = await lstat(path).catch((error) => { if (missing(error)) return null; throw error; });
+    if (!stat?.isFile() || stat.isSymbolicLink() || await realpath(path) !== path) continue;
+    if (isGeneratedProjectionText(config, await readFile(path, "utf8"))) return path;
+  }
+  return undefined;
+}
+
+/**
  * Removes a stale generated projection from an outside client's `.opencode` folder; returns the removed paths.
  * Only regular files (no symlink), only the generator's own bytes; the copy is written before removal and the file must
  * be unchanged between reading and removing. An empty `.opencode` folder left behind is removed too.
