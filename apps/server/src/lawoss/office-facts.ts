@@ -104,9 +104,11 @@ export async function officeJurisdictionFor(config: ServerConfig, workspace: Wor
   if (!raw || typeof raw !== "object") return undefined;
   const officeRoot: unknown = Reflect.get(raw, "officeRoot"), jurisdiction: unknown = Reflect.get(raw, "jurisdiction");
   if (typeof officeRoot !== "string" || (jurisdiction !== "sk" && jurisdiction !== "cz") || !workspace.path) return undefined;
-  const office = await realpath(officeRoot).catch(() => null), client = await realpath(workspace.path).catch(() => null);
-  if (!office || !client) return null;
-  return isPathWithin(practiceRootOf(office), client) ? jurisdiction : undefined;
+  // The practice root from the stored office path first (`Office`/`_kancelaria` → its parent), then its real path, as
+  // `unadoptedClientFolders`: an office folder linked to a differently named folder elsewhere keeps its practice.
+  const practice = await realpath(practiceRootOf(officeRoot)).catch(() => null), client = await realpath(workspace.path).catch(() => null);
+  if (!practice || !client) return null;
+  return isPathWithin(practice, client) ? jurisdiction : undefined;
 }
 
 /** `.office.json` pre jedného klienta podľa aktuálneho profilu. */

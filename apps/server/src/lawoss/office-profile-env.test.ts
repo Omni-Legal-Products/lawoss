@@ -188,3 +188,28 @@ test("#415: uloženie profilu nečaká na .office.json; zápis dobehne na pozad�
     if (priorTokens === undefined) delete process.env.LEGALWORK_TOKEN_STORE; else process.env.LEGALWORK_TOKEN_STORE = priorTokens;
   }
 });
+
+test("#415: kancelária ako odkaz na inak pomenovaný priečinok: prax je rodič uloženej cesty, .office.json ostane", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "lawoss-office-facts-link-")));
+  roots.push(root);
+  process.env.LEGALWORK_DATA_DIR = join(root, "data");
+  const practice = join(root, "prax"), client = join(practice, "Klienti", "Alfa"), target = join(root, "disk", "KancelariaZdielana");
+  await mkdir(join(target, "memory"), { recursive: true });
+  await mkdir(practice, { recursive: true });
+  await symlink(target, join(practice, "Office"), "dir");
+  await mkdir(join(client, ".opencode", "skills", "novy-spis", "resources"), { recursive: true });
+  await writeFile(join(client, ".opencode", "skills", "novy-spis", "resources", "okf.js"), "// cli\n");
+  const config: ServerConfig = {
+    host: "127.0.0.1", port: 0, configPath: join(root, "server", "server.json"), token: "owt_office_link", hostToken: "owt_office_link_host",
+    approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"], workspaces: [{ id: "ws_alfa", name: "Alfa", path: client, preset: "starter", workspaceType: "local" }],
+    authorizedRoots: [client], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
+  };
+  await mkdir(join(runtimeStorageDir(config), "lawoss-onboarding"), { recursive: true });
+  await writeFile(officeProfilePath(config), JSON.stringify({ officeRoot: join(practice, "Office"), jurisdiction: "cz" }));
+  const facts = join(client, ".opencode", "skills", "novy-spis", "resources", OFFICE_FACTS_FILE);
+  expect(await refreshOfficeFacts(config, config.workspaces[0]!)).toBe(1);
+  expect(await readFile(facts, "utf8")).toBe(officeFactsContent("cz"));
+  // A second pass keeps it (the link target's parent is not the practice).
+  expect(await refreshOfficeFacts(config, config.workspaces[0]!)).toBe(0);
+  expect(await readFile(facts, "utf8")).toBe(officeFactsContent("cz"));
+});
