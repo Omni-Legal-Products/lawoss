@@ -42,26 +42,42 @@ test("lawoss_new_client: one card, the client form's path creates and registers 
   const context = { ...agent.context, ask: async (card: { patterns: string[] }) => { cards.push(card); } };
 
   // No office in the profile: refused, nothing created, no card.
-  const none = JSON.parse(await tools.lawoss_new_client.execute({ name: "Nový klient SYN" }, context));
+  const none = JSON.parse(await tools.lawoss_new_client.execute({ name: "Nový klient SYN", client_type: "po" }, context));
   expect(none).toMatchObject({ created: false, code: "new_client_no_office" });
   const profileDir = join(runtimeStorageDir(config), "lawoss-onboarding");
   await mkdir(profileDir, { recursive: true });
   await writeFile(join(profileDir, "profile.json"), JSON.stringify({ version: 1, lawyerName: "Advokát SYN", jurisdiction: "sk", language: "sk", officeRoot: practice }));
 
   const target = join(clients, "Nový klient SYN");
-  const created = JSON.parse(await tools.lawoss_new_client.execute({ name: "Nový klient SYN", ico: "12345678", note: "Syntetický klient" }, context));
+  const created = JSON.parse(await tools.lawoss_new_client.execute({ name: "Nový klient SYN", client_type: "fo-podnikatel", ico: "12345678", note: "Syntetický   klient\n s poznámkou" }, context));
   expect(created).toMatchObject({ created: true, path: target });
-  expect(cards).toEqual([expect.objectContaining({ patterns: [target] })]);
+  // The card shows what is written: the server's folder, the type as given and the note as one line.
+  expect(cards).toEqual([expect.objectContaining({ permission: "lawoss_client_create", patterns: [target],
+    metadata: { lawossNewClient: { target, name: "Nový klient SYN", clientType: "fo-podnikatel", ico: "12345678", note: "Syntetický klient s poznámkou" } } })]);
   const card = await readFile(join(target, "client.md"), "utf8");
   expect(card).toContain('ico: "12345678"');
-  expect(card).toContain("Syntetický klient");
+  expect(card).toContain("Syntetický klient s poznámkou");
+  expect(card).toContain("fo-podnikatel");
   expect(config.workspaces.map(workspace => workspace.path)).toContain(target);
 
   // The same name again: refused before any card, the existing folder is untouched.
-  const again = JSON.parse(await tools.lawoss_new_client.execute({ name: "Nový klient SYN" }, context));
+  const again = JSON.parse(await tools.lawoss_new_client.execute({ name: "Nový klient SYN", client_type: "po" }, context));
   expect(again).toMatchObject({ created: false, code: "new_client_exists" });
   expect(cards).toHaveLength(1);
   expect(await readFile(join(target, "client.md"), "utf8")).toBe(card);
+
+  // `.`, `..`, only dots and path separators are invalid names (not "already exists"), before any card.
+  for (const name of [".", "..", "...", "../Prax", "Klienti/Novák", "a\\b", ".skryty"]) {
+    const invalid = JSON.parse(await tools.lawoss_new_client.execute({ name, client_type: "po" }, context));
+    expect({ name, ...invalid }).toMatchObject({ name, created: false, code: "new_client_name" });
+  }
+  expect(cards).toHaveLength(1);
+
+  // The wizard stores the office folder (`<practice>/Office`) as officeRoot: Klienti is still the practice's.
+  await writeFile(join(profileDir, "profile.json"), JSON.stringify({ version: 1, lawyerName: "Advokát SYN", jurisdiction: "sk", language: "sk", officeRoot: join(practice, "Office") }));
+  await mkdir(join(practice, "Office"));
+  const second = JSON.parse(await tools.lawoss_new_client.execute({ name: "Druhý klient SYN", client_type: "fo" }, context));
+  expect(second).toMatchObject({ created: true, path: join(clients, "Druhý klient SYN") });
 
   // An ordinary bearer token cannot use the agent route.
   const bearer = await fetch(`http://127.0.0.1:${server.port}/workspace/c1/lawoss/new-client/plan`, { method: "POST", headers: { Authorization: "Bearer synthetic-client", "Content-Type": "application/json" }, body: JSON.stringify({ name: "Iný SYN" }) });

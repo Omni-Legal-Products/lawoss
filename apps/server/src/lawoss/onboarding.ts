@@ -370,7 +370,7 @@ export function registerOnboardingRoutes(options: {
     try { return options.jsonResponse(await handler(await body(ctx))); }
     catch (error) { if (error instanceof ApiError) throw error; throw new ApiError(400, "new_client_failed", error instanceof Error ? error.message : "Creating the client failed."); }
   });
-  const newClientSchema = z.object({ name: z.string().trim().min(1).max(120), clientType: z.enum(["fo", "fo-podnikatel", "po", "iny"]).optional(),
+  const newClientSchema = z.object({ name: z.string().trim().min(1).max(120), clientType: z.enum(["fo", "fo-podnikatel", "po", "iny"]),
     ico: z.string().regex(/^\d{6,8}$/).optional(), note: z.string().trim().min(1).max(1000).optional() });
   agentRoute("plan", async raw => {
     const input = newClientSchema.parse(raw), profile = await readProfile();
@@ -378,13 +378,18 @@ export function registerOnboardingRoutes(options: {
     // Ako `clientsFolderOf` formulára: `Klienti` vedľa priečinka kancelárie (Office, _kancelaria), inak v koreni praxe.
     const office = resolve(profile.officeRoot), parent = join(practiceRootOf(office), "Klienti");
     if (await missingDirectory(parent)) throw new ApiError(409, "new_client_no_clients_folder", `The office has no clients folder (${parent}). Nothing was created.`, { parent });
-    // Meno priečinka ako `safeSegment` plánovača: bez medzier a bodiek na konci.
-    if (/[\\/]/.test(input.name)) throw new ApiError(400, "new_client_name", "A client name cannot contain / or \\. Nothing was created.");
-    const target = join(parent, input.name.replace(/[. ]+$/, ""));
+    // Meno priečinka ako `safeSegment` plánovača: bez medzier a bodiek na konci, nie prázdne ani s bodkou na začiatku
+    // (`.`, `..` by inak boli priečinok Klienti alebo kancelária sama a hlásili by sa ako existujúci klient).
+    const folder = input.name.trim().replace(/[. ]+$/, "");
+    if (/[\\/]/.test(input.name) || !folder || folder.startsWith(".")) throw new ApiError(400, "new_client_name", "A client name cannot contain / or \\, start with a dot or consist only of dots. Nothing was created.");
+    const target = join(parent, folder);
     if (!await missingDirectory(target)) throw new ApiError(409, "new_client_exists", `A folder with this name already exists (${target}). Nothing was created or overwritten.`, { target });
-    const planned = await plan({ action: "client", parent, name: input.name, title: input.name, clientType: input.clientType ?? "po", jurisdiction: profile.jurisdiction,
-      date: localDay(), language: profile.language === "de" ? "en" : profile.language, ...(input.ico ? { ico: input.ico } : {}), ...(input.note ? { description: input.note.replace(/\s+/g, " ") } : {}) });
-    return { id: planned.id, fingerprint: planned.fingerprint, office, parent, target: planned.preview.target ?? target, name: input.name };
+    // Typ klienta sa nedopĺňa: agent ho musí zadať (pri nejasnosti sa spýta), karta ukáže všetko, čo sa zapíše.
+    const note = input.note?.replace(/\s+/g, " ");
+    const planned = await plan({ action: "client", parent, name: input.name, title: input.name, clientType: input.clientType, jurisdiction: profile.jurisdiction,
+      date: localDay(), language: profile.language === "de" ? "en" : profile.language, ...(input.ico ? { ico: input.ico } : {}), ...(note ? { description: note } : {}) });
+    return { id: planned.id, fingerprint: planned.fingerprint, office, parent, target: planned.preview.target ?? target, name: input.name, clientType: input.clientType,
+      ...(input.ico ? { ico: input.ico } : {}), ...(note ? { note } : {}) };
   });
   agentRoute("apply", async raw => {
     const input = z.object({ id: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/) }).parse(raw);

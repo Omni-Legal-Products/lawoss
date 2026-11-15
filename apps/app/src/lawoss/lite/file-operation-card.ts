@@ -20,6 +20,7 @@ import { t } from "@/i18n";
 import type { PendingPermission } from "@/app/types";
 import { browserLoginCard } from "./browser-login-card";
 import { memoryWriteCard } from "./memory-write-card";
+import { newClientCard } from "./new-client-card";
 import { nestedClientCardFolder } from "./nested-client-card";
 
 type Operation = "move" | "copy" | "create_folder" | "create_file" | "delete";
@@ -137,7 +138,8 @@ export function fileOperationCard(metadata: Record<string, unknown>): { title: s
   const changes = plannedChanges(metadata);
   // `lawoss_memory_write` asks with the same permission: one card "what and where" (memory-write-card.ts).
   // `legalwork_browser_add_website` asks `lawoss_browser_login`: login, website, password domain (browser-login-card.ts).
-  if (!changes) return memoryWriteCard(metadata) ?? browserLoginCard(metadata);
+  // `lawoss_new_client` asks `lawoss_client_create`: folder, name, type, IČO, note (new-client-card.ts).
+  if (!changes) return memoryWriteCard(metadata) ?? browserLoginCard(metadata) ?? newClientCard(metadata);
   const reason = typeof metadata.description === "string" && metadata.description.trim() ? t("lawoss.files.reason", undefined, { text: metadata.description.trim() }) : null;
   return {
     details: { reason, lines: changes.flatMap((change) => [detailLine(change), ...contentLines(change), ...warnings(change)]) },
