@@ -2,7 +2,7 @@ import os from "node:os";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vite";
+import { defineConfig, normalizePath } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { openuiLicenseNotices } from "./scripts/openui-license-notices";
@@ -77,6 +77,13 @@ export default defineConfig({
     ...(process.env.LEGALWORK_VISUAL_PREVIEW === "1" ? { hmr: false } : {}),
     port: devPort,
     strictPort: true,
+    // 🟡 LAWOSS #455: výstupy ostatných buildov appky (Word add-in sa zapisuje počas `pnpm dev`)
+    // nesmú spustiť full-reload okna. `dist` Vite ignoruje sám ako build.outDir.
+    watch: {
+      ignored: ["dist-word-addin", "dist-design-system", "dist-docx-performance", "docx-qa"].map(
+        (dir) => `${normalizePath(resolve(appRoot, dir))}/**`,
+      ),
+    },
     ...(allowedHosts.size > 0 ? { allowedHosts: Array.from(allowedHosts) } : {}),
   },
   build: {
