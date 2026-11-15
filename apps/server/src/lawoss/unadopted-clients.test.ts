@@ -56,6 +56,17 @@ describe("unadoptedClientFolders", () => {
     expect(found).toEqual([{ path: join(clients, "Novák"), name: "Novák" }]);
   });
 
+  test("#443: priečinok vnútri registrovaného klienta sa neponúkne; kontajner praxe ponuku nezruší", async () => {
+    const practice = await tempRoot(), clients = join(practice, "Klienti");
+    for (const name of ["Novák", "Beta"]) await mkdir(join(clients, name), { recursive: true });
+    // `Klienti` registered as one workspace: adopting a folder inside it would be refused as a nested client.
+    expect(await unadoptedClientFolders(practice, [clients])).toEqual([]);
+    // The registered practice container (the practice root or a folder holding it) is no client: its folders stay offered.
+    const expected = [{ path: join(clients, "Beta"), name: "Beta" }, { path: join(clients, "Novák"), name: "Novák" }];
+    expect(await unadoptedClientFolders(practice, [practice])).toEqual(expected);
+    expect(await unadoptedClientFolders(join(practice, "Office"), [join(practice, "..")])).toEqual(expected);
+  });
+
   test("veľká kancelária: registrovaní klienti nevytlačia neskorý vložený priečinok", async () => {
     const office = await tempRoot(), clients = join(office, "Klienti"), registered: string[] = [];
     for (let index = 0; index < 600; index += 1) { const path = join(clients, `A${String(index).padStart(3, "0")}`); await mkdir(path, { recursive: true }); registered.push(path); }

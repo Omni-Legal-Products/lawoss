@@ -7,6 +7,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { realpath } from "./canonical-path.js";
+import { createConcurrencyLimiter } from "./concurrency-limiter.js";
 
 export type UnadoptedClientFolder = { path: string; name: string };
 
@@ -16,6 +17,8 @@ const DEFAULT_PATTERN = "Klienti/*";
 const MAX_SEGMENTS = 4;
 /** Horná hranica výsledku; registrovaní klienti sa odfiltrujú skôr, takže neskorý vložený priečinok nevypadne. */
 const MAX_FOLDERS = 500;
+/** `realpath` naraz najviac pre toľko priečinkov (#443): stovky klientov na NAS/cloude nie po jednom, RAM ohraničená. */
+const PARALLEL_PATHS = 8;
 
 /**
  * Koreň praxe z `officeRoot` profilu. Sprievodca ukladá priečinok kancelárie (`<prax>/Office` alebo `_kancelaria`),
@@ -57,9 +60,10 @@ async function canonical(path: string): Promise<string> {
 const inside = (root: string, path: string) => { const rel = relative(root, path); return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`)); };
 
 /**
- * Priečinky zodpovedajúce vzoru klientov kancelárie, ktoré nie sú koreňom žiadneho registrovaného priečinka ani ho
- * neobsahujú (vonkajší priečinok registrovaného klienta by zavedenie odmietlo ako vnoreného klienta). Porovnáva
- * kanonické cesty; koreň kancelárie sám nie je klient. `officeRoot` môže byť koreň praxe aj jej `Office`/`_kancelaria`.
+ * Priečinky zodpovedajúce vzoru klientov kancelárie, ktoré nie sú koreňom žiadneho registrovaného priečinka, neležia
+ * v ňom (#443) ani ho neobsahujú: zavedenie by ich odmietlo ako vnoreného klienta. Registrovaný kontajner praxe
+ * (koreň praxe alebo priečinok, ktorý ho obsahuje) klientom nie je, ako v `nested-client.ts`. Porovnáva kanonické
+ * cesty; koreň kancelárie sám nie je klient. `officeRoot` môže byť koreň praxe aj jej `Office`/`_kancelaria`.
  */
 export async function unadoptedClientFolders(officeRoot: string, registeredPaths: readonly string[]): Promise<UnadoptedClientFolder[]> {
   const office = await canonical(practiceRootOf(officeRoot));
@@ -74,15 +78,16 @@ export async function unadoptedClientFolders(officeRoot: string, registeredPaths
     }
     level = next;
   }
-  // Po jednom, nie Promise.all nad všetkými priečinkami (limit RAM, AGENTS.md).
-  const registered: string[] = [];
-  for (const path of registeredPaths) registered.push(await canonical(path));
+  // Nie Promise.all bez limitu nad všetkými priečinkami (limit RAM, AGENTS.md), ale ani po jednom.
+  const limit = createConcurrencyLimiter(PARALLEL_PATHS);
+  const registered = await Promise.all(registeredPaths.map(path => limit(() => canonical(path))));
+  const clients = registered.filter(path => !inside(path, office));
+  const candidates = await Promise.all(level.map(path => limit(async () => ({ path, real: await canonical(path) }))));
   const folders: UnadoptedClientFolder[] = [];
-  for (const candidate of level) {
+  for (const { path: candidate, real } of candidates) {
     if (folders.length >= MAX_FOLDERS) break;
-    const real = await canonical(candidate);
     if (real === office || !inside(office, real)) continue;
-    if (registered.some(path => inside(real, path))) continue;
+    if (registered.some(path => inside(real, path)) || clients.some(path => inside(path, real))) continue;
     folders.push({ path: candidate, name: basename(candidate) });
   }
   return folders;

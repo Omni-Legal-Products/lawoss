@@ -38,6 +38,8 @@ const MATTERS_SHOWN = 2;
 /** Spec Dnes (alfa 14): tri karty „Pokračovať“ a päť riadkov „Čo horí“, zvyšok v Lehotách a úlohách. */
 const MATTER_CARDS = 3;
 const HOT_ROWS = 5;
+/** #443: priečinky vložené mimo appky; nové zavedenie mení `workspacesKey`, takže sa zoznam načíta hneď. */
+const UNADOPTED_STALE_MS = 60_000;
 
 export function TodayPage() {
   const locale = useLocale();
@@ -85,12 +87,13 @@ function TodayLive({ data, meta, scope, locale, name }: { data: OkfReadResult; m
   // #271: nedočítaný zoznam úloh aplikácie robí prehľad neúplným rovnako ako nedočítaná pamäť.
   const evidence = useMemo(() => ({ complete: data.coverage.status === "complete" && appTasksComplete, ...deadlineCoverage(data.inputs) }), [data, appTasksComplete]);
   // #425: priečinky v `Klienti/` kancelárie, ktoré nie sú klientmi. Len zoznam priečinkov; nový zoznam po zmene klientov.
+  // #443: sken prejde všetky priečinky klientov (aj na NAS), preto nie pri každom otvorení Dnes a návrate do okna.
   const client = connection?.client;
   const unadopted = useQuery({
     queryKey: ["lawoss-unadopted-clients", connection?.baseUrl ?? "", workspacesKey],
     enabled: Boolean(client),
     retry: false,
-    staleTime: 0,
+    staleTime: UNADOPTED_STALE_MS,
     queryFn: async () => (await client?.lawossUnadoptedClients())?.folders ?? [],
   });
   return <TodayView model={model} locale={locale} meta={meta} name={name} evidence={evidence} events={events} activeId={connection?.activeWorkspaceId}
