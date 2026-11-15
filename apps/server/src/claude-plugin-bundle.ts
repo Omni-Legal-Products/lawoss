@@ -14,6 +14,7 @@ import { ApiError } from "./errors.js";
 import { parseFrontmatter } from "./frontmatter.js";
 import type { CloudPluginResolved } from "./cloud-plugins.js";
 import { fetchPluginSource } from "./lawoss/plugin-source-fetch.js";
+import { formatMiB, pluginResourceLimits } from "./lawoss/marketplace-limits.js"; // 🟡 LAWOSS #420
 
 export type ClaudePluginSource = {
   owner: string;
@@ -436,12 +437,13 @@ export async function resolveClaudePluginBundle(input: { url: string; ref?: stri
     if (resources.length > 128 || resources.some((entry) => entry.relative.includes("\\") || entry.relative.split("/").some((part) => !part || part === "." || part === "..") || !/(?:\.(?:json|js|mjs|cjs|md)|(?:^|\/)LICENSE)$/.test(entry.relative))) {
       throw new ApiError(400, "unsupported_plugin_resources", "Node plugin contains unsupported resources or exceeds 128 files");
     }
+    const limits = pluginResourceLimits(source, ref, root); // 🟡 LAWOSS #420: vyšší limit len pre LAWOSS Marketplace na pripnutom commite
     const contents = await mapWithConcurrency(resources, 6, async (entry) => {
       const content = await fetchGithubText(rawFileUrl(source, ref, entry.path));
-      if (content.includes("\0") || Buffer.byteLength(content) > 1024 * 1024) throw new ApiError(400, "unsupported_plugin_resources", "Plugin resource is binary or exceeds 1 MiB");
+      if (content.includes("\0") || Buffer.byteLength(content) > limits.fileBytes) throw new ApiError(400, "unsupported_plugin_resources", `Plugin resource is binary or exceeds ${formatMiB(limits.fileBytes)}`);
       return { ...entry, content };
     });
-    if (contents.reduce((bytes, entry) => bytes + Buffer.byteLength(entry.content), 0) > 8 * 1024 * 1024) throw new ApiError(400, "unsupported_plugin_resources", "Plugin resources exceed 8 MiB");
+    if (contents.reduce((bytes, entry) => bytes + Buffer.byteLength(entry.content), 0) > limits.totalBytes) throw new ApiError(400, "unsupported_plugin_resources", `Plugin resources exceed ${formatMiB(limits.totalBytes)}`);
     memberships.unshift(...contents.map((entry) => ({
       configObjectId: entry.path + ":resource",
       configObject: {

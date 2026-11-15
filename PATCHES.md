@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Katalóg registrov: pribalené runtime z LAWOSS Marketplace (#420, #421) (2026-11-16)
+
+Katalóg `Omni-Legal-Products/lawoss-marketplace` dodáva runtime registrov ako jeden súbor zbalený cez esbuild (bez `npm ci`, kvôli firewallom s rozbaľovaním TLS). Súbory majú 1,2–6,3 MB (slovlex spolu 8,5 MB), importér ich odmietal (`unsupported_plugin_resources`).
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/claude-plugin-bundle.ts`, nový `apps/server/src/lawoss/marketplace-limits.ts` (LAWOSS, + test `lawoss/marketplace-limits.test.ts`) | Pri Node balíku sa limit veľkosti prostriedkov berie z `pluginResourceLimits(source, ref, root)` (+1 import, 1 riadok, v dvoch riadkoch kontroly premenná namiesto čísla; texty chýb sa pri všeobecnom zdroji nemenia). Vyšší limit (8 MiB na súbor, 24 MiB spolu) len pre vyriešený zdroj presne `Omni-Legal-Products/lawoss-marketplace`, ref ako 40 hex znakov (pripnutý commit) a koreň `plugins/<názov>/`; ostatné importy z GitHubu ostávajú pri 1 MiB a 8 MiB. Zoznam povolených mien, 128 súborov a odmietnutie súboru s NUL sa nemenia. |
+
 ## Alfa 13: nálezy z testu (#422–#428) (2026-11-15)
 
 Nálezy MČ z testu alfy 13 (issues #422, #423, #424, #425, #426, #427, #428). Hlavička behu nástrojov (#427) je pri riadku `tool-run.tsx` (N-A8-5).
