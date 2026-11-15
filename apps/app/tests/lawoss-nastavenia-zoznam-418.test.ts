@@ -5,7 +5,8 @@ import { QueryClient } from "@tanstack/react-query";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { revalidateOkfOverview } from "../src/lawoss/okf/read-model";
 import {
-  initialWorkspaceRouteState, rememberWorkspaceRoute, storedSettingsKey, workspaceConnectionKey, workspaceRouteForRemount,
+  initialWorkspaceRouteState, noteResolvedConnection, rememberWorkspaceRoute, storedSettingsKey, withoutRemountRetrying, workspaceConnectionKey,
+  workspaceRouteForRemount,
 } from "../src/lawoss/shell/route-snapshot";
 import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 
@@ -60,6 +61,28 @@ describe("#418: počiatočný stav trasy po opätovnom pripojení", () => {
     expect(workspaceRouteForRemount(storedSettingsKey(settings), "K9-Novy")).toBeNull();
     rememberWorkspaceRoute(null);
     expect(workspaceRouteForRemount(storedSettingsKey(settings), "")).toBeNull();
+  });
+});
+
+describe("#418: zlyhané obnovenie a zmena spojenia", () => {
+  test("po chybe obnovenia klienti zo zoznamu nezostanú načítavať; iné načítavanie ostane", () => {
+    keep([workspace("K1-Tatran"), workspace("K3-Hron")]);
+    const seeded = initialWorkspaceRouteState(workspaceRouteForRemount(storedSettingsKey(settings), "")).retryingWorkspaceIds;
+    expect(withoutRemountRetrying(seeded, seeded)).toEqual([]);
+    expect(withoutRemountRetrying([...seeded, "K5-Iny"], seeded)).toEqual(["K5-Iny"]);
+    expect(withoutRemountRetrying(["K1-Tatran"], [])).toEqual(["K1-Tatran"]);
+  });
+
+  test("predvolené desktopové spojenie (rovnaké uložené nastavenia): iné zistené spojenie zabudne zoznam pred pripojením", () => {
+    const desktop = {};
+    keep([workspace("K1-Tatran")], desktop);
+    noteResolvedConnection(settings.urlOverride, settings.token, settings.hostToken);
+    expect(workspaceRouteForRemount(storedSettingsKey(desktop), "")?.workspaces).toHaveLength(1);
+    noteResolvedConnection("http://127.0.0.1:4999", "new-boot-token", "new-host");
+    expect(workspaceRouteForRemount(storedSettingsKey(desktop), "")).toBeNull();
+    keep([workspace("K1-Tatran")], desktop);
+    noteResolvedConnection("", "", "");
+    expect(workspaceRouteForRemount(storedSettingsKey(desktop), "")).toBeNull();
   });
 });
 

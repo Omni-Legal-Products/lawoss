@@ -31,7 +31,7 @@ import {
 import type { WorkspaceConnectionState } from "@/app/types";
 import { normalizeDirectoryPath } from "@/app/utils";
 import { effectiveSessionDirectory, isWithinClientFolder } from "@/lawoss/shell/session-directory";
-import { initialWorkspaceRouteState, rememberWorkspaceRoute, storedSettingsKey, workspaceConnectionKey, workspaceRouteForRemount } from "@/lawoss/shell/route-snapshot"; // 🟡 LAWOSS #418
+import { initialWorkspaceRouteState, rememberWorkspaceRoute, storedSettingsKey, withoutRemountRetrying, workspaceConnectionKey, workspaceRouteForRemount } from "@/lawoss/shell/route-snapshot"; // 🟡 LAWOSS #418
 import { t } from "@/i18n";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { avoidLawossHomeId, conversationWorkspaceId, defaultWorkspaceId, withoutLawossHome } from "../../lawoss/home-workspace";
@@ -123,6 +123,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // 🟡 LAWOSS #418: a remount (e.g. after closing Settings) starts from the last list of the same connection.
   const [remount] = useState(() => initialWorkspaceRouteState(workspaceRouteForRemount(storedSettingsKey(readLegalworkServerSettings()), routeWorkspaceId)));
   const remountConnectionKeyRef = useRef(remount.connection?.key ?? null);
+  const remountRetryingRef = useRef(remount.retryingWorkspaceIds);
   const [loading, setLoading] = useState(remount.loading);
   const [client, setClient] = useState<LegalworkServerClient | null>(remount.client);
   const [baseUrl, setBaseUrl] = useState(remount.baseUrl);
@@ -497,6 +498,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         }
         return next;
       });
+      remountRetryingRef.current = [];
       setRetryingWorkspaceIds(
         cachedEntries.flatMap((entry) =>
           entry.sessions.length === 0 &&
@@ -548,6 +550,10 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         preservedWorkspaceCount: desktopWorkspaces.length,
       });
       setRouteError(message);
+      // LAWOSS #418: chats seeded as loading by the remount are not loading after a failed refresh.
+      const seeded = remountRetryingRef.current;
+      remountRetryingRef.current = [];
+      if (seeded.length) setRetryingWorkspaceIds((current) => withoutRemountRetrying(current, seeded));
       if (!hasLoadedServerWorkspacesRef.current && desktopWorkspaces.length > 0) {
         const orderedDesktopWorkspaces = orderRouteWorkspaces(desktopWorkspaces, workspaceOrderIdsRef.current);
         workspacesRef.current = orderedDesktopWorkspaces;

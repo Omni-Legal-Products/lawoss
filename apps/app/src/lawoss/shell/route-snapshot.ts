@@ -35,6 +35,16 @@ export function rememberWorkspaceRoute(snapshot: WorkspaceRouteSnapshot | null):
   last = snapshot;
 }
 
+/**
+ * Every resolved connection checks the kept list: another connection forgets it. The default desktop connection has
+ * no stored settings (constant `storedSettingsKey`) and its identity is known only after the async resolution, so the
+ * route cannot check it at mount; the resolver runs on other routes too (Settings, listeners), and a change it sees
+ * while the chat route is away forgets the list before the remount could show another connection's clients.
+ */
+export function noteResolvedConnection(baseUrl: string, token: string, hostToken: string): void {
+  if (last && last.connectionKey !== workspaceConnectionKey(baseUrl, token, hostToken)) last = null;
+}
+
 /** The kept list for a remount with unchanged settings; not when the address names a folder the list does not know. */
 export function workspaceRouteForRemount(settingsKey: string, routeWorkspaceId: string): WorkspaceRouteSnapshot | null {
   if (!last || last.settingsKey !== settingsKey) return null;
@@ -57,3 +67,10 @@ export function initialWorkspaceRouteState(snapshot: WorkspaceRouteSnapshot | nu
     connection: snapshot ? { key: snapshot.connectionKey, client: snapshot.client } : null,
   };
 }
+
+/**
+ * After a failed refresh the chats the remount seeded as loading are loading no more: the stale list stays, the route
+ * error shows, and no client keeps spinning. Ids another refresh marked as loading stay.
+ */
+export const withoutRemountRetrying = (current: string[], seeded: readonly string[]): string[] =>
+  seeded.length ? current.filter((id) => !seeded.includes(id)) : current;
