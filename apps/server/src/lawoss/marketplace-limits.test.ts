@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { resolveClaudePluginBundle } from "../claude-plugin-bundle.js";
 import { BUNDLED_MARKETPLACE_REF } from "./marketplace-bundled-ref.js";
-import { isTrustedMarketplaceSource, pluginResourceLimits, trustedReleaseRefs } from "./marketplace-limits.js";
+import { downloadPluginResources, isTrustedMarketplaceSource, pluginResourceLimits, trustedReleaseRefs } from "./marketplace-limits.js";
 
 const MIB = 1024 * 1024;
 const SHA = "3".repeat(40);
@@ -176,5 +176,28 @@ describe("LAWOSS #420: limity prostriedkov Node doplnku podľa zdroja", () => {
     expect(await rejection(publish(MARKETPLACE, "6".repeat(40), plugin({ "index.js": "export const x = 1;\0\n" })), trusted)).toMatchObject({ code: "unsupported_plugin_resources", message: "Plugin resource is binary or exceeds 8 MiB" });
     // Zoznam povolených mien sa nemení ani pre dôveryhodný zdroj.
     expect(await rejection(publish(MARKETPLACE, "7".repeat(40), plugin({ "addon.node": "x" })), trusted)).toMatchObject({ code: "unsupported_plugin_resources", message: "Node plugin contains unsupported resources or exceeds 128 files" });
+  });
+
+  test("prvé porušenie zruší rozbehnuté sťahovania, nespustí ďalšie a vráti chybu limitu, nie dôvod zrušenia", async () => {
+    const limits = { fileBytes: MIB, totalBytes: 8 * MIB };
+    const entries = Array.from({ length: 10 }, (_, index) => ({ path: `f${index}`, size: null }));
+    const called: string[] = [];
+    const aborted: string[] = [];
+    let release: () => void = () => undefined;
+    const hungStarted = new Promise<void>((resolve) => { let count = 0; release = () => { if (++count === 5) resolve(); }; });
+    const failure = await downloadPluginResources(entries, limits, async (entry, { signal }) => {
+      called.push(entry.path);
+      if (entry.path === "f5") {
+        await hungStarted;
+        return "x".repeat(MIB + 1);
+      }
+      release();
+      return new Promise<string>((_resolve, reject) => {
+        signal.addEventListener("abort", () => { aborted.push(entry.path); reject(new DOMException("aborted", "AbortError")); }, { once: true });
+      });
+    }).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: "unsupported_plugin_resources", message: "Plugin resource is binary or exceeds 1 MiB" });
+    expect(called.sort()).toEqual(["f0", "f1", "f2", "f3", "f4", "f5"]);
+    expect(aborted.sort()).toEqual(["f0", "f1", "f2", "f3", "f4"]);
   });
 });
