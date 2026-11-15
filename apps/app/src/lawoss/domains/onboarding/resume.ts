@@ -3,18 +3,31 @@
  * Dokončenie sa odvodzuje z profilu na serveri (W4), nie z localStorage.
  */
 import type { OnboardingProfile, OnboardingStep } from "./api";
+import { withoutLawossHome } from "../../home-workspace";
 
 type ProfilePatch = Omit<Partial<OnboardingProfile>, "foundRoot"> & { foundRoot?: string | null };
 type ProfileWriter = { updateOnboardingProfile(patch: ProfilePatch): Promise<OnboardingProfile> };
 
 /**
- * Nastavenie sa začalo, ale neskončilo. Bez profilu karta netreba: prvé spustenie rieši presmerovanie na /welcome.
+ * Nastavenie sa začalo, ale neskončilo. Bez profilu `false`: prvé spustenie rieši presmerovanie na /welcome,
+ * obnovenú trasu Dnes `resumeOnToday`.
  * `hasCompletedOnboarding` z prefs nestačí, nastavuje ho aj upstream vytvorenie pracovného priečinka. Profil
  * spred značky `completedAt` sa berie ako dokončený, ak sprievodca zapísal koreň praxe alebo klienta.
  */
 export function onboardingIncomplete(profile: OnboardingProfile | null | undefined, hasCompletedOnboarding: boolean): boolean {
   if (!profile || profile.completedAt) return false;
   return !(hasCompletedOnboarding && Boolean(profile.officeRoot || profile.clientRoot));
+}
+
+/**
+ * Karta na Dnes (#453). Bez profilu (sprievodca opustený pred uložením kroku 1) sa ukáže, kým nastavenie nie je
+ * dokončené a okrem domova LAWOSS nie je žiadny priečinok: presmerovanie na /welcome sa pri obnovenej trase preskočí.
+ * `undefined` znamená, že profil sa ešte nenačítal.
+ */
+export function resumeOnToday(profile: OnboardingProfile | null | undefined, hasCompletedOnboarding: boolean, workspaces: readonly { path?: string | null }[]): boolean {
+  if (profile === undefined) return false;
+  if (profile) return onboardingIncomplete(profile, hasCompletedOnboarding);
+  return !hasCompletedOnboarding && withoutLawossHome(workspaces).length === 0;
 }
 
 /** Krok, ktorým sa otvorí sprievodca: výslovný krok, pri dokončenom nastavení prvý krok, inak posledný uložený. */

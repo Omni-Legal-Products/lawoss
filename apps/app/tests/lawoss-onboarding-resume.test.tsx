@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import type { OnboardingProfile } from "../src/lawoss/domains/onboarding/api";
-import { markOnboardingCompleted, onboardingIncomplete, openingStep, resumeFound } from "../src/lawoss/domains/onboarding/resume";
+import { markOnboardingCompleted, onboardingIncomplete, openingStep, resumeFound, resumeOnToday } from "../src/lawoss/domains/onboarding/resume";
 import { OnboardingResumeCardView } from "../src/lawoss/domains/onboarding/resume-card";
 import { OkfPageState } from "../src/lawoss/domains/okf-page";
 import { OfficeProfileView } from "../src/lawoss/domains/settings/office-profile-view";
@@ -34,6 +34,20 @@ describe("návrat k nedokončenému nastaveniu praxe (#96)", () => {
 
   test("dokončené so značkou ostáva dokončené aj po „+ Nová vec“ (krok matter)", () => {
     expect(onboardingIncomplete({ ...base, step: "matter", completedAt: "2026-10-18T10:00:00.000Z" }, false)).toBe(false);
+  });
+
+  test("Dnes: odchod zo sprievodcu pred uložením profilu ukáže kartu, kým nie je iný priečinok ako domov LAWOSS (#453)", () => {
+    const home = { path: "/Users/a/Library/Application Support/LAWOSS/lawoss-domov" };
+    expect(resumeOnToday(null, false, [])).toBe(true);
+    expect(resumeOnToday(null, false, [home])).toBe(true);
+    expect(resumeOnToday(null, false, [home, { path: "/Prax/Novák" }])).toBe(false);
+    expect(resumeOnToday(null, true, [home])).toBe(false);
+  });
+
+  test("Dnes: kým sa profil nenačíta, karta sa neukáže; s profilom platí onboardingIncomplete (#453)", () => {
+    expect(resumeOnToday(undefined, false, [])).toBe(false);
+    expect(resumeOnToday({ ...base, step: "ai" }, false, [{ path: "/Prax/Novák" }])).toBe(true);
+    expect(resumeOnToday({ ...base, step: "matter", completedAt: "2026-10-18T10:00:00.000Z" }, false, [])).toBe(false);
   });
 
   test("pokračovanie otvorí uložený krok, dokončené nastavenie začne od prvého kroku", () => {
