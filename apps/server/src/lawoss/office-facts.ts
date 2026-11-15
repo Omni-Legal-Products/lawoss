@@ -15,6 +15,7 @@
 import { randomUUID } from "node:crypto";
 import { lstat, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { syncResourcesSection } from "../skill-resources.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { officeProfilePath } from "./linked-folders.js";
 import { isPathWithin } from "./path-within.js";
@@ -48,11 +49,16 @@ async function appWrittenLegacy(path: string): Promise<boolean> {
   } catch { return false; }
 }
 
-/** Po zápise (alebo odstránení) `.office.json`: starý `office.json` appky a staré dočasné súbory preč. */
-async function sweepLeftovers(resources: string, now: number): Promise<number> {
+/**
+ * Po zápise (alebo odstránení) `.office.json`: starý `office.json` appky a staré dočasné súbory preč. Starý súbor bol
+ * viditeľný prostriedok skillu, preto sa po jeho odstránení blok „Attached resources“ v SKILL.md zosúladí tou istou
+ * funkciou ako pri odstránení prílohy v Nastaveniach (inak by ho uvádzal do ďalšej synchronizácie).
+ */
+async function sweepLeftovers(skillDir: string, now: number): Promise<number> {
   let changed = 0;
+  const resources = join(skillDir, "resources");
   const legacy = join(resources, LEGACY_OFFICE_FACTS_FILE);
-  if (await appWrittenLegacy(legacy)) { await rm(legacy, { force: true }); changed++; }
+  if (await appWrittenLegacy(legacy)) { await rm(legacy, { force: true }); await syncResourcesSection(skillDir); changed++; }
   for (const entry of await readdir(resources, { withFileTypes: true })) {
     if (!entry.isFile() || !LEFTOVER.test(entry.name)) continue;
     const path = join(resources, entry.name);
@@ -88,7 +94,7 @@ export async function writeOfficeFacts(appFilesRoot: string, jurisdiction: Juris
         changed++;
       }
     }
-    changed += await sweepLeftovers(resources, Date.now());
+    changed += await sweepLeftovers(join(skills, entry.name), Date.now());
   }
   return changed;
 }

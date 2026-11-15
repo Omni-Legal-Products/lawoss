@@ -141,6 +141,17 @@ test("#415: zápis okf.js do skillu cez server dopíše .office.json hneď", asy
     });
     expect(response.status).toBe(200);
     expect(await readFile(join(client, ".opencode", "skills", "novy-spis", "resources", OFFICE_FACTS_FILE), "utf8")).toBe(officeFactsContent("sk"));
+    // An older version's office.json next to it: the upsert lists it in SKILL.md, the migration removes it and the
+    // managed block with it, in the same request.
+    await writeFile(join(client, ".opencode", "skills", "novy-spis", "resources", LEGACY_OFFICE_FACTS_FILE), JSON.stringify({ jurisdiction: "sk" }));
+    const again = await fetch(`http://127.0.0.1:${server.port}/workspace/ws_alfa/skills/novy-spis/resources`, {
+      method: "POST", headers: { authorization: "Bearer owt_office_facts_route", "content-type": "application/json" }, body: JSON.stringify({ name: "okf.js", content: "// SYN 2\n" }),
+    });
+    expect(again.status).toBe(200);
+    const skill = await readFile(join(client, ".opencode", "skills", "novy-spis", "SKILL.md"), "utf8");
+    expect(skill).toContain("- `resources/okf.js`");
+    expect(skill).not.toContain(LEGACY_OFFICE_FACTS_FILE);
+    expect(skill).not.toContain(OFFICE_FACTS_FILE);
   } finally {
     await server.stop();
     if (priorTokens === undefined) delete process.env.LEGALWORK_TOKEN_STORE; else process.env.LEGALWORK_TOKEN_STORE = priorTokens;

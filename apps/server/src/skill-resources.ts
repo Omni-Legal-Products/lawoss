@@ -240,7 +240,8 @@ export function applyResourcesSection(body: string, names: string[]): string {
 }
 
 /** Rewrite <skillDir>/SKILL.md so its managed section matches resources/. */
-async function syncResourcesSection(skillDir: string): Promise<void> {
+// 🟡 LAWOSS #415: exported for the removal of the app's legacy office.json (lawoss/office-facts.ts).
+export async function syncResourcesSection(skillDir: string): Promise<void> {
   const skillPath = await resolveWorkspaceFilePath(skillDir, "SKILL.md");
   if (!(await exists(skillPath))) return;
   const content = await readFile(skillPath, "utf8");
