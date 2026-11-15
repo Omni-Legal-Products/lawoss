@@ -1400,8 +1400,10 @@ var nestedClientCode = (clientName, name) => {
   return DIGITS.exec(clientName.normalize("NFC"))?.[1] !== DIGITS.exec(name.normalize("NFC"))?.[1] && !startsWithMatterWord(code.rest);
 };
 var looksLikeMatterFolder = (name) => codeOf(name) !== undefined || looksLikeMatterName(name);
-var MATTERS_DIR_NAMES = new Set(["spisy", "veci", "pripady", "matters"]);
+var MATTERS_DIR_NAMES = new Set(["spisy", "veci"]);
 var isMattersDirName = (name) => MATTERS_DIR_NAMES.has(fold(name));
+var LEGACY_MATTERS_DIR_NAMES = new Set(["pripady", "případy", "matters"]);
+var isLegacyMattersDirName = (name) => LEGACY_MATTERS_DIR_NAMES.has(name.normalize("NFC").toLowerCase());
 var SPACED_REGISTERS = ["C", "Cb", "Co", "Cob", "Cdo", "Obdo", "T", "To", "Tdo", "S", "Sa", "Sž", "K", "R", "Er", "Ek", "Em", "CoPr", "NcC", "INS", "ÚS"];
 var CASE_START = "(?:^|[^\\p{L}\\d])";
 var CASE_TAIL = "\\d{1,6}[_/-](?:19|20)\\d{2}(?![\\p{L}\\d])";
@@ -1500,7 +1502,7 @@ function matchPattern(index, pattern) {
 }
 function matterLevelDirs(index, parent) {
   const dirs = childrenOf(index, parent).filter((entry) => entry.kind === "directory");
-  const filed = dirs.filter((entry) => isMattersDirName(nameOf(entry.path))).flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
+  const filed = dirs.filter((entry) => isMattersDirName(nameOf(entry.path)) || isLegacyMattersDirName(nameOf(entry.path))).flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
   return [...dirs, ...filed];
 }
 function codedHierarchy(index, candidates) {
@@ -1554,13 +1556,14 @@ var depthOf = (path) => path ? path.split("/").length : 0;
 function mattersOf(index, files, unit, unitName) {
   const prefix = unit ? `${unit}/` : "";
   const dirs = childrenOf(index, unit).filter((entry) => entry.kind === "directory");
-  const folders = dirs.filter((entry) => isMattersDirName(nameOf(entry.path)));
+  const folders = dirs.filter((entry) => isMattersDirName(nameOf(entry.path)) || isLegacyMattersDirName(nameOf(entry.path)));
+  const standard = folders.some((entry) => isMattersDirName(nameOf(entry.path)));
   const card = (entry, cards) => childrenOf(index, entry.path).some((child) => child.kind === "file" && cards.has(nameOf(child.path).toLowerCase()));
   const nestedClient = (entry) => card(entry, CLIENT_CARDS) && !card(entry, MATTER_CARDS);
   const filed = folders.flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
   const matterCard = (entry) => [...MATTER_CARDS].some((card) => files.has(`${entry.path}/${card}`));
   const otherCode = (entry) => !matterCard(entry) && nestedClientCode(unitName, nameOf(entry.path));
-  const beside = dirs.filter((entry) => !folders.includes(entry) && !otherCode(entry) && isClientMatterFolder(nameOf(entry.path), { matterCard: matterCard(entry), mattersDir: folders.length > 0 }));
+  const beside = dirs.filter((entry) => !folders.includes(entry) && !otherCode(entry) && isClientMatterFolder(nameOf(entry.path), { matterCard: matterCard(entry), mattersDir: standard }));
   const named = (entry) => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) });
   const nested = [...filed.filter(nestedClient), ...dirs.filter((entry) => !folders.includes(entry) && (nestedClient(entry) || otherCode(entry)))];
   return { matters: [...filed, ...beside].filter((entry) => !nestedClient(entry)).map(named), nested: nested.map(named) };

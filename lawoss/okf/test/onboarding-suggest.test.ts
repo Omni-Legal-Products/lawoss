@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PRACTICE_MIN_CLIENTS, suggestOnboardingLevel, surveyFolder } from "../src/onboarding/suggest.ts";
-import { CZ_LEGAL_FORMS, SK_LEGAL_FORMS, codeOf, hasCourtFileNumber, hasLegalForm, isClientMatterFolder, isMattersDirName, looksLikeMatterFolder, looksLikeMatterName } from "../src/onboarding/suggest-patterns.ts";
+import { CZ_LEGAL_FORMS, SK_LEGAL_FORMS, codeOf, hasCourtFileNumber, hasLegalForm, isClientMatterFolder, isLegacyMattersDirName, isMattersDirName, looksLikeMatterFolder, looksLikeMatterName } from "../src/onboarding/suggest-patterns.ts";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
@@ -341,8 +341,10 @@ test("#431: vedľa priečinka prípadov nie sú prípadom bežné mená s čísl
   for (const name of ordinary) expect(isClientMatterFolder(name, { matterCard: false, mattersDir: true })).toBe(false);
   for (const name of coded) expect(isClientMatterFolder(name, { matterCard: false, mattersDir: true })).toBe(true);
   // Priečinok prípadov bez ohľadu na veľkosť písmen a diakritiku, aj v NFD; iné mená nie.
-  for (const name of ["Spisy", "spisy", "SPISY", "Veci", "Případy", "Případy".normalize("NFD"), "pripady", "Matters"]) expect(isMattersDirName(name)).toBe(true);
-  for (const name of ["Spis", "Zmluvy", "Spisy-klient", "01_Podklady"]) expect(isMattersDirName(name)).toBe(false);
+  // Priečinok prípadov štandardu bez ohľadu na veľkosť písmen a diakritiku, aj v NFD; staršie mená len na hľadanie prípadov.
+  for (const name of ["Spisy", "spisy", "SPISY", "Veci", "VECI", "Věci", "Věci".normalize("NFD")]) expect(isMattersDirName(name)).toBe(true);
+  for (const name of ["Spis", "Zmluvy", "Spisy-klient", "01_Podklady", "Případy", "pripady", "Matters"]) expect(isMattersDirName(name)).toBe(false);
+  for (const name of ["Případy", "Případy".normalize("NFD"), "pripady", "Matters", "matters"]) expect(isLegacyMattersDirName(name)).toBe(true);
   // Náhľad onboardingu: pri „spisy/“ malými písmenami platí to isté pravidlo ako pri „Spisy/“.
   const root = await tree(["Klient/client.md", "Klient/spisy/M001 Spor/a.pdf", ...[...ordinary, ...coded.filter(name => !name.includes("/"))].map(name => `Klient/${name}/x.pdf`)], "okf-suggest-431-");
   const matters = (await suggestOnboardingLevel(join(root, "Klient"))).units.find(entry => entry.path === "")?.matters.map(matter => matter.path).sort();
@@ -363,6 +365,17 @@ test("#431: vedľa priečinka prípadov sú prípadom aj registre s malými pís
   const root = await tree(["Klient/client.md", "Klient/Spisy/M001 Spor/a.pdf", ...[...ordinary, ...shown].map(name => `Klient/${name}/x.pdf`)], "okf-suggest-431b-");
   const matters = (await suggestOnboardingLevel(join(root, "Klient"))).units.find(entry => entry.path === "")?.matters.map(matter => matter.path).sort();
   expect(matters).toEqual(["Spisy/M001 Spor", ...shown].sort());
+});
+
+test("#431: pri staršom Matters/ alebo Případy/ prísne pravidlo neplatí; prípady pod nimi sa nájdu ako doteraz", async () => {
+  for (const legacy of ["Matters", "Případy", "pripady"]) {
+    const root = await tree(["Klient/client.md", `Klient/${legacy}/M001 Spor/a.pdf`, "Klient/2025-01 Nájom/x.pdf", "Klient/Odvolanie proti rozsudku/x.pdf"], "okf-suggest-431d-");
+    const matters = (await suggestOnboardingLevel(join(root, "Klient"))).units.find(entry => entry.path === "")?.matters.map(matter => matter.path).sort();
+    expect(matters).toEqual([`${legacy}/M001 Spor`, "2025-01 Nájom", "Odvolanie proti rozsudku"].sort());
+  }
+  // Pri Spisy/ platí prísne pravidlo: dátum ani slovo veci vedľa neho nestačia.
+  const strict = await tree(["Klient/client.md", "Klient/Spisy/M001 Spor/a.pdf", "Klient/2025-01 Nájom/x.pdf"], "okf-suggest-431e-");
+  expect((await suggestOnboardingLevel(join(strict, "Klient"))).units.find(entry => entry.path === "")?.matters.map(matter => matter.path)).toEqual(["Spisy/M001 Spor"]);
 });
 
 test("#223: interný kód aj v NFD (Č001) a bez falošných pozitív bežných skratiek", () => {

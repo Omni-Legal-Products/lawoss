@@ -95,12 +95,19 @@ export const nestedClientCode = (clientName: string, name: string): boolean => {
 /** Podpriečinok klienta pomenovaný ako vec: kód („M001 Úhrada…“), dátum, spisová značka alebo slovo veci. */
 export const looksLikeMatterFolder = (name: string): boolean => codeOf(name) !== undefined || looksLikeMatterName(name);
 /**
- * Priečinok prípadov klienta: `Spisy` (štandard OKF a šablóny SK, CZ aj EN) a staršie mená, ktoré prehľad a náhľad
- * onboardingu už prijímali (`Veci`, `Pripady`/`Případy`, `Matters`). Bez ohľadu na veľkosť písmen a diakritiku, aj v NFD
- * (macOS, SMB). Jediné pravidlo pre prehľad (read-model v appke) aj náhľad onboardingu (`suggest.ts`).
+ * Priečinok prípadov klienta podľa štandardu: `Spisy` (zakladajú ho šablóny OKF v SK, CZ aj EN) a `Veci`, ktoré prehľad
+ * prijímal odjakživa. Bez ohľadu na veľkosť písmen a diakritiku, aj v NFD (macOS, SMB). Len pri ňom platí prísne
+ * pravidlo pre priečinky vedľa neho (`isClientMatterFolder`), v prehľade (read-model v appke) aj v náhľade onboardingu.
  */
-const MATTERS_DIR_NAMES = new Set(["spisy", "veci", "pripady", "matters"]);
+const MATTERS_DIR_NAMES = new Set(["spisy", "veci"]);
 export const isMattersDirName = (name: string): boolean => MATTERS_DIR_NAMES.has(fold(name));
+/**
+ * Staršie mená, pod ktorými náhľad onboardingu (`suggest.ts`) prípady len hľadá (`Pripady`/`Případy`, `Matters`, malými
+ * písmenami ako doteraz). Prísne pravidlo pre priečinky vedľa nich neplatí a prehľad ich za priečinok prípadov nepovažuje
+ * (ako pred #431), takže ploché staršie usporiadanie s takým podpriečinkom neprepadne prípady pomenované dátumom.
+ */
+const LEGACY_MATTERS_DIR_NAMES = new Set(["pripady", "případy", "matters"]);
+export const isLegacyMattersDirName = (name: string): boolean => LEGACY_MATTERS_DIR_NAMES.has(name.normalize("NFC").toLowerCase());
 /**
  * Registre súdov, ktoré sa v mene priečinka smú písať aj s medzerou („3 C 12-2024“, „25 Cdo 1234-2023“, „8C 123_2023“).
  * Zámerne neúplný, konzervatívny zoznam bežných registrov SR a ČR (civilný, obchodný, odvolací, dovolací, trestný,
