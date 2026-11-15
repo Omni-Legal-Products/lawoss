@@ -8,7 +8,7 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 import { realpath } from "../canonical-path.ts";
 import { decodeText } from "../../../okf-pamat/src/text-decode.ts";
 import { findAncestorOffice, VOLATILE_ENTRY } from "./classify.ts";
-import { codeOf, hasLegalForm, isBareDate, looksLikeMatterFolder, looksLikeMatterName, nestedClientCode, startsWithMatterWord } from "./suggest-patterns.ts";
+import { codeOf, hasLegalForm, isBareDate, isClientMatterFolder, looksLikeMatterName, nestedClientCode, startsWithMatterWord } from "./suggest-patterns.ts";
 
 export type SuggestedLevel = "practice" | "client" | "matter" | "unknown";
 export type SuggestionSignal = "office_config" | "office_without_config" | "client_card" | "matter_card" | "legal_form_children" | "matter_named_children" | "coded_hierarchy" | "letter_buckets" | "matter_named_root" | "documents_only" | "plain_directories" | "empty" | "inside_office" | "several_practices" | "single_client_wrapper";
@@ -188,8 +188,9 @@ function singleClientWrapper(index: ChildIndex, root: string, dirs: readonly Sur
 const depthOf = (path: string): number => path ? path.split("/").length : 0;
 
 /**
- * Prípady jednotky: podpriečinky `Spisy/` (štruktúra OKF) a popri nich podpriečinky s kartou veci, kódom („M004 …“)
- * alebo menom veci. Prázdny `Spisy/` z pomocných súborov tak prípady vedľa neho neskryje (N-A2-3, 23. 10. 2026).
+ * Prípady jednotky: podpriečinky `Spisy/` (štruktúra OKF) a popri nich podpriečinky podľa `isClientMatterFolder`
+ * (karta veci, kód „M004 …“ či spisová značka; bez `Spisy/` aj meno veci). Prázdny `Spisy/` z pomocných súborov tak
+ * prípady s kódom vedľa neho neskryje (N-A2-3, 23. 10. 2026; #431).
  * Pracovné priečinky klienta („01_Podklady“) prípadmi nie sú. `nested`: priečinky jednotky, ktoré prípadmi nie sú, lebo
  * vyzerajú ako ďalší klient (kód iného klienta alebo vlastná karta klienta); obrazovka pred pripojením na ne upozorní
  * (N-A7-3, test 28. 10. 2026).
@@ -204,7 +205,8 @@ function mattersOf(index: ChildIndex, files: ReadonlySet<string>, unit: string, 
   const filed = folders.flatMap(folder => childrenOf(index, folder.path).filter(entry => entry.kind === "directory"));
   const matterCard = (entry: SurveyEntry) => [...MATTER_CARDS].some(card => files.has(`${entry.path}/${card}`));
   const otherCode = (entry: SurveyEntry) => !matterCard(entry) && nestedClientCode(unitName, nameOf(entry.path));
-  const beside = dirs.filter(entry => !folders.includes(entry) && (matterCard(entry) || (looksLikeMatterFolder(nameOf(entry.path)) && !otherCode(entry))));
+  // #431: pri `Spisy/` vedľa neho len karta, kód alebo spisová značka; bez neho celá heuristika (ako prehľad v appke).
+  const beside = dirs.filter(entry => !folders.includes(entry) && !otherCode(entry) && isClientMatterFolder(nameOf(entry.path), { matterCard: matterCard(entry), mattersDir: folders.length > 0 }));
   const named = (entry: SurveyEntry): SuggestedClient => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) });
   // `Spisy/<…>` je vec vždy, kód iného klienta ju vnoreným klientom neurobí; karta klienta áno.
   const nested = [...filed.filter(nestedClient), ...dirs.filter(entry => !folders.includes(entry) && (nestedClient(entry) || otherCode(entry)))];

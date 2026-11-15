@@ -94,3 +94,14 @@ export const nestedClientCode = (clientName: string, name: string): boolean => {
 };
 /** Podpriečinok klienta pomenovaný ako vec: kód („M001 Úhrada…“), dátum, spisová značka alebo slovo veci. */
 export const looksLikeMatterFolder = (name: string): boolean => codeOf(name) !== undefined || looksLikeMatterName(name);
+/** Silný znak veci v názve: interný kód („M001 …“) alebo spisová značka („8C 123/2023“). */
+export const hasMatterCode = (name: string): boolean => codeOf(name) !== undefined || findCaseNumber(name) !== undefined;
+/**
+ * #431 (15. 11. 2026): je podpriečinok klienta prípadom? Karta prípadu áno vždy. Keď má klient `Spisy/` alebo `Veci/`,
+ * vedľa nich je prípadom už len priečinok so silným znakom (kód alebo spisová značka); slovo veci ani dátum na začiatku
+ * nestačia. Bez nich (staré ploché usporiadanie) platí celá heuristika názvu. Jediné pravidlo pre prehľad
+ * (read-model v appke) aj náhľad onboardingu (`suggest.ts`), aby náhľad nesľúbil prípady, ktoré sa potom neukážu.
+ * Kód iného klienta (`nestedClientCode`) vylučuje volajúci pred týmto pravidlom.
+ */
+export const isClientMatterFolder = (name: string, client: { matterCard: boolean; mattersDir: boolean }): boolean =>
+  client.matterCard || (client.mattersDir ? hasMatterCode(name) : looksLikeMatterFolder(name));

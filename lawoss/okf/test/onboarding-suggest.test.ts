@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PRACTICE_MIN_CLIENTS, suggestOnboardingLevel, surveyFolder } from "../src/onboarding/suggest.ts";
-import { CZ_LEGAL_FORMS, SK_LEGAL_FORMS, codeOf, hasLegalForm, looksLikeMatterFolder, looksLikeMatterName } from "../src/onboarding/suggest-patterns.ts";
+import { CZ_LEGAL_FORMS, SK_LEGAL_FORMS, codeOf, hasLegalForm, isClientMatterFolder, looksLikeMatterFolder, looksLikeMatterName } from "../src/onboarding/suggest-patterns.ts";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
@@ -311,6 +311,28 @@ test("náhľad stromu: prázdny Spisy/ z pomocných súborov neskryje prípady v
   expect(unit("C002 SYN Hron")?.matterCount).toBe(2);
   // Spisy/ a prípady vedľa neho spolu, pracovné priečinky ani samotný Spisy/ nie.
   expect(unit("C017 SYN Šimková")?.matters.map(matter => matter.path).sort()).toEqual(["M050 Výpoveď", "Spisy/M049 Reklamácia"]);
+});
+
+test("#431: pri Spisy/ je vedľa neho prípad len s kartou, kódom alebo spisovou značkou; bez Spisy/ heuristika ako predtým", async () => {
+  const both = (names: string[]) => names.flatMap(name => [`Spisy-klient/${name}`, `Ploche/${name}`]);
+  const practice = await tree([
+    "AGENTS.md",
+    "Spisy-klient/client.md", "Spisy-klient/Spisy/.keep", "Ploche/client.md",
+    ...both(["M001 Úhrada/a.pdf", "Žaloba o zaplatenie/b.pdf", "2024-03 Kúpna zmluva/c.pdf", "Odvolanie 8C 123_2023/d.pdf", "Nájom haly/matter.md", "01_Podklady/e.pdf"]),
+  ]);
+  const suggestion = await suggestOnboardingLevel(practice);
+  const names = (path: string) => suggestion.units.find(item => item.path === path)?.matters.map(matter => matter.name).sort();
+  // Rovnaké pravidlo ako prehľad v appke (`isClientMatterFolder`), aby náhľad nesľúbil prípady, ktoré sa potom neukážu.
+  expect(names("Spisy-klient")).toEqual(["M001 Úhrada", "Nájom haly", "Odvolanie 8C 123_2023"]);
+  expect(names("Ploche")).toEqual(["2024-03 Kúpna zmluva", "M001 Úhrada", "Nájom haly", "Odvolanie 8C 123_2023", "Žaloba o zaplatenie"]);
+  for (const mattersDir of [true, false]) {
+    expect(isClientMatterFolder("Spor o dielo", { matterCard: true, mattersDir })).toBe(true);
+    expect(isClientMatterFolder("M001 Úhrada", { matterCard: false, mattersDir })).toBe(true);
+    expect(isClientMatterFolder("15 C 123/2023", { matterCard: false, mattersDir })).toBe(true);
+    expect(isClientMatterFolder("Spor o dielo", { matterCard: false, mattersDir })).toBe(!mattersDir);
+    expect(isClientMatterFolder("2025-01 Nájom", { matterCard: false, mattersDir })).toBe(!mattersDir);
+    expect(isClientMatterFolder("Zmluvy", { matterCard: false, mattersDir })).toBe(false);
+  }
 });
 
 test("#223: interný kód aj v NFD (Č001) a bez falošných pozitív bežných skratiek", () => {

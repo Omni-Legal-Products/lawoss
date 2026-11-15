@@ -22,7 +22,7 @@ import { addDays, buildOverview, deadlineTier, ISO_DAY, isCalendarDay, missingSc
 import type { OkfRecord } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
 import { parseWorkingProfile, PROFILE_FILE } from "../../../../../lawoss/okf/src/profile";
-import { looksLikeMatterFolder, nestedClientCode } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
+import { isClientMatterFolder, nestedClientCode } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { validateStore } from "../../../../../lawoss/okf-pamat/src/validate.ts";
 import { selectSourceSnapshot } from "./practice-read-state";
@@ -241,8 +241,9 @@ export async function readWorkspaceMemory(
       }
       return;
     }
-    // #431 (15. 11. 2026): klient so `Spisy/` alebo `Veci/` (aj prázdnym, ktoré vznikne pri zavedení) má prípady len
-    // v ňom a v priečinkoch s kartou prípadu; heuristika názvu platí len pre staré ploché usporiadanie bez nich.
+    // #431 (15. 11. 2026): klient so `Spisy/` alebo `Veci/` (aj prázdnym, ktoré vznikne pri zavedení) má prípady v ňom,
+    // v priečinkoch s kartou prípadu a v priečinkoch s kódom či spisovou značkou (`isClientMatterFolder`); slovo veci
+    // ani dátum tam nestačia. Celá heuristika názvu platí len pre staré ploché usporiadanie bez nich.
     const hasMattersDir = entries.some((e) => e.kind === "dir" && [MATTERS_DIR, "Veci"].includes(e.name));
     for (const child of entries.filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name))) {
       if (scanned >= MAX_DISCOVERY_DIRECTORIES || paths.length >= MAX_MATTERS) { truncated = true; break; }
@@ -254,7 +255,8 @@ export async function readWorkspaceMemory(
       } else {
         const coded = hasClientCard && !isWorkDir(child.name) && clientCoded(path, child.name);
         if (coded) codedChildren.add(child.path);
-        await discover(child.path, hasClientCard && !hasMattersDir && !isWorkDir(child.name) && looksLikeMatterFolder(child.name) && !coded, depth + 1, clientFolder);
+        // Karta prípadu rozhodne v `discover`; tu len meno podľa spoločného pravidla s náhľadom onboardingu.
+        await discover(child.path, hasClientCard && !isWorkDir(child.name) && !coded && isClientMatterFolder(child.name, { matterCard: false, mattersDir: hasMattersDir }), depth + 1, clientFolder);
       }
     }
   };

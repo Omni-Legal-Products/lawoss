@@ -504,30 +504,37 @@ test("priečinok pomenovaný ako vec (`2025-01 Spor`) je vecou klienta aj bez ka
   expect(groupByClient(out.matters, out.inputs, out.clients).map((g) => [g.client, g.matters.length])).toEqual([["Samostatný klient", 2]]);
 });
 
-test("#431: pri Spisy/ (aj prázdnom z pomocných súborov) pôvodné podpriečinky nie sú prípady; mení N-A2-3", async () => {
+test("#431: pri Spisy/ (aj prázdnom z pomocných súborov) je vedľa neho prípad len s kartou, kódom alebo spisovou značkou", async () => {
   // Klient z onboardingu `2-jeden-neusporiadany-klient`: karta, pracovné priečinky, prázdny Spisy/ a M00x vedľa neho.
-  // N-A2-3 (23. 10.) ich bral ako prípady; MČ 15. 11. (#431): pri Spisy/ sú prípady len v ňom alebo s kartou prípadu.
+  // MČ 15. 11. (#431): pri Spisy/ sa heuristika názvu nepoužije; spresnenie z review: kód a spisová značka ostávajú
+  // silným znakom (staré ploché prípady `M001 …` nezmiznú), slovo veci („Žaloba …“) ani dátum na začiatku nie.
   const files = {
     "client.md": "---\ntitle: SYN Tatran Automatika\n---\n",
     "Spisy/.keep": "", "00_Na_zatriedenie/.keep": "", "01_Podklady/.keep": "",
     "M001 Úhrada dodávok riadiacich jednotiek/Podklady.pdf": "%PDF",
     "M002 Vady rekonštrukcie výrobnej haly/poznamky.txt": "",
     "Žaloba o zaplatenie/navrh.pdf": "%PDF",
+    "2024-03 Kúpna zmluva/k.pdf": "%PDF",
+    "Odvolanie 8C 123_2023/o.pdf": "%PDF",
     "IMG_0001/foto.png": "",
   };
   const out = await readWorkspaceMemory(fakeClient(files), "ws", TODAY);
-  expect(out.matters).toEqual([]);
-  expect(groupByClient(out.matters, out.inputs, out.clients).map((g) => [g.client, g.matters.length])).toEqual([["SYN Tatran Automatika", 0]]);
-  // Po usporiadaní do Spisy/: prípady v ňom; pôvodný priečinok vedľa nie, ten s kartou prípadu áno.
+  expect(out.matters.map((m) => m.path).sort()).toEqual([
+    "M001 Úhrada dodávok riadiacich jednotiek", "M002 Vady rekonštrukcie výrobnej haly", "Odvolanie 8C 123_2023",
+  ]);
+  expect(groupByClient(out.matters, out.inputs, out.clients).map((g) => [g.client, g.matters.length])).toEqual([["SYN Tatran Automatika", 3]]);
+  // Po usporiadaní do Spisy/: prípady v ňom, vedľa neho s kódom alebo s kartou prípadu; slovo veci bez karty nie.
   const sorted = await readWorkspaceMemory(fakeClient({
     "client.md": files["client.md"],
     "Spisy/M001 Úhrada dodávok riadiacich jednotiek/Podklady.pdf": "%PDF",
     "Spisy/M002 Vady rekonštrukcie výrobnej haly/poznamky.txt": "",
     "M003 Vysporiadanie odchádzajúceho spoločníka/Zapis.rtf": "",
-    "M004 Nájom haly/matter.md": "---\ntitle: Nájom haly\n---\n",
+    "Nájom haly/matter.md": "---\ntitle: Nájom haly\n---\n",
+    "Spor o dielo/zmluva.pdf": "%PDF",
   }), "ws", TODAY);
   expect(sorted.matters.map((m) => m.path).sort()).toEqual([
-    "M004 Nájom haly", "Spisy/M001 Úhrada dodávok riadiacich jednotiek", "Spisy/M002 Vady rekonštrukcie výrobnej haly",
+    "M003 Vysporiadanie odchádzajúceho spoločníka", "Nájom haly",
+    "Spisy/M001 Úhrada dodávok riadiacich jednotiek", "Spisy/M002 Vady rekonštrukcie výrobnej haly",
   ]);
 });
 
@@ -558,10 +565,10 @@ test("N-A4-4: vnorený klient s vlastnou kartou nie je prípadom vonkajšieho kl
     "Archív/Iný klient/Spisy/X/matter.md": "---\ntitle: Cudzia vec\n---\n",
     "Spisy/C098 Vnorený v Spisy/client.md": "---\ntitle: Ďalší vnorený\n---\n",
   }), "ws", TODAY);
-  // #431: „M001 Spor o dielo“ bez karty vedľa Spisy/ nie je prípad.
-  expect(out.matters.map((m) => m.path).sort()).toEqual(["Spisy/M002 Nájom"]);
+  // #431: „M001 Spor o dielo“ má kód, ostáva prípadom aj vedľa Spisy/; „C099 …“ s kódom iného klienta nie.
+  expect(out.matters.map((m) => m.path).sort()).toEqual(["M001 Spor o dielo", "Spisy/M002 Nájom"]);
   expect(out.clients).toEqual([{ path: "", title: "SYN Hron, a. s." }]);
-  expect(groupByClient(out.matters, out.inputs, out.clients).map((g) => [g.client, g.matters.length])).toEqual([["SYN Hron, a. s.", 1]]);
+  expect(groupByClient(out.matters, out.inputs, out.clients).map((g) => [g.client, g.matters.length])).toEqual([["SYN Hron, a. s.", 2]]);
   // Vnorený klient otvorený priamo ostáva klientom so svojimi prípadmi.
   const own = await readWorkspaceMemory(fakeClient({
     "client.md": "---\ntitle: SYN Vnorený\n---\n",
