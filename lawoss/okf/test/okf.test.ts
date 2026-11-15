@@ -206,6 +206,36 @@ describe("kontrakt spisu", () => {
     expect(c.lines.join("\n")).toContain("--sk");
   });
 
+  test("#415: bez --sk/--cz berie jurisdikciu z okf.config kancelárie; prepínač má prednosť", () => {
+    mkdirSync(join(root, "Office"), { recursive: true });
+    writeFileSync(join(root, "Office", "okf.config"), "\uFEFFversion: 1\njurisdiction: cz\nlanguage: cs\n");
+    const client = join(root, "Klienti", "Alfa");
+    mkdirSync(client, { recursive: true });
+    writeFileSync(join(client, "client.md"), "---\ntype: klient\ntitle: Alfa\n---\n");
+    expect(run(["apply", "spis", join(client, "Spisy", "A"), "--title", "Vec A"], () => {})).toBe(0);
+    expect(parseFrontmatter(readFileSync(join(client, "Spisy", "A", "matter.md"), "utf8"))?.jurisdiction).toBe("cz");
+    expect(run(["apply", "spis", join(client, "Spisy", "B"), "--title", "Vec B", "--sk"], () => {})).toBe(0);
+    expect(parseFrontmatter(readFileSync(join(client, "Spisy", "B", "matter.md"), "utf8"))?.jurisdiction).toBe("sk");
+  });
+
+  test("#415: jurisdikcia z karty klienta má prednosť pred kanceláriou", () => {
+    mkdirSync(join(root, "Office"), { recursive: true });
+    writeFileSync(join(root, "Office", "okf.config"), "version: 1\njurisdiction: sk\n");
+    const client = join(root, "Klienti", "Beta");
+    mkdirSync(client, { recursive: true });
+    writeFileSync(join(client, "client.md"), "---\ntype: klient\ntitle: Beta\njurisdiction: cz\n---\n");
+    expect(run(["apply", "spis", join(client, "Spisy", "A"), "--title", "Vec"], () => {})).toBe(0);
+    expect(parseFrontmatter(readFileSync(join(client, "Spisy", "A", "matter.md"), "utf8"))?.jurisdiction).toBe("cz");
+  });
+
+  test("#415: kancelária bez platnej jurisdikcie nič nedoplní a spis sa nezaloží", () => {
+    mkdirSync(join(root, "Office"), { recursive: true });
+    writeFileSync(join(root, "Office", "okf.config"), "version: 1\njurisdiction: at\n");
+    const c = capture();
+    expect(run(["plan", "spis", join(root, "Klienti", "Gama", "Spisy", "A"), "--title", "Vec"], c.out)).toBe(2);
+    expect(c.lines.join("\n")).toContain("--sk");
+  });
+
   test("naraz --sk aj --cz je chyba, nie tiché víťazstvo jednej", () => {
     const c = capture();
     expect(run(["plan", "spis", "/x", "--title", "Vec", "--sk", "--cz"], c.out)).toBe(2);

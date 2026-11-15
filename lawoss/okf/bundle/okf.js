@@ -5820,6 +5820,28 @@ function officeProfile(dir, language) {
     return;
   return parseOfficeWorkingProfile(decodeText(readFileSync2(path)), language);
 }
+function inheritedJurisdiction(dir) {
+  const known = (value) => {
+    const lower = typeof value === "string" ? value.trim().toLowerCase() : "";
+    return lower === "sk" || lower === "cz" ? lower : undefined;
+  };
+  for (let parent = dirname11(resolve13(dir));; parent = dirname11(parent)) {
+    const card = existingCard("klient", (name) => existsSync3(join15(parent, name)));
+    if (card) {
+      const fromClient = known(parseFrontmatter(decodeText(readFileSync2(join15(parent, card))))?.jurisdiction);
+      if (fromClient)
+        return fromClient;
+      break;
+    }
+    if (dirname11(parent) === parent)
+      break;
+  }
+  const office = findOfficeDir(dir);
+  const path = office ? join15(office, "okf.config") : undefined;
+  if (!path || !existsSync3(path) || !statSync(path).isFile())
+    return;
+  return known(parseFrontmatter2(decodeText(readFileSync2(path))).get("jurisdiction"));
+}
 function listMarkdown(root) {
   const out = [];
   const walk = (dir) => {
@@ -6876,7 +6898,7 @@ function entityType(value) {
     return value;
   throw new Error(`typ mus\xED by\u0165 ${ENTITY_TYPES2.join(" | ")}; dostal som: ${value ?? "(ni\u010D)"}`);
 }
-function jurisdictionFrom(flags, type) {
+function jurisdictionFrom(flags, type, dir) {
   const sk = flags.sk === true;
   const cz = flags.cz === true;
   if (sk && cz)
@@ -6886,7 +6908,10 @@ function jurisdictionFrom(flags, type) {
   if (cz)
     return "cz";
   if (type === "spis") {
-    throw new Error("Spis potrebuje jurisdikciu: uve\u010F --sk alebo --cz. Zap\xED\u0161e sa do karty veci " + "ako `jurisdiction:` a `okf-memory` ju odtia\u013E pre\u010D\xEDta.");
+    const inherited = inheritedJurisdiction(dir);
+    if (inherited)
+      return inherited;
+    throw new Error("Spis potrebuje jurisdikciu: uve\u010F --sk alebo --cz (karta klienta ani okf.config kancel\xE1rie ju nemaj\xFA). " + "Zap\xED\u0161e sa do karty veci ako `jurisdiction:` a `okf-memory` ju odtia\u013E pre\u010D\xEDta.");
   }
   return;
 }
@@ -6919,7 +6944,7 @@ function inputFrom(positional, flags) {
     sud: str(flags, "sud"),
     date: str(flags, "date"),
     advokat: str(flags, "advokat"),
-    jurisdiction: jurisdictionFrom(flags, type)
+    jurisdiction: jurisdictionFrom(flags, type, dir)
   };
 }
 function run(argv, out = console.log) {

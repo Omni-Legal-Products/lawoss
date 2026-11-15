@@ -61,6 +61,8 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "f872ac3d24a2b2bc2ce83a12c086fae5358ad8c64f66eb6c757adcf6d3c84191", // lawoss/skills/novy-spis/SKILL.cs.md @ caacdf9c
   "fcb9cad3b3d0bfc978d613671768811f8e49c8af5a2f6b9f9709e8c2d877469c", // lawoss/skills/novy-spis/SKILL.cs.md @ #423 review, typ klienta a zavedení složky chatu na místě
   "a8ca3ebdb54bde7da1f634dad40b2d659d392a4c7951bf4260473494d309bd59", // lawoss/skills/novy-spis/SKILL.cs.md @ #423 review, validate u vlastních .md advokáta
+  "04f32050823952422a3675940a4eed0758acebbd37e07cb9eb72c710f6cd0638", // lawoss/skills/novy-spis/SKILL.md @ #415, jurisdikcia z karty klienta alebo kancelárie
+  "090850b0f495950a8b0234d7ea2e2439369adbe3d0024640ab6312be16d5a601", // lawoss/skills/novy-spis/SKILL.cs.md @ #415, jurisdikce z karty klienta nebo kanceláře
   "aab723e10fcc234db66e51f3020d498e7eb1409b30e22a81e7bd8a5f1822646e", // lawoss/skills/roztried-spis/SKILL.md @ feat/alfa-roztriedenie-spisu
   "64de8e0c8d2a02e2cce88cc66fa40a157eae8a20f35430128927f5aba2e2b62d", // lawoss/skills/roztried-spis/SKILL.cs.md @ feat/alfa-roztriedenie-spisu
   "e1dd31551fc99c2ce420e0ef98f559d9fe996554cb78c8008794dc7100b0f123", // lawoss/skills/roztried-spis/SKILL.md @ fix/alfa-roztriedenie-po-teste

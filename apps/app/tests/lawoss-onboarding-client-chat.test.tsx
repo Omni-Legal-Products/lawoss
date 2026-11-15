@@ -313,7 +313,10 @@ describe("prvá správa agentovi", () => {
     expect(modelContext).toContain("you do not need a copy of the folder or /roztried-spis");
     for (const step of ["1. Briefly summarise", "2. Propose cases as a table in the chat", "3. Ask the lawyer which cases to create and wait for the approval"]) expect(modelContext).toContain(step);
     expect(modelContext).toContain("Treat existing subfolders as candidate cases");
-    expect(modelContext).toContain("ask once for all of them");
+    // #415: jurisdikciu berie CLI z karty klienta alebo kancelárie; pýta sa len, keď chýba alebo vec patrí inam.
+    expect(modelContext).toContain("Do not ask about the jurisdiction (SK or CZ)");
+    expect(modelContext).toContain("Ask once for all cases only if creating a case reports it missing or a case clearly belongs to the other jurisdiction.");
+    expect(modelContext).not.toContain("If you do not know the jurisdiction");
     // Presuny robí agent sám, ale až po súhlase (MČ 20. 10. 2026).
     expect(modelContext).toContain("Only after the lawyer approves, create the cases with the /novy-spis skill and move or rename the files into them yourself");
     expect(modelContext.indexOf("wait for the approval")).toBeLessThan(modelContext.indexOf("/novy-spis skill"));

@@ -3,9 +3,9 @@
  * okf — CLI nad priečinkom klienta. Súbory dnu, súbory von. Žiadny server.
  *
  *   okf detect <dir> [--type klient|spis|projekt] [--json]
- *   okf plan <typ> <dir> --title "…" --sk|--cz [--ico X] [--klient X] [--protistrana X]
+ *   okf plan <typ> <dir> --title "…" [--sk|--cz] [--ico X] [--klient X] [--protistrana X]
  *            [--protistrana-ico X] [--oblast X] [--desc X] [--advokat X] [--language cs|sk|en] [--json]
- *   okf apply <typ> <dir> --title "…" --sk|--cz [rovnaké flagy]        ← až po potvrdení človekom
+ *   okf apply <typ> <dir> --title "…" [--sk|--cz] [rovnaké flagy]        ← až po potvrdení človekom
  *   okf validate <dir> [--json]                                 exit 1 pri chybe
  *   okf render <dir> [--json]
  *   okf naming <dir> --manifest request.json [--out plan.json] [--json]
@@ -22,7 +22,7 @@ import { runOnboarding } from "./onboarding/cli.ts";
 import { runTriage } from "./triage/cli.ts";
 
 import { resolveDocumentLanguage, type DocumentLanguage, ENTITY_TYPES, type ClientType, type MatterKind, type MatterMode, type EntityType, type Jurisdiction, type PlanInput } from "./core.ts";
-import { apply, detect, plan, render, validate } from "./fs.ts";
+import { apply, detect, inheritedJurisdiction, plan, render, validate } from "./fs.ts";
 import { NamingSchemaError, isNamingSchemaError, parseNamingRequest, applyDocumentNaming, parseNamingPlan, planDocumentNaming, readNamingJson, writeNamingPlanOutsideMatter } from "./naming-fs.ts";
 
 type Flags = Record<string, string | boolean>;
@@ -65,7 +65,8 @@ function entityType(value: string | undefined): EntityType {
 }
 
 /**
- * Jurisdikcia z prepínača `--sk` / `--cz`.
+ * Jurisdikcia z prepínača `--sk` / `--cz`; pri `spis` bez prepínača z karty klienta alebo
+ * z `okf.config` kancelárie (#415), aby sa asistent advokáta na ňu nepýtal. Prepínač má prednosť.
  *
  * Pri `spis` je povinná a odmietame už pri `plan`, nie až pri `apply` — advokát
  * vidí plán prvý, takže odmietnutie musí prísť tam. Dôvod je vecný: `okf-pamat`
@@ -74,16 +75,18 @@ function entityType(value: string | undefined): EntityType {
  * nevzniknúť vôbec. Tiché predvolenie `cz` je presne tá chyba, ktorú `okf-pamat`
  * práve odstránil; nezavádzame ju späť na druhom konci.
  */
-function jurisdictionFrom(flags: Flags, type: EntityType): Jurisdiction | undefined {
+function jurisdictionFrom(flags: Flags, type: EntityType, dir: string): Jurisdiction | undefined {
   const sk = flags.sk === true;
   const cz = flags.cz === true;
   if (sk && cz) throw new Error("naraz --sk aj --cz; vyber jednu jurisdikciu");
   if (sk) return "sk";
   if (cz) return "cz";
   if (type === "spis") {
+    const inherited = inheritedJurisdiction(dir);
+    if (inherited) return inherited;
     throw new Error(
-      "Spis potrebuje jurisdikciu: uveď --sk alebo --cz. Zapíše sa do karty veci " +
-        "ako `jurisdiction:` a `okf-memory` ju odtiaľ prečíta.",
+      "Spis potrebuje jurisdikciu: uveď --sk alebo --cz (karta klienta ani okf.config kancelárie ju nemajú). " +
+        "Zapíše sa do karty veci ako `jurisdiction:` a `okf-memory` ju odtiaľ prečíta.",
     );
   }
   return undefined;
@@ -104,7 +107,7 @@ function inputFrom(positional: string[], flags: Flags): PlanInput {
     protistrana: str(flags, "protistrana"), protistranaIco: str(flags, "protistrana-ico"),
     oblast: str(flags, "oblast"), spzn: str(flags, "spzn"), sud: str(flags, "sud"), date: str(flags, "date"),
     advokat: str(flags, "advokat"),
-    jurisdiction: jurisdictionFrom(flags, type),
+    jurisdiction: jurisdictionFrom(flags, type, dir),
   };
 }
 

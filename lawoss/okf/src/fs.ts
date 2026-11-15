@@ -11,6 +11,7 @@ import {
   ENTITY_TYPES,
   type DetectResult,
   type EntityType,
+  type Jurisdiction,
   type Plan,
   type PlanInput,
   type ValidationError,
@@ -23,6 +24,7 @@ import { readConfiguredLawyerName } from "../../okf-pamat/src/config.ts";
 import { findOfficeDir } from "../../okf-pamat/src/store.ts";
 import { contained, missing } from "../../okf-pamat/src/workspace-memory-fs.ts";
 import { decodeText } from "../../okf-pamat/src/text-decode.ts";
+import { parseFrontmatter as parseConfig } from "../../okf-pamat/src/record.ts";
 import { PROFILE_FILE, parseOfficeWorkingProfile, parseWorkingProfile, type WorkingProfile } from "./profile.ts";
 
 function readText(path: string): string {
@@ -42,6 +44,30 @@ function officeProfile(dir: string, language: DocumentLanguage): WorkingProfile 
   if (!statSync(path).isFile()) return undefined;
   // Konfig píše advokát ručne; na Windows s BOM alebo v UTF-16 — rovnako ako okf-memory.
   return parseOfficeWorkingProfile(decodeText(readFileSync(path)), language);
+}
+
+/**
+ * #415: jurisdikcia nového spisu bez `--sk`/`--cz`. Najprv karta klienta nad spisom (`jurisdiction:`), inak
+ * `jurisdiction:` z `okf.config` najbližšej kancelárie. Neznáma alebo poškodená hodnota sa neberie.
+ */
+export function inheritedJurisdiction(dir: string): Jurisdiction | undefined {
+  const known = (value: unknown): Jurisdiction | undefined => {
+    const lower = typeof value === "string" ? value.trim().toLowerCase() : "";
+    return lower === "sk" || lower === "cz" ? lower : undefined;
+  };
+  for (let parent = dirname(resolve(dir)); ; parent = dirname(parent)) {
+    const card = existingCard("klient", (name) => existsSync(join(parent, name)));
+    if (card) {
+      const fromClient = known(parseFrontmatter(decodeText(readFileSync(join(parent, card))))?.jurisdiction);
+      if (fromClient) return fromClient;
+      break;
+    }
+    if (dirname(parent) === parent) break;
+  }
+  const office = findOfficeDir(dir);
+  const path = office ? join(office, "okf.config") : undefined;
+  if (!path || !existsSync(path) || !statSync(path).isFile()) return undefined;
+  return known(parseConfig(decodeText(readFileSync(path))).get("jurisdiction"));
 }
 
 /** Všetky .md pod `root`, relatívne cesty, bez šablón a skrytých priečinkov. */
