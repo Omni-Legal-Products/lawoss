@@ -3632,8 +3632,16 @@ title: ${yaml(request.title)}
 `;
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.clientRoot, [directory(name), file(`${name}/subject.md`, card), directory(`${name}/memory`), file(`${name}/memory/.keep`, "")]) };
 }
+function isCalendarDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value))
+    return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
 var MATTERS_DIR = "Spisy";
 function newMatterFolder(date, title) {
+  if (!isCalendarDate(date))
+    throw new Error(`Neplatný dátum prípadu „${date}“: zadaj skutočný dátum v tvare RRRR-MM-DD.`);
   const name = `${date.slice(0, 7)} ${safeSegment(title)}`;
   return { name, folder: `${MATTERS_DIR}/${name}` };
 }
@@ -3652,7 +3660,7 @@ async function clientCard(clientRoot) {
   return;
 }
 function buildMatterOperations(input) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !["contentious", "non_contentious"].includes(input.kind))
+  if (!isCalendarDate(input.date) || !["contentious", "non_contentious"].includes(input.kind))
     throw new Error("Valid date and matter kind are required.");
   const area = safeSegment(input.area), name = input.folder?.split("/").pop() ?? newMatterFolder(input.date, input.title).name, folder = input.folder ?? `${MATTERS_DIR}/${name}`;
   const generated = planEntity({ type: "spis", dir: folder, title: input.title, language: input.language, jurisdiction: input.jurisdiction, date: input.date, workingProfile: input.workingProfile, matterKind: input.kind === "contentious" ? "dispute" : "other", ...input.clientTitle ? { klient: input.clientTitle } : {}, ...input.clientCardPath ? { clientCardPath: input.clientCardPath } : {}, ...input.extras?.caseNumber ? { spzn: input.extras.caseNumber } : {}, ...input.extras?.counterparty ? { protistrana: input.extras.counterparty } : {}, ...input.extras?.court ? { sud: input.extras.court } : {} }, LOCALIZED_TEMPLATES, () => false);
@@ -3664,7 +3672,7 @@ subject: ${yaml(input.subject ?? "")}`)) : operation)];
   return { name, folder, operations };
 }
 async function planNewMatter(request) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(request.date) || !["contentious", "non_contentious"].includes(request.kind))
+  if (!isCalendarDate(request.date) || !["contentious", "non_contentious"].includes(request.kind))
     throw new Error("Valid date and matter kind are required.");
   safeSegment(request.area);
   if (request.subject !== undefined && /[\\/]/.test(request.subject))
@@ -5814,9 +5822,6 @@ function existingCard2(type, exists) {
     throw new Error(`Viac kariet entity: ${cards.join(", ")}. Najprv zosúlaď ich obsah.`);
   return cards[0];
 }
-function today2() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 // src/fs.ts
 import { existsSync as existsSync3, lstatSync as lstatSync4, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync2, realpathSync as realpathSync4, statSync, writeFileSync as writeFileSync2 } from "node:fs";
@@ -6087,8 +6092,16 @@ var safeSegment2 = (value) => {
     throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
   return trimmed;
 };
+function isCalendarDate2(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value))
+    return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
 var MATTERS_DIR2 = "Spisy";
 function newMatterFolder2(date, title) {
+  if (!isCalendarDate2(date))
+    throw new Error(`Neplatný dátum prípadu „${date}“: zadaj skutočný dátum v tvare RRRR-MM-DD.`);
   const name = `${date.slice(0, 7)} ${safeSegment2(title)}`;
   return { name, folder: `${MATTERS_DIR2}/${name}` };
 }
@@ -6947,7 +6960,11 @@ function jurisdictionFrom(flags, type, dir) {
   }
   return;
 }
-function newMatterDir(flags) {
+function localToday() {
+  const now = new Date, pad = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+function newMatterDir(flags, date) {
   const title = str(flags, "title");
   if (!title)
     throw new Error("Nov\xFD pr\xEDpad bez <dir> potrebuje --title; prie\u010Dinok sa odvod\xED z neho.");
@@ -6957,7 +6974,7 @@ function newMatterDir(flags) {
       throw new Error("Nov\xFD pr\xEDpad bez <dir> spusti v prie\u010Dinku klienta (s kartou klienta) alebo uve\u010F <dir>.");
     client = dirname13(client);
   }
-  const target = join17(client, newMatterFolder2(str(flags, "date") ?? today2(), title).folder);
+  const target = join17(client, newMatterFolder2(date, title).folder);
   const dir = relative11(resolve15("."), target).split("\\").join("/");
   if (existsSync4(target))
     throw new Error(`Prie\u010Dinok ${dir} u\u017E existuje; nov\xFD pr\xEDpad ho nezalo\u017E\xED znova. Pre existuj\xFAci prie\u010Dinok ho uve\u010F ako <dir>.`);
@@ -6965,7 +6982,8 @@ function newMatterDir(flags) {
 }
 function inputFrom(positional, flags) {
   const type = entityType(positional[1]);
-  const dir = positional[2] ?? (type === "spis" ? newMatterDir(flags) : undefined);
+  const derivedDate = positional[2] === undefined && type === "spis" ? str(flags, "date") ?? localToday() : undefined;
+  const dir = positional[2] ?? (derivedDate ? newMatterDir(flags, derivedDate) : undefined);
   if (!dir)
     throw new Error("ch\xFDba <dir>");
   const title = str(flags, "title") ?? dir.split(/[\\/]/).filter(Boolean).pop() ?? "";
@@ -6990,7 +7008,7 @@ function inputFrom(positional, flags) {
     oblast: str(flags, "oblast"),
     spzn: str(flags, "spzn"),
     sud: str(flags, "sud"),
-    date: str(flags, "date"),
+    date: derivedDate ?? str(flags, "date"),
     advokat: str(flags, "advokat"),
     jurisdiction: jurisdictionFrom(flags, type, dir)
   };

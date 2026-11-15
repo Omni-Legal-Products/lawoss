@@ -1,6 +1,8 @@
 import { symlinkSkipReason } from "../../tests/symlink-capability.mts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { realpathSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
+import { realpathSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -287,6 +289,36 @@ describe("kontrakt spisu", () => {
       expect(noTitle.lines.join("\n")).toContain("--title");
       expect(run(["plan", "spis", "--title", "../Iný klient", "--sk"], () => {})).toBe(2);
       expect(run(["plan", "klient", "--title", "X"], () => {})).toBe(2);
+    });
+
+    test("--date je skutočný dátum RRRR-MM-DD; `../../zz` ani 2026-02-31 priečinok mimo klienta nezaložia (src aj bundle)", () => {
+      const dir = client();
+      process.chdir(dir);
+      for (const date of ["../../zz", "2026-02-31", "2026-11", "2026-11-15/../..", "x2026-11-15"]) {
+        const c = capture();
+        expect(run(["plan", "spis", "--title", "Vec", "--sk", "--date", date], c.out)).toBe(2);
+        expect(c.lines.join("\n")).toContain("RRRR-MM-DD");
+        expect(run(["apply", "spis", "--title", "Vec", "--sk", "--date", date], () => {})).toBe(2);
+        expect(() => newMatterFolder(date, "Vec")).toThrow("RRRR-MM-DD");
+      }
+      expect(() => buildMatterOperations({ title: "Vec", date: "2026-02-31", kind: "contentious", area: "Spory", jurisdiction: "sk" })).toThrow("Valid date and matter kind are required.");
+      const cli = fileURLToPath(new URL("../bundle/okf.js", import.meta.url));
+      const bundled = spawnSync("node", [cli, "apply", "spis", "--title", "Vec", "--sk", "--date", "../../zz"], { cwd: dir, encoding: "utf8" });
+      expect(bundled.status).toBe(2);
+      expect(bundled.stdout + bundled.stderr).toContain("RRRR-MM-DD");
+      expect(readdirSync(dir).sort()).toEqual(["client.md"]);
+      expect(existsSync(join(root, "Klienti", "zz"))).toBe(false);
+      expect(existsSync(join(root, "zz"))).toBe(false);
+    });
+
+    test("bez --date je mesiac priečinka aj dátum karty z toho istého miestneho dňa", () => {
+      const dir = client();
+      process.chdir(dir);
+      const now = new Date(), pad = (n: number) => String(n).padStart(2, "0");
+      const local = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      expect(run(["apply", "spis", "--title", "Dnes", "--sk"], () => {})).toBe(0);
+      const card = parseFrontmatter(readFileSync(join(dir, "Spisy", `${local.slice(0, 7)} Dnes`, "matter.md"), "utf8"));
+      expect(String(card?.timestamp)).toBe(local);
     });
   });
 

@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 import { runOnboarding } from "./onboarding/cli.ts";
 import { runTriage } from "./triage/cli.ts";
 
-import { existingCard, resolveDocumentLanguage, today, type DocumentLanguage, ENTITY_TYPES, type ClientType, type MatterKind, type MatterMode, type EntityType, type Jurisdiction, type PlanInput } from "./core.ts";
+import { existingCard, resolveDocumentLanguage, type DocumentLanguage, ENTITY_TYPES, type ClientType, type MatterKind, type MatterMode, type EntityType, type Jurisdiction, type PlanInput } from "./core.ts";
 import { apply, detect, inheritedJurisdiction, plan, render, validate } from "./fs.ts";
 import { newMatterFolder } from "./onboarding/entities.ts";
 import { NamingSchemaError, isNamingSchemaError, parseNamingRequest, applyDocumentNaming, parseNamingPlan, planDocumentNaming, readNamingJson, writeNamingPlanOutsideMatter } from "./naming-fs.ts";
@@ -95,12 +95,18 @@ function jurisdictionFrom(flags: Flags, type: EntityType, dir: string): Jurisdic
   return undefined;
 }
 
+/** Dnešný deň podľa miestneho času: priečinok `RRRR-MM` zodpovedá mesiacu advokáta, nie UTC (#416). */
+function localToday(): string {
+  const now = new Date(), pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
 /**
  * #416: nový prípad bez `<dir>`. Priečinok určí to isté pravidlo ako formulár (`newMatterFolder`):
  * `Spisy/<RRRR-MM> <názov>` v najbližšom klientovi (karta klienta v aktuálnom priečinku alebo nad ním),
  * relatívne k aktuálnemu priečinku. Existujúci priečinok sa takto nezakladá; ten treba uviesť výslovne.
  */
-function newMatterDir(flags: Flags): string {
+function newMatterDir(flags: Flags, date: string): string {
   const title = str(flags, "title");
   if (!title) throw new Error("Nový prípad bez <dir> potrebuje --title; priečinok sa odvodí z neho.");
   let client = resolve(".");
@@ -108,7 +114,7 @@ function newMatterDir(flags: Flags): string {
     if (dirname(client) === client) throw new Error("Nový prípad bez <dir> spusti v priečinku klienta (s kartou klienta) alebo uveď <dir>.");
     client = dirname(client);
   }
-  const target = join(client, newMatterFolder(str(flags, "date") ?? today(), title).folder);
+  const target = join(client, newMatterFolder(date, title).folder);
   const dir = relative(resolve("."), target).split("\\").join("/");
   if (existsSync(target)) throw new Error(`Priečinok ${dir} už existuje; nový prípad ho nezaloží znova. Pre existujúci priečinok ho uveď ako <dir>.`);
   return dir;
@@ -116,7 +122,9 @@ function newMatterDir(flags: Flags): string {
 
 function inputFrom(positional: string[], flags: Flags): PlanInput {
   const type = entityType(positional[1]);
-  const dir = positional[2] ?? (type === "spis" ? newMatterDir(flags) : undefined);
+  // Nový prípad bez `<dir>`: dátum z `--date`, inak miestny dnešok; ten istý pre priečinok aj kartu.
+  const derivedDate = positional[2] === undefined && type === "spis" ? str(flags, "date") ?? localToday() : undefined;
+  const dir = positional[2] ?? (derivedDate ? newMatterDir(flags, derivedDate) : undefined);
   if (!dir) throw new Error("chýba <dir>");
   const title = str(flags, "title") ?? dir.split(/[\\/]/).filter(Boolean).pop() ?? "";
   return {
@@ -127,7 +135,7 @@ function inputFrom(positional: string[], flags: Flags): PlanInput {
     mode: choice(flags, "mode", ["bounded", "ongoing"] satisfies MatterMode[]),
     description: str(flags, "desc"), ico: str(flags, "ico"), klient: str(flags, "klient"),
     protistrana: str(flags, "protistrana"), protistranaIco: str(flags, "protistrana-ico"),
-    oblast: str(flags, "oblast"), spzn: str(flags, "spzn"), sud: str(flags, "sud"), date: str(flags, "date"),
+    oblast: str(flags, "oblast"), spzn: str(flags, "spzn"), sud: str(flags, "sud"), date: derivedDate ?? str(flags, "date"),
     advokat: str(flags, "advokat"),
     jurisdiction: jurisdictionFrom(flags, type, dir),
   };

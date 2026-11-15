@@ -180,6 +180,12 @@ export async function planNewSubject(request: SubjectRequest): Promise<CreatePre
   const card = `---\ntype: subject\ntitle: ${yaml(request.title)}\n---\n\n# ${request.title}\n`;
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.clientRoot, [directory(name), file(`${name}/subject.md`, card), directory(`${name}/memory`), file(`${name}/memory/.keep`, "")]) };
 }
+/** Skutočný kalendárny dátum v tvare RRRR-MM-DD (nie `2026-02-31`). */
+export function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
 /** Veci klienta žijú v `Spisy/` ako v šablóne klienta, jeho AGENTS.md, CLI `novy-spis` aj v čítaní pamäte. */
 const MATTERS_DIR = "Spisy";
 /**
@@ -187,6 +193,8 @@ const MATTERS_DIR = "Spisy";
  * veci, roztriedenie aj `okf plan|apply spis` bez `<dir>` (#416), aby názov priečinka neurčoval asistent.
  */
 export function newMatterFolder(date: string, title: string): { name: string; folder: string } {
+  // #416: dátum je časť cesty; bez prísnej kontroly by `--date ../../zz` založil priečinok mimo klienta.
+  if (!isCalendarDate(date)) throw new Error(`Neplatný dátum prípadu „${date}“: zadaj skutočný dátum v tvare RRRR-MM-DD.`);
   const name = `${date.slice(0, 7)} ${safeSegment(title)}`;
   return { name, folder: `${MATTERS_DIR}/${name}` };
 }
@@ -218,7 +226,7 @@ export type MatterOperationsInput = {
  * bez priečinka `Spisy`. Rovnaký zdroj pre formulár novej veci aj pre roztriedenie spisu.
  */
 export function buildMatterOperations(input: MatterOperationsInput): { name: string; folder: string; operations: CreateOperation[] } {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !["contentious", "non_contentious"].includes(input.kind)) throw new Error("Valid date and matter kind are required.");
+  if (!isCalendarDate(input.date) || !["contentious", "non_contentious"].includes(input.kind)) throw new Error("Valid date and matter kind are required.");
   // Oblasť je údaj veci (`area:` v matter.md), nie priečinok.
   const area = safeSegment(input.area), name = input.folder?.split("/").pop() ?? newMatterFolder(input.date, input.title).name, folder = input.folder ?? `${MATTERS_DIR}/${name}`;
   const generated = planEntity({ type: "spis", dir: folder, title: input.title, language: input.language, jurisdiction: input.jurisdiction, date: input.date, workingProfile: input.workingProfile, matterKind: input.kind === "contentious" ? "dispute" : "other", ...(input.clientTitle ? { klient: input.clientTitle } : {}), ...(input.clientCardPath ? { clientCardPath: input.clientCardPath } : {}), ...(input.extras?.caseNumber ? { spzn: input.extras.caseNumber } : {}), ...(input.extras?.counterparty ? { protistrana: input.extras.counterparty } : {}), ...(input.extras?.court ? { sud: input.extras.court } : {}) }, LOCALIZED_TEMPLATES, () => false);
@@ -228,7 +236,7 @@ export function buildMatterOperations(input: MatterOperationsInput): { name: str
 }
 
 export async function planNewMatter(request: MatterRequest): Promise<CreatePreview> {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(request.date) || !["contentious", "non_contentious"].includes(request.kind)) throw new Error("Valid date and matter kind are required.");
+  if (!isCalendarDate(request.date) || !["contentious", "non_contentious"].includes(request.kind)) throw new Error("Valid date and matter kind are required.");
   safeSegment(request.area);
   // Subjekt je meno priečinka subjektu. Cesta (C:\…\Divízia, /Users/…) by do karty veci
   // zapísala údaj tohto počítača, ktorý na inom počítači so zosynchronizovaným klientom neplatí.
