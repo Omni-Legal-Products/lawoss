@@ -71,13 +71,13 @@ export function inheritedJurisdiction(dir: string): Jurisdiction | undefined {
   return fromOffice ?? known(officeProfileJurisdiction(dir)) ?? known(officeFactsJurisdiction());
 }
 
-/** Súbor appky LAWOSS vedľa pribaleného CLI (`.opencode/skills/<skill>/resources/office.json`). */
-export const OFFICE_FACTS_FILE = "office.json";
+/** Súbor appky LAWOSS vedľa pribaleného CLI (`.opencode/skills/<skill>/resources/.office.json`, skrytý pred zoznamom prostriedkov skillu). */
+export const OFFICE_FACTS_FILE = ".office.json";
 
 /**
  * #415: úplne posledná možnosť, nezávislá od prostredia procesu. Príkazy agenta spúšťa server (alebo izolované
  * prostredie), nie engine, takže premenná enginu k nim nedôjde. Appka preto vedľa `okf.js` v priečinku appky klienta
- * drží `office.json` s jurisdikciou kancelárie (len `{"jurisdiction":"sk"|"cz"}`); CLI ho číta vedľa seba.
+ * drží `.office.json` s jurisdikciou kancelárie (len `{"jurisdiction":"sk"|"cz"}`); CLI ho číta vedľa seba.
  */
 export function officeFactsJurisdiction(file: string = fileURLToPath(new URL(`./${OFFICE_FACTS_FILE}`, import.meta.url))): string | undefined {
   try {

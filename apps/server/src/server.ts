@@ -5158,7 +5158,7 @@ function createRoutes(
     }
     for (let i = 0; i < requested.length; i++) await recheckWorkspaceFilePath(skillDir, requested[i]!, approved[i]!);
     const result = await upsertSkillResource(workspaceAppFilesRoot(config, workspace), skill, { name, content, contentBase64 });
-    // 🟡 LAWOSS #415: vedľa okf.js aj office.json s jurisdikciou kancelárie (lawoss/office-facts.ts).
+    // 🟡 LAWOSS #415: vedľa okf.js aj .office.json s jurisdikciou kancelárie (lawoss/office-facts.ts).
     if (name === OKF_CLI_FILE) await refreshOfficeFacts(config, workspace).catch(() => 0);
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),

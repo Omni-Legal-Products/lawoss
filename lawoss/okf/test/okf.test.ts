@@ -271,10 +271,10 @@ describe("kontrakt spisu", () => {
       expect(parseFrontmatter(readFileSync(join(client, "Spisy", "2026-11 Z bundlu", "matter.md"), "utf8"))?.jurisdiction).toBe("sk");
     });
 
-    test("office.json vedľa nasadeného okf.js platí aj bez premennej prostredia; príznak vyhráva", () => {
+    test(".office.json vedľa nasadeného okf.js platí aj bez premennej prostredia; príznak vyhráva", () => {
       const { client } = office((practice) => join(practice, "Office"));
       delete process.env.LAWOSS_OFFICE_PROFILE;
-      // Nasadený skill ako v appke: priečinok appky klienta, bundle CLI a vedľa neho office.json.
+      // Nasadený skill ako v appke: priečinok appky klienta, bundle CLI a vedľa neho .office.json.
       const resources = join(client, ".opencode", "skills", "novy-spis", "resources");
       mkdirSync(resources, { recursive: true });
       const cli = join(resources, "okf.js");
@@ -283,12 +283,15 @@ describe("kontrakt spisu", () => {
       delete env.LAWOSS_OFFICE_PROFILE;
       const okf = (...args: string[]) => spawnSync("node", [cli, ...args, "--date", "2026-11-15"], { cwd: client, encoding: "utf8", env });
       expect(okf("plan", "spis", "--title", "Bez faktov").status).toBe(2);
+      // Starý viditeľný office.json CLI nečíta.
       writeFileSync(join(resources, "office.json"), JSON.stringify({ jurisdiction: "sk" }));
+      expect(okf("plan", "spis", "--title", "Bez faktov").status).toBe(2);
+      writeFileSync(join(resources, ".office.json"), JSON.stringify({ jurisdiction: "sk" }));
       expect(okf("apply", "spis", "--title", "Spor").status).toBe(0);
       expect(parseFrontmatter(readFileSync(join(client, "Spisy", "2026-11 Spor", "matter.md"), "utf8"))?.jurisdiction).toBe("sk");
       expect(okf("apply", "spis", "--title", "Česká vec", "--cz").status).toBe(0);
       expect(parseFrontmatter(readFileSync(join(client, "Spisy", "2026-11 Česká vec", "matter.md"), "utf8"))?.jurisdiction).toBe("cz");
-      writeFileSync(join(resources, "office.json"), JSON.stringify({ jurisdiction: "at" }));
+      writeFileSync(join(resources, ".office.json"), JSON.stringify({ jurisdiction: "at" }));
       expect(okf("plan", "spis", "--title", "Neplatná").status).toBe(2);
       expect(officeFactsJurisdiction(join(resources, "chyba.json"))).toBeUndefined();
     });

@@ -5871,7 +5871,7 @@ function inheritedJurisdiction(dir) {
   const fromOffice = path && existsSync3(path) && statSync(path).isFile() ? known(parseFrontmatter2(decodeText(readFileSync2(path))).get("jurisdiction")) : undefined;
   return fromOffice ?? known(officeProfileJurisdiction(dir)) ?? known(officeFactsJurisdiction());
 }
-var OFFICE_FACTS_FILE = "office.json";
+var OFFICE_FACTS_FILE = ".office.json";
 function officeFactsJurisdiction(file = fileURLToPath(new URL(`./${OFFICE_FACTS_FILE}`, import.meta.url))) {
   try {
     if (!existsSync3(file) || !lstatSync4(file).isFile())
