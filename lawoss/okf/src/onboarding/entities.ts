@@ -22,7 +22,8 @@ export type CreatePreview = { mode: "new"; appFiles: "inside"; target: string; c
 export type MapPreview = { mode: "map"; appFiles: "outside"; root: string; sourceDigest: string; externalProfile: { version: 1; matterId: string; roots: { id: string; path: string }[]; sources: { id: string; root: string; path: string; role: "case_memory"; required: true; writable: false; anchors: string[] }[] } };
 export type TrialClonePreview = { mode: "trial_clone"; appFiles: "inside"; source: string; sourceDigest: string; target: string; trial: true };
 export type OfficeRequest = { parent: string; name?: string; jurisdiction: "sk" | "cz"; title: string; language: "sk" | "cs" | "en"; lawyerName: string };
-export type ClientRequest = { parent: string; name: string; title: string; clientType: "fo" | "fo-podnikatel" | "po" | "iny"; jurisdiction: "sk" | "cz"; date: string; language?: "sk" | "cs" | "en" };
+// `ico` a `description` (#423): klient vetou v chate; formulár ich neposiela, karta ich potom má prázdne ako doteraz.
+export type ClientRequest = { parent: string; name: string; title: string; clientType: "fo" | "fo-podnikatel" | "po" | "iny"; jurisdiction: "sk" | "cz"; date: string; language?: "sk" | "cs" | "en"; ico?: string; description?: string };
 export type SubjectRequest = { clientRoot: string; name: string; title: string };
 export type MatterRequest = { clientRoot: string; parent: string; title: string; date: string; kind: MatterKind; area: string; jurisdiction: "sk" | "cz"; subject?: string; language?: "sk" | "cs" | "en" };
 
@@ -169,7 +170,7 @@ export async function planPracticeOffice(request: PracticeRequest): Promise<Crea
 }
 export async function planNewClient(request: ClientRequest): Promise<CreatePreview> {
   const name = safeSegment(request.name), target = join(request.parent, name), language = request.language ?? "sk";
-  const generated = planEntity({ type: "klient", dir: target, title: request.title, clientType: request.clientType, language, jurisdiction: request.jurisdiction, date: request.date }, LOCALIZED_TEMPLATES, () => false);
+  const generated = planEntity({ type: "klient", dir: target, title: request.title, clientType: request.clientType, language, jurisdiction: request.jurisdiction, date: request.date, ...(request.ico ? { ico: request.ico } : {}), ...(request.description ? { description: request.description } : {}) }, LOCALIZED_TEMPLATES, () => false);
   return { mode: "new", appFiles: "inside", target, clientRoot: target, plan: await rootPlan(request.parent, templateOperations(name, generated.entries)) };
 }
 export async function planNewSubject(request: SubjectRequest): Promise<CreatePreview> {
@@ -179,8 +180,24 @@ export async function planNewSubject(request: SubjectRequest): Promise<CreatePre
   const card = `---\ntype: subject\ntitle: ${yaml(request.title)}\n---\n\n# ${request.title}\n`;
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.clientRoot, [directory(name), file(`${name}/subject.md`, card), directory(`${name}/memory`), file(`${name}/memory/.keep`, "")]) };
 }
+/** Skutočný kalendárny dátum v tvare RRRR-MM-DD (nie `2026-02-31`). */
+export function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
 /** Veci klienta žijú v `Spisy/` ako v šablóne klienta, jeho AGENTS.md, CLI `novy-spis` aj v čítaní pamäte. */
 const MATTERS_DIR = "Spisy";
+/**
+ * Pravidlo priečinka novej veci relatívne ku klientovi: `Spisy/<RRRR-MM> <názov>`. Jediný zdroj pre formulár novej
+ * veci, roztriedenie aj `okf plan|apply spis` bez `<dir>` (#416), aby názov priečinka neurčoval asistent.
+ */
+export function newMatterFolder(date: string, title: string): { name: string; folder: string } {
+  // #416: dátum je časť cesty; bez prísnej kontroly by `--date ../../zz` založil priečinok mimo klienta.
+  if (!isCalendarDate(date)) throw new Error(`Neplatný dátum prípadu „${date}“: zadaj skutočný dátum v tvare RRRR-MM-DD.`);
+  const name = `${date.slice(0, 7)} ${safeSegment(title)}`;
+  return { name, folder: `${MATTERS_DIR}/${name}` };
+}
 const CLIENT_CARDS = ["client.md", "klient.md"];
 
 /** Karta klienta a jej názov, aby nová vec vedela, komu patrí (`klient:` a odkaz v matter.md). */
@@ -209,9 +226,9 @@ export type MatterOperationsInput = {
  * bez priečinka `Spisy`. Rovnaký zdroj pre formulár novej veci aj pre roztriedenie spisu.
  */
 export function buildMatterOperations(input: MatterOperationsInput): { name: string; folder: string; operations: CreateOperation[] } {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !["contentious", "non_contentious"].includes(input.kind)) throw new Error("Valid date and matter kind are required.");
+  if (!isCalendarDate(input.date) || !["contentious", "non_contentious"].includes(input.kind)) throw new Error("Valid date and matter kind are required.");
   // Oblasť je údaj veci (`area:` v matter.md), nie priečinok.
-  const area = safeSegment(input.area), name = input.folder?.split("/").pop() ?? `${input.date.slice(0, 7)} ${safeSegment(input.title)}`, folder = input.folder ?? `${MATTERS_DIR}/${name}`;
+  const area = safeSegment(input.area), name = input.folder?.split("/").pop() ?? newMatterFolder(input.date, input.title).name, folder = input.folder ?? `${MATTERS_DIR}/${name}`;
   const generated = planEntity({ type: "spis", dir: folder, title: input.title, language: input.language, jurisdiction: input.jurisdiction, date: input.date, workingProfile: input.workingProfile, matterKind: input.kind === "contentious" ? "dispute" : "other", ...(input.clientTitle ? { klient: input.clientTitle } : {}), ...(input.clientCardPath ? { clientCardPath: input.clientCardPath } : {}), ...(input.extras?.caseNumber ? { spzn: input.extras.caseNumber } : {}), ...(input.extras?.counterparty ? { protistrana: input.extras.counterparty } : {}), ...(input.extras?.court ? { sud: input.extras.court } : {}) }, LOCALIZED_TEMPLATES, () => false);
   const template = templateOperations(folder, generated.entries).filter(operation => operation.path !== folder);
   const operations = [directory(folder), ...template.map(operation => operation.path === `${folder}/matter.md` && operation.kind === "file" ? file(operation.path, (operation.content ?? "").replace("type: spis", `type: matter\nkind: ${input.kind}\narea: ${yaml(area)}\nsubject: ${yaml(input.subject ?? "")}`)) : operation)];
@@ -219,12 +236,12 @@ export function buildMatterOperations(input: MatterOperationsInput): { name: str
 }
 
 export async function planNewMatter(request: MatterRequest): Promise<CreatePreview> {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(request.date) || !["contentious", "non_contentious"].includes(request.kind)) throw new Error("Valid date and matter kind are required.");
+  if (!isCalendarDate(request.date) || !["contentious", "non_contentious"].includes(request.kind)) throw new Error("Valid date and matter kind are required.");
   safeSegment(request.area);
   // Subjekt je meno priečinka subjektu. Cesta (C:\…\Divízia, /Users/…) by do karty veci
   // zapísala údaj tohto počítača, ktorý na inom počítači so zosynchronizovaným klientom neplatí.
   if (request.subject !== undefined && /[\\/]/.test(request.subject)) throw new Error("Matter subject must be the subject folder name, not a path.");
-  const name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join(request.parent, MATTERS_DIR, name);
+  const name = newMatterFolder(request.date, request.title).name, target = join(request.parent, MATTERS_DIR, name);
   const clientRoot = await realpath(request.clientRoot), parentRoot = await realpath(request.parent);
   // Windows: realpath vracia `\`, porovnanie s `${clientRoot}/` by odmietlo každý subjekt klienta.
   if (!contained(clientRoot, parentRoot)) throw new Error("Matter parent must be within the inspected client root.");

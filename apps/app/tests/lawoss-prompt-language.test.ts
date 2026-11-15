@@ -80,4 +80,22 @@ describe("skill /novy-spis a jurisdikcia podľa jazyka rozhrania", () => {
     expect(sk.length).toBeGreaterThan(30);
     expect(tokens(novySpisSkillBody("cs").content)).toEqual(sk);
   });
+
+  test("#422: skill ani požiadavka neposielajú agenta do okf.config a po zamietnutí karty povie, čo sa nestalo", async () => {
+    const { novySpisSkillBody } = await import("../src/lawoss/okf/skill-bundle");
+    const sk = novySpisSkillBody("sk").content, cs = novySpisSkillBody("cs").content;
+    for (const body of [sk, cs]) {
+      expect(body).not.toContain("Office/okf.config");
+      expect(body).not.toContain("standing_authorization");
+    }
+    expect(sk).toContain("sám neotváraj, nečítaj a nežiadaj k nej prístup: CLI ju nájde samo a kancelária bez nej je bežný prípad");
+    expect(cs).toContain("sám neotvírej, nečti a nežádej k ní přístup: CLI ji najde samo a kancelář bez ní je běžný případ");
+    expect(sk).toContain("krok nezopakuj a neskonči mlčky: povedz jednou alebo dvoma vetami, čo sa neurobilo, a ako môže pokračovať");
+    expect(cs).toContain("krok nezopakuj a neskonči mlčky: řekni jednou nebo dvěma větami, co se neudělalo a jak může pokračovat");
+    for (const locale of ["sk", "cs", "en", "de"] as const) {
+      const prompt = composePrompt({ ...matter, promptLanguage: locale }, { source: "Predvolený profil", paths: ["03_Drafty/.keep"] });
+      expect(prompt).not.toMatch(/Office nad workspace|Office above the workspace|oberhalb des Workspace/);
+      expect(prompt).toContain("okf.config");
+    }
+  });
 });

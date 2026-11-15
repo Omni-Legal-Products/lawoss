@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, CalendarClock, Check, Clock, Inbox, Info, ShieldCheck } from "lucide-react";
+import { ArrowRight, CalendarClock, Check, Clock, FolderPlus, Inbox, Info, ShieldCheck } from "lucide-react";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { useQuery } from "@tanstack/react-query";
@@ -15,13 +15,11 @@ import { addDays, formatDay, today, useOkfConnection, type OkfReadResult, type O
 import { deadlineKey, deadlineText, dueTextFromDays, urgencyOf, type Urgency } from "../../okf/view-rules";
 import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { deadlineCoverage } from "../../../../../../lawoss/okf/views";
-import { appTodayTasks, buildToday, caseDates, continueCard, dayTone, hotRows, invalidCaseDates, nearestTile, taskLink, todayLead, waitingCounts, waitingLink, weekCounts, type CaseDate, type DayTone, type HotRow, type NearestTile, type TodayDeadline, type TodayLead, type TodayModel, type TodayTask } from "../today-model";
+import { adoptLink, appTodayTasks, buildToday, caseDates, continueCard, dayTone, hotRows, invalidCaseDates, nearestTile, taskLink, todayLead, waitingCounts, waitingLink, weekCounts, type CaseDate, type DayTone, type HotRow, type NearestTile, type TodayDeadline, type TodayLead, type TodayModel, type TodayTask } from "../today-model";
 import { appTaskClient, inPractice, openAppTask, useAppTasks } from "../app-tasks";
 import { agendaEvents, type AgendaEvent } from "../agenda-model";
 import { CandidatesPanel, ModeSwitch, MonthCalendar, type ViewMode } from "../agenda-views";
 import { LEHOTY_PATH, LITE_INPUTS_PATH, liteDeadlineLink, liteMatterLink } from "../links";
-import { clientPreferenceScope, practiceClientChoices, type ClientChoice } from "../client-choice";
-import { NewMatterAction } from "../client-picker";
 import { hotDeadlineCount, LiveStamp, useHotTitle, useMinuteTick } from "../live";
 import { useMcpStatuses } from "../mcp-status-store";
 import { registersSummary, type RegistersSummary } from "../sidebar-model";
@@ -82,14 +80,21 @@ function TodayLive({ data, meta, scope, locale, name }: { data: OkfReadResult; m
   const model = useMemo(() => buildToday(data, now, undefined, appTasks), [data, now, appTasks]);
   const events = useMemo(() => agendaEvents(data, appTasks), [data, appTasks]);
   useHotTitle(hotDeadlineCount(data, now));
-  // Prax: „+ Nová vec“ sa najprv opýta, pre ktorého klienta (prehľad praxe).
-  const choices = useMemo(() => practiceClientChoices(scope, data.clients), [scope, data.clients]);
   // „Nič nehorí“ len po úplnom čítaní a pri evidovaných lehotách; inak to prehľad povie (UX P2 Denný prehľad).
   // Po prípadoch: jeden prípad s lehotami nerobí evidovanými ostatné (I-5b).
   // #271: nedočítaný zoznam úloh aplikácie robí prehľad neúplným rovnako ako nedočítaná pamäť.
   const evidence = useMemo(() => ({ complete: data.coverage.status === "complete" && appTasksComplete, ...deadlineCoverage(data.inputs) }), [data, appTasksComplete]);
-  return <TodayView model={model} locale={locale} meta={meta} name={name} choices={choices} evidence={evidence} events={events} preferenceScope={clientPreferenceScope(scope, connection?.baseUrl)} activeId={connection?.activeWorkspaceId}
-    registers={registersSummary(statuses)} pending={appTasksLoading} />;
+  // #425: priečinky v `Klienti/` kancelárie, ktoré nie sú klientmi. Len zoznam priečinkov; nový zoznam po zmene klientov.
+  const client = connection?.client;
+  const unadopted = useQuery({
+    queryKey: ["lawoss-unadopted-clients", connection?.baseUrl ?? "", workspacesKey],
+    enabled: Boolean(client),
+    retry: false,
+    staleTime: 0,
+    queryFn: async () => (await client?.lawossUnadoptedClients())?.folders ?? [],
+  });
+  return <TodayView model={model} locale={locale} meta={meta} name={name} evidence={evidence} events={events} activeId={connection?.activeWorkspaceId}
+    registers={registersSummary(statuses)} pending={appTasksLoading} unadopted={unadopted.data} />;
 }
 
 type Text = (key: string, params?: Record<string, string | number>) => string;
@@ -119,7 +124,7 @@ const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "
  * Dnes ako pasívny prehľad spisu (alfa 14, spec-dnes.md): čísla, krátke riadky a štítky, žiadne nové akcie.
  * Práca ide cez chat; pole chatu dole len otvorí Domov s pripravenou vetou. Odvodenia sú v `today-model.ts`.
  */
-export function TodayView({ model, locale, now = new Date(), meta, name, choices, activeId, preferenceScope, evidence, events, registers, pending = false, initialMode = "overview" }: { model: TodayModel; locale: Language; now?: Date; meta?: OkfPageMeta; name?: string; choices?: readonly ClientChoice[]; activeId?: string | null; preferenceScope?: string;
+export function TodayView({ model, locale, now = new Date(), meta, name, activeId, evidence, events, registers, pending = false, initialMode = "overview", unadopted = [] }: { model: TodayModel; locale: Language; now?: Date; meta?: OkfPageMeta; name?: string; activeId?: string | null;
   /** Úplnosť čítania a evidencia lehôt v podkladoch: bez nich prázdny zoznam nie je „nič nehorí“. */
   evidence?: { complete: boolean; recorded: number; unrecorded: number };
   /** Udalosti praxe pre mesiac (spec 0020); bez nich sa prepínač ani mesiac neukážu. */
@@ -129,7 +134,9 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
   /** Úlohy aplikácie sa ešte čítajú: počty, ktoré od nich závisia, ukážu kostru, nie nulu. */
   pending?: boolean;
   /** Režim po otvorení; voľba sa nepamätá (spec 0020). */
-  initialMode?: ViewMode }) {
+  initialMode?: ViewMode;
+  /** #425: priečinky v `Klienti/` kancelárie, ktoré nie sú klientmi (na zavedenie). */
+  unadopted?: readonly { path: string; name: string }[] }) {
   const text = liteText(locale);
   const greeting = text(greetingKey(now.getHours()));
   const [mode, setMode] = useState<ViewMode>(initialMode);
@@ -152,8 +159,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
         </div>
         <div className="lw-today-actions">
           {events ? <ModeSwitch mode={mode} onChange={setMode} locale={locale} /> : null}
-          {/* A5: odstrániť po overení vety v chate */}
-          <NewMatterAction className="lw-dnes-secondary" locale={locale} choices={choices} activeId={activeId} preferenceScope={preferenceScope}>+ {text("new_matter")}</NewMatterAction>
+          {/* #428: „+ Nový prípad“ preč, prípad sa zakladá vetou v chate. */}
         </div>
       </header>
 
@@ -163,11 +169,11 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
         </div>
         {unrecorded}
       </> : <>
-        <Tiles model={model} dates={dates} unreadable={unreadable} todayIso={todayIso} locale={locale} text={text} evidence={evidence} events={events} registers={registers} activeId={activeId} pending={pending} />
+        <Tiles model={model} dates={dates} unreadable={unreadable} todayIso={todayIso} locale={locale} text={text} evidence={evidence} events={events} registers={registers} activeId={activeId} pending={pending} unadopted={unadopted} />
         <DeadlineStrip deadlines={model.deadlines} tasks={model.tasks} todayIso={todayIso} locale={locale} text={text} />
         <div className="lw-dnes-cols">
           <HotList model={model} dates={dates} unreadable={unreadable} locale={locale} text={text} evidence={evidence} footer={unrecorded} />
-          <WaitingPanel model={model} dates={dates} unreadable={unreadable} events={events} text={text} pending={pending} />
+          <WaitingPanel model={model} dates={dates} unreadable={unreadable} events={events} text={text} pending={pending} unadopted={unadopted} />
         </div>
         <ContinueSection model={model} todayIso={todayIso} locale={locale} text={text} />
       </>}
@@ -191,13 +197,14 @@ function leadText(lead: TodayLead, locale: Language, text: Text): string {
 }
 
 type Shared = { model: TodayModel; dates: readonly CaseDate[]; unreadable: readonly TodayTask[]; text: Text };
+type Unadopted = { unadopted: readonly { path: string; name: string }[] };
 
 /** Štyri dlaždice: najbližšia lehota, tento týždeň, čaká na vás, registre. */
-function Tiles({ model, dates, unreadable, todayIso, locale, text, evidence, events, registers, activeId, pending }: Shared & { todayIso: string; locale: Language; evidence?: { complete: boolean }; events?: readonly AgendaEvent[]; registers?: RegistersSummary; activeId?: string | null; pending: boolean }) {
+function Tiles({ model, dates, unreadable, todayIso, locale, text, evidence, events, registers, activeId, pending, unadopted }: Shared & Unadopted & { todayIso: string; locale: Language; evidence?: { complete: boolean }; events?: readonly AgendaEvent[]; registers?: RegistersSummary; activeId?: string | null; pending: boolean }) {
   const week = weekCounts(model.deadlines, dates, todayIso);
-  const waiting = waitingCounts({ inputs: model.inputs.length, deadlines: model.deadlines, dates, unreadable, events });
+  const waiting = waitingCounts({ inputs: model.inputs.length, deadlines: model.deadlines, dates, unreadable, events, unadopted: unadopted.length });
   const known = evidence?.complete !== false;
-  const parts = ([["filing", waiting.filing], ["overdue", waiting.overdue], ["verify", waiting.verify], ["confirm", waiting.confirm]] as const)
+  const parts = ([["filing", waiting.filing], ["overdue", waiting.overdue], ["verify", waiting.verify], ["confirm", waiting.confirm], ["adopt", waiting.adopt]] as const)
     .filter(([, count]) => count > 0).map(([kind, count]) => `${count} ${text(`wait_${kind}`)}`);
   return <section className="lw-dnes-tiles" style={reveal(1)} aria-label={text("tiles_label")}>
     <NearestTileView tile={nearestTile(model.deadlines, dates)} locale={locale} text={text} known={known} />
@@ -209,7 +216,7 @@ function Tiles({ model, dates, unreadable, todayIso, locale, text, evidence, eve
       </>}
     </Link>
     {/* Zlatá len keď niečo čaká; nula bez úplného čítania nie je „nič nečaká“. */}
-    <Link className="lw-dnes-tile" to={waitingLink(waiting)} data-lawoss-tile="waiting" data-gold={!pending && waiting.total > 0 || undefined}>
+    <Link className="lw-dnes-tile" to={waitingLink(waiting, adoptLink(unadopted))} data-lawoss-tile="waiting" data-gold={!pending && waiting.total > 0 || undefined}>
       <span className="lw-dnes-tile-label">{text("tile_waiting")}</span>
       {pending ? <Skeleton /> : waiting.total > 0 ? <>
         <span className="lw-dnes-num" data-tone="gold">{waiting.total}</span>
@@ -314,13 +321,16 @@ export function DayBox({ daysLeft, tone, text }: { daysLeft: number | null; tone
 }
 
 /** „Čaká na vás“: na zaradenie, po termíne, na overenie (a na potvrdenie, keď nejaký návrh je). Nula tlmene. */
-function WaitingPanel({ model, dates, unreadable, events, text, pending }: Shared & { events?: readonly AgendaEvent[]; pending: boolean }) {
-  const waiting = waitingCounts({ inputs: model.inputs.length, deadlines: model.deadlines, dates, unreadable, events });
+function WaitingPanel({ model, dates, unreadable, events, text, pending, unadopted }: Shared & Unadopted & { events?: readonly AgendaEvent[]; pending: boolean }) {
+  const waiting = waitingCounts({ inputs: model.inputs.length, deadlines: model.deadlines, dates, unreadable, events, unadopted: unadopted.length });
+  // #425: len navigácia na zavedenie priečinka v sprievodcovi (advokát tam potvrdí pridanie súborov OKF).
+  const adopt = adoptLink(unadopted);
   const tiles = [
     { kind: "filing", to: LITE_INPUTS_PATH, count: waiting.filing, icon: <Inbox aria-hidden size={16} />, tone: "gold", wait: false },
     { kind: "overdue", to: LEHOTY_PATH, count: waiting.overdue, icon: <Clock aria-hidden size={16} />, tone: "red", wait: pending },
     { kind: "verify", to: LEHOTY_PATH, count: waiting.verify, icon: <ShieldCheck aria-hidden size={16} />, tone: "amber", wait: false },
     ...(waiting.confirm > 0 ? [{ kind: "confirm", to: LEHOTY_PATH, count: waiting.confirm, icon: <CalendarClock aria-hidden size={16} />, tone: "gold", wait: false }] : []),
+    ...(adopt && waiting.adopt > 0 ? [{ kind: "adopt", to: adopt, count: waiting.adopt, icon: <FolderPlus aria-hidden size={16} />, tone: "gold", wait: false }] : []),
   ];
   return <section className="lw-dnes-panel" style={reveal(4)} aria-labelledby="lw-dnes-waiting">
     <h2 id="lw-dnes-waiting" className="lw-dnes-h2">{text("tile_waiting")}</h2>

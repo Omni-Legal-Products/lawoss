@@ -27,7 +27,7 @@ test("lawoss_memory posts the case folder of this chat to its own client and nev
   try {
     const plugin = await lawossNativePlugin(MemoryTools);
     // Reading has its own tool; writing is lawoss_memory_write with one card (N-A7-10).
-    expect(Object.keys(plugin.tool)).toEqual([LAWOSS_MEMORY_TOOL, "lawoss_memory_write", "lawoss_memory_deadline"]);
+    expect(Object.keys(plugin.tool)).toEqual([LAWOSS_MEMORY_TOOL, "lawoss_memory_write", "lawoss_memory_deadline", "lawoss_new_client", "lawoss_integrations"]);
     const tool = plugin.tool.lawoss_memory;
     const wire = z.fromJSONSchema(JSON.parse(JSON.stringify(tool.input)));
     expect(wire.safeParse({ action: "write" }).success).toBe(false);
@@ -67,6 +67,15 @@ test("lawoss_memory posts the case folder of this chat to its own client and nev
     expect(fixed).toContain("rows with the state pending in the input register VSTUPY.md of the client's folder and of every case");
     expect(fixed).toContain("Speak to the lawyer in plain language.");
     expect(fixed).toContain("say in one sentence what the user can do next");
+    // #426: a client without Spisy/ (not onboarded) has no case memory; the agent must not invent or describe it.
+    expect(fixed).toContain("A client folder without a Spisy/ folder, without a client card and without a memory/ folder is not yet onboarded into the office standard and has no case memory.");
+    expect(fixed).toContain("say plainly that this client has no case memory yet, so no deadlines are recorded in case memory for it");
+    // Tasks created in the app live outside case memory: never claim that the client has none.
+    expect(fixed).toContain("Do not say that the client has no deadlines or tasks at all: tasks created in the app are kept outside case memory.");
+    expect(fixed).not.toContain("no deadlines or tasks are recorded for this client");
+    expect(fixed).toContain("Never say that memory, a register or records of this client exist and never describe what they contain.");
+    // #426 + #423: onboarding an existing folder is the in-place /novy-spis conversion, never lawoss_new_client.
+    expect(fixed).toContain("to bring the folder into the office standard in place with the /novy-spis skill (okf plan klient . and, after approval, apply), which only adds the missing files and never moves or overwrites the lawyer's documents. lawoss_new_client cannot do this");
     // The text is fixed: a second read gives the same bytes (prompt caching).
     expect((await plugin.system()).join("\n")).toBe(fixed);
   } finally {
@@ -132,6 +141,49 @@ test("lawoss_memory_write with scope client and lawoss_memory_deadline: one card
       { ...context, ask: async () => { throw new Error("rejected"); } })).rejects.toThrow("rejected");
     expect(bodies.slice(sent)).toHaveLength(1);
     expect(bodies[sent]?.apply).toBeUndefined();
+  } finally {
+    server.stop(true);
+    if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
+    adoptWikiAgentSecret(oldToken);
+  }
+});
+
+// #417: a new task of a case is registered like a deadline; its card names the case and covers both files.
+test("lawoss_memory_write of a new task: one card with the case and both files, then apply", async () => {
+  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = wikiAgentSecret();
+  const bodies: Record<string, unknown>[] = [];
+  const task = { status: "preview", target: "Spisy/M001/memory/T-001-vyziadat-prilohu.md", kind: "create", title: "Vyžiadať prílohu č. 4", type: "task",
+    truth: "Pripomeň mi vyžiadať prílohu č. 4 do stredy.", history: [], fields: ["due: 2026-11-18"], reason: "Pokyn advokáta v chate", approved: "c".repeat(64),
+    task: { case: "Spor o úhradu dodávok", register: "Spisy/M001/VSTUPY.md", inputId: "IN-002", instruction: "Pripomeň mi vyžiadať prílohu č. 4 do stredy." } };
+  const server = Bun.serve({ port: 0, async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/workspaces") return Response.json({ items: [{ id: "client", path: "/synthetic/K1" }] });
+    const body = z.record(z.string(), z.unknown()).parse(await request.json());
+    bodies.push(body);
+    if (body.apply) return Response.json({ status: "written", target: task.target, id: "T-001", text: "ok", register: "Spisy/M001/VSTUPY.md", inputId: "IN-002" });
+    return Response.json(task);
+  } });
+  process.env.LEGALWORK_SERVER_URL = server.url.origin; adoptWikiAgentSecret("fixture-token");
+  try {
+    const plugin = await lawossNativePlugin(MemoryTools);
+    const cards: { permission: string; patterns: string[]; metadata: Record<string, unknown> }[] = [];
+    const context = { directory: "/synthetic/K1", sessionID: "ses_memory", ask: async (card: { permission: string; patterns: string[]; metadata: Record<string, unknown> }) => { cards.push(card); } };
+    await plugin.tool.lawoss_memory_write.execute({ record: "---\nokf: 1\n---", reason: "Pokyn advokáta v chate", matter: "Spisy/M001", instruction: task.truth }, context);
+    // The lawyer's sentence reaches the server in both calls; without it the server registers no instruction.
+    expect(bodies[0]).toMatchObject({ instruction: task.truth });
+    expect(bodies[1]).toMatchObject({ apply: true, approved: "c".repeat(64), instruction: task.truth });
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ permission: "lawoss_file_change", patterns: ["Spisy/M001/memory/T-001-vyziadat-prilohu.md", "Spisy/M001/VSTUPY.md"],
+      metadata: { lawossMemory: { type: "task", task: { case: "Spor o úhradu dodávok", register: "Spisy/M001/VSTUPY.md", inputId: "IN-002", instruction: task.truth } } } });
+    expect(JSON.stringify(cards)).not.toContain("approved");
+    // A blank sentence is refused with a clear message before any request; the model sees the constraint too.
+    const sent = bodies.length;
+    for (const tool of ["lawoss_memory_write", "lawoss_memory_deadline"] as const) {
+      const input = tool === "lawoss_memory_write" ? { record: "x", reason: "y", matter: "Spisy/M001", instruction: " \n " } : { date: "2026-11-25", what: "Odpoveď", matter: "Spisy/M001", instruction: "   " };
+      await expect(plugin.tool[tool].execute(input, context)).rejects.toThrow("instruction is empty");
+      expect(z.fromJSONSchema(JSON.parse(JSON.stringify(plugin.tool[tool].input))).safeParse(input).success).toBe(false);
+    }
+    expect(bodies).toHaveLength(sent);
   } finally {
     server.stop(true);
     if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;

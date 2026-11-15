@@ -46,6 +46,9 @@ async function fixture() {
     if (session && running.has(session[1]!)) return Response.json({ id: session[1], projectID: "p", location: { directory: running.get(session[1]!) }, time: { created: 1, updated: 1 } });
     if (url.pathname === "/api/debug/location") return new Response(null, { status: 204 });
     if (url.pathname === "/api/mcp") return Response.json({ location: { directory: location }, data: [] });
+    // Config documents of a location (connector display after a change): none beyond the app's own.
+    if (url.pathname === "/api/config") return Response.json([]);
+    if (/^\/api\/experimental\/mcp\/[^/]+\/disconnect$/.test(url.pathname)) return new Response(null, { status: 204 });
     return Response.json({ data: [] });
   } });
   cleanup.push(() => engine.stop(true));
@@ -73,7 +76,7 @@ async function fixture() {
   const unactivated = () => locationRequests().filter((entry, index, all) => (index === 0 || all[index - 1]!.location !== entry.location)
     && !(entry.method === "GET" && entry.pathname === "/api/model"));
   const evictions = () => requests.filter(entry => entry.method === "DELETE" && entry.pathname === "/api/debug/location").map(entry => entry.location);
-  return { paths, requests, running, openMcp, locationsBuilt, evictions, unactivated };
+  return { base, paths, requests, running, openMcp, locationsBuilt, evictions, unactivated };
 }
 
 test("engine v2: MCP sa spustí len pre otvoreného klienta, ďalší otvorený klient uvoľní nečinného", async () => {
@@ -116,4 +119,21 @@ test("engine v2: zisťovanie behu a pripravenosť nestavajú lokáciu (náhrada 
   const probes = requests.filter(entry => LOCATION_FREE.has(entry.pathname) || /^\/api\/session\/[^/]+$/.test(entry.pathname));
   expect(probes.length).toBeGreaterThan(0);
   expect(probes.every(entry => entry.location === null)).toBe(true);
+});
+
+test("#436: odstránenie spoločného pripojenia neotvorí neotvorených klientov a zapíše konfiguráciu raz", async () => {
+  const { base, paths: [a, b, c], requests, openMcp } = await fixture();
+  const headers = { Authorization: "Bearer client", "Content-Type": "application/json" };
+  expect(await openMcp("ws_a")).toBe(200);
+  const added = await fetch(`${base}/workspace/ws_a/mcp`, { method: "POST", headers,
+    body: JSON.stringify({ name: "orsr", scope: "global", config: { type: "local", command: ["node", "orsr.mjs"], enabled: true } }) });
+  expect(added.status).toBe(200);
+  requests.length = 0;
+  const removed = await fetch(`${base}/workspace/ws_a/mcp/orsr`, { method: "DELETE", headers });
+  expect(removed.status).toBe(200);
+  const touched = new Set(requests.filter(entry => entry.location !== null && !(entry.method === "DELETE" && entry.pathname === "/api/debug/location")).map(entry => entry.location));
+  // Len otvorený klient A: neotvorení B a C si pri otvorení prečítajú zverejnenú konfiguráciu bez pripojenia.
+  expect([...touched]).toEqual([a]);
+  expect(touched.has(b!) || touched.has(c!)).toBe(false);
+  expect(requests.filter(entry => entry.pathname === "/api/experimental/mcp/orsr/disconnect").map(entry => entry.location)).toEqual([a]);
 });

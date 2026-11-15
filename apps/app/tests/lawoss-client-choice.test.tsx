@@ -70,13 +70,10 @@ describe("výber klienta v praxi", () => {
 describe("„+ Nová vec“ v Dnes a v Klientoch", () => {
   const choices = practiceClientChoices(practice, clients);
 
-  test("v praxi tlačidlo otvorí výber, mimo praxe ostáva odkaz na formulár", () => {
-    const withPick = html(<TodayView model={emptyToday} locale="sk" choices={choices} activeId="alfa" />);
-    expect(withPick).toMatch(/<button[^>]*data-lawoss-new-matter-pick/);
-    expect(withPick).not.toContain(`href="${NEW_MATTER_PATH}"`);
-    const single = html(<TodayView model={emptyToday} locale="sk" />);
-    expect(single).not.toContain("data-lawoss-new-matter-pick");
-    expect(single).toContain(`href="${NEW_MATTER_PATH.replace("&", "&amp;")}"`);
+  test("#428: Dnes nemá „+ Nový prípad“ (prípad sa zakladá vetou v chate), ani s výberom klienta", () => {
+    const out = html(<TodayView model={emptyToday} locale="sk" activeId="alfa" />);
+    expect(out).not.toContain("data-lawoss-new-matter-pick");
+    expect(out).not.toContain(`href="${NEW_MATTER_PATH.replace("&", "&amp;")}"`);
   });
 
   test("prázdna karta klienta ide rovno do svojho klienta bez výberu", () => {

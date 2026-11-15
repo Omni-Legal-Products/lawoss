@@ -9,7 +9,7 @@ import { clientFromPath } from "../../../../../lawoss/okf/cockpit";
 import type { OkfReadResult } from "../okf/read-model";
 import { HORIZON_DAYS, isCalendarDay, urgencyOf } from "../okf/view-rules";
 import type { AgendaEvent } from "./agenda-model";
-import { APP_TASKS_PATH, LEHOTY_PATH, LITE_INPUTS_PATH, liteMatterLink } from "./links";
+import { APP_TASKS_PATH, LEHOTY_PATH, LITE_INPUTS_PATH, liteMatterLink, organizeFolderLink } from "./links";
 import { taskDueDateInputValue } from "@/react-app/domains/tasks/task-format";
 import { isoDay } from "../../../../../lawoss/okf-pamat/src/schema.ts";
 
@@ -232,23 +232,36 @@ export function weekCounts(deadlines: readonly TodayDeadline[], dates: readonly 
 
 /**
  * „Čaká na vás“: na zaradenie, po termíne (lehota aj termín), na overenie (lehota podľa pokynu, neplatný dátum
- * lehoty alebo úlohy) a návrhy na potvrdenie z agendy. Každá položka sa počíta raz: po termíne má prednosť.
+ * lehoty alebo úlohy), návrhy na potvrdenie z agendy a priečinky v `Klienti/` na zavedenie (#425). Každá položka sa
+ * počíta raz: po termíne má prednosť.
  */
-export type Waiting = { filing: number; overdue: number; verify: number; confirm: number; total: number };
+export type Waiting = { filing: number; overdue: number; verify: number; confirm: number; adopt: number; total: number };
 
-export function waitingCounts(input: { inputs: number; deadlines: readonly TodayDeadline[]; dates: readonly CaseDate[]; unreadable: readonly TodayTask[]; events?: readonly Pick<AgendaEvent, "kind">[] }): Waiting {
+export function waitingCounts(input: { inputs: number; deadlines: readonly TodayDeadline[]; dates: readonly CaseDate[]; unreadable: readonly TodayTask[]; events?: readonly Pick<AgendaEvent, "kind">[]; unadopted?: number }): Waiting {
   const overdueDeadlines = input.deadlines.filter((d) => !d.invalid && d.tier === "overdue");
   const overdue = overdueDeadlines.length + input.dates.filter((d) => d.daysLeft < 0).length;
   const verify = input.deadlines.filter((d) => d.invalid || (d.basis === "instruction" && !overdueDeadlines.includes(d))).length + input.unreadable.length;
   const confirm = (input.events ?? []).filter((e) => e.kind === "candidate").length;
-  return { filing: input.inputs, overdue, verify, confirm, total: input.inputs + overdue + verify + confirm };
+  const adopt = input.unadopted ?? 0;
+  return { filing: input.inputs, overdue, verify, confirm, adopt, total: input.inputs + overdue + verify + confirm + adopt };
+}
+
+/**
+ * #425: priečinok, ktorý advokát vložil do `Klienti/` a ktorý nie je klientom, sa zavedie cez obrazovku „Toto sme
+ * našli“ sprievodcu s vyplnenou cestou (bez výberu priečinka). Pri viacerých prvý podľa mena; po zavedení počet klesne.
+ */
+export function adoptLink(folders: readonly { path: string }[]): string | null {
+  const first = [...folders].sort((a, b) => a.path.localeCompare(b.path))[0];
+  return first ? organizeFolderLink(first.path) : null;
 }
 
 /**
  * Kam vedie dlaždica „Čaká na vás“ (test alfy 14. 11.: jediná neklikateľná z dlaždíc): Na zaradenie, keď čakajú len
- * nezaradené podklady, inak Lehoty a úlohy (po termíne, na overenie, na potvrdenie aj prázdny stav).
+ * nezaradené podklady, zavedenie priečinka, keď čakajú len priečinky na zavedenie (#425), inak Lehoty a úlohy
+ * (po termíne, na overenie, na potvrdenie aj prázdny stav).
  */
-export function waitingLink(waiting: Pick<Waiting, "filing" | "total">): string {
+export function waitingLink(waiting: Pick<Waiting, "filing" | "total"> & Partial<Pick<Waiting, "adopt">>, adopt: string | null = null): string {
+  if (adopt && waiting.adopt && waiting.adopt === waiting.total) return adopt;
   return waiting.filing > 0 && waiting.filing === waiting.total ? LITE_INPUTS_PATH : LEHOTY_PATH;
 }
 

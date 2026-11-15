@@ -115,3 +115,23 @@ describe("práve zmenený riadok", () => {
     expect(renderToStaticMarkup(<ClientRowLabelView row={row} mode="pro" justChanged />)).not.toContain(JUST_CHANGED_CLASS);
   });
 });
+
+describe("odlesk hlavnej akcie neuniká zo svojho tlačidla (#435)", () => {
+  const hosts = '[data-slot="button"][data-variant="default"]:not([data-size="sm"]):not([data-size="xs"]), .lw-composer-send, .lw-btn.gold, .lw-today-primary';
+  test("každý nositeľ odlesku je sám rámcom pre absolútne umiestnenie a odlesk orezáva", () => {
+    // Bez toho sa `::after` (position: absolute, top/bottom -40 %) umiestni k vzdialenému predkovi: odosielacie tlačidlo
+    // composera bolo `static` a v chate sa vľavo od composera kreslil sivý zošikmený klin.
+    expect(block(components, `:is(${hosts}) {`)).toContain("overflow: hidden;");
+    expect(block(components, `:is(${hosts})::after {`)).toContain("position: absolute;");
+    expect(block(components, "\n.lw-composer-send {\n")).toContain("position: relative;");
+    expect(block(shell, ".lw-btn.gold {")).toContain("position: relative;");
+    expect(block(glass, ".lw-today-primary {")).toContain("position: relative;");
+    const button = read("src/components/ui/button.tsx");
+    expect(button.slice(button.indexOf("cva("), button.indexOf("variants:"))).toMatch(/["\s]relative\s/);
+  });
+  test("vypnuté tlačidlo a reduced-motion odlesk naozaj zrušia: rovnaký zoznam selektorov ako základné pravidlo", () => {
+    // Užší `:is()` mal nižšiu špecificitu (0,3,0 < 0,4,0) a `content: none` prehral, odlesk ostal aj na vypnutom tlačidle.
+    expect(block(components, `:is(${hosts}):is(:disabled, [aria-disabled="true"])::after {`)).toContain("content: none;");
+    expect(reducedBlocks(components)).toContain(`:is(${hosts})::after { content: none; animation: none; }`);
+  });
+});

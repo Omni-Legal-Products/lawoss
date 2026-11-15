@@ -45,10 +45,13 @@ async function existingCanonical(path: string): Promise<string | null> {
   return path ? await canonicalPath(path).catch(() => null) : null;
 }
 
+/** Profil kancelárie z onboardingu (koreň, jurisdikcia, jazyk). */
+export const officeProfilePath = (config: ServerConfig): string => join(runtimeStorageDir(config), "lawoss-onboarding", "profile.json");
+
 /** Koreň praxe z profilu onboardingu (ako `agent-client-boundary.ts`); bez profilu `null`. */
 export async function officeRoot(config: ServerConfig): Promise<string | null> {
   try {
-    const raw: unknown = JSON.parse(await readFile(join(runtimeStorageDir(config), "lawoss-onboarding", "profile.json"), "utf8"));
+    const raw: unknown = JSON.parse(await readFile(officeProfilePath(config), "utf8"));
     const root = raw && typeof raw === "object" && "officeRoot" in raw && typeof raw.officeRoot === "string" ? raw.officeRoot : null;
     return root ? await existingCanonical(root) : null;
   } catch {

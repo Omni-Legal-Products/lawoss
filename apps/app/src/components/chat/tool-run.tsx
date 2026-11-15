@@ -23,7 +23,9 @@ export function ToolRun({ parts, showDetails, renderTool, active = false, defaul
   const following = useRef(true);
   const tools = parts.filter(isToolUIPart);
   const activeTool = tools.findLast(isToolPartInFlight);
-  const failedTool = tools.findLast(part => part.state === "output-error" && !isToolPermissionDenied(part));
+  // 🟡 LAWOSS (#427): zlyhanie hlási len posledný krok; ak asistent po chybe pokračoval úspešne, beh je dokončený.
+  const lastTool = tools.at(-1);
+  const failedTool = lastTool?.state === "output-error" && !isToolPermissionDenied(lastTool) ? lastTool : undefined;
   const deniedTool = tools.some(isToolPermissionDenied);
   const latestTool = activeTool ?? tools.at(-1);
   const working = active || Boolean(activeTool);

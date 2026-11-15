@@ -19,6 +19,7 @@ import { registerLawossDocumentRoutes } from "./routes/lawoss-documents.js";
 import { sessionFolder, sessionOwnershipChecked, workspaceChatOwnership, workspaceOwnsChat } from "./lawoss/session-ownership.js";
 import { getWorkspaceMemoryContext, getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
 import { readMatterMemoryForChat, writeMatterMemoryForChat } from "./lawoss/matter-memory.js";
+import { OKF_CLI_FILE, refreshOfficeFacts } from "./lawoss/office-facts.js"; // 🟡 LAWOSS #415
 import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
 import { createAssistantRuntime } from "./assistant-runtime.js";
 import { registerBrowserConnectionRoutes } from "./routes/browser-passwords.js";
@@ -5157,6 +5158,8 @@ function createRoutes(
     }
     for (let i = 0; i < requested.length; i++) await recheckWorkspaceFilePath(skillDir, requested[i]!, approved[i]!);
     const result = await upsertSkillResource(workspaceAppFilesRoot(config, workspace), skill, { name, content, contentBase64 });
+    // 🟡 LAWOSS #415: vedľa okf.js aj .office.json s jurisdikciou kancelárie (lawoss/office-facts.ts).
+    if (name === OKF_CLI_FILE) await refreshOfficeFacts(config, workspace).catch(() => 0);
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
       workspaceId: workspace.id,
@@ -5333,7 +5336,7 @@ function createRoutes(
     });
     // Retry even after persistence was removed: a failed disconnect must not
     // leave cached clients usable in this workspace or other shared instances.
-    await disconnectMcpFromOpencodeEngine(config, workspace, name);
+    await disconnectMcpFromOpencodeEngine(config, workspace, name, Boolean(primary)); // 🟡 LAWOSS #436: published above
     if (removedScopes.includes("global") || removedScopes.length === 0) {
       await disconnectSharedMcpFromOtherWorkspaces(config, workspace, name);
     }
@@ -6350,11 +6353,14 @@ async function disconnectSharedMcpFromOtherWorkspaces(
 ): Promise<void> {
   await Promise.all(
     otherLocalWorkspaces(config, origin).map(async (workspace) => {
+      // 🟡 LAWOSS #436: a client without running MCP reads the published config when it opens; a disconnect
+      // there would first build its location with every MCP (tens of seconds per client, RAM 2 GB).
+      if (deferDormantReload(config, workspace)) return;
       // A workspace-specific connector with the same name is independent of
       // the removed shared entry, including when retrying a failed removal.
       const items = await listMcp(config, workspace.id, workspace.path);
       if (items.some((item) => item.name === name)) return;
-      await disconnectMcpFromOpencodeEngine(config, workspace, name);
+      await disconnectMcpFromOpencodeEngine(config, workspace, name, true);
     }),
   );
 }
@@ -6362,7 +6368,7 @@ async function disconnectSharedMcpFromOtherWorkspaces(
 // Counterpart of syncRuntimeMcpToOpencodeEngine for removals: tell the engine
 // to drop the MCP's client so deleted MCPs stop serving tools immediately
 // instead of lingering until the next engine restart. Failures reach the UI.
-async function disconnectMcpFromOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo, name: string): Promise<void> {
+async function disconnectMcpFromOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo, name: string, configurationPublished = false): Promise<void> {
   if (await localWorkspaceUnavailable(workspace) || !resolveWorkspaceOpencodeConnection(config, workspace).baseUrl) return;
   await mcpRecovery(config).mutate(name, async () => {
     mcpRecovery(config).endAuth(name);
@@ -6373,7 +6379,8 @@ async function disconnectMcpFromOpencodeEngine(config: ServerConfig, workspace: 
     });
     // Refresh removes the registered definition too; a stale dynamic entry must
     // not reconnect after its managed source has been deleted.
-    await refreshManagedEngineLocation(config, workspace);
+    // 🟡 LAWOSS #436: the shared file (all clients) is written once by the caller, not again per client.
+    await refreshManagedEngineLocation(config, workspace, undefined, configurationPublished);
   });
 }
 

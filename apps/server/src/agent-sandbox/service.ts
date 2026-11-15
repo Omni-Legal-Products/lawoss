@@ -4,6 +4,7 @@ import { within } from "./files.js";
 import { withFileEditorHandoff } from "../file-editor-handoff.js";
 import { sandboxPaths } from "./paths.js";
 import { homedir } from "node:os";
+import { installedSkillName } from "../lawoss/skill-reference.js";
 import { dirname, isAbsolute, join, posix } from "node:path";
 import { realpath } from "node:fs/promises";
 import { listSkills } from "../skills.js";
@@ -184,7 +185,8 @@ export class AgentSandboxService {
         ], `Run this command on this computer?\n\n${command.command}\n\nSandboxing is off, so this one approval covers everything the command does: reading and changing files, contacting websites and accessing folders outside the project.`, [workspace.path], { command: command.command, hostWide: true, ...(nestedClient ? { otherClientFolder: nestedClient } : {}) });
         if (command.skills?.length) {
           const skills = await listSkills(workspace.path, true);
-          for (const name of command.skills) {
+          for (const reference of command.skills) {
+            const name = installedSkillName(reference); // LAWOSS (#438)
             const skill = skills.find(item => item.name === name);
             if (!skill) throw new ApiError(400, "sandbox_skill_missing", `Installed skill not found: ${name}`);
             await ask("skill", name, `Allow this command to use the installed skill ${name}?`, [skill.path]);
@@ -222,7 +224,8 @@ export class AgentSandboxService {
         target: index === 0 ? "/workspace" : `/authorized/${index - 1}`, writable: command.write }));
       if (command.skills?.length) {
         const installed = await listSkills(workspace.path, true);
-        for (const [index, name] of command.skills.entries()) {
+        for (const [index, reference] of command.skills.entries()) {
+          const name = installedSkillName(reference); // LAWOSS (#438)
           const skill = installed.find((item) => item.name === name);
           if (!skill) throw new ApiError(400, "sandbox_skill_missing", `Installed skill not found: ${name}`);
           await ask("skill", name, `Allow this command to use the installed skill ${name}?`, [skill.path]);

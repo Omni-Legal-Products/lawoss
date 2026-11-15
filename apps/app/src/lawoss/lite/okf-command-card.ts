@@ -41,7 +41,7 @@ const known = <T extends object>(map: T, key: string | undefined): key is Extrac
 
 type Entity = "spis" | "klient";
 type Step =
-  | { tool: "okf"; cmd: "plan" | "apply"; entity: Entity; dir: string; values: Map<ValueFlag, string>; jurisdiction?: "sk" | "cz" }
+  | { tool: "okf"; cmd: "plan" | "apply"; entity: Entity; dir?: string; values: Map<ValueFlag, string>; jurisdiction?: "sk" | "cz" }
   | { tool: "okf"; cmd: "validate" | "render" | "detect"; dir: string }
   | { tool: "memory"; cmd: "init"; dir: string; apply: boolean }
   | { tool: "memory"; cmd: "validate"; dir: string };
@@ -67,10 +67,15 @@ function dirOnly(args: string[], json: boolean): string | null {
   return null;
 }
 
-/** `plan|apply <spis|klient> <dir> [prepínače]` presne tak, ako ho prečíta CLI; inak `null`. */
+/**
+ * `plan|apply <spis|klient> <dir> [prepínače]` presne tak, ako ho prečíta CLI; inak `null`. Pri `spis` smie `<dir>`
+ * chýbať (#416): priečinok nového prípadu potom určí CLI pravidlom `Spisy/<RRRR-MM> <názov>` a karta ho neháda.
+ */
 function planOrApply(cmd: "plan" | "apply", args: string[]): Step | null {
-  const [entity, dir, ...rest] = args;
-  if ((entity !== "spis" && entity !== "klient") || !dir || isFlag(dir) || !plain(dir)) return null;
+  const [entity, ...afterEntity] = args;
+  const derived = entity === "spis" && (afterEntity.length === 0 || isFlag(afterEntity[0]!));
+  const [dir, ...rest] = derived ? [undefined, ...afterEntity] : afterEntity;
+  if ((entity !== "spis" && entity !== "klient") || (!derived && (!dir || isFlag(dir) || !plain(dir)))) return null;
   const values = new Map<ValueFlag, string>();
   const seen = new Set<string>();
   let sk = false, cz = false;
@@ -92,11 +97,12 @@ function planOrApply(cmd: "plan" | "apply", args: string[]): Step | null {
     i++;
   }
   if (sk && cz) return null;
-  if (entity === "spis" && !sk && !cz) return null; // CLI by odmietlo, karta nemá čo opísať
+  // #415: spis bez --sk/--cz je platný, CLI vezme jurisdikciu z karty klienta alebo kancelárie; karta ju vtedy neuvádza.
   const kind = values.get("matter-kind"), mode = values.get("mode");
   if (kind !== undefined && !known(KIND_KEYS, kind)) return null;
   if (mode !== undefined && !known(MODE_KEYS, mode)) return null;
-  return { tool: "okf", cmd, entity, dir, values, ...(sk ? { jurisdiction: "sk" as const } : cz ? { jurisdiction: "cz" as const } : {}) };
+  if (derived && !values.has("title")) return null; // CLI by odmietlo, priečinok sa odvodzuje z názvu
+  return { tool: "okf", cmd, entity, ...(dir ? { dir } : {}), values, ...(sk ? { jurisdiction: "sk" as const } : cz ? { jurisdiction: "cz" as const } : {}) };
 }
 
 function okfStep(args: string[]): Step | null {
@@ -148,7 +154,7 @@ function steps(command: string): Step[] | null {
 export type OkfCommandCard = { title: string; message: string; scopeLabel: string; scopeValue: string; details: FileOperationDetails };
 
 const quoted = (value: string) => t("lawoss.okf_command.quoted", undefined, { text: value });
-const folder = (dir: string) => dir === "." || dir === "./" ? t("lawoss.okf_command.this_folder") : dir;
+const folder = (dir: string | undefined) => dir === undefined ? t("lawoss.okf_command.new_case_folder") : dir === "." || dir === "./" ? t("lawoss.okf_command.this_folder") : dir;
 
 /** Údaje plánu alebo zápisu: hlavné po ľudsky, ostatné prepínače ako „Ďalší údaj (--x): „…““. Nič sa nevynechá. */
 function identityLines(main: Extract<Step, { cmd: "plan" | "apply" }>): string[] {
@@ -161,7 +167,7 @@ function identityLines(main: Extract<Step, { cmd: "plan" | "apply" }>): string[]
     ...(known(KIND_KEYS, kind) ? [t("lawoss.okf_command.kind", undefined, { text: t(KIND_KEYS[kind]) })] : []),
     ...(known(MODE_KEYS, mode) ? [t("lawoss.okf_command.mode", undefined, { text: t(MODE_KEYS[mode]) })] : []),
     ...(main.jurisdiction ? [t("lawoss.okf_command.jurisdiction", undefined, { text: t(JURISDICTION_KEYS[main.jurisdiction]) })] : []),
-    t("lawoss.okf_command.folder", undefined, { path: main.dir }),
+    t("lawoss.okf_command.folder", undefined, { path: main.dir ?? t("lawoss.okf_command.new_case_folder") }),
   ];
   const shown = new Set<ValueFlag>(["title", "protistrana", "matter-kind", "mode", ...(main.entity === "spis" ? ["klient" as const] : [])]);
   for (const [flag, text] of main.values) if (!shown.has(flag)) lines.push(t("lawoss.okf_command.other_value", undefined, { flag: `--${flag}`, text: quoted(text) }));
@@ -205,7 +211,8 @@ export function okfCommandCard(command: string): OkfCommandCard | null {
     const mains = list.filter((item): item is Extract<Step, { cmd: "plan" | "apply" }> => item.tool === "okf" && (item.cmd === "plan" || item.cmd === "apply"));
     if (mains.length > 1) return null;
     const main = mains[0];
-    const caseDirs = new Set(list.filter((item) => !(item.tool === "okf" && item.cmd === "render")).map((item) => item.dir));
+    // Krok bez priečinka (nový prípad, #416) priečinok neuvádza; jeho riadok to povie a nič iné nepridá.
+    const caseDirs = new Set(list.filter((item) => !(item.tool === "okf" && item.cmd === "render") && item.dir !== undefined).map((item) => item.dir));
     if (caseDirs.size > 1) return null; // karta by ukázala iný priečinok, než do ktorého niektorý krok zasiahne
     const lines = [...(main ? identityLines(main) : []), ...list.map(stepLine)];
     return {

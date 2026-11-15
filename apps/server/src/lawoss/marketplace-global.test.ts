@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installCloudPlugin, readInstalledCloudPlugins } from "../cloud-plugins.js";
 import { resolveClaudePluginBundle } from "../claude-plugin-bundle.js";
-import { addMcp, runtimeMcpMapForWorkspace, setMcpEnabled } from "../mcp.js";
+import { addMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled } from "../mcp.js";
 import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
-import { availableUpdates, installGlobalPlugin, moveWorkspacePlugin, pluginFileChanges, removeGlobalPlugin, updateGlobalPlugin, workspaceTarget } from "./marketplace-global.js";
+import { availableUpdates, installGlobalPlugin, missingMcp, moveWorkspacePlugin, pluginFileChanges, removeGlobalPlugin, updateGlobalPlugin, workspaceTarget } from "./marketplace-global.js";
 import { marketplaceStatePath, readUpdateState, runMarketplaceCheck } from "./marketplace-updates.js";
 import { globalPluginTarget } from "./plugin-install-target.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
@@ -125,6 +125,25 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     // Opakovaná inštalácia nič neprepíše ani nevráti na starú verziu.
     expect((await installGlobalPlugin(config, url(SHA2))).status).toBe("already_installed");
     expect(await readFile(skillPath(), "utf8")).toContain("Verzia jedna.");
+  });
+
+  test("#436: pripojenie odstránené v Nastaveniach: doplnok nie je nainštalovaný a opätovná inštalácia ho vráti bez prepísania úpravy", async () => {
+    const config = serverConfig(root);
+    const installed = await installGlobalPlugin(config, url(SHA1));
+    expect(await missingMcp(config, installed.item)).toEqual([]);
+    await writeFile(skillPath(), "Moja úprava.\n");
+    // Settings › Integrations › register › Remove (DELETE /workspace/:id/mcp/:name) removes the shared connection only.
+    expect(await removeMcp(config, "ws_a", "demo")).toEqual(["global"]);
+    expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo).toBeUndefined();
+    const record = (await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID]!;
+    expect(await missingMcp(config, record)).toEqual(["demo"]);
+    const again = await installGlobalPlugin(config, url(SHA1));
+    expect(again.status).toBe("installed");
+    expect(await missingMcp(config, again.item)).toEqual([]);
+    for (const workspaceId of ["ws_a", "ws_b"]) expect((await runtimeMcpMapForWorkspace(config, workspaceId)).demo).toBeDefined();
+    expect(await readFile(skillPath(), "utf8")).toBe("Moja úprava.\n");
+    // With the connection in place it stays an ordinary repeated install.
+    expect((await installGlobalPlugin(config, url(SHA1))).status).toBe("already_installed");
   });
 
   test("globálne sa inštaluje len z LAWOSS Marketplace na pripnutom commite", async () => {

@@ -7,6 +7,8 @@ import { z } from "zod";
 import { ApiError } from "../errors.js";
 import { runtimeStorageDir, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import { registerLocalProject } from "../routes/workspaces.js";
+import { noteProjectRenamed } from "../project-sync.js";
+import { engineAgent } from "./file-operations.js";
 import { addRoute, type RequestContext, type Route } from "../routes/registry.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { externalAppFilesRoot } from "./workspace-app-files.js";
@@ -14,6 +16,8 @@ import { registrationName, withClientCardTitles } from "./client-card-title.js";
 import { registerTriageRoutes } from "./triage.js";
 import { readOfficeMemory } from "./office-memory.js";
 import { assertClientFolderNotNested } from "./nested-client.js";
+import { practiceRootOf, unadoptedClientFolders } from "./unadopted-clients.js";
+import { refreshAllOfficeFacts } from "./office-facts.js";
 import { folderGone, inferPracticeMove, movedClientOf, previewMovedFolder, rebaseOfficeGrants, syncOfficeGrant } from "./moved-practice.js";
 import { executeOnboarding, inspectCardLevel, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, suggestOnboardingLevel, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
 
@@ -82,6 +86,8 @@ const assertClientFolders = async (config: ServerConfig, preview: Parameters<typ
     if (moved) throw new ApiError(409, "onboarding_client_moved", "This folder may belong to a registered client whose folder was not found. Choose whether to reconnect it or add it as a new client. Nothing was changed.", { ...moved, folderPath: folder });
   }
 };
+/** Miestny deň advokáta (ako karta z obrazovky „Toto som našiel“), nie UTC. */
+const localDay = () => { const now = new Date(); return [now.getFullYear(), now.getMonth() + 1, now.getDate()].map((part, index) => String(part).padStart(index ? 2 : 4, "0")).join("-"); };
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
 
 async function canonicalDirectory(path: string): Promise<string> {
@@ -145,6 +151,19 @@ export function registerOnboardingRoutes(options: {
   const profilePath = join(storage, "profile.json");
   const busy = new Set<string>();
   let profileQueue: Promise<unknown> = Promise.resolve();
+  // #415: `.office.json` vedľa okf.js klientov beží na vlastnom reťazci na pozadí, nikdy v `profileQueue`: zaseknutý
+  // sieťový disk tak nezdrží uloženie profilu ani ďalšie zmeny. Každé prechádzanie číta profil až pri svojom štarte,
+  // takže posledné vždy zodpovedá poslednému uloženému profilu (aj po presune praxe); čakajúce sa zlúčia do jedného.
+  let factsQueue: Promise<void> = Promise.resolve();
+  let factsPending = false;
+  const scheduleOfficeFacts = () => {
+    if (factsPending) return;
+    factsPending = true;
+    factsQueue = factsQueue.then(() => { factsPending = false; return refreshAllOfficeFacts(config); })
+      .catch((error: unknown) => { console.warn("[lawoss] .office.json", error instanceof Error ? error.message : String(error)); });
+  };
+  // Klienti zavedení skôr ho dostanú pri štarte servera.
+  scheduleOfficeFacts();
   const ensureStorage = async () => { await mkdir(storage, { recursive: true, mode: 0o700 }); await canonicalDirectory(storage); };
   const readProfile = async (): Promise<Profile | null> => { try { return profileSchema.parse(await readJson(profilePath)); } catch (error) { if (missing(error)) return null; throw error; } };
   const body = (ctx: RequestContext) => options.readJsonBodyLimited(ctx.request, 64 * 1024);
@@ -210,7 +229,9 @@ export function registerOnboardingRoutes(options: {
         try { const marker = z.object({ version: z.literal(1), trial: z.literal(true) }).parse(await readJson(join(profile.clientRoot, ".lawoss-trial.json"))); profile.trial = marker.trial; }
         catch (error) { if (!missing(error)) throw error; profile.trial = false; }
       }
-      await ensureStorage(); await writeJson(profilePath, profile, true); return profile;
+      await ensureStorage(); await writeJson(profilePath, profile, true);
+      scheduleOfficeFacts(); // #415: jurisdikcia kancelárie vedľa okf.js klientov, po uložení a bez čakania.
+      return profile;
     };
     const pending = profileQueue.then(change); profileQueue = pending.catch(() => undefined); return pending;
   });
@@ -235,6 +256,7 @@ export function registerOnboardingRoutes(options: {
       const moved = (path: string | undefined) => path && inside(input.previousRoot, path) ? join(folder, relative(input.previousRoot, path)) : path;
       const profile = profileSchema.parse({ ...previous, officeRoot: folder, clientRoot: moved(previous.clientRoot), subjectRoot: moved(previous.subjectRoot), matterRoot: moved(previous.matterRoot), foundRoot: moved(previous.foundRoot) });
       await ensureStorage(); await writeJson(profilePath, profile, true);
+      scheduleOfficeFacts();
       return { profile, grants: await rebaseOfficeGrants(config, resolve(input.previousRoot), folder) };
     };
     const pending = profileQueue.then(change); profileQueue = pending.catch(() => undefined); return pending;
@@ -256,8 +278,13 @@ export function registerOnboardingRoutes(options: {
     await canonicalDirectory(input.root);
     return await withClientCardTitles(await suggestOnboardingLevel(input.root));
   });
-  route("POST", "plan", async ctx => {
-    const input = await body(ctx);
+  // #425: priečinky v `Klienti/` kancelárie, ktoré nie sú registrovaným klientom (Dnes ich ponúkne na zavedenie). Len zoznam priečinkov.
+  route("GET", "unadopted-clients", async () => {
+    const officeRoot = (await readProfile())?.officeRoot;
+    if (!officeRoot || await missingDirectory(officeRoot)) return { folders: [] };
+    return { officeRoot, folders: await unadoptedClientFolders(officeRoot, config.workspaces.map(workspace => workspace.path)) };
+  });
+  const plan = async (input: Record<string, unknown>) => {
     // Vybraný existujúci priečinok sa overí ešte pred prehliadkou: odmietnutie má prednosť pred inou chybou plánu.
     if (input.action === "existing" && typeof input.root === "string" && isAbsolute(input.root)) await assertClientFolderNotNested(config, input.root, input.mode === "trial_clone" ? "copy" : "in_place");
     const preview = await previewOnboarding(input);
@@ -285,9 +312,10 @@ export function registerOnboardingRoutes(options: {
     const ticket: Ticket = { version: 1, id, fingerprint, preview: confirmedPreview, name, ...(officeMemoryRoot ? { officeMemoryRoot } : {}), ...(confirmedNewClient ? { confirmedNewClient } : {}) };
     await writeJson(join(storage, `${id}.json`), ticket);
     return { id, fingerprint, preview: { ...preview, operations: preview.plan?.operations.map(operation => operation.path) ?? [], warnings: preview.mode === "trial_clone" ? ["trial_clone"] : [], label: preview.target ?? preview.root, officeMemoryRoot } };
-  });
-  route("POST", "apply", async ctx => {
-    const input = z.strictObject({ id: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/), confirm: z.literal(true) }).parse(await body(ctx));
+  };
+  route("POST", "plan", async ctx => plan(await body(ctx)));
+  const applyTicketSchema = z.strictObject({ id: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/), confirm: z.literal(true) });
+  const apply = async (input: z.output<typeof applyTicketSchema>) => {
     if (busy.has(input.id)) throw new ApiError(409, "onboarding_busy", "This onboarding operation is already running.");
     busy.add(input.id);
     try {
@@ -348,6 +376,48 @@ export function registerOnboardingRoutes(options: {
       const subjectRoot = currentProfile?.subjectRoot && result.matterRoot && inside(clientRoot, currentProfile.subjectRoot) && inside(currentProfile.subjectRoot, result.matterRoot) ? currentProfile.subjectRoot : null;
       return { ...(result.matterRoot ? { subjectRoot } : {}), result: repeated || result.status === "already_applied" ? "already_applied" : "applied", ...result, appFiles, workspace: options.serializeWorkspace(workspace), activeId: workspace.id, workspaces: config.workspaces.map(options.serializeWorkspace) };
     } finally { busy.delete(input.id); }
+  };
+  route("POST", "apply", async ctx => apply(applyTicketSchema.parse(await body(ctx))));
+  // #423: `lawoss_new_client` (opencode-plugins/lawoss-new-client.ts) zakladá klienta vetou v chate tou istou cestou ako
+  // formulár klienta (`plan` a `apply` vyššie). Len poverenie chatu, zápis až po jeho karte. Kanceláriu, priečinok Klienti,
+  // jurisdikciu a jazyk berie server z profilu, cestu agent nezadáva; existujúci priečinok sa neprepíše (kolízia mena).
+  const agentRoute = (path: string, handler: (input: Record<string, unknown>) => Promise<unknown>) => addRoute(options.routes, "POST", `/workspace/:id/lawoss/new-client/${path}`, "client", async ctx => {
+    if (!["collaborator", "owner"].includes(ctx.actor?.scope ?? "") || !await engineAgent(config, ctx.actor)) throw new ApiError(403, "new_client_agent_only", "Only a chat's new-client tool, after the user's approval, can use this route.");
+    options.ensureWritable(config);
+    try { return options.jsonResponse(await handler(await body(ctx))); }
+    catch (error) { if (error instanceof ApiError) throw error; throw new ApiError(400, "new_client_failed", error instanceof Error ? error.message : "Creating the client failed."); }
+  });
+  const newClientSchema = z.object({ name: z.string().trim().min(1).max(120), clientType: z.enum(["fo", "fo-podnikatel", "po", "iny"]),
+    ico: z.string().regex(/^\d{6,8}$/).optional(), note: z.string().trim().min(1).max(1000).optional() });
+  agentRoute("plan", async raw => {
+    const input = newClientSchema.parse(raw), profile = await readProfile();
+    if (!profile?.officeRoot || await missingDirectory(profile.officeRoot)) throw new ApiError(409, "new_client_no_office", "No office is connected in LAWOSS, so a client cannot be created. Nothing was created.");
+    // Ako `clientsFolderOf` formulára: `Klienti` vedľa priečinka kancelárie (Office, _kancelaria), inak v koreni praxe.
+    const office = resolve(profile.officeRoot), parent = join(practiceRootOf(office), "Klienti");
+    if (await missingDirectory(parent)) throw new ApiError(409, "new_client_no_clients_folder", `The office has no clients folder (${parent}). Nothing was created.`, { parent });
+    // Meno priečinka ako `safeSegment` plánovača: bez medzier a bodiek na konci, nie prázdne ani s bodkou na začiatku
+    // (`.`, `..` by inak boli priečinok Klienti alebo kancelária sama a hlásili by sa ako existujúci klient).
+    const folder = input.name.trim().replace(/[. ]+$/, "");
+    if (/[\\/]/.test(input.name) || !folder || folder.startsWith(".")) throw new ApiError(400, "new_client_name", "A client name cannot contain / or \\, start with a dot or consist only of dots. Nothing was created.");
+    const target = join(parent, folder);
+    if (!await missingDirectory(target)) throw new ApiError(409, "new_client_exists", `A folder with this name already exists (${target}). Nothing was created or overwritten.`, { target });
+    // Typ klienta sa nedopĺňa: agent ho musí zadať (pri nejasnosti sa spýta), karta ukáže všetko, čo sa zapíše.
+    const note = input.note?.replace(/\s+/g, " ");
+    const planned = await plan({ action: "client", parent, name: input.name, title: input.name, clientType: input.clientType, jurisdiction: profile.jurisdiction,
+      date: localDay(), language: profile.language === "de" ? "en" : profile.language, ...(input.ico ? { ico: input.ico } : {}), ...(note ? { description: note } : {}) });
+    return { id: planned.id, fingerprint: planned.fingerprint, office, parent, target: planned.preview.target ?? target, name: input.name, clientType: input.clientType,
+      ...(input.ico ? { ico: input.ico } : {}), ...(note ? { note } : {}) };
+  });
+  agentRoute("apply", async raw => {
+    const input = z.object({ id: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/) }).parse(raw);
+    const ticket = await readTicket(join(storage, `${input.id}.json`));
+    if (ticket.preview.action !== "client" || ticket.preview.mode !== "new") throw new ApiError(403, "new_client_agent_only", "This tool can only create a new client.");
+    const applied = await apply({ ...input, confirm: true });
+    const clientRoot = applied.clientRoot ?? applied.root;
+    const workspace = config.workspaces.find(item => item.path === clientRoot);
+    // Bočný panel si zoznam klientov prečíta znova (revízia zoznamu); nový klient nemá väzbu na firmu, nič sa nesynchronizuje.
+    if (workspace) await noteProjectRenamed(config, workspace.id, workspace.name);
+    return { created: true, path: clientRoot, name: workspace?.name ?? ticket.name };
   });
   route("POST", "recover", async ctx => {
     const input = z.strictObject({ id: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/), confirm: z.literal(true), action: z.enum(["finish", "rollback"]) }).parse(await body(ctx));

@@ -60,7 +60,7 @@ describe("dlaždice", () => {
     const deadlines = [invalidDeadline(), deadline("2026-11-10", -4, { basis: "instruction" }), deadline("2026-11-18", 4, { basis: "instruction" }), deadline("2026-11-19", 5)];
     const unreadable: TodayTask[] = [{ key: "u", id: "U", title: "Zlý dátum", due: "31. 2.", matters: [MATTER] }];
     const waiting = waitingCounts({ inputs: 3, deadlines, dates: [work("P", "2026-11-12", -2)], unreadable, events: [{ kind: "candidate" }, { kind: "deadline" }, { kind: "work" }] });
-    expect(waiting).toEqual({ filing: 3, overdue: 2, verify: 3, confirm: 1, total: 9 });
+    expect(waiting).toEqual({ filing: 3, overdue: 2, verify: 3, confirm: 1, adopt: 0, total: 9 });
     expect(waiting.filing + waiting.overdue + waiting.verify + waiting.confirm).toBe(waiting.total);
     expect(waitingCounts({ inputs: 0, deadlines: [], dates: [], unreadable: [] }).total).toBe(0);
   });
@@ -143,13 +143,14 @@ describe("obrazovka", () => {
     expect(none).toContain("nič nečaká");
   });
 
-  test("bez návrhu asistenta, bez krokov „3 z 5“ a bez „Začnite tu“; „+ Nový prípad“ je tiché, nie zlaté", () => {
+  test("bez návrhu asistenta, bez krokov „3 z 5“ a bez „Začnite tu“; bez „+ Nový prípad“ (#428)", () => {
     const out = html(<TodayView model={model} locale="sk" now={now} />);
     expect(out).not.toContain("návrh asistenta");
     expect(out).not.toContain("Otvoriť v chate");
     expect(out).not.toContain("kroky");
     expect(out).not.toContain("Začnite tu");
-    expect(out).toContain('<a class="lw-dnes-secondary" href="/welcome?continue=matter"');
+    expect(out).not.toContain("lw-dnes-secondary");
+    expect(out).not.toContain("/welcome?continue=matter");
     expect(out).not.toContain("lw-today-primary");
   });
 

@@ -86,6 +86,13 @@
   isolation: isolate;
   overflow: hidden;
 }
+/* Odlesk je `position: absolute` a orezáva ho `overflow: hidden` tohto prvku, preto prvok musí byť sám
+   rámcom pre absolútne umiestnenie. Tlačidlo (button.tsx) a `.lw-btn.gold`/`.lw-today-primary` ho majú;
+   odosielacie tlačidlo composera (upstream composer.tsx) nie: odlesk unikol do `.lw-composer` a v širokom okne
+   kreslil vľavo od composera sivý klin, orezaný až okrajom chatu (issue 435). */
+.lw-composer-send {
+  position: relative;
+}
 :is([data-slot="button"][data-variant="default"]:not([data-size="sm"]):not([data-size="xs"]), .lw-composer-send, .lw-btn.gold, .lw-today-primary)::after {
   content: "";
   position: absolute;
@@ -101,11 +108,11 @@
 :is([data-slot="button"][data-variant="default"]:not([data-size="sm"]):not([data-size="xs"]), .lw-composer-send, .lw-btn.gold, .lw-today-primary):is(:hover, :focus-visible):not(:disabled)::after {
   animation: lw-sheen-once 900ms var(--lw-ease-expo) 1 both;
 }
-:is([data-slot="button"][data-variant="default"], .lw-composer-send, .lw-btn.gold, .lw-today-primary):is(:disabled, [aria-disabled="true"])::after {
+:is([data-slot="button"][data-variant="default"]:not([data-size="sm"]):not([data-size="xs"]), .lw-composer-send, .lw-btn.gold, .lw-today-primary):is(:disabled, [aria-disabled="true"])::after {
   content: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  :is([data-slot="button"][data-variant="default"], .lw-composer-send, .lw-btn.gold, .lw-today-primary)::after { content: none; animation: none; }
+  :is([data-slot="button"][data-variant="default"]:not([data-size="sm"]):not([data-size="xs"]), .lw-composer-send, .lw-btn.gold, .lw-today-primary)::after { content: none; animation: none; }
   :is([data-slot="button"][data-variant="default"], .lw-composer-send, .lw-btn.gold, .lw-today-primary):hover { transform: none; }
 }
 

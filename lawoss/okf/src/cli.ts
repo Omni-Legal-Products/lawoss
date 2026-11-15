@@ -3,9 +3,10 @@
  * okf — CLI nad priečinkom klienta. Súbory dnu, súbory von. Žiadny server.
  *
  *   okf detect <dir> [--type klient|spis|projekt] [--json]
- *   okf plan <typ> <dir> --title "…" --sk|--cz [--ico X] [--klient X] [--protistrana X]
+ *   okf plan <typ> <dir> --title "…" [--sk|--cz] [--ico X] [--klient X] [--protistrana X]
  *            [--protistrana-ico X] [--oblast X] [--desc X] [--advokat X] [--language cs|sk|en] [--json]
- *   okf apply <typ> <dir> --title "…" --sk|--cz [rovnaké flagy]        ← až po potvrdení človekom
+ *   okf apply <typ> <dir> --title "…" [--sk|--cz] [rovnaké flagy]        ← až po potvrdení človekom
+ *   okf plan|apply spis --title "…" [flagy]    nový prípad bez <dir>: priečinok Spisy/<RRRR-MM> <názov> v klientovi (#416)
  *   okf validate <dir> [--json]                                 exit 1 pri chybe
  *   okf render <dir> [--json]
  *   okf naming <dir> --manifest request.json [--out plan.json] [--json]
@@ -16,13 +17,15 @@
  * Ľudská brána je ZÁMERNE mimo CLI: `plan` nič nezapíše; `apply` volá ten,
  * kto plán ukázal advokátovi a dostal súhlas.
  */
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runOnboarding } from "./onboarding/cli.ts";
 import { runTriage } from "./triage/cli.ts";
 
-import { resolveDocumentLanguage, type DocumentLanguage, ENTITY_TYPES, type ClientType, type MatterKind, type MatterMode, type EntityType, type Jurisdiction, type PlanInput } from "./core.ts";
-import { apply, detect, plan, render, validate } from "./fs.ts";
+import { existingCard, resolveDocumentLanguage, type DocumentLanguage, ENTITY_TYPES, type ClientType, type MatterKind, type MatterMode, type EntityType, type Jurisdiction, type PlanInput } from "./core.ts";
+import { apply, detect, inheritedJurisdiction, plan, render, validate } from "./fs.ts";
+import { newMatterFolder } from "./onboarding/entities.ts";
 import { NamingSchemaError, isNamingSchemaError, parseNamingRequest, applyDocumentNaming, parseNamingPlan, planDocumentNaming, readNamingJson, writeNamingPlanOutsideMatter } from "./naming-fs.ts";
 
 type Flags = Record<string, string | boolean>;
@@ -65,7 +68,8 @@ function entityType(value: string | undefined): EntityType {
 }
 
 /**
- * Jurisdikcia z prepínača `--sk` / `--cz`.
+ * Jurisdikcia z prepínača `--sk` / `--cz`; pri `spis` bez prepínača z karty klienta alebo
+ * z `okf.config` kancelárie (#415), aby sa asistent advokáta na ňu nepýtal. Prepínač má prednosť.
  *
  * Pri `spis` je povinná a odmietame už pri `plan`, nie až pri `apply` — advokát
  * vidí plán prvý, takže odmietnutie musí prísť tam. Dôvod je vecný: `okf-pamat`
@@ -74,24 +78,53 @@ function entityType(value: string | undefined): EntityType {
  * nevzniknúť vôbec. Tiché predvolenie `cz` je presne tá chyba, ktorú `okf-pamat`
  * práve odstránil; nezavádzame ju späť na druhom konci.
  */
-function jurisdictionFrom(flags: Flags, type: EntityType): Jurisdiction | undefined {
+function jurisdictionFrom(flags: Flags, type: EntityType, dir: string): Jurisdiction | undefined {
   const sk = flags.sk === true;
   const cz = flags.cz === true;
   if (sk && cz) throw new Error("naraz --sk aj --cz; vyber jednu jurisdikciu");
   if (sk) return "sk";
   if (cz) return "cz";
   if (type === "spis") {
+    const inherited = inheritedJurisdiction(dir);
+    if (inherited) return inherited;
     throw new Error(
-      "Spis potrebuje jurisdikciu: uveď --sk alebo --cz. Zapíše sa do karty veci " +
-        "ako `jurisdiction:` a `okf-memory` ju odtiaľ prečíta.",
+      "Spis potrebuje jurisdikciu: uveď --sk alebo --cz (karta klienta ani okf.config kancelárie ju nemajú). " +
+        "Zapíše sa do karty veci ako `jurisdiction:` a `okf-memory` ju odtiaľ prečíta.",
     );
   }
   return undefined;
 }
 
+/** Dnešný deň podľa miestneho času: priečinok `RRRR-MM` zodpovedá mesiacu advokáta, nie UTC (#416). */
+function localToday(): string {
+  const now = new Date(), pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+/**
+ * #416: nový prípad bez `<dir>`. Priečinok určí to isté pravidlo ako formulár (`newMatterFolder`):
+ * `Spisy/<RRRR-MM> <názov>` v najbližšom klientovi (karta klienta v aktuálnom priečinku alebo nad ním),
+ * relatívne k aktuálnemu priečinku. Existujúci priečinok sa takto nezakladá; ten treba uviesť výslovne.
+ */
+function newMatterDir(flags: Flags, date: string): string {
+  const title = str(flags, "title");
+  if (!title) throw new Error("Nový prípad bez <dir> potrebuje --title; priečinok sa odvodí z neho.");
+  let client = resolve(".");
+  while (!existingCard("klient", (name) => existsSync(join(client, name)))) {
+    if (dirname(client) === client) throw new Error("Nový prípad bez <dir> spusti v priečinku klienta (s kartou klienta) alebo uveď <dir>.");
+    client = dirname(client);
+  }
+  const target = join(client, newMatterFolder(date, title).folder);
+  const dir = relative(resolve("."), target).split("\\").join("/");
+  if (existsSync(target)) throw new Error(`Priečinok ${dir} už existuje; nový prípad ho nezaloží znova. Pre existujúci priečinok ho uveď ako <dir>.`);
+  return dir;
+}
+
 function inputFrom(positional: string[], flags: Flags): PlanInput {
   const type = entityType(positional[1]);
-  const dir = positional[2];
+  // Nový prípad bez `<dir>`: dátum z `--date`, inak miestny dnešok; ten istý pre priečinok aj kartu.
+  const derivedDate = positional[2] === undefined && type === "spis" ? str(flags, "date") ?? localToday() : undefined;
+  const dir = positional[2] ?? (derivedDate ? newMatterDir(flags, derivedDate) : undefined);
   if (!dir) throw new Error("chýba <dir>");
   const title = str(flags, "title") ?? dir.split(/[\\/]/).filter(Boolean).pop() ?? "";
   return {
@@ -102,9 +135,9 @@ function inputFrom(positional: string[], flags: Flags): PlanInput {
     mode: choice(flags, "mode", ["bounded", "ongoing"] satisfies MatterMode[]),
     description: str(flags, "desc"), ico: str(flags, "ico"), klient: str(flags, "klient"),
     protistrana: str(flags, "protistrana"), protistranaIco: str(flags, "protistrana-ico"),
-    oblast: str(flags, "oblast"), spzn: str(flags, "spzn"), sud: str(flags, "sud"), date: str(flags, "date"),
+    oblast: str(flags, "oblast"), spzn: str(flags, "spzn"), sud: str(flags, "sud"), date: derivedDate ?? str(flags, "date"),
     advokat: str(flags, "advokat"),
-    jurisdiction: jurisdictionFrom(flags, type),
+    jurisdiction: jurisdictionFrom(flags, type, dir),
   };
 }
 

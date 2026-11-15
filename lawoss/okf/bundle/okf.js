@@ -3,8 +3,9 @@
 // @bun
 
 // src/cli.ts
-import { realpathSync as realpathSync6 } from "fs";
-import { fileURLToPath } from "url";
+import { existsSync as existsSync4, realpathSync as realpathSync6 } from "fs";
+import { dirname as dirname13, join as join17, relative as relative11, resolve as resolve15 } from "path";
+import { fileURLToPath as fileURLToPath2 } from "url";
 
 // src/onboarding/cli.ts
 import { constants as constants8 } from "node:fs";
@@ -1399,6 +1400,24 @@ var nestedClientCode = (clientName, name) => {
   return DIGITS.exec(clientName.normalize("NFC"))?.[1] !== DIGITS.exec(name.normalize("NFC"))?.[1] && !startsWithMatterWord(code.rest);
 };
 var looksLikeMatterFolder = (name) => codeOf(name) !== undefined || looksLikeMatterName(name);
+var MATTERS_DIR_NAMES = new Set(["spisy", "veci"]);
+var isMattersDirName = (name) => MATTERS_DIR_NAMES.has(fold(name));
+var LEGACY_MATTERS_DIR_NAMES = new Set(["pripady", "případy", "matters"]);
+var isLegacyMattersDirName = (name) => LEGACY_MATTERS_DIR_NAMES.has(name.normalize("NFC").toLowerCase());
+var SPACED_REGISTERS = ["C", "Cb", "Co", "Cob", "Cdo", "Obdo", "T", "To", "Tdo", "S", "Sa", "Sž", "K", "R", "Er", "Ek", "Em", "CoPr", "NcC", "INS", "ÚS"];
+var CASE_START = "(?:^|[^\\p{L}\\d])";
+var CASE_TAIL = "\\d{1,6}[_/-](?:19|20)\\d{2}(?![\\p{L}\\d])";
+var COURT_FILE_NUMBERS = [
+  new RegExp(`${CASE_START}\\d{1,3}\\p{Lu}\\p{L}{0,5}[_-]${CASE_TAIL}`, "u"),
+  new RegExp(`${CASE_START}\\d{1,3}[ _]?(?:${SPACED_REGISTERS.join("|")})[ _]${CASE_TAIL}`, "u"),
+  new RegExp(`${CASE_START}(?:[IVX]{1,4}|Pl)\\. ?ÚS[ _]${CASE_TAIL}`, "u")
+];
+var hasCourtFileNumber = (name) => {
+  const text = name.normalize("NFC");
+  return COURT_FILE_NUMBERS.some((pattern) => pattern.test(text));
+};
+var hasMatterCode = (name) => codeOf(name) !== undefined || hasCourtFileNumber(name);
+var isClientMatterFolder = (name, client) => client.matterCard || (client.mattersDir ? hasMatterCode(name) : looksLikeMatterFolder(name));
 
 // src/onboarding/suggest.ts
 var PRACTICE_MIN_CLIENTS = 5;
@@ -1411,7 +1430,6 @@ var WEAK_SCORE = 0.5;
 var SURVEY_DEPTH = 4;
 var UNIT_LIMIT = 200;
 var UNIT_MATTERS = 50;
-var MATTER_FOLDERS = new Set(["spisy", "pripady", "případy", "matters"]);
 var SURVEY_ENTRIES = 50000;
 var CLIENT_CARDS = new Set(["client.md", "klient.md"]);
 var MATTER_CARDS = new Set(["matter.md", "spis.md", "project.md", "projekt.md"]);
@@ -1484,7 +1502,7 @@ function matchPattern(index, pattern) {
 }
 function matterLevelDirs(index, parent) {
   const dirs = childrenOf(index, parent).filter((entry) => entry.kind === "directory");
-  const filed = dirs.filter((entry) => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase())).flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
+  const filed = dirs.filter((entry) => isMattersDirName(nameOf(entry.path)) || isLegacyMattersDirName(nameOf(entry.path))).flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
   return [...dirs, ...filed];
 }
 function codedHierarchy(index, candidates) {
@@ -1538,13 +1556,14 @@ var depthOf = (path) => path ? path.split("/").length : 0;
 function mattersOf(index, files, unit, unitName) {
   const prefix = unit ? `${unit}/` : "";
   const dirs = childrenOf(index, unit).filter((entry) => entry.kind === "directory");
-  const folders = dirs.filter((entry) => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase()));
+  const folders = dirs.filter((entry) => isMattersDirName(nameOf(entry.path)) || isLegacyMattersDirName(nameOf(entry.path)));
+  const standard = folders.some((entry) => isMattersDirName(nameOf(entry.path)));
   const card = (entry, cards) => childrenOf(index, entry.path).some((child) => child.kind === "file" && cards.has(nameOf(child.path).toLowerCase()));
   const nestedClient = (entry) => card(entry, CLIENT_CARDS) && !card(entry, MATTER_CARDS);
   const filed = folders.flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
   const matterCard = (entry) => [...MATTER_CARDS].some((card) => files.has(`${entry.path}/${card}`));
   const otherCode = (entry) => !matterCard(entry) && nestedClientCode(unitName, nameOf(entry.path));
-  const beside = dirs.filter((entry) => !folders.includes(entry) && (matterCard(entry) || looksLikeMatterFolder(nameOf(entry.path)) && !otherCode(entry)));
+  const beside = dirs.filter((entry) => !folders.includes(entry) && !otherCode(entry) && isClientMatterFolder(nameOf(entry.path), { matterCard: matterCard(entry), mattersDir: standard }));
   const named = (entry) => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) });
   const nested = [...filed.filter(nestedClient), ...dirs.filter((entry) => !folders.includes(entry) && (nestedClient(entry) || otherCode(entry)))];
   return { matters: [...filed, ...beside].filter((entry) => !nestedClient(entry)).map(named), nested: nested.map(named) };
@@ -3614,7 +3633,7 @@ async function planPracticeOffice(request) {
 }
 async function planNewClient(request) {
   const name = safeSegment(request.name), target = join8(request.parent, name), language = request.language ?? "sk";
-  const generated = planEntity({ type: "klient", dir: target, title: request.title, clientType: request.clientType, language, jurisdiction: request.jurisdiction, date: request.date }, LOCALIZED_TEMPLATES, () => false);
+  const generated = planEntity({ type: "klient", dir: target, title: request.title, clientType: request.clientType, language, jurisdiction: request.jurisdiction, date: request.date, ...request.ico ? { ico: request.ico } : {}, ...request.description ? { description: request.description } : {} }, LOCALIZED_TEMPLATES, () => false);
   return { mode: "new", appFiles: "inside", target, clientRoot: target, plan: await rootPlan(request.parent, templateOperations(name, generated.entries)) };
 }
 async function planNewSubject(request) {
@@ -3631,7 +3650,19 @@ title: ${yaml(request.title)}
 `;
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.clientRoot, [directory(name), file(`${name}/subject.md`, card), directory(`${name}/memory`), file(`${name}/memory/.keep`, "")]) };
 }
+function isCalendarDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value))
+    return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
 var MATTERS_DIR = "Spisy";
+function newMatterFolder(date, title) {
+  if (!isCalendarDate(date))
+    throw new Error(`Neplatný dátum prípadu „${date}“: zadaj skutočný dátum v tvare RRRR-MM-DD.`);
+  const name = `${date.slice(0, 7)} ${safeSegment(title)}`;
+  return { name, folder: `${MATTERS_DIR}/${name}` };
+}
 var CLIENT_CARDS2 = ["client.md", "klient.md"];
 async function clientCard(clientRoot) {
   for (const name of CLIENT_CARDS2) {
@@ -3647,9 +3678,9 @@ async function clientCard(clientRoot) {
   return;
 }
 function buildMatterOperations(input) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !["contentious", "non_contentious"].includes(input.kind))
+  if (!isCalendarDate(input.date) || !["contentious", "non_contentious"].includes(input.kind))
     throw new Error("Valid date and matter kind are required.");
-  const area = safeSegment(input.area), name = input.folder?.split("/").pop() ?? `${input.date.slice(0, 7)} ${safeSegment(input.title)}`, folder = input.folder ?? `${MATTERS_DIR}/${name}`;
+  const area = safeSegment(input.area), name = input.folder?.split("/").pop() ?? newMatterFolder(input.date, input.title).name, folder = input.folder ?? `${MATTERS_DIR}/${name}`;
   const generated = planEntity({ type: "spis", dir: folder, title: input.title, language: input.language, jurisdiction: input.jurisdiction, date: input.date, workingProfile: input.workingProfile, matterKind: input.kind === "contentious" ? "dispute" : "other", ...input.clientTitle ? { klient: input.clientTitle } : {}, ...input.clientCardPath ? { clientCardPath: input.clientCardPath } : {}, ...input.extras?.caseNumber ? { spzn: input.extras.caseNumber } : {}, ...input.extras?.counterparty ? { protistrana: input.extras.counterparty } : {}, ...input.extras?.court ? { sud: input.extras.court } : {} }, LOCALIZED_TEMPLATES, () => false);
   const template = templateOperations(folder, generated.entries).filter((operation) => operation.path !== folder);
   const operations = [directory(folder), ...template.map((operation) => operation.path === `${folder}/matter.md` && operation.kind === "file" ? file(operation.path, (operation.content ?? "").replace("type: spis", `type: matter
@@ -3659,12 +3690,12 @@ subject: ${yaml(input.subject ?? "")}`)) : operation)];
   return { name, folder, operations };
 }
 async function planNewMatter(request) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(request.date) || !["contentious", "non_contentious"].includes(request.kind))
+  if (!isCalendarDate(request.date) || !["contentious", "non_contentious"].includes(request.kind))
     throw new Error("Valid date and matter kind are required.");
   safeSegment(request.area);
   if (request.subject !== undefined && /[\\/]/.test(request.subject))
     throw new Error("Matter subject must be the subject folder name, not a path.");
-  const name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join8(request.parent, MATTERS_DIR, name);
+  const name = newMatterFolder(request.date, request.title).name, target = join8(request.parent, MATTERS_DIR, name);
   const clientRoot = await realpath(request.clientRoot), parentRoot = await realpath(request.parent);
   if (!contained(clientRoot, parentRoot))
     throw new Error("Matter parent must be within the inspected client root.");
@@ -4100,7 +4131,10 @@ function parseOnboardingRequest(value) {
       throw new Error("Invalid jurisdiction.");
     if (language !== "sk" && language !== "cs" && language !== "en")
       throw new Error("Invalid language.");
-    return { action: "client", parent: string(value.parent, "parent"), name: string(value.name, "name"), title: string(value.title, "title"), clientType, jurisdiction, date: isoDate(value.date), language };
+    const ico = optionalString(value.ico, "ico"), description = optionalString(value.description, "description");
+    if (ico !== undefined && !/^\d{6,8}$/.test(ico))
+      throw new Error("Invalid identification number.");
+    return { action: "client", parent: string(value.parent, "parent"), name: string(value.name, "name"), title: string(value.title, "title"), clientType, jurisdiction, date: isoDate(value.date), language, ...ico ? { ico } : {}, ...description ? { description } : {} };
   }
   if (value.action === "subject")
     return { action: "subject", clientRoot: string(value.clientRoot, "clientRoot"), name: string(value.name, "name"), title: string(value.title, "title") };
@@ -5795,10 +5829,22 @@ async function runTriage(argv, out = console.log) {
 }
 // src/core.ts
 var ENTITY_TYPES2 = ["klient", "spis", "projekt"];
+var CARD_ALIASES2 = {
+  klient: ["client.md", "klient.md"],
+  spis: ["matter.md", "spis.md"],
+  projekt: ["project.md", "projekt.md"]
+};
+function existingCard2(type, exists) {
+  const cards = CARD_ALIASES2[type].filter(exists);
+  if (cards.length > 1)
+    throw new Error(`Viac kariet entity: ${cards.join(", ")}. Najprv zosúlaď ich obsah.`);
+  return cards[0];
+}
 
 // src/fs.ts
 import { existsSync as existsSync3, lstatSync as lstatSync4, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync2, realpathSync as realpathSync4, statSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { basename as basename8, dirname as dirname11, join as join15, relative as relative9, resolve as resolve13, sep as sep10 } from "node:path";
+import { fileURLToPath } from "node:url";
 function readText(path) {
   return readFileSync2(path, "utf8");
 }
@@ -5816,6 +5862,39 @@ function officeProfile(dir, language) {
   if (!statSync(path).isFile())
     return;
   return parseOfficeWorkingProfile(decodeText(readFileSync2(path)), language);
+}
+function inheritedJurisdiction(dir) {
+  const known = (value) => {
+    const lower = typeof value === "string" ? value.trim().toLowerCase() : "";
+    return lower === "sk" || lower === "cz" ? lower : undefined;
+  };
+  for (let parent = dirname11(resolve13(dir));; parent = dirname11(parent)) {
+    const card = existingCard("klient", (name) => existsSync3(join15(parent, name)));
+    if (card) {
+      const fromClient = known(parseFrontmatter(decodeText(readFileSync2(join15(parent, card))))?.jurisdiction);
+      if (fromClient)
+        return fromClient;
+      break;
+    }
+    if (dirname11(parent) === parent)
+      break;
+  }
+  const office = findOfficeDir(dir);
+  const path = office ? join15(office, "okf.config") : undefined;
+  const fromOffice = path && existsSync3(path) && statSync(path).isFile() ? known(parseFrontmatter2(decodeText(readFileSync2(path))).get("jurisdiction")) : undefined;
+  return fromOffice ?? known(officeFactsJurisdiction());
+}
+var OFFICE_FACTS_FILE = ".office.json";
+function officeFactsJurisdiction(file = fileURLToPath(new URL(`./${OFFICE_FACTS_FILE}`, import.meta.url))) {
+  try {
+    if (!existsSync3(file) || !lstatSync4(file).isFile())
+      return;
+    const raw = JSON.parse(decodeText(readFileSync2(file)));
+    const jurisdiction = raw && typeof raw === "object" ? Reflect.get(raw, "jurisdiction") : undefined;
+    return typeof jurisdiction === "string" ? jurisdiction : undefined;
+  } catch {
+    return;
+  }
 }
 function listMarkdown(root) {
   const out = [];
@@ -6034,6 +6113,27 @@ ${body}
       kept.push("index.md");
   }
   return { written, kept };
+}
+
+// src/onboarding/entities.ts
+var safeSegment2 = (value) => {
+  const trimmed = value.trim().replace(/[. ]+$/, "");
+  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*\u0001-\u001f\u007f-\u009f]|^\./.test(trimmed) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(trimmed) || VOLATILE_ENTRY.test(trimmed))
+    throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
+  return trimmed;
+};
+function isCalendarDate2(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value))
+    return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+var MATTERS_DIR2 = "Spisy";
+function newMatterFolder2(date, title) {
+  if (!isCalendarDate2(date))
+    throw new Error(`Neplatný dátum prípadu „${date}“: zadaj skutočný dátum v tvare RRRR-MM-DD.`);
+  const name = `${date.slice(0, 7)} ${safeSegment2(title)}`;
+  return { name, folder: `${MATTERS_DIR2}/${name}` };
 }
 
 // src/naming-fs.ts
@@ -6873,7 +6973,7 @@ function entityType(value) {
     return value;
   throw new Error(`typ mus\xED by\u0165 ${ENTITY_TYPES2.join(" | ")}; dostal som: ${value ?? "(ni\u010D)"}`);
 }
-function jurisdictionFrom(flags, type) {
+function jurisdictionFrom(flags, type, dir) {
   const sk = flags.sk === true;
   const cz = flags.cz === true;
   if (sk && cz)
@@ -6883,13 +6983,37 @@ function jurisdictionFrom(flags, type) {
   if (cz)
     return "cz";
   if (type === "spis") {
-    throw new Error("Spis potrebuje jurisdikciu: uve\u010F --sk alebo --cz. Zap\xED\u0161e sa do karty veci " + "ako `jurisdiction:` a `okf-memory` ju odtia\u013E pre\u010D\xEDta.");
+    const inherited = inheritedJurisdiction(dir);
+    if (inherited)
+      return inherited;
+    throw new Error("Spis potrebuje jurisdikciu: uve\u010F --sk alebo --cz (karta klienta ani okf.config kancel\xE1rie ju nemaj\xFA). " + "Zap\xED\u0161e sa do karty veci ako `jurisdiction:` a `okf-memory` ju odtia\u013E pre\u010D\xEDta.");
   }
   return;
 }
+function localToday() {
+  const now = new Date, pad = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+function newMatterDir(flags, date) {
+  const title = str(flags, "title");
+  if (!title)
+    throw new Error("Nov\xFD pr\xEDpad bez <dir> potrebuje --title; prie\u010Dinok sa odvod\xED z neho.");
+  let client = resolve15(".");
+  while (!existingCard2("klient", (name) => existsSync4(join17(client, name)))) {
+    if (dirname13(client) === client)
+      throw new Error("Nov\xFD pr\xEDpad bez <dir> spusti v prie\u010Dinku klienta (s kartou klienta) alebo uve\u010F <dir>.");
+    client = dirname13(client);
+  }
+  const target = join17(client, newMatterFolder2(date, title).folder);
+  const dir = relative11(resolve15("."), target).split("\\").join("/");
+  if (existsSync4(target))
+    throw new Error(`Prie\u010Dinok ${dir} u\u017E existuje; nov\xFD pr\xEDpad ho nezalo\u017E\xED znova. Pre existuj\xFAci prie\u010Dinok ho uve\u010F ako <dir>.`);
+  return dir;
+}
 function inputFrom(positional, flags) {
   const type = entityType(positional[1]);
-  const dir = positional[2];
+  const derivedDate = positional[2] === undefined && type === "spis" ? str(flags, "date") ?? localToday() : undefined;
+  const dir = positional[2] ?? (derivedDate ? newMatterDir(flags, derivedDate) : undefined);
   if (!dir)
     throw new Error("ch\xFDba <dir>");
   const title = str(flags, "title") ?? dir.split(/[\\/]/).filter(Boolean).pop() ?? "";
@@ -6914,9 +7038,9 @@ function inputFrom(positional, flags) {
     oblast: str(flags, "oblast"),
     spzn: str(flags, "spzn"),
     sud: str(flags, "sud"),
-    date: str(flags, "date"),
+    date: derivedDate ?? str(flags, "date"),
     advokat: str(flags, "advokat"),
-    jurisdiction: jurisdictionFrom(flags, type)
+    jurisdiction: jurisdictionFrom(flags, type, dir)
   };
 }
 function run(argv, out = console.log) {
@@ -7032,7 +7156,7 @@ function run(argv, out = console.log) {
 }
 var isMain = (() => {
   try {
-    return realpathSync6(process.argv[1] ?? "") === realpathSync6(fileURLToPath(import.meta.url));
+    return realpathSync6(process.argv[1] ?? "") === realpathSync6(fileURLToPath2(import.meta.url));
   } catch {
     return false;
   }
