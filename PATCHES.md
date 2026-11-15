@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Vygenerovaný kód servera bez absolútnej cesty (#440) (2026-11-15)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/scripts/gen-raw-http-node-code.ts`, `apps/server/src/agent-sandbox/raw-http-node-code.ts` (vygenerovaný), `.github/workflows/ci-tests.yml` | #440: Bun pri zbalení undici vložil `__filename` ako absolútnu cestu stroja, na ktorom build bežal, takže commitnutý súbor niesol cestu vývojára a každý build inde ho prepísal. `Bun.build` dostal `define` s pevnou hodnotou `"undici/index.js"` (undici ju používa len pri doplnení stack trace; +1 riadok s 🟡 LAWOSS #440) a súbor je pregenerovaný. Ostatné generátory (`gen-deadline-code.ts`, `gen-web-worker-code.ts`, `gen-tool-image-raster-code.ts`) cestu nevkladajú a sú bez zmeny. V `ci-tests.yml` nový krok „Generated server code is fresh“ (Linux, po builde servera): `git diff --exit-code -- apps/server/src`. |
+
 ## Katalóg registrov: pribalené runtime z LAWOSS Marketplace (#420, #421) (2026-11-16)
 
 Katalóg `Omni-Legal-Products/lawoss-marketplace` dodáva runtime registrov ako jeden súbor zbalený cez esbuild (bez `npm ci`, kvôli firewallom s rozbaľovaním TLS). Súbory majú 1,2–6,3 MB (slovlex spolu 8,5 MB), importér ich odmietal (`unsupported_plugin_resources`).

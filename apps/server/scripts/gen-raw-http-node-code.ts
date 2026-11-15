@@ -1,5 +1,7 @@
 import { fileURLToPath } from "node:url";
-const result = await Bun.build({ entrypoints: [fileURLToPath(new URL("../src/agent-sandbox/raw-http-node-worker.ts", import.meta.url))], target: "node", format: "cjs", minify: true });
+const result = await Bun.build({ entrypoints: [fileURLToPath(new URL("../src/agent-sandbox/raw-http-node-worker.ts", import.meta.url))], target: "node", format: "cjs", minify: true,
+  // 🟡 LAWOSS #440: Bun inlines undici's __filename (stack traces only) as the absolute build path; keep the output machine-independent.
+  define: { __filename: JSON.stringify("undici/index.js") } });
 if (!result.success || result.outputs.length !== 1) throw new Error(result.logs.join("\n") || "Expected one standalone HTTP worker bundle.");
 const undici = import.meta.resolve("undici-transport/package.json"), zod = import.meta.resolve("zod/package.json");
 const licenses = await Promise.all([new URL("LICENSE", undici), new URL("lib/web/fetch/LICENSE", undici), new URL("LICENSE", zod)].map(path => Bun.file(path).text()));
