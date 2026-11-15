@@ -260,3 +260,90 @@ test("B: bez výslovného dátumu, mimo prípadu, v cudzom klientovi alebo bez j
   expect((await refusal(writeMatterMemoryForChat({ ...f.config, readOnly: true }, f.own, deadline(f), f.links, NOW)))?.code).toBe("read_only");
   expect(await snapshot(f.root)).toEqual(before);
 });
+
+// #417: úloha vetou („Pripomeň mi vyžiadať prílohu č. 4 do stredy“) cez `lawoss_memory_write` má ako lehota riadok
+// pokynu vo `VSTUPY.md` prípadu a náhľad s názvom prípadu; zmena úlohy (splnená, nový termín) riadok nepridá.
+const TASK_SENTENCE = "Pripomeň mi vyžiadať prílohu č. 4 do stredy.";
+const task = () => record("T-001", "task", "L2", "Vyžiadať prílohu č. 4", TASK_SENTENCE, "state: pending\ndue: 2026-11-18\n");
+const rowsOf = async (register: string) => (await readFile(register, "utf8")).split("\n").filter((line) => line.startsWith("| IN-"));
+
+test("#417: nová úloha prípadu: náhľad s názvom prípadu, potom riadok pokynu vo VSTUPY.md; zmena úlohy riadok nepridá", async () => {
+  const f = await fixture();
+  const dir = f.cases[0]!, register = join(dir, "VSTUPY.md");
+  const earlier = "---\ntype: input-register\n---\n\n# Vstupy\n\n| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |\n|---|---|---|---|---|---|\n| IN-001 | 2026-11-01T10:00:00+01:00 | e-mail | 01_Podklady/zmluva.pdf | pending | |\n";
+  await writeFile(register, earlier);
+  const before = await snapshot(f.root);
+  const body = { matter: dir, record: task(), reason: "Pokyn advokáta v chate" };
+  const preview = previewOf(await f.write(body));
+  expect(preview).toMatchObject({ status: "preview", kind: "create", type: "task", title: "Vyžiadať prílohu č. 4",
+    task: { case: "Spor o úhradu dodávok", register: "Spisy/M001-Spor-o-uhradu/VSTUPY.md", inputId: "IN-002" } });
+  expect(preview.deadline).toBeUndefined();
+  expect(await snapshot(f.root)).toEqual(before);
+  // A token without the register (or a register changed after the card) is refused, nothing written.
+  expect((await refusal(f.write({ ...body, apply: true, approved: "0".repeat(64) })))?.code).toBe("memory_write_changed");
+  expect(await snapshot(f.root)).toEqual(before);
+
+  const written = await f.write({ ...body, apply: true, approved: preview.approved });
+  expect(written).toMatchObject({ status: "written", id: "T-001", register: "Spisy/M001-Spor-o-uhradu/VSTUPY.md", inputId: "IN-002" });
+  const rows = await rowsOf(register);
+  expect(rows[0]).toBe("| IN-001 | 2026-11-01T10:00:00+01:00 | e-mail | 01_Podklady/zmluva.pdf | pending | |");
+  expect(rows[1]).toMatch(/^\| IN-002 \| 2026-11-10T09:30:00[+-]\d{2}:\d{2} \| pokyn advokáta v chate \(LAWOSS\): „Pripomeň mi vyžiadať prílohu č\. 4 do stredy\.“ \| — \| processed \| T-001 \|$/);
+  expect(rows).toHaveLength(2);
+  const file = (await readdir(join(dir, "memory"))).find((name) => name.startsWith("T-001"));
+  expect(file).toBeDefined();
+  const after = await snapshot(f.root);
+  expect(Object.keys(after).filter((path) => after[path] !== before[path]).sort()).toEqual([register, join(dir, "memory", file!)].sort());
+
+  // Marking the task done (an update with its revision) writes the record only: no new row, no task part on the card.
+  const read = await readMatterMemoryForChat(f.config, f.own, { action: "read", matter: dir }, f.links);
+  expect(read.text).toContain("T-001");
+  const revision = /Revision T-001: ([0-9a-f]{64})/.exec(read.text)?.[1];
+  expect(revision).toBeDefined();
+  const current = await readFile(join(dir, "memory", file!), "utf8");
+  const done = `${current.replace("state: pending", "state: done").replace(`updated: ${D}`, "updated: 2026-11-12").replace(/\n*$/, "\n")}- 2026-11-12 — splnené\n`;
+  const update = { matter: dir, record: done, reason: "Úloha splnená", ifRevision: revision };
+  const changed = previewOf(await f.write(update));
+  expect(changed.kind).toBe("update");
+  expect(changed.task).toBeUndefined();
+  await f.write({ ...update, apply: true, approved: changed.approved });
+  expect(await readFile(join(dir, "memory", file!), "utf8")).toContain("state: done");
+  expect(await rowsOf(register)).toHaveLength(2);
+
+  // Another record type (not a task) never touches the register; a case without a register gets one only for a task.
+  const decision = previewOf(await f.write({ matter: f.cases[1], record: record("D-001", "decision", "L2", "Rozhodnutie", "SYN"), reason: "SYN" }));
+  expect(decision.task).toBeUndefined();
+  await f.write({ matter: f.cases[1], record: record("D-001", "decision", "L2", "Rozhodnutie", "SYN"), reason: "SYN", apply: true, approved: decision.approved });
+  expect(await stat(join(f.cases[1]!, "VSTUPY.md")).catch(() => null)).toBeNull();
+  const fresh = previewOf(await f.write({ matter: f.cases[1], record: task(), reason: "SYN" }));
+  expect(fresh.task).toMatchObject({ case: "Nájom skladu", inputId: "IN-001" });
+  await f.write({ matter: f.cases[1], record: task(), reason: "SYN", apply: true, approved: fresh.approved });
+  expect(await rowsOf(join(f.cases[1]!, "VSTUPY.md"))).toHaveLength(1);
+});
+
+test("#417: zlyhanie zápisu úlohy vráti VSTUPY.md späť; zmena registra po karte sa odmietne", async () => {
+  const f = await fixture();
+  const dir = f.cases[0]!, register = join(dir, "VSTUPY.md");
+  const body = { matter: dir, record: task(), reason: "SYN" };
+  // A register created by this call disappears again.
+  const first = previewOf(await f.write(body));
+  await mkdir(join(dir, ".okf-write.lock"));
+  const before = await snapshot(f.root);
+  expect((await refusal(f.write({ ...body, apply: true, approved: first.approved })))?.code).toBe("memory_write_refused");
+  expect(await snapshot(f.root)).toEqual(before);
+  expect(await stat(register).catch(() => null)).toBeNull();
+  await rm(join(dir, ".okf-write.lock"), { recursive: true });
+  // An existing register gets its earlier bytes back.
+  const earlier = "# Vstupy\n\n| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |\n|---|---|---|---|---|---|\n| IN-007 | 2026-11-01 | e-mail | a.pdf | pending | |\n";
+  await writeFile(register, earlier);
+  const second = previewOf(await f.write(body));
+  expect(second.task?.inputId).toBe("IN-008");
+  await mkdir(join(dir, ".okf-write.lock"));
+  expect((await refusal(f.write({ ...body, apply: true, approved: second.approved })))?.code).toBe("memory_write_refused");
+  expect(await readFile(register, "utf8")).toBe(earlier);
+  expect((await readdir(join(dir, "memory"))).sort()).toEqual(["M-001.md"]);
+  await rm(join(dir, ".okf-write.lock"), { recursive: true });
+  // The register changed after the card: the approval no longer covers it.
+  await writeFile(register, `${earlier}| IN-008 | 2026-11-10 | e-mail | b.pdf | pending | |\n`);
+  expect((await refusal(f.write({ ...body, apply: true, approved: second.approved })))?.code).toBe("memory_write_changed");
+  expect((await readdir(join(dir, "memory"))).sort()).toEqual(["M-001.md"]);
+});

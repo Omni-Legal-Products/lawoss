@@ -16,7 +16,9 @@ import { currentLocale, t } from "@/i18n";
 import type { FileOperationDetails } from "./file-operation-card";
 
 type Deadline = { case: string; date: string; what: string; register: string };
-type MemoryWrite = { target: string; kind: "create" | "update"; title: string; type: string; truth: string; previousTruth?: string; history: string[]; fields: string[]; reason?: string; client?: true; deadline?: Deadline };
+/** #417: a new task of a case is registered among the case's inputs like a deadline. */
+type Task = { case: string; register: string };
+type MemoryWrite = { target: string; kind: "create" | "update"; title: string; type: string; truth: string; previousTruth?: string; history: string[]; fields: string[]; reason?: string; client?: true; deadline?: Deadline; task?: Task };
 
 /** The deadline's part of the preview; incomplete data gives no deadline card (the plain memory card still shows the record). */
 function deadlineOf(raw: unknown): Deadline | null {
@@ -25,6 +27,13 @@ function deadlineOf(raw: unknown): Deadline | null {
   if (typeof name !== "string" || typeof date !== "string" || typeof what !== "string" || typeof register !== "string") return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !name || !what || !register) return null;
   return { case: name, date, what, register };
+}
+
+/** The task's case and register; incomplete data gives no such lines. */
+function taskOf(raw: unknown): Task | null {
+  if (!raw || typeof raw !== "object") return null;
+  const name: unknown = Reflect.get(raw, "case"), register: unknown = Reflect.get(raw, "register");
+  return typeof name === "string" && name && typeof register === "string" && register ? { case: name, register } : null;
 }
 
 /** The whole date with its year (a deadline next year must not look like next week); the ISO day stays beside it. */
@@ -46,10 +55,10 @@ function memoryWrite(metadata: Record<string, unknown>): MemoryWrite | null {
   const history = strings(Reflect.get(raw, "history")), fields = strings(Reflect.get(raw, "fields"));
   if (typeof target !== "string" || !target || typeof truth !== "string" || !history || !fields) return null;
   if ((kind !== "create" && kind !== "update") || typeof title !== "string") return null;
-  const deadline = deadlineOf(Reflect.get(raw, "deadline"));
+  const deadline = deadlineOf(Reflect.get(raw, "deadline")), task = taskOf(Reflect.get(raw, "task"));
   return { target, kind, title, type: typeof type === "string" ? type : "", truth, history, fields, ...(typeof previous === "string" ? { previousTruth: previous } : {}),
     ...(typeof reason === "string" && reason.trim() ? { reason: reason.trim() } : {}),
-    ...(Reflect.get(raw, "scope") === "client" ? { client: true as const } : {}), ...(deadline ? { deadline } : {}) };
+    ...(Reflect.get(raw, "scope") === "client" ? { client: true as const } : {}), ...(deadline ? { deadline } : {}), ...(task ? { task } : {}) };
 }
 
 type Card = { title: string; message: string; permissionLabel: string; scopeLabel: string; scopeValue: string; details: FileOperationDetails };
@@ -85,12 +94,18 @@ function taskDue(write: MemoryWrite): string | null {
   return parsed && !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
 }
 
-/** One card for the lawyer's task: what to do, by when, the file and every field of the new record. */
+/** The case by name and the register that gets the instruction's row, with the same words as a deadline (#417). */
+const taskCase = (write: MemoryWrite): string[] => write.task ? [t("lawoss.memory_write.deadline_case", undefined, { name: write.task.case })] : [];
+const taskRegister = (write: MemoryWrite): string[] => write.task ? [t("lawoss.memory_write.deadline_register", undefined, { path: write.task.register })] : [];
+
+/** One card for the lawyer's task: the case, what to do, by when, the files and every field of the new record. */
 function taskCard(write: MemoryWrite, due: string): Card {
   const lines = [
+    ...taskCase(write),
     t("lawoss.memory_write.task_what", undefined, { text: write.title }),
     t("lawoss.memory_write.task_due", undefined, { date: fullDay(due) }),
     t("lawoss.memory_write.file", undefined, { path: write.target }),
+    ...taskRegister(write),
     t("lawoss.memory_write.text", undefined, { text: write.truth }),
     ...write.history.map((text) => t("lawoss.memory_write.history", undefined, { text })),
     ...write.fields.map((text) => t("lawoss.memory_write.field_new", undefined, { text })),
@@ -111,8 +126,8 @@ export function memoryWriteCard(metadata: Record<string, unknown>): Card | null 
   const due = taskDue(write);
   if (due) return taskCard(write, due);
   // A note for the whole client says so in plain words before the file.
-  const whole = write.client ? [t("lawoss.memory_write.client_scope")] : [];
-  const file = t("lawoss.memory_write.file", undefined, { path: write.target }), text = t("lawoss.memory_write.text", undefined, { text: write.truth });
+  const whole = write.client ? [t("lawoss.memory_write.client_scope")] : taskCase(write);
+  const file = [t("lawoss.memory_write.file", undefined, { path: write.target }), ...taskRegister(write)], text = t("lawoss.memory_write.text", undefined, { text: write.truth });
   // A new record shows every field it brings (also a subject's identifiers); a change shows the changed ones.
   const record = t(write.kind === "create" ? "lawoss.memory_write.record_new" : "lawoss.memory_write.record_change", undefined, { title: write.title });
   const added = [...write.history.map((text) => t("lawoss.memory_write.history", undefined, { text })),
@@ -123,10 +138,10 @@ export function memoryWriteCard(metadata: Record<string, unknown>): Card | null 
     // Test alfy 10. 11.: karta poznámky ku klientovi písala „Pamäť prípadu“.
     permissionLabel: t(write.client ? "lawoss.memory_write.client_permission_label" : "lawoss.memory_write.permission_label"),
     scopeLabel: t("lawoss.memory_write.scope"),
-    scopeValue: [...whole, file, record, text, ...added].join("\n"),
+    scopeValue: [...whole, ...file, record, text, ...added].join("\n"),
     details: {
       reason: write.reason ? t("lawoss.files.reason", undefined, { text: write.reason }) : null,
-      lines: [...whole, file, record, ...(write.previousTruth === undefined ? [] : [t("lawoss.memory_write.previous", undefined, { text: write.previousTruth })]), text, ...added],
+      lines: [...whole, ...file, record, ...(write.previousTruth === undefined ? [] : [t("lawoss.memory_write.previous", undefined, { text: write.previousTruth })]), text, ...added],
     },
   };
 }

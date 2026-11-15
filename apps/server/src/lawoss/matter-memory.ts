@@ -176,9 +176,12 @@ export type MatterMemoryWritePreview = {
   scope?: "client";
   /** A deadline from the lawyer's instruction in chat: what the card says besides the record. */
   deadline?: MatterMemoryDeadline;
+  /** A new task of a case (#417): the case by name and the input register row `inputId` written with it. */
+  task?: MatterMemoryTask;
 };
 /** `register`: the case's input register that gets the instruction's row `inputId`; `basis`: not verified from a document. */
 export type MatterMemoryDeadline = { case: string; date: string; what: string; basis: string; register: string; inputId: string };
+export type MatterMemoryTask = { case: string; register: string; inputId: string };
 export type MatterMemoryWriteResult = { status: "written"; target: string; id: string; text: string; register?: string; inputId?: string };
 
 /** A path for the lawyer, relative to the client's folder. */
@@ -246,6 +249,9 @@ async function writeTarget(config: ServerConfig, own: OwnFolders, matter: string
  * folder, another client or an office; only a layer L2 record that stays in the case is written (no approver's name,
  * no deletion). With `scope: "client"` the record goes to the client's own memory instead (subject, screening or a
  * client note, layer L2), under the same boundary. `kind: "instruction_deadline"` is `writeInstructionDeadline`.
+ * A new task of a case (#417, "pripomeň mi …") is the lawyer's instruction too: the preview names the case and the
+ * apply writes the instruction's row (Truth, closed with the task's ID) to the case's `VSTUPY.md` like a deadline.
+ * A change of a task (done, new term) adds no row.
  */
 export async function writeMatterMemoryForChat(config: ServerConfig, workspace: WorkspaceInfo, body: unknown,
   linkedFolders: (config: ServerConfig, workspace: WorkspaceInfo) => Promise<readonly string[]> = documentLinkedFolders, now = new Date()): Promise<MatterMemoryWritePreview | MatterMemoryWriteResult> {
@@ -272,20 +278,37 @@ export async function writeMatterMemoryForChat(config: ServerConfig, workspace: 
   if (client && !CLIENT_RECORD_TYPES.includes(plan.type)) throw refused(`A client-level record is only ${CLIENT_RECORD_TYPES.join(", ")}.`);
   const file = await canonicalPath(plan.file);
   if (!writable(file, own)) throw notOwn("written");
-  // Bound to the file, the preview and the exact bytes of the record that will be written.
-  const token = createHash("sha256").update(`${file}\0${plan.recordHash}\0${preview.out}`).digest("hex");
+  // #417: a new task of a case is the lawyer's instruction like a deadline: its row in the case's input register.
+  const task = !client && plan.kind === "create" && plan.type === "task" ? await taskRegister(target, own) : null;
+  // Bound to the file, the preview and the exact bytes of the record that will be written (and the register as shown).
+  const token = createHash("sha256").update(`${file}\0${plan.recordHash}\0${preview.out}${task ? `\0${task.register}\0${registerHash(task.before)}\0${task.inputId}` : ""}`).digest("hex");
   const shown = shownPath(file, own.root);
   if (!apply) {
     return { status: "preview", target: shown, kind: plan.kind, title: plan.title, type: plan.type, truth: plan.truth,
       ...(plan.previousTruth === undefined ? {} : { previousTruth: plan.previousTruth }),
-      history: plan.history, fields: plan.fields, reason, approved: token, ...(client ? { scope: "client" as const } : {}) };
+      history: plan.history, fields: plan.fields, reason, approved: token, ...(client ? { scope: "client" as const } : {}),
+      ...(task ? { task: { case: await caseName(target), register: shownPath(task.register, own.root), inputId: task.inputId } } : {}) };
   }
-  if (approved !== token) {
-    throw new ApiError(409, "memory_write_changed", "The case memory or the record changed after the card was shown. Nothing was written. Read the memory again and prepare a new proposal.");
+  const changed = () => new ApiError(409, "memory_write_changed", "The case memory or the record changed after the card was shown. Nothing was written. Read the memory again and prepare a new proposal.");
+  if (approved !== token) throw changed();
+  if (task) {
+    const shownRegister = shownPath(task.register, own.root);
+    const row = instructionInputRow(task.inputId, receivedStamp(now), plan.truth.replace(/\s+/g, " ").trim().slice(0, 1000), plan.id);
+    const text = await writeWithInputRow(task.register, task.before, row, basename(target), () => write(target, record, { ...options, apply: true }), changed,
+      (failure) => new ApiError(500, "memory_task_partial", `The task was not written, and the row ${task.inputId} could not be removed from ${shownRegister}. Tell the user to remove that row. ${failure.trim()}`));
+    return { status: "written", target: shown, id: plan.id, text, register: shownRegister, inputId: task.inputId };
   }
   const result = write(target, record, { ...options, apply: true });
   if (result.code !== 0) throw refused(result.out);
   return { status: "written", target: shown, id: plan.id, text: result.out };
+}
+
+/** The case's input register for a new task's row: its path, its bytes now and the next free input ID. */
+async function taskRegister(target: string, own: OwnFolders): Promise<{ register: string; before: Register | null; inputId: string }> {
+  const register = join(target, INPUT_REGISTER_FILE);
+  if (!writable(await canonicalPath(register), own)) throw notOwn("written");
+  const before = await readRegister(register).catch(() => { throw refused("The input register of this case is not a regular file."); });
+  return { register, before, inputId: nextInputId(before?.content ?? null) };
 }
 
 const deadlineSchema = z.object({
@@ -363,20 +386,30 @@ async function writeInstructionDeadline(config: ServerConfig, workspace: Workspa
   const changed = () => new ApiError(409, "memory_write_changed", "The case memory or its input register changed after the card was shown. Nothing was written. Prepare the deadline again.");
   if (approved !== token) throw changed();
   const row = instructionInputRow(inputId, receivedStamp(now), instruction.replace(/\s+/g, " "), composed.id);
-  const text = await withFileWriteLocks([register], async () => {
+  const text = await writeWithInputRow(register, before, row, basename(target), () => writeMatterMemory(target, composed.text ?? "", { reason, apply: true }), changed,
+    (failure) => new ApiError(500, "memory_deadline_partial", `The deadline was not written, and the row ${inputId} could not be removed from ${shownRegister}. Tell the user to remove that row. ${failure.trim()}`));
+  return { status: "written", target: shown, id: composed.id, text, register: shownRegister, inputId };
+}
+
+/**
+ * Under the register's lock: the register still as shown on the card, then the instruction's row, then the memory
+ * record. Both or neither: when the memory write fails, the row goes away again (undoing a memory record would be a
+ * deletion). `partial` is the error when even that fails.
+ */
+async function writeWithInputRow(register: string, before: Register | null, row: string, title: string, write: () => { code: number; out: string },
+  changed: () => ApiError, partial: (failure: string) => ApiError): Promise<string> {
+  return withFileWriteLocks([register], async () => {
     const current = await readRegister(register);
     if (registerHash(current) !== registerHash(before)) throw changed();
-    await writeRegister(register, appendInputRow(current?.content ?? null, row, basename(target)), current);
+    await writeRegister(register, appendInputRow(current?.content ?? null, row, title), current);
     let failure: string | null = null, out = "";
     try {
-      const result = writeMatterMemory(target, composed.text ?? "", { reason, apply: true });
+      const result = write();
       if (result.code !== 0) failure = result.out; else out = result.out;
     } catch (error) { failure = error instanceof Error ? error.message : String(error); }
     if (failure === null) return out;
-    // Both or neither: the instruction's row goes away with the deadline that was not written.
     try { await restoreRegister(register, current); }
-    catch { throw new ApiError(500, "memory_deadline_partial", `The deadline was not written, and the row ${inputId} could not be removed from ${shownRegister}. Tell the user to remove that row. ${failure.trim()}`); }
+    catch { throw partial(failure); }
     throw refused(failure);
   });
-  return { status: "written", target: shown, id: composed.id, text, register: shownRegister, inputId };
 }

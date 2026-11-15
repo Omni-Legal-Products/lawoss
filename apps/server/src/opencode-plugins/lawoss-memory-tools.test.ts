@@ -147,3 +147,36 @@ test("lawoss_memory_write with scope client and lawoss_memory_deadline: one card
     adoptWikiAgentSecret(oldToken);
   }
 });
+
+// #417: a new task of a case is registered like a deadline; its card names the case and covers both files.
+test("lawoss_memory_write of a new task: one card with the case and both files, then apply", async () => {
+  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = wikiAgentSecret();
+  const bodies: Record<string, unknown>[] = [];
+  const task = { status: "preview", target: "Spisy/M001/memory/T-001-vyziadat-prilohu.md", kind: "create", title: "Vyžiadať prílohu č. 4", type: "task",
+    truth: "Pripomeň mi vyžiadať prílohu č. 4 do stredy.", history: [], fields: ["due: 2026-11-18"], reason: "Pokyn advokáta v chate", approved: "c".repeat(64),
+    task: { case: "Spor o úhradu dodávok", register: "Spisy/M001/VSTUPY.md", inputId: "IN-002" } };
+  const server = Bun.serve({ port: 0, async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/workspaces") return Response.json({ items: [{ id: "client", path: "/synthetic/K1" }] });
+    const body = z.record(z.string(), z.unknown()).parse(await request.json());
+    bodies.push(body);
+    if (body.apply) return Response.json({ status: "written", target: task.target, id: "T-001", text: "ok", register: "Spisy/M001/VSTUPY.md", inputId: "IN-002" });
+    return Response.json(task);
+  } });
+  process.env.LEGALWORK_SERVER_URL = server.url.origin; adoptWikiAgentSecret("fixture-token");
+  try {
+    const plugin = await lawossNativePlugin(MemoryTools);
+    const cards: { permission: string; patterns: string[]; metadata: Record<string, unknown> }[] = [];
+    const context = { directory: "/synthetic/K1", sessionID: "ses_memory", ask: async (card: { permission: string; patterns: string[]; metadata: Record<string, unknown> }) => { cards.push(card); } };
+    await plugin.tool.lawoss_memory_write.execute({ record: "---\nokf: 1\n---", reason: "Pokyn advokáta v chate", matter: "Spisy/M001" }, context);
+    expect(bodies[1]).toMatchObject({ apply: true, approved: "c".repeat(64) });
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ permission: "lawoss_file_change", patterns: ["Spisy/M001/memory/T-001-vyziadat-prilohu.md", "Spisy/M001/VSTUPY.md"],
+      metadata: { lawossMemory: { type: "task", task: { case: "Spor o úhradu dodávok", register: "Spisy/M001/VSTUPY.md", inputId: "IN-002" } } } });
+    expect(JSON.stringify(cards)).not.toContain("approved");
+  } finally {
+    server.stop(true);
+    if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
+    adoptWikiAgentSecret(oldToken);
+  }
+});

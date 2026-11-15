@@ -64,6 +64,7 @@ const preview = z.object({
   previousTruth: z.string().optional(), history: z.array(z.string()), fields: z.array(z.string()), reason: z.string(), approved: z.string(),
   scope: z.literal("client").optional(),
   deadline: z.object({ case: z.string(), date: z.string(), what: z.string(), basis: z.string(), register: z.string(), inputId: z.string() }).optional(),
+  task: z.object({ case: z.string(), register: z.string(), inputId: z.string() }).optional(),
 });
 
 /** The card's permission: the same rule as lawoss_files (lawoss/tool-permission-defaults.ts), so YOLO and edit denials apply. */
@@ -128,7 +129,8 @@ async function previewThenWrite(context: OpenCodeContext, workspace: string, bod
   if (!ask) throw new Error("Writing case memory needs the user's approval, but approval requests are unavailable.");
   const plan = preview.parse(JSON.parse(await post(context, workspace, "write", body)));
   const { approved, status: _status, ...card } = plan;
-  const patterns = plan.deadline ? [plan.target, plan.deadline.register] : [plan.target];
+  const register = plan.deadline?.register ?? plan.task?.register;
+  const patterns = register ? [plan.target, register] : [plan.target];
   const declined = await askOrDeclined(() => ask({ permission: PERMISSION, patterns, always: [], metadata: { lawossMemory: card } }), plan.target);
   if (declined) return declined;
   const written: unknown = JSON.parse(await post(context, workspace, "write", { ...body, apply: true, approved }));
