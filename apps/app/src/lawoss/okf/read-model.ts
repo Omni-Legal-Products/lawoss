@@ -26,7 +26,7 @@ import { isClientMatterFolder, isMattersDirName, nestedClientCode } from "../../
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { validateStore } from "../../../../../lawoss/okf-pamat/src/validate.ts";
 import { selectSourceSnapshot } from "./practice-read-state";
-import { loadOkfConnection, type OkfConnection } from "./connection";
+import { keptOkfConnection, loadOkfConnection, type OkfConnection } from "./connection";
 import type { OfficeMemoryRead } from "./office-memory";
 import { isHostAccessDenied } from "../lite/connection-problem";
 import { fileContentCacheFor } from "./file-content-cache";
@@ -813,16 +813,19 @@ export function revalidateOkfOverview(queries: QueryClient): void {
 }
 
 export function useOkfConnection(): { connection: OkfConnection | null; error: string | null } {
-  const [connection, setConnection] = useState<OkfConnection | null>(null);
+  // #418: a remount starts from the last connection of the same server, so its cached overview shows at once.
+  const [connection, setConnection] = useState<OkfConnection | null>(keptOkfConnection);
   const [error, setError] = useState<string | null>(null);
   // Server může po přepnutí složky vydat nové spojení (adresa, token) - upstream to ohlásí
   // událostí; bez nového načtení by stránka četla starým tokenem a hlásila chybu.
   const queries = useQueryClient();
   const [generation, setGeneration] = useState(0);
   useEffect(() => {
-    const onChange = () => {
+    const onChange = (event: Event) => {
       revalidateOkfOverview(queries);
-      setConnection(null); setGeneration(value => value + 1);
+      // #418: same stored settings (e.g. an engine reload) keep the connection until the new one resolves; a restored
+      // office scope changes the active folder, so pages read it again from scratch.
+      setConnection(event.type === SERVER_SETTINGS_CHANGED ? keptOkfConnection() : null); setGeneration(value => value + 1);
     };
     for (const name of [SERVER_SETTINGS_CHANGED, OFFICE_SCOPE_RESTORED]) window.addEventListener(name, onChange);
     return () => { for (const name of [SERVER_SETTINGS_CHANGED, OFFICE_SCOPE_RESTORED]) window.removeEventListener(name, onChange); };
