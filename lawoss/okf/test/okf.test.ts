@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { parseFrontmatter, planEntity, renderTemplate, validateMarkdown } from "../src/core.ts";
-import { apply, detect, plan, render, validate } from "../src/fs.ts";
+import { apply, detect, officeFactsJurisdiction, plan, render, validate } from "../src/fs.ts";
 import { TEMPLATES } from "../src/templates.ts";
 import { run } from "../src/cli.ts";
 import { buildMatterOperations, newMatterFolder } from "../src/onboarding/entities.ts";
@@ -269,6 +269,28 @@ describe("kontrakt spisu", () => {
       const bundled = spawnSync("node", [cli, "apply", "spis", "--title", "Z bundlu", "--date", "2026-11-15"], { cwd: client, encoding: "utf8", env: { ...process.env, LAWOSS_OFFICE_PROFILE: profile } });
       expect(bundled.status).toBe(0);
       expect(parseFrontmatter(readFileSync(join(client, "Spisy", "2026-11 Z bundlu", "matter.md"), "utf8"))?.jurisdiction).toBe("sk");
+    });
+
+    test("office.json vedľa nasadeného okf.js platí aj bez premennej prostredia; príznak vyhráva", () => {
+      const { client } = office((practice) => join(practice, "Office"));
+      delete process.env.LAWOSS_OFFICE_PROFILE;
+      // Nasadený skill ako v appke: priečinok appky klienta, bundle CLI a vedľa neho office.json.
+      const resources = join(client, ".opencode", "skills", "novy-spis", "resources");
+      mkdirSync(resources, { recursive: true });
+      const cli = join(resources, "okf.js");
+      writeFileSync(cli, readFileSync(fileURLToPath(new URL("../bundle/okf.js", import.meta.url))));
+      const env = { ...process.env };
+      delete env.LAWOSS_OFFICE_PROFILE;
+      const okf = (...args: string[]) => spawnSync("node", [cli, ...args, "--date", "2026-11-15"], { cwd: client, encoding: "utf8", env });
+      expect(okf("plan", "spis", "--title", "Bez faktov").status).toBe(2);
+      writeFileSync(join(resources, "office.json"), JSON.stringify({ jurisdiction: "sk" }));
+      expect(okf("apply", "spis", "--title", "Spor").status).toBe(0);
+      expect(parseFrontmatter(readFileSync(join(client, "Spisy", "2026-11 Spor", "matter.md"), "utf8"))?.jurisdiction).toBe("sk");
+      expect(okf("apply", "spis", "--title", "Česká vec", "--cz").status).toBe(0);
+      expect(parseFrontmatter(readFileSync(join(client, "Spisy", "2026-11 Česká vec", "matter.md"), "utf8"))?.jurisdiction).toBe("cz");
+      writeFileSync(join(resources, "office.json"), JSON.stringify({ jurisdiction: "at" }));
+      expect(okf("plan", "spis", "--title", "Neplatná").status).toBe(2);
+      expect(officeFactsJurisdiction(join(resources, "chyba.json"))).toBeUndefined();
     });
 
     test("profil s koreňom praxe platí tiež; iná kancelária, neplatná jurisdikcia alebo bez profilu: chyba ako doteraz", () => {

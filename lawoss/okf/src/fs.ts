@@ -1,6 +1,7 @@
 /** Súborová vrstva OKF — jediné miesto, ktoré číta a píše na disk. */
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   CARD_ALIASES,
@@ -67,7 +68,26 @@ export function inheritedJurisdiction(dir: string): Jurisdiction | undefined {
   const office = findOfficeDir(dir);
   const path = office ? join(office, "okf.config") : undefined;
   const fromOffice = path && existsSync(path) && statSync(path).isFile() ? known(parseConfig(decodeText(readFileSync(path))).get("jurisdiction")) : undefined;
-  return fromOffice ?? known(officeProfileJurisdiction(dir));
+  return fromOffice ?? known(officeProfileJurisdiction(dir)) ?? known(officeFactsJurisdiction());
+}
+
+/** Súbor appky LAWOSS vedľa pribaleného CLI (`.opencode/skills/<skill>/resources/office.json`). */
+export const OFFICE_FACTS_FILE = "office.json";
+
+/**
+ * #415: úplne posledná možnosť, nezávislá od prostredia procesu. Príkazy agenta spúšťa server (alebo izolované
+ * prostredie), nie engine, takže premenná enginu k nim nedôjde. Appka preto vedľa `okf.js` v priečinku appky klienta
+ * drží `office.json` s jurisdikciou kancelárie (len `{"jurisdiction":"sk"|"cz"}`); CLI ho číta vedľa seba.
+ */
+export function officeFactsJurisdiction(file: string = fileURLToPath(new URL(`./${OFFICE_FACTS_FILE}`, import.meta.url))): string | undefined {
+  try {
+    if (!existsSync(file) || !lstatSync(file).isFile()) return undefined;
+    const raw: unknown = JSON.parse(decodeText(readFileSync(file)));
+    const jurisdiction: unknown = raw && typeof raw === "object" ? Reflect.get(raw, "jurisdiction") : undefined;
+    return typeof jurisdiction === "string" ? jurisdiction : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Premenná, ktorou appka LAWOSS dá enginu (a jeho príkazom) cestu k profilu kancelárie z onboardingu. */

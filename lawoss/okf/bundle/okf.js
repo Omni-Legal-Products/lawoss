@@ -5,7 +5,7 @@
 // src/cli.ts
 import { existsSync as existsSync4, realpathSync as realpathSync6 } from "fs";
 import { dirname as dirname13, join as join17, relative as relative11, resolve as resolve15 } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath as fileURLToPath2 } from "url";
 
 // src/onboarding/cli.ts
 import { constants as constants8 } from "node:fs";
@@ -5828,6 +5828,7 @@ function existingCard2(type, exists) {
 // src/fs.ts
 import { existsSync as existsSync3, lstatSync as lstatSync4, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync2, realpathSync as realpathSync4, statSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { basename as basename8, dirname as dirname11, isAbsolute as isAbsolute10, join as join15, relative as relative9, resolve as resolve13, sep as sep10 } from "node:path";
+import { fileURLToPath } from "node:url";
 function readText(path) {
   return readFileSync2(path, "utf8");
 }
@@ -5865,7 +5866,19 @@ function inheritedJurisdiction(dir) {
   const office = findOfficeDir(dir);
   const path = office ? join15(office, "okf.config") : undefined;
   const fromOffice = path && existsSync3(path) && statSync(path).isFile() ? known(parseFrontmatter2(decodeText(readFileSync2(path))).get("jurisdiction")) : undefined;
-  return fromOffice ?? known(officeProfileJurisdiction(dir));
+  return fromOffice ?? known(officeProfileJurisdiction(dir)) ?? known(officeFactsJurisdiction());
+}
+var OFFICE_FACTS_FILE = "office.json";
+function officeFactsJurisdiction(file = fileURLToPath(new URL(`./${OFFICE_FACTS_FILE}`, import.meta.url))) {
+  try {
+    if (!existsSync3(file) || !lstatSync4(file).isFile())
+      return;
+    const raw = JSON.parse(decodeText(readFileSync2(file)));
+    const jurisdiction = raw && typeof raw === "object" ? Reflect.get(raw, "jurisdiction") : undefined;
+    return typeof jurisdiction === "string" ? jurisdiction : undefined;
+  } catch {
+    return;
+  }
 }
 var OFFICE_PROFILE_ENV = "LAWOSS_OFFICE_PROFILE";
 var OFFICE_FOLDERS = new Set([OFFICE_DIR, LEGACY_OFFICE_DIR].map((name) => name.toLowerCase()));
@@ -7160,7 +7173,7 @@ function run(argv, out = console.log) {
 }
 var isMain = (() => {
   try {
-    return realpathSync6(process.argv[1] ?? "") === realpathSync6(fileURLToPath(import.meta.url));
+    return realpathSync6(process.argv[1] ?? "") === realpathSync6(fileURLToPath2(import.meta.url));
   } catch {
     return false;
   }

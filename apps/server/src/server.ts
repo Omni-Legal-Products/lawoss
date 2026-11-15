@@ -19,6 +19,7 @@ import { registerLawossDocumentRoutes } from "./routes/lawoss-documents.js";
 import { sessionFolder, sessionOwnershipChecked, workspaceChatOwnership, workspaceOwnsChat } from "./lawoss/session-ownership.js";
 import { getWorkspaceMemoryContext, getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
 import { readMatterMemoryForChat, writeMatterMemoryForChat } from "./lawoss/matter-memory.js";
+import { OKF_CLI_FILE, refreshOfficeFacts } from "./lawoss/office-facts.js"; // 🟡 LAWOSS #415
 import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
 import { createAssistantRuntime } from "./assistant-runtime.js";
 import { registerBrowserConnectionRoutes } from "./routes/browser-passwords.js";
@@ -5157,6 +5158,8 @@ function createRoutes(
     }
     for (let i = 0; i < requested.length; i++) await recheckWorkspaceFilePath(skillDir, requested[i]!, approved[i]!);
     const result = await upsertSkillResource(workspaceAppFilesRoot(config, workspace), skill, { name, content, contentBase64 });
+    // 🟡 LAWOSS #415: vedľa okf.js aj office.json s jurisdikciou kancelárie (lawoss/office-facts.ts).
+    if (name === OKF_CLI_FILE) await refreshOfficeFacts(config, workspace).catch(() => 0);
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
       workspaceId: workspace.id,

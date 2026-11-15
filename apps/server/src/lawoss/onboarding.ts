@@ -17,6 +17,7 @@ import { registerTriageRoutes } from "./triage.js";
 import { readOfficeMemory } from "./office-memory.js";
 import { assertClientFolderNotNested } from "./nested-client.js";
 import { practiceRootOf, unadoptedClientFolders } from "./unadopted-clients.js";
+import { refreshAllOfficeFacts } from "./office-facts.js";
 import { folderGone, inferPracticeMove, movedClientOf, previewMovedFolder, rebaseOfficeGrants, syncOfficeGrant } from "./moved-practice.js";
 import { executeOnboarding, inspectCardLevel, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, suggestOnboardingLevel, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
 
@@ -150,6 +151,8 @@ export function registerOnboardingRoutes(options: {
   const profilePath = join(storage, "profile.json");
   const busy = new Set<string>();
   let profileQueue: Promise<unknown> = Promise.resolve();
+  // #415: klienti zavedení skôr dostanú `office.json` pri štarte servera (na pozadí, jeden po druhom).
+  void refreshAllOfficeFacts(config);
   const ensureStorage = async () => { await mkdir(storage, { recursive: true, mode: 0o700 }); await canonicalDirectory(storage); };
   const readProfile = async (): Promise<Profile | null> => { try { return profileSchema.parse(await readJson(profilePath)); } catch (error) { if (missing(error)) return null; throw error; } };
   const body = (ctx: RequestContext) => options.readJsonBodyLimited(ctx.request, 64 * 1024);
@@ -215,7 +218,9 @@ export function registerOnboardingRoutes(options: {
         try { const marker = z.object({ version: z.literal(1), trial: z.literal(true) }).parse(await readJson(join(profile.clientRoot, ".lawoss-trial.json"))); profile.trial = marker.trial; }
         catch (error) { if (!missing(error)) throw error; profile.trial = false; }
       }
-      await ensureStorage(); await writeJson(profilePath, profile, true); return profile;
+      await ensureStorage(); await writeJson(profilePath, profile, true);
+      await refreshAllOfficeFacts(config); // #415: jurisdikcia kancelárie vedľa okf.js klientov.
+      return profile;
     };
     const pending = profileQueue.then(change); profileQueue = pending.catch(() => undefined); return pending;
   });
@@ -240,6 +245,7 @@ export function registerOnboardingRoutes(options: {
       const moved = (path: string | undefined) => path && inside(input.previousRoot, path) ? join(folder, relative(input.previousRoot, path)) : path;
       const profile = profileSchema.parse({ ...previous, officeRoot: folder, clientRoot: moved(previous.clientRoot), subjectRoot: moved(previous.subjectRoot), matterRoot: moved(previous.matterRoot), foundRoot: moved(previous.foundRoot) });
       await ensureStorage(); await writeJson(profilePath, profile, true);
+      await refreshAllOfficeFacts(config);
       return { profile, grants: await rebaseOfficeGrants(config, resolve(input.previousRoot), folder) };
     };
     const pending = profileQueue.then(change); profileQueue = pending.catch(() => undefined); return pending;
