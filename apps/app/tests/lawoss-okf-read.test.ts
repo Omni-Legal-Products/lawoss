@@ -506,7 +506,7 @@ test("priečinok pomenovaný ako vec (`2025-01 Spor`) je vecou klienta aj bez ka
 
 test("#431: pri Spisy/ (aj prázdnom z pomocných súborov) je vedľa neho prípad len s kartou, kódom alebo spisovou značkou", async () => {
   // Klient z onboardingu `2-jeden-neusporiadany-klient`: karta, pracovné priečinky, prázdny Spisy/ a M00x vedľa neho.
-  // MČ 15. 11. (#431): pri Spisy/ sa heuristika názvu nepoužije; spresnenie z review: kód a spisová značka ostávajú
+  // #431: pri Spisy/ sa heuristika názvu nepoužije; spresnenie z review: kód a spisová značka ostávajú
   // silným znakom (staré ploché prípady `M001 …` nezmiznú), slovo veci („Žaloba …“) ani dátum na začiatku nie.
   const files = {
     "client.md": "---\ntitle: SYN Tatran Automatika\n---\n",
