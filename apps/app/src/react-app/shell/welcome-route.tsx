@@ -13,6 +13,7 @@ import { onboardingLanding } from "@/lawoss/domains/onboarding/landing";
 import { writeActiveWorkspaceId } from "./session-memory";
 import { useLocal } from "../kernel/local-provider";
 import { LawossWelcomePage } from "@/lawoss/domains/onboarding/lawoss-welcome-page";
+import { onboardingFolderPicker } from "@/lawoss/domains/onboarding/folder-picker";
 import type { OnboardingApplyResult, OnboardingStep } from "@/lawoss/domains/onboarding/api";
 import type { OnboardingCompletion } from "@/lawoss/domains/onboarding/lawoss-welcome-page";
 import { authorAfterOnboarding } from "@/lawoss/okf/lawyer-name";
@@ -20,7 +21,6 @@ import { canonicalPathOf, withCanonicalPaths } from "@/lawoss/domains/onboarding
 import { watchLegalworkConnection } from "@/lawoss/domains/onboarding/server-connection";
 import { registerOnboardedWorkspace } from "@/lawoss/domains/onboarding/register-clients";
 import { openOnboardedClientChat } from "@/lawoss/domains/onboarding/client-chat-open";
-import { onboardingFolderPicker } from "@/lawoss/domains/onboarding/folder-picker";
 
 // 🟡 LAWOSS: napísané a vložené cesty idú na server v tvare ako vybrané v dialógu (Windows, typed-paths.ts); v prehliadači bez zmeny.
 const typedPaths = (client: LegalworkServerClient) => isDesktopRuntime() ? withCanonicalPaths(client, canonicalDirectoryPath) : client;
