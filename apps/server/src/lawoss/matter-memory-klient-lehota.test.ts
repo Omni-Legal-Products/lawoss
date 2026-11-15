@@ -280,6 +280,8 @@ test("#417: nová úloha prípadu: náhľad s názvom prípadu, potom riadok pok
   expect(preview.deadline).toBeUndefined();
   // The card quotes the sentence that becomes the row, with its whitespace collapsed as written to the register.
   expect(previewOf(await f.write({ ...body, instruction: `  Pripomeň mi\n vyžiadať   prílohu č. 4 do stredy. ` })).task?.instruction).toBe(TASK_SENTENCE);
+  // A `|` cannot stay in a table cell: the card shows the space the row will have, not the original character.
+  expect(previewOf(await f.write({ ...body, instruction: "Pripomeň mi | vyžiadať prílohu č. 4 do stredy." })).task?.instruction).toBe("Pripomeň mi vyžiadať prílohu č. 4 do stredy.");
   expect(await snapshot(f.root)).toEqual(before);
   // A token without the register (or a register changed after the card) is refused, nothing written.
   expect((await refusal(f.write({ ...body, apply: true, approved: "0".repeat(64) })))?.code).toBe("memory_write_changed");
