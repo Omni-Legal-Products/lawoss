@@ -154,7 +154,7 @@ test("lawoss_memory_write of a new task: one card with the case and both files, 
   const bodies: Record<string, unknown>[] = [];
   const task = { status: "preview", target: "Spisy/M001/memory/T-001-vyziadat-prilohu.md", kind: "create", title: "Vyžiadať prílohu č. 4", type: "task",
     truth: "Pripomeň mi vyžiadať prílohu č. 4 do stredy.", history: [], fields: ["due: 2026-11-18"], reason: "Pokyn advokáta v chate", approved: "c".repeat(64),
-    task: { case: "Spor o úhradu dodávok", register: "Spisy/M001/VSTUPY.md", inputId: "IN-002" } };
+    task: { case: "Spor o úhradu dodávok", register: "Spisy/M001/VSTUPY.md", inputId: "IN-002", instruction: "Pripomeň mi vyžiadať prílohu č. 4 do stredy." } };
   const server = Bun.serve({ port: 0, async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === "/workspaces") return Response.json({ items: [{ id: "client", path: "/synthetic/K1" }] });
@@ -174,8 +174,16 @@ test("lawoss_memory_write of a new task: one card with the case and both files, 
     expect(bodies[1]).toMatchObject({ apply: true, approved: "c".repeat(64), instruction: task.truth });
     expect(cards).toHaveLength(1);
     expect(cards[0]).toMatchObject({ permission: "lawoss_file_change", patterns: ["Spisy/M001/memory/T-001-vyziadat-prilohu.md", "Spisy/M001/VSTUPY.md"],
-      metadata: { lawossMemory: { type: "task", task: { case: "Spor o úhradu dodávok", register: "Spisy/M001/VSTUPY.md", inputId: "IN-002" } } } });
+      metadata: { lawossMemory: { type: "task", task: { case: "Spor o úhradu dodávok", register: "Spisy/M001/VSTUPY.md", inputId: "IN-002", instruction: task.truth } } } });
     expect(JSON.stringify(cards)).not.toContain("approved");
+    // A blank sentence is refused with a clear message before any request; the model sees the constraint too.
+    const sent = bodies.length;
+    for (const tool of ["lawoss_memory_write", "lawoss_memory_deadline"] as const) {
+      const input = tool === "lawoss_memory_write" ? { record: "x", reason: "y", matter: "Spisy/M001", instruction: " \n " } : { date: "2026-11-25", what: "Odpoveď", matter: "Spisy/M001", instruction: "   " };
+      await expect(plugin.tool[tool].execute(input, context)).rejects.toThrow("instruction is empty");
+      expect(z.fromJSONSchema(JSON.parse(JSON.stringify(plugin.tool[tool].input))).safeParse(input).success).toBe(false);
+    }
+    expect(bodies).toHaveLength(sent);
   } finally {
     server.stop(true);
     if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;

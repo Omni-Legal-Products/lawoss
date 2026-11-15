@@ -178,12 +178,12 @@ export type MatterMemoryWritePreview = {
   scope?: "client";
   /** A deadline from the lawyer's instruction in chat: what the card says besides the record. */
   deadline?: MatterMemoryDeadline;
-  /** A new task of a case (#417): the case by name and the input register row `inputId` written with it. */
+  /** A new task of a case (#417): the case by name, the input register row `inputId` written with it and that row's sentence. */
   task?: MatterMemoryTask;
 };
 /** `register`: the case's input register that gets the instruction's row `inputId`; `basis`: not verified from a document. */
 export type MatterMemoryDeadline = { case: string; date: string; what: string; basis: string; register: string; inputId: string };
-export type MatterMemoryTask = { case: string; register: string; inputId: string };
+export type MatterMemoryTask = { case: string; register: string; inputId: string; instruction: string };
 export type MatterMemoryWriteResult = { status: "written"; target: string; id: string; text: string; register?: string; inputId?: string };
 
 /** A path for the lawyer, relative to the client's folder. */
@@ -295,7 +295,7 @@ export async function writeMatterMemoryForChat(config: ServerConfig, workspace: 
     return { status: "preview", target: shown, kind: plan.kind, title: plan.title, type: plan.type, truth: plan.truth,
       ...(plan.previousTruth === undefined ? {} : { previousTruth: plan.previousTruth }),
       history: plan.history, fields: plan.fields, reason, approved: token, ...(client ? { scope: "client" as const } : {}),
-      ...(task ? { task: { case: await caseName(target), register: shownPath(task.register, own.root), inputId: task.inputId } } : {}) };
+      ...(task ? { task: { case: await caseName(target), register: shownPath(task.register, own.root), inputId: task.inputId, instruction: said ?? "" } } : {}) };
   }
   const changed = () => new ApiError(409, "memory_write_changed", "The case memory or the record changed after the card was shown. Nothing was written. Read the memory again and prepare a new proposal.");
   if (approved !== token) throw changed();

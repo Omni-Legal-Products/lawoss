@@ -276,8 +276,10 @@ test("#417: nová úloha prípadu: náhľad s názvom prípadu, potom riadok pok
   const body = { matter: dir, record: task(), reason: "Pokyn advokáta v chate", instruction: TASK_SENTENCE };
   const preview = previewOf(await f.write(body));
   expect(preview).toMatchObject({ status: "preview", kind: "create", type: "task", title: "Vyžiadať prílohu č. 4",
-    task: { case: "Spor o úhradu dodávok", register: "Spisy/M001-Spor-o-uhradu/VSTUPY.md", inputId: "IN-002" } });
+    task: { case: "Spor o úhradu dodávok", register: "Spisy/M001-Spor-o-uhradu/VSTUPY.md", inputId: "IN-002", instruction: TASK_SENTENCE } });
   expect(preview.deadline).toBeUndefined();
+  // The card quotes the sentence that becomes the row, with its whitespace collapsed as written to the register.
+  expect(previewOf(await f.write({ ...body, instruction: `  Pripomeň mi\n vyžiadať   prílohu č. 4 do stredy. ` })).task?.instruction).toBe(TASK_SENTENCE);
   expect(await snapshot(f.root)).toEqual(before);
   // A token without the register (or a register changed after the card) is refused, nothing written.
   expect((await refusal(f.write({ ...body, apply: true, approved: "0".repeat(64) })))?.code).toBe("memory_write_changed");

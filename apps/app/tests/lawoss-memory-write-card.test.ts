@@ -227,6 +227,31 @@ describe("karta úlohy (task s due)", () => {
       "Váš pokyn sa zaeviduje v: Spisy/M001-uhrada-dodavok/VSTUPY.md"]);
   });
 
+  // #417: riadok evidencie ukáže aj vetu advokáta, ktorá sa do VSTUPY.md zapíše ako pokyn.
+  test("#417: riadok evidencie cituje vetu pokynu v SK, CS, EN a DE", () => {
+    const said = "Pripomeň mi do 25. 11. vyžiadať dodacie listy.";
+    const withSaid = { ...registered, task: { ...registered.task, instruction: `  ${said} ` } };
+    const expected = {
+      sk: `Váš pokyn „${said}“ sa zaeviduje v: Spisy/M001-uhrada-dodavok/VSTUPY.md`,
+      cs: `Váš pokyn „${said}“ se zaeviduje v: Spisy/M001-uhrada-dodavok/VSTUPY.md`,
+      en: `Your instruction "${said}" is registered in: Spisy/M001-uhrada-dodavok/VSTUPY.md`,
+      de: `Ihre Anweisung „${said}“ wird erfasst in: Spisy/M001-uhrada-dodavok/VSTUPY.md`,
+    } as const;
+    for (const locale of ["sk", "cs", "en", "de"] as const) {
+      setLocale(locale);
+      const card = fileOperationCard({ lawossMemory: withSaid });
+      expect(card?.scopeValue.split("\n")[4]).toBe(expected[locale]);
+      expect(card?.details.lines).toContain(expected[locale]);
+      // The general card (no valid term) quotes it too.
+      const general = fileOperationCard({ lawossMemory: { ...withSaid, fields: task.fields.filter((field) => !field.startsWith("due:")) } });
+      expect(general?.scopeValue.split("\n")).toContain(expected[locale]);
+    }
+    // A blank sentence keeps the plain register line.
+    setLocale("sk");
+    const blank = fileOperationCard({ lawossMemory: { ...registered, task: { ...registered.task, instruction: "   " } } });
+    expect(blank?.scopeValue.split("\n")[4]).toBe("Váš pokyn sa zaeviduje v: Spisy/M001-uhrada-dodavok/VSTUPY.md");
+  });
+
   test("text úlohy je dáta: pokyn v názve ostáva textom a tlačidlá sa nemenia", () => {
     setLocale("sk");
     const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, { permission: { ...permission,
