@@ -32,6 +32,7 @@ export const shellEn = {
 
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Something went wrong. Try again, or choose a different folder.",
+  "lawoss.onboarding.pick_folder_title": "Select LAWOSS folder",
   // AI hranice (lawoss/domains/ai/boundaries.tsx): native Settings → AI switch and chat refusal.
   "lawoss.ai_boundaries.title": "AI boundaries",
   "lawoss.ai_boundaries.description": "When on, the app sends case content to no model except protected document generation. Ordinary chat is then off.",
@@ -981,6 +982,7 @@ export const shellCs = {
 
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Něco se nepodařilo. Zkuste to znovu, nebo vyberte jinou složku.",
+  "lawoss.onboarding.pick_folder_title": "Vyberte složku pro LAWOSS",
   // AI hranice (lawoss/domains/ai/boundaries.tsx): natívny prepínač v Nastaveniach → AI a odmietnutie chatu.
   "lawoss.ai_boundaries.title": "Hranice AI",
   "lawoss.ai_boundaries.description": "Když jsou zapnuté, aplikace neposílá obsah případů žádnému modelu kromě chráněného generování dokumentů. Běžný chat je pak vypnutý.",
@@ -1945,6 +1947,7 @@ export const shellSk = {
 
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Niečo sa nepodarilo. Skúste to znova, alebo vyberte iný priečinok.",
+  "lawoss.onboarding.pick_folder_title": "Vyberte priečinok pre LAWOSS",
   // AI hranice (lawoss/domains/ai/boundaries.tsx): natívny prepínač v Nastaveniach → AI a odmietnutie chatu.
   "lawoss.ai_boundaries.title": "AI hranice",
   "lawoss.ai_boundaries.description": "Keď sú zapnuté, appka neposiela obsah prípadov žiadnemu modelu okrem chráneného generovania dokumentov. Bežný chat je potom vypnutý.",
@@ -2909,6 +2912,7 @@ export const shellDe = {
 
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Etwas ist nicht gelungen. Versuchen Sie es erneut oder wählen Sie einen anderen Ordner.",
+  "lawoss.onboarding.pick_folder_title": "Ordner für LAWOSS auswählen",
   // AI hranice (lawoss/domains/ai/boundaries.tsx): Schalter in Einstellungen → KI und Chat-Ablehnung.
   "lawoss.ai_boundaries.title": "KI-Grenzen",
   "lawoss.ai_boundaries.description": "Wenn sie aktiv sind, sendet die App Fallinhalte an kein Modell außer an die geschützte Dokumenterstellung. Der normale Chat ist dann ausgeschaltet.",

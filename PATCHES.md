@@ -2308,6 +2308,7 @@ Len bežný režim; pokročilý ostáva natívny. Logika je v nových alebo zele
 | `apps/app/src/react-app/domains/session/home/app-home.tsx` | Výber klienta na Domove: meno cez `useHomeClientLabel()` (+1 import, 1 hook, 2 výrazy), v bežnom režime ako bočný panel (meno z karty, nie priečinka); bez nového čítania. |
 | `apps/app/src/react-app/shell/command-palette.tsx` | Úryvok výsledku hľadania cez `plainSearchExcerpt()` (+1 import, 1 výraz): v bežnom režime bez `**`, `*`, `` ` ``, `#` a odkazov markdownu; porovnanie s cestou ostáva na pôvodnom texte. |
 | `apps/app/src/react-app/domains/session/panel/workspace-files-panel.tsx` | `DocumentProcessingPanel` obalený `LiteDocumentsDisclosure` (+1 import, 2 riadky): v bežnom režime za zbaleným riadkom „Spracovanie dokumentov pre asistenta“, obsah ostáva pripojený; pokročilý bez obalu. |
+| `apps/app/src/react-app/shell/welcome-route.tsx`, nový `apps/app/src/lawoss/domains/onboarding/folder-picker.ts`, `apps/app/src/lawoss/i18n/shell.ts` (LAWOSS okrem prvého, + test `tests/lawoss-onboarding-folder-picker-456.test.ts`) | #456 (test desktopu 15. 11.): `pickDirectory={onboardingFolderPicker(pickDirectory)}` (+1 import, 1 výraz, 1 komentár) namiesto napevno anglického nadpisu „Select LAWOSS folder“. Nadpis natívneho dialógu je `lawoss.onboarding.pick_folder_title` v jazyku rozhrania (SK/CS/EN/DE); `canonical: true` a návrat `null` pri zrušení ostávajú. |
 
 ## Prevzatie enginu v alfa buildoch (2026-11-13)
 
