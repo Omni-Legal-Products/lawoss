@@ -93,6 +93,12 @@ test('only an active OAuth connection and the exact requested model can generate
   expect(probe.calls.filter(call => call.path.endsWith('/generate'))).toHaveLength(1);
 });
 
+test('the selected GPT-6.1 Sol reaches session creation without an alias or substitution', async () => {
+  const probe = fixture({ connected: 'oauth', models: ['gpt-6.1-sol'] });
+  await verifySubscription({ ...probe, model: 'gpt-6.1-sol' });
+  expect(probe.calls.find(call => call.path === '/api/session')?.body).toMatchObject({ model: { providerID: 'openai', id: 'gpt-6.1-sol' } });
+});
+
 test.each(['key', 'env'])('does not generate with a %s connection even if a model is listed', async connected => {
   const probe = fixture({ connected });
   await expect(verifySubscription({ ...probe, model: 'gpt-6-luna' })).rejects.toThrow('not_subscription');

@@ -10,6 +10,8 @@ treats an OAuth token as an API key, copies an existing login, or falls back to 
 - Exact workflow commit on `dev`, the reviewed engine distribution and its independent manifest.
 - A fresh disposable native-engine profile on each runner, followed by restart of that same profile.
 - One explicit model ID from the application's subscription allowlist, with no model substitution.
+- The selected default for this test is **GPT-6.1 Sol**, native ID `gpt-6.1-sol`. If the account
+  or engine does not offer this exact ID, the probe is blocked instead of choosing another model.
 - Two short synthetic prompts per platform, each requesting a fixed marker and no tools.
 - Existing-application-profile migration, rendered UI, client isolation, approval cards, files,
   Word, installer and RAM acceptance are **not run by this probe**. The report says so explicitly.

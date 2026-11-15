@@ -84,6 +84,8 @@ test('workflow is opt-in on dev, has all native platforms and publishes only the
   const source = await readFile(new URL('../../../.github/workflows/chatgpt-subscription-smoke.yml', import.meta.url), 'utf8');
   const workflow = parse(source);
   assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch']);
+  assert.equal(workflow.on.workflow_dispatch.inputs.model.default, 'gpt-6.1-sol');
+  assert.doesNotThrow(() => preflight({ ...env, CHATGPT_PROBE_MODEL: workflow.on.workflow_dispatch.inputs.model.default }));
   assert.match(workflow.jobs.preflight.if, /github.ref == 'refs\/heads\/dev'.*inputs.authorize/);
   assert.match(workflow.jobs.refused.if, /github.ref != 'refs\/heads\/dev'.*!inputs.authorize/);
   assert.equal(workflow.jobs.refused.steps[0].run, 'exit 1');

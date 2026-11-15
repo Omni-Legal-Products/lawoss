@@ -7,6 +7,7 @@ on:
         description: Exact subscription model ID from the application allowlist (no fallback)
         type: string
         required: true
+        default: gpt-6.1-sol
       recipient-public-key:
         description: Operator RSA public key, base64 DER SPKI; never a private key or token
         type: string
