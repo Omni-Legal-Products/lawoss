@@ -147,3 +147,44 @@ test("#415: zápis okf.js do skillu cez server dopíše .office.json hneď", asy
     if (priorDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = priorDb;
   }
 });
+
+test("#415: uloženie profilu nečaká na .office.json; zápis dobehne na pozadí podľa posledného profilu", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "lawoss-office-facts-queue-")));
+  roots.push(root);
+  const priorTokens = process.env.LEGALWORK_TOKEN_STORE;
+  process.env.LEGALWORK_DATA_DIR = join(root, "data");
+  process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");
+  const practice = join(root, "prax"), client = join(practice, "Klienti", "Alfa");
+  await mkdir(join(practice, "Office", "memory"), { recursive: true });
+  await writeFile(join(practice, "Office", "okf.config"), "version: 1\n");
+  const resources = join(client, ".opencode", "skills", "novy-spis", "resources");
+  await mkdir(resources, { recursive: true });
+  await writeFile(join(resources, "okf.js"), "// SYN\n");
+  const config: ServerConfig = {
+    host: "127.0.0.1", port: 0, configPath: join(root, "server", "server.json"), token: "owt_office_facts_q", hostToken: "owt_office_facts_q_host",
+    approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "ws_alfa", name: "Alfa", path: client, preset: "starter", workspaceType: "local" }],
+    authorizedRoots: [client], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
+  };
+  const server = await startServer(config);
+  const facts = join(resources, OFFICE_FACTS_FILE);
+  const settled = async (expected: string) => {
+    for (let attempt = 0; attempt < 200; attempt++) {
+      if (await readFile(facts, "utf8").catch(() => null) === expected) return true;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return false;
+  };
+  try {
+    const save = (jurisdiction: string) => fetch(`http://127.0.0.1:${server.port}/lawoss/onboarding/profile`, {
+      method: "POST", headers: { "X-LegalWork-Host-Token": "owt_office_facts_q_host", "Content-Type": "application/json" },
+      body: JSON.stringify({ lawyerName: "JUDr. SYN", language: "sk", jurisdiction, officeRoot: practice }),
+    });
+    // Two saves in a row: both answer, and the file follows the last saved profile.
+    const [first, second] = await Promise.all([save("sk"), save("cz")]);
+    expect([first.status, second.status]).toEqual([200, 200]);
+    expect(await settled(officeFactsContent("cz"))).toBe(true);
+  } finally {
+    await server.stop();
+    if (priorTokens === undefined) delete process.env.LEGALWORK_TOKEN_STORE; else process.env.LEGALWORK_TOKEN_STORE = priorTokens;
+  }
+});
