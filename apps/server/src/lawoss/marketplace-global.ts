@@ -151,6 +151,9 @@ async function installGlobal(config: ServerConfig, bundle: ClaudePluginBundle, p
     global: true,
     preserve,
     disabledMcpNames,
+    // #441: an update keeps the lawyer's setup of each connection (merged onto the new defaults); the defaults are
+    // recorded so the next update can tell the lawyer's values from the old version's.
+    preserveConnectorSetup: true,
   });
 }
 
@@ -231,7 +234,7 @@ export async function updateGlobalPlugin(
   const backups = await backupFiles(target, changes.filter((change) => change.state === "modified" && resolutions[change.path] === "backup").map((change) => change.path), stamp);
   const kept = changes.filter((change) => resolutions[change.path] === "keep").map((change) => change.path);
   const disabled = await disabledMcp(config, GLOBAL_MCP_ID, mcpNames(installed));
-  const item = await installGlobal(config, bundle, new Set(kept));
+  const item = await installGlobal(config, bundle, new Set(kept), new Set(disabled));
   await restoreDisabled(config, disabled);
   return { status: "updated", item, backups, kept };
 }

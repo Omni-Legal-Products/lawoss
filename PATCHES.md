@@ -2314,3 +2314,9 @@ Len bežný režim; pokročilý ostáva natívny. Logika je v nových alebo zele
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
 | `.github/workflows/alpha-macos-aarch64.yml`, `alpha-windows-x64.yml` | Voliteľné vstupy `engine_reuse_run_id` a `engine_reuse_manifest_sha256` (ako v `ci-tests.yml`) idú do `reuse-run-id` a `reuse-manifest-sha256` v `ci-opencode-derivative.yml`. Krok `opencode-engine / build` potom beží na ubuntu: stiahne artefakt `opencode-derivative-ci` z uvedeného behu a overí ho proti aktuálnemu receptu a nezávislému SHA256 manifestu. Bez vstupov sa engine stavia ako doteraz. Dôvod: Windows alpha.12 (beh 43233686530) 13-krát zrušil GitHub, lebo nedostal macOS arm64 runner pre engine, hoci macOS beh toho istého commitu engine postavil. |
+
+## Nastavenie pripojení globálneho pluginu pri aktualizácii (2026-11-15, #441)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/cloud-plugins.ts` | `preserveConnectorSetup` číta doterajšie nastavenie pripojení zo spoločného riadku `GLOBAL_MCP_ID`, keď je inštalácia `global` (+1 riadok s komentárom `🟡 LAWOSS #441`). Upstream čítal riadok záznamu pluginu, kde globálne MCP nie sú (`addMcp(…, "global")` ich zapisuje do spoločného riadku), takže zachovanie nastavenia pri globálnej inštalácii nemalo účinok. `lawoss/marketplace-global.ts` zapína `preserveConnectorSetup` pre inštalácie z LAWOSS Marketplace: aktualizácia ponechá env, hlavičky a argumenty, ktoré advokát zmenil, a uloží `connectorDefaults`, aby ďalšia aktualizácia rozlíšila hodnoty advokáta od predvolených hodnôt starej verzie. Vypnuté pripojenie ostane vypnuté už pri publikovaní. Regresia v `lawoss/marketplace-global.test.ts`. |
