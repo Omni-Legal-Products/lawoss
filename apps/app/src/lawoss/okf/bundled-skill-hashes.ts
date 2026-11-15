@@ -27,12 +27,14 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "31056d6d659154f8d5b18f5a4c4a80b674725eb28b62dbea730ef6d7b82a44a3", // lawoss/okf-pamat/SKILL.md @ 540df6cc
   "376b579194aa6b8f484050dd2fba08161a417c0c19831f2016852e33e16b70c0", // lawoss/okf-pamat/SKILL.md @ 55159fbb
   "38b1727bbee79e01ca9a5b8852adbe954937815248c132691ebc6f9c34323b18", // lawoss/skills/novy-spis/SKILL.md @ f8153756
+  "485cd7d719e54b66d9f912ec31036a4f3376fc198ef6edf84e677dba7daca730", // lawoss/skills/novy-spis/SKILL.md @ #422, bez okf.config a so zamietnutou kartou
   "4996b5a816e15c26fe82a9f4028d5bf4e9cd88151c88d86f686a0d6d68fc6c09", // lawoss/okf-pamat/SKILL.md @ ef1fb80d
   "4a16ec42703a7f82276f1b908112162e0e5e77ebfdf9090f392b2735f3aa41ff", // lawoss/okf-pamat/SKILL.md @ de1b1075
   "4abb5a8ec848802c1fea97452d6619fc6a43ec6b21259672866a6d83498dadce", // lawoss/okf-pamat/SKILL.md @ 793ec793
   "5626a0d6950460f6c7ac1269cd9dd533dd85d63582015a2286694a2b0816b79d", // lawoss/okf-pamat/SKILL.md @ 21a4bc44
   "5a4e2523f4cf7fce2827101e9dbbf2647ef00274a3302172e1f36c14df2568c6", // lawoss/skills/novy-spis/SKILL.cs.md @ 221da141
   "620c5a37406db608c75da2e348e2b42dd75cae6ff777c6f4aee429ba5c56c2a7", // lawoss/okf-pamat/SKILL.md @ 790a86c0
+  "711fb73e3392ca523e31eae3ab31e19b7b4d2a3b3322ce75e8c02fdd405774bb", // lawoss/skills/novy-spis/SKILL.cs.md @ #422, bez okf.config a se zamítnutou kartou
   "79b13383c649b2a9ba81bcb3ab2167d48b4744a0215090d735a2e007c2c8f0f4", // lawoss/okf-pamat/SKILL.md @ 1bc3f128
   "7a4323b22532d72555d01d39b6af4857406e007b3da42d72f473861b3502e223", // lawoss/skills/novy-spis/SKILL.md @ 221da141
   "7f0a61c1851ac80de6482b72b67a6abe086710e77e9901fdbe495f65056444c8", // lawoss/okf-pamat/SKILL.md @ b3d50764

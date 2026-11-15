@@ -26,7 +26,7 @@ Ak `node` ani `bun` nie sú k dispozícii, **zastav sa a povedz to** — nesnaž
 
 `<typ>` ∈ `klient` · `spis` · `projekt`. Flagy: `--ico`, `--klient`, `--protistrana`, `--protistrana-ico`, `--oblast`, `--desc`, `--spzn`, `--sud`, `--advokat`, `--client-type fo|fo-podnikatel|po|iny`, `--country ISO-kód`, `--citizenship ISO-kódy`, `--residence-country ISO-kód`, `--identifier-type`, `--identifier`, `--matter-kind dispute|advisory|transaction|other`, `--mode bounded|ongoing`. Pridaj `--json`, keď potrebuješ výstup spracovať.
 
-`--advokat "Meno"` je ten, kto za spis zodpovedá, a má prednosť pred konfiguráciou. Bez flagu CLI predvyplní meno z `standing_authorization` v najbližšom nadradenom `Office/okf.config`; ak chýba alebo je neplatné, ostane `advokat: "[DOPLNIT]"` — nehádaj ho, spýtaj sa. Predvyplnenie mena neudeľuje poverenie na zápis. Prepojenie s identitou v natívnom UI a sledovaných zmenách zostáva samostatnou úlohou #6.
+`--advokat "Meno"` je ten, kto za spis zodpovedá, a má prednosť pred konfiguráciou. Bez flagu CLI predvyplní meno z nastavení kancelárie, ktoré si načíta samo. Konfiguráciu kancelárie (`okf.config` ani nič v `Office/`) sám neotváraj, nečítaj a nežiadaj k nej prístup: CLI ju nájde samo a kancelária bez nej je bežný prípad. Ak meno neprevezme, ostane `advokat: "[DOPLNIT]"` — nehádaj ho, spýtaj sa. Predvyplnenie mena neudeľuje poverenie na zápis. Prepojenie s identitou v natívnom UI a sledovaných zmenách zostáva samostatnou úlohou #6.
 
 **Pri `spis` je `--sk` alebo `--cz` povinné** a odmietne to už `plan`. Jurisdikcia sa zapíše do karty veci ako `jurisdiction:` a `okf-memory` ju odtiaľ číta - bez nej pamäť spisu nezaloží. Nehádaj ju: ak ti ju advokát nepovedal a nemá ju ani karta klienta (`jurisdiction:` v `klient.md`/`client.md`), spýtaj sa. `country` klienta jurisdikciou veci nie je. Jazyk rozhrania ani jazyk dokumentov jurisdikciu neurčujú.
 
@@ -48,4 +48,5 @@ Ak `node` ani `bun` nie sú k dispozícii, **zastav sa a povedz to** — nesnaž
 - Píš iba do priečinka, ktorý si práve založil alebo ktorý ti advokát určil. Súrodencov nikdy nemeň.
 - `apply` neprepisuje existujúce súbory — ani keď ich obsah vyzerá zle. Ak treba zmenu v existujúcom súbore, navrhni ju a nechaj rozhodnúť človeka.
 - `CLAUDE.md` je mirror `AGENTS.md`; nikdy ho neupravuj samostatne, spusti `render`.
+- Ak advokát kartu so súhlasom (príkaz, prístup k priečinku, zápis) zamietne, krok nezopakuj a neskonči mlčky: povedz jednou alebo dvoma vetami, čo sa neurobilo, a ako môže pokračovať (napr. požiadať znova alebo zadať údaj sám).
 - V založenom spise platí jednotný protokol `AGENTS.md` → `BRAIN.md` → `memory/`. `_STATUS.md` je generovaný prehľad, `MEMORY.md` starší archív. Podklady patria do pracovných priečinkov a ich spracovanie do `VSTUPY.md`.
