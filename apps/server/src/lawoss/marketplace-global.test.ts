@@ -9,7 +9,7 @@ import { addMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled } from "../
 import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
 import { availableUpdates, installGlobalPlugin, missingMcp, moveWorkspacePlugin, pluginFileChanges, removeGlobalPlugin, updateGlobalPlugin, workspaceTarget } from "./marketplace-global.js";
-import { marketplaceStatePath, readUpdateState, runMarketplaceCheck } from "./marketplace-updates.js";
+import { marketplaceStatePath, readUpdateState, runMarketplaceCheck, updateUpdateState } from "./marketplace-updates.js";
 import { globalPluginTarget } from "./plugin-install-target.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
 
@@ -165,6 +165,14 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     };
     const recordBytes = async () => JSON.stringify(await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).length;
 
+    // #420: SHA3 nie je commit pribaleného katalógu; vyšší limit dostane len ako SHA vydania, ktoré zistila vlastná kontrola.
+    const failure = await installGlobalPlugin(config, url(SHA3)).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: "unsupported_plugin_resources", message: "Plugin resource is binary or exceeds 1 MiB" });
+    await updateUpdateState(marketplaceStatePath(config), (current) => ({
+      ...current,
+      lastCheckedAt: Date.now(),
+      lastCheck: { status: "ok", release: { tag: "v0.3.0", sha: SHA3, publishedAt: null, source: "release", plugins: [{ name: "demo", version: "1.0.0", path: "plugins/demo" }] } },
+    }));
     const installed = await installGlobalPlugin(config, url(SHA3));
     expect(installed.status).toBe("installed");
     expect(await runtime("1.0.0")).toMatchObject({ digest: expect.stringMatching(/^[a-f0-9]{64}$/), bytes: 6 * MIB });

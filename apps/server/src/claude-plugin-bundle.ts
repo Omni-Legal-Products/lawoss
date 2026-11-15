@@ -14,7 +14,7 @@ import { ApiError } from "./errors.js";
 import { parseFrontmatter } from "./frontmatter.js";
 import type { CloudPluginResolved } from "./cloud-plugins.js";
 import { fetchPluginSource } from "./lawoss/plugin-source-fetch.js";
-import { formatMiB, pluginResourceLimits } from "./lawoss/marketplace-limits.js"; // 🟡 LAWOSS #420
+import { assertDeclaredResourceSizes, downloadPluginResources, pluginResourceLimits } from "./lawoss/marketplace-limits.js"; // 🟡 LAWOSS #420
 
 export type ClaudePluginSource = {
   owner: string;
@@ -109,10 +109,10 @@ async function fetchGithubJson(url: string): Promise<unknown> {
   return response.json();
 }
 
-async function fetchGithubText(url: string): Promise<string> {
+async function fetchGithubText(url: string, limits?: { maxBytes: number; signal: AbortSignal }): Promise<string> {
   const response = await fetchPluginSource(url, {
     headers: { Accept: "text/plain", "User-Agent": "legalwork-server" },
-  });
+  }, limits); // 🟡 LAWOSS #420: strop bajtov a zrušenie pre prostriedky balíka
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     throw new ApiError(502, "plugin_fetch_failed", `Failed to fetch plugin file (${response.status}): ${text || url}`);
@@ -120,7 +120,7 @@ async function fetchGithubText(url: string): Promise<string> {
   return response.text();
 }
 
-type TreeEntry = { path: string; sha: string };
+type TreeEntry = { path: string; sha: string; size: number | null }; // 🟡 LAWOSS #420: veľkosť blobu zo stromu
 
 async function fetchRepoTree(source: ClaudePluginSource, ref: string): Promise<TreeEntry[]> {
   const url = `${githubApiBase()}/repos/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
@@ -129,7 +129,8 @@ async function fetchRepoTree(source: ClaudePluginSource, ref: string): Promise<T
   return entries.flatMap((entry) => {
     if (!isRecord(entry) || entry.type !== "blob") return [];
     if (typeof entry.path !== "string" || typeof entry.sha !== "string") return [];
-    return [{ path: entry.path, sha: entry.sha }];
+    const size = typeof entry.size === "number" && Number.isSafeInteger(entry.size) && entry.size >= 0 ? entry.size : null;
+    return [{ path: entry.path, sha: entry.sha, size }];
   });
 }
 
@@ -264,7 +265,8 @@ function mcpConfigReferencesPluginRoot(config: unknown): boolean {
   return false;
 }
 
-export async function resolveClaudePluginBundle(input: { url: string; ref?: string }): Promise<ClaudePluginBundle> {
+// 🟡 LAWOSS #420: `trustedRefs` = SHA vydania z vlastnej kontroly aktualizácií (nikdy z požiadavky), pozri lawoss/marketplace-limits.ts.
+export async function resolveClaudePluginBundle(input: { url: string; ref?: string; trustedRefs?: readonly string[] }): Promise<ClaudePluginBundle> {
   const source = parseClaudePluginSource(input.url);
   const { ref, dir, tree } = await resolveRefAndTree(source, input.ref?.trim() || undefined);
   const root = locatePluginRoot(tree, dir);
@@ -273,6 +275,13 @@ export async function resolveClaudePluginBundle(input: { url: string; ref?: stri
   // LAWOSS Node bundles resolve their runtime from import.meta.url, so a
   // pinned absolute entrypoint works independently of the engine's cwd.
   const bundledNode = treeByPath.has(`${root}runtime-config.json`) && treeByPath.has(`${root}scripts/run.mjs`);
+  // 🟡 LAWOSS #420: prostriedky Node balíka sa skontrolujú (mená, počet, veľkosti zo stromu) skôr, než sa stiahne čokoľvek.
+  const resources = bundledNode ? tree.filter((entry) => entry.path.startsWith(root)).map((entry) => ({ ...entry, relative: entry.path.slice(root.length) })) : [];
+  if (resources.length > 128 || resources.some((entry) => entry.relative.includes("\\") || entry.relative.split("/").some((part) => !part || part === "." || part === "..") || !/(?:\.(?:json|js|mjs|cjs|md)|(?:^|\/)LICENSE)$/.test(entry.relative))) {
+    throw new ApiError(400, "unsupported_plugin_resources", "Node plugin contains unsupported resources or exceeds 128 files");
+  }
+  const limits = pluginResourceLimits(source, ref, root, input.trustedRefs); // vyšší limit len pre LAWOSS Marketplace na commite, ktorému appka verí
+  assertDeclaredResourceSizes(resources, limits);
 
   const manifestPath = `${root}.claude-plugin/plugin.json`;
   const manifestText = await fetchGithubText(rawFileUrl(source, ref, manifestPath));
@@ -433,17 +442,8 @@ export async function resolveClaudePluginBundle(input: { url: string; ref?: stri
   }));
 
   if (bundledNode) {
-    const resources = tree.filter((entry) => entry.path.startsWith(root)).map((entry) => ({ ...entry, relative: entry.path.slice(root.length) }));
-    if (resources.length > 128 || resources.some((entry) => entry.relative.includes("\\") || entry.relative.split("/").some((part) => !part || part === "." || part === "..") || !/(?:\.(?:json|js|mjs|cjs|md)|(?:^|\/)LICENSE)$/.test(entry.relative))) {
-      throw new ApiError(400, "unsupported_plugin_resources", "Node plugin contains unsupported resources or exceeds 128 files");
-    }
-    const limits = pluginResourceLimits(source, ref, root); // 🟡 LAWOSS #420: vyšší limit len pre LAWOSS Marketplace na pripnutom commite
-    const contents = await mapWithConcurrency(resources, 6, async (entry) => {
-      const content = await fetchGithubText(rawFileUrl(source, ref, entry.path));
-      if (content.includes("\0") || Buffer.byteLength(content) > limits.fileBytes) throw new ApiError(400, "unsupported_plugin_resources", `Plugin resource is binary or exceeds ${formatMiB(limits.fileBytes)}`);
-      return { ...entry, content };
-    });
-    if (contents.reduce((bytes, entry) => bytes + Buffer.byteLength(entry.content), 0) > limits.totalBytes) throw new ApiError(400, "unsupported_plugin_resources", `Plugin resources exceed ${formatMiB(limits.totalBytes)}`);
+    // 🟡 LAWOSS #420: strop na súbor a spoločný súčet počas sťahovania; prvé porušenie zruší ostatné sťahovania.
+    const contents = await downloadPluginResources(resources, limits, (entry, options) => fetchGithubText(rawFileUrl(source, ref, entry.path), options));
     memberships.unshift(...contents.map((entry) => ({
       configObjectId: entry.path + ":resource",
       configObject: {

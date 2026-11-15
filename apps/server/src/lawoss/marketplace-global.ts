@@ -25,7 +25,8 @@ import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig, runtimeMcpMap } from "../runt
 import type { ServerConfig } from "../types.js";
 import { contentSha256 } from "./plugin-provenance.js";
 import { globalPluginTarget, installLocation, type PluginInstallTarget } from "./plugin-install-target.js";
-import { isNewerVersion, MARKETPLACE_OWNER, MARKETPLACE_REPO, marketplacePluginUrl, type MarketplaceUpdateState } from "./marketplace-updates.js";
+import { isNewerVersion, MARKETPLACE_OWNER, MARKETPLACE_REPO, marketplacePluginUrl, marketplaceStatePath, readUpdateState, type MarketplaceUpdateState } from "./marketplace-updates.js";
+import { trustedReleaseRefs } from "./marketplace-limits.js";
 
 export type FileResolution = "keep" | "replace" | "backup";
 export type FileChange = { path: string; title: string; state: "modified" | "missing" };
@@ -42,6 +43,14 @@ export function isMarketplacePlugin(plugin: Pick<CloudImportedPlugin, "pluginId"
 /** Globálne sa inštaluje len z LAWOSS Marketplace, z pripnutého commitu. */
 export function assertMarketplaceUrl(url: string): void {
   if (!PLUGIN_URL.test(url)) throw new ApiError(400, "invalid_marketplace_url", "Only LAWOSS Marketplace plugins pinned to a commit can be installed for all clients.");
+}
+
+/**
+ * #420: SHA vydania, ktoré zistila vlastná kontrola aktualizácií (stav na disku), dostane vyšší limit
+ * prostriedkov. URL z požiadavky to nerozhoduje; commit pribaleného katalógu pozná importér sám.
+ */
+async function savedReleaseRefs(config: ServerConfig): Promise<string[]> {
+  return trustedReleaseRefs(await readUpdateState(marketplaceStatePath(config)));
 }
 
 export function workspaceTarget(workspaceId: string, root: string): PluginInstallTarget {
@@ -159,7 +168,7 @@ export async function installGlobalPlugin(config: ServerConfig, url: string): Pr
   // #436: a plugin whose connection was removed in Settings installs again (connection back); the lawyer's edited
   // files stay as they are, like `keep` in an update.
   const kept = existing ? (await pluginFileChanges(globalPluginTarget(), existing)).filter((change) => change.state === "modified").map((change) => change.path) : [];
-  return { status: "installed", item: await installGlobal(config, await resolveClaudePluginBundle({ url }), kept.length ? new Set(kept) : undefined) };
+  return { status: "installed", item: await installGlobal(config, await resolveClaudePluginBundle({ url, trustedRefs: await savedReleaseRefs(config) }), kept.length ? new Set(kept) : undefined) };
 }
 
 /**
@@ -193,7 +202,7 @@ export async function updateGlobalPlugin(
   const changes = await pluginFileChanges(target, installed);
   if (unresolved(changes, resolutions).length) return { status: "needs_decision", changes };
   // Sieť (GitHub) pred akoukoľvek zmenou na disku: pri chybe ostane všetko, ako bolo.
-  const bundle = await resolveClaudePluginBundle({ url: marketplacePluginUrl(state.lastCheck.release.sha, update.path) });
+  const bundle = await resolveClaudePluginBundle({ url: marketplacePluginUrl(state.lastCheck.release.sha, update.path), trustedRefs: trustedReleaseRefs(state) });
   const stamp = now.toISOString().replace(/[:.]/g, "-");
   const backups = await backupFiles(target, changes.filter((change) => change.state === "modified" && resolutions[change.path] === "backup").map((change) => change.path), stamp);
   const kept = changes.filter((change) => resolutions[change.path] === "keep").map((change) => change.path);
@@ -246,7 +255,7 @@ export async function moveWorkspacePlugin(
   const target = globalPluginTarget();
   const existing = (await readInstalledCloudPlugins(config, target.recordId)).plugins[pluginId];
   // Sieť len vtedy, keď plugin pre všetkých klientov ešte nie je; pri chybe sa nič nezmení.
-  const bundle = existing ? null : await resolveClaudePluginBundle({ url });
+  const bundle = existing ? null : await resolveClaudePluginBundle({ url, trustedRefs: await savedReleaseRefs(config) });
   const stamp = now.toISOString().replace(/[:.]/g, "-");
   const backups = await backupFiles(workspace, changes.filter((change) => resolutions[change.path] === "backup").map((change) => change.path), stamp);
   const carriedContent = new Map<string, string>();
