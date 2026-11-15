@@ -143,13 +143,14 @@ describe("obrazovka", () => {
     expect(none).toContain("nič nečaká");
   });
 
-  test("bez návrhu asistenta, bez krokov „3 z 5“ a bez „Začnite tu“; „+ Nový prípad“ je tiché, nie zlaté", () => {
+  test("bez návrhu asistenta, bez krokov „3 z 5“ a bez „Začnite tu“; bez „+ Nový prípad“ (#428)", () => {
     const out = html(<TodayView model={model} locale="sk" now={now} />);
     expect(out).not.toContain("návrh asistenta");
     expect(out).not.toContain("Otvoriť v chate");
     expect(out).not.toContain("kroky");
     expect(out).not.toContain("Začnite tu");
-    expect(out).toContain('<a class="lw-dnes-secondary" href="/welcome?continue=matter"');
+    expect(out).not.toContain("lw-dnes-secondary");
+    expect(out).not.toContain("/welcome?continue=matter");
     expect(out).not.toContain("lw-today-primary");
   });
 

@@ -46,7 +46,8 @@ describe("stránky LAWOSS-lite", () => {
     expect(out).not.toContain("IN-1");
     expect(out).not.toContain("datová schránka");
     expect(out).toContain(href(liteMatterLink(matter.path)));
-    expect(out).toContain(href(NEW_MATTER_PATH));
+    // #428: Dnes bez „+ Nový prípad“, prípad sa zakladá vetou v chate.
+    expect(out).not.toContain(href(NEW_MATTER_PATH));
     // poradie: dlaždice → Čo horí → Čaká na vás → Pokračovať → pole chatu
     const at = (marker: string) => out.indexOf(marker);
     expect(at('data-lawoss-tile="nearest"')).toBeLessThan(at('id="lw-dnes-hot"'));
@@ -54,12 +55,15 @@ describe("stránky LAWOSS-lite", () => {
     expect(at('id="lw-dnes-waiting"')).toBeLessThan(at('id="lw-dnes-continue"'));
     expect(at('id="lw-dnes-continue"')).toBeLessThan(at("data-lawoss-chatbar"));
   });
-  test("Dnes a Klienti: jediný vstup „+ New matter“, žádný duplicitní „New client“ (final review I4)", () => {
-    for (const out of [html(<TodayView model={model} locale="en" />), html(<ClientsView groups={[]} />)]) {
-      expect(out.split(href(NEW_MATTER_PATH)).length - 1).toBe(1);
-      expect(out).toContain("+ New case");
-      expect(out).not.toContain("New client");
-    }
+  test("Klienti: jediný vstup „+ New matter“, žádný duplicitní „New client“ (final review I4); Dnes bez neho (#428)", () => {
+    const clients = html(<ClientsView groups={[]} />);
+    expect(clients.split(href(NEW_MATTER_PATH)).length - 1).toBe(1);
+    expect(clients).toContain("+ New case");
+    expect(clients).not.toContain("New client");
+    const today = html(<TodayView model={model} locale="en" />);
+    expect(today).not.toContain(href(NEW_MATTER_PATH));
+    expect(today).not.toContain("New case");
+    expect(today).not.toContain("New client");
   });
   test("Dnes: lhůta za 1/2/5 dní gramaticky v en/cs/sk/de (final review I6), v úvode aj v štvorčeku dní", () => {
     const due = (locale: "en" | "cs" | "sk" | "de", daysLeft: number) =>

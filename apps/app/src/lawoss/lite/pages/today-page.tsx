@@ -20,8 +20,6 @@ import { appTaskClient, inPractice, openAppTask, useAppTasks } from "../app-task
 import { agendaEvents, type AgendaEvent } from "../agenda-model";
 import { CandidatesPanel, ModeSwitch, MonthCalendar, type ViewMode } from "../agenda-views";
 import { LEHOTY_PATH, LITE_INPUTS_PATH, liteDeadlineLink, liteMatterLink } from "../links";
-import { clientPreferenceScope, practiceClientChoices, type ClientChoice } from "../client-choice";
-import { NewMatterAction } from "../client-picker";
 import { hotDeadlineCount, LiveStamp, useHotTitle, useMinuteTick } from "../live";
 import { useMcpStatuses } from "../mcp-status-store";
 import { registersSummary, type RegistersSummary } from "../sidebar-model";
@@ -82,13 +80,11 @@ function TodayLive({ data, meta, scope, locale, name }: { data: OkfReadResult; m
   const model = useMemo(() => buildToday(data, now, undefined, appTasks), [data, now, appTasks]);
   const events = useMemo(() => agendaEvents(data, appTasks), [data, appTasks]);
   useHotTitle(hotDeadlineCount(data, now));
-  // Prax: „+ Nová vec“ sa najprv opýta, pre ktorého klienta (prehľad praxe).
-  const choices = useMemo(() => practiceClientChoices(scope, data.clients), [scope, data.clients]);
   // „Nič nehorí“ len po úplnom čítaní a pri evidovaných lehotách; inak to prehľad povie (UX P2 Denný prehľad).
   // Po prípadoch: jeden prípad s lehotami nerobí evidovanými ostatné (I-5b).
   // #271: nedočítaný zoznam úloh aplikácie robí prehľad neúplným rovnako ako nedočítaná pamäť.
   const evidence = useMemo(() => ({ complete: data.coverage.status === "complete" && appTasksComplete, ...deadlineCoverage(data.inputs) }), [data, appTasksComplete]);
-  return <TodayView model={model} locale={locale} meta={meta} name={name} choices={choices} evidence={evidence} events={events} preferenceScope={clientPreferenceScope(scope, connection?.baseUrl)} activeId={connection?.activeWorkspaceId}
+  return <TodayView model={model} locale={locale} meta={meta} name={name} evidence={evidence} events={events} activeId={connection?.activeWorkspaceId}
     registers={registersSummary(statuses)} pending={appTasksLoading} />;
 }
 
@@ -119,7 +115,7 @@ const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "
  * Dnes ako pasívny prehľad spisu (alfa 14, spec-dnes.md): čísla, krátke riadky a štítky, žiadne nové akcie.
  * Práca ide cez chat; pole chatu dole len otvorí Domov s pripravenou vetou. Odvodenia sú v `today-model.ts`.
  */
-export function TodayView({ model, locale, now = new Date(), meta, name, choices, activeId, preferenceScope, evidence, events, registers, pending = false, initialMode = "overview" }: { model: TodayModel; locale: Language; now?: Date; meta?: OkfPageMeta; name?: string; choices?: readonly ClientChoice[]; activeId?: string | null; preferenceScope?: string;
+export function TodayView({ model, locale, now = new Date(), meta, name, activeId, evidence, events, registers, pending = false, initialMode = "overview" }: { model: TodayModel; locale: Language; now?: Date; meta?: OkfPageMeta; name?: string; activeId?: string | null;
   /** Úplnosť čítania a evidencia lehôt v podkladoch: bez nich prázdny zoznam nie je „nič nehorí“. */
   evidence?: { complete: boolean; recorded: number; unrecorded: number };
   /** Udalosti praxe pre mesiac (spec 0020); bez nich sa prepínač ani mesiac neukážu. */
@@ -152,8 +148,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
         </div>
         <div className="lw-today-actions">
           {events ? <ModeSwitch mode={mode} onChange={setMode} locale={locale} /> : null}
-          {/* A5: odstrániť po overení vety v chate */}
-          <NewMatterAction className="lw-dnes-secondary" locale={locale} choices={choices} activeId={activeId} preferenceScope={preferenceScope}>+ {text("new_matter")}</NewMatterAction>
+          {/* #428: „+ Nový prípad“ preč, prípad sa zakladá vetou v chate. */}
         </div>
       </header>
 
