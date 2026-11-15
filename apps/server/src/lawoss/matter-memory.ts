@@ -287,7 +287,7 @@ export async function writeMatterMemoryForChat(config: ServerConfig, workspace: 
   // which cites the document itself) or with `deadlines` (those go through `lawoss_memory_deadline`) there is no row.
   // The card quotes exactly what the register row will hold: a table cell has no `|` or control characters (`cellText`).
   // An instruction left empty by that (#444) is no sentence for the register.
-  const said = instruction?.replace(/[\u0000-\u001f|]/g, " ").replace(/\s+/g, " ").trim();
+  const said = instruction === undefined ? undefined : registerSentence(instruction);
   const instructed = Boolean(said) && !client && plan.kind === "create" && plan.type === "task" && !plan.fields.some((field) => field.startsWith("deadlines:"));
   const task = instructed ? await taskRegister(target, own) : null;
   // Bound to the file, the preview and the exact bytes of the record that will be written (and the register as shown).
@@ -320,6 +320,9 @@ async function taskRegister(target: string, own: OwnFolders): Promise<{ register
   const before = await readRegister(register).catch(() => { throw refused("The input register of this case is not a regular file."); });
   return { register, before, inputId: nextInputId(before?.content ?? null) };
 }
+
+/** The lawyer's sentence as the input register's table cell holds it: no `|` or control characters, one line (#444). */
+const registerSentence = (text: string): string => text.replace(/[\u0000-\u001f|]/g, " ").replace(/\s+/g, " ").trim();
 
 const deadlineSchema = z.object({
   kind: z.literal("instruction_deadline"),
@@ -366,6 +369,8 @@ async function writeInstructionDeadline(config: ServerConfig, workspace: Workspa
   const parsed = deadlineSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "memory_arguments", "Send the case folder, the date the lawyer stated (YYYY-MM-DD), what the deadline is for and the lawyer's sentence.");
   const { matter, date, what, instruction, apply = false, approved } = parsed.data;
+  // #444: a sentence that the register cell would leave empty is no instruction; the row would quote nothing.
+  if (!registerSentence(instruction)) throw new ApiError(400, "memory_arguments", "Send the lawyer's sentence that states the deadline. Nothing was written.");
   if (!isAbsolute(matter) || matter.includes("\0")) throw new ApiError(400, "memory_arguments", "Use the absolute path of this client's case folder.");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     throw new ApiError(422, "memory_deadline_date", "A deadline needs the explicit calendar date the lawyer stated (YYYY-MM-DD). Never derive or compute it. Nothing was written. Ask the lawyer for the exact date.");

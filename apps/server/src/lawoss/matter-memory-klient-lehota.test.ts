@@ -379,3 +379,13 @@ test("#444: pokyn len z `|` a riadiacich znakov nie je veta advokáta: úloha be
   expect(await f.write({ ...body, apply: true, approved: preview.approved })).toMatchObject({ status: "written", id: "T-001" });
   expect(await stat(register).catch(() => null)).toBeNull();
 });
+
+test("#444: lehota s pokynom len z `|` a riadiacich znakov sa odmietne, nič sa nezapíše", async () => {
+  const f = await fixture();
+  const before = await snapshot(f.root);
+  for (const instruction of ["|", " | \u0001 |\t", "||"]) {
+    const refused = await refusal(f.write(deadline(f, { instruction })));
+    expect(refused?.code).toBe("memory_arguments");
+  }
+  expect(await snapshot(f.root)).toEqual(before);
+});
