@@ -391,6 +391,10 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       if (!normalizedBaseUrl || !resolvedToken) {
         remountConnectionKeyRef.current = null;
         rememberWorkspaceRoute(null);
+        // LAWOSS #418: no server, so the remount's chats are not loading either.
+        const seeded = remountRetryingRef.current;
+        remountRetryingRef.current = [];
+        if (seeded.length) setRetryingWorkspaceIds((current) => withoutRemountRetrying(current, seeded));
         hasLoadedServerWorkspacesRef.current = false;
         setHasLoadedServerWorkspaces(false);
         // Keep `localServerRef` in lockstep with the disconnected state.
@@ -550,10 +554,15 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         preservedWorkspaceCount: desktopWorkspaces.length,
       });
       setRouteError(message);
-      // LAWOSS #418: chats seeded as loading by the remount are not loading after a failed refresh.
+      // LAWOSS #418: chats seeded as loading by the remount are not loading after a failed refresh; like a failed
+      // per-client load, a client whose chats never loaded shows the error instead of a spinner or "not found" alone.
       const seeded = remountRetryingRef.current;
       remountRetryingRef.current = [];
-      if (seeded.length) setRetryingWorkspaceIds((current) => withoutRemountRetrying(current, seeded));
+      if (seeded.length) {
+        setRetryingWorkspaceIds((current) => withoutRemountRetrying(current, seeded));
+        const unloaded = seeded.filter((id) => !sessionsByWorkspaceIdRef.current[id]?.length);
+        if (unloaded.length) setErrorsByWorkspaceId((current) => ({ ...current, ...Object.fromEntries(unloaded.map((id) => [id, current[id] ?? message])) }));
+      }
       if (!hasLoadedServerWorkspacesRef.current && desktopWorkspaces.length > 0) {
         const orderedDesktopWorkspaces = orderRouteWorkspaces(desktopWorkspaces, workspaceOrderIdsRef.current);
         workspacesRef.current = orderedDesktopWorkspaces;
