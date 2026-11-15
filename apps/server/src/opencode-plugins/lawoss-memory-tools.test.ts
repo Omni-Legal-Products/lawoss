@@ -27,7 +27,7 @@ test("lawoss_memory posts the case folder of this chat to its own client and nev
   try {
     const plugin = await lawossNativePlugin(MemoryTools);
     // Reading has its own tool; writing is lawoss_memory_write with one card (N-A7-10).
-    expect(Object.keys(plugin.tool)).toEqual([LAWOSS_MEMORY_TOOL, "lawoss_memory_write", "lawoss_memory_deadline", "lawoss_new_client"]);
+    expect(Object.keys(plugin.tool)).toEqual([LAWOSS_MEMORY_TOOL, "lawoss_memory_write", "lawoss_memory_deadline", "lawoss_new_client", "lawoss_integrations"]);
     const tool = plugin.tool.lawoss_memory;
     const wire = z.fromJSONSchema(JSON.parse(JSON.stringify(tool.input)));
     expect(wire.safeParse({ action: "write" }).success).toBe(false);

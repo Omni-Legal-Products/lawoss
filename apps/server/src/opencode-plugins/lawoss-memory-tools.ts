@@ -37,6 +37,7 @@ import { nativeTool } from "./native-tool.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
 import { askOrDeclined } from "./lawoss-declined-card.js";
 import { NEW_CLIENT_SYSTEM, newClientTool } from "./lawoss-new-client.js";
+import { annotateExtensionListing, EXTENSION_LISTING_TOOL, INTEGRATIONS_SYSTEM, integrationsTool } from "./lawoss-integrations.js";
 
 const args = z.object({
   action: z.enum(["preamble", "read"]).describe("preamble: rules, lessons and the do-not-cite list, at the start of work on a case. read: the full memory of the case with its client and office scope."),
@@ -95,6 +96,8 @@ const SYSTEM = [
   "glob and grep return files only, so an empty folder never appears in their results. To see everything inside a folder, including empty subfolders, call read on the folder's path: it lists the entries one per line, subfolders with a trailing /, and an empty folder shows (0 entries). Never conclude that a folder is missing from glob or grep alone.",
   // #423: nový klient vetou v každom chate klienta (lawoss-new-client.ts).
   NEW_CLIENT_SYSTEM,
+  // #434: integrácie advokáta sú registre a doplnky (MCP), nie cloudové konektory (lawoss-integrations.ts).
+  INTEGRATIONS_SYSTEM,
 ].join("\n");
 
 async function post(context: OpenCodeContext, workspace: string, route: string, body: unknown): Promise<string> {
@@ -190,7 +193,11 @@ export default Plugin.define({
         execute: writeDeadline,
       }));
       editor.add(newClientTool(ctx));
+      editor.add(integrationsTool(ctx));
     });
-    return async () => { await Promise.all([context.dispose(), tools.dispose()]); };
+    const listing = await ctx.tool.hook("execute.after", (event) => {
+      if (event.status === "completed" && event.tool === EXTENSION_LISTING_TOOL) event.result = annotateExtensionListing(event.result);
+    });
+    return async () => { await Promise.all([context.dispose(), tools.dispose(), listing.dispose()]); };
   },
 });
