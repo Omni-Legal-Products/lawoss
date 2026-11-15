@@ -2,11 +2,12 @@
 
 ## Alfa 13: nálezy z testu (#422–#428) (2026-11-15)
 
-Nálezy MČ z testu alfy 13 (issues #422, #426, #427, #428). Hlavička behu nástrojov (#427) je pri riadku `tool-run.tsx` (N-A8-5).
+Nálezy MČ z testu alfy 13 (issues #422, #424, #426, #427, #428). Hlavička behu nástrojov (#427) je pri riadku `tool-run.tsx` (N-A8-5).
 
 | Súbor | Zmena |
 |---|---|
 | `apps/app/src/react-app/domains/workspace/project-home.tsx`, `apps/app/src/lawoss/lite/pages/client-dashboard.css` (LAWOSS, + test `tests/lawoss-klient-prehlad-alfa14.test.tsx`) | #428: v bežnom režime hlavička Prehľadu klienta neponúka „Pridať poznámku“ ani „Nová úloha“. Tlačidlá skrýva len CSS (`:root[data-lawoss-ui="lite"]`, 2. a 3. dieťa riadku tlačidiel; prázdny riadok bez iniciál a nahrávania sa skryje celý). Kontextovú ponuku hlavičky (portál) CSS nedosiahne: +1 import `useUiMode`, +1 riadok `noteTaskHidden` s komentárom a podmienka pri dvoch `ContextMenuItem`. Režim Pokročilé je bez zmeny. |
+| `apps/app/src/react-app/shell/session-route.tsx`, `apps/app/src/lawoss/lite/client-entry.ts` (LAWOSS, + test `tests/lawoss-pridat-klienta-424.test.ts`) | #424: v bežnom režime `handleOpenCreateWorkspace` (okno Nový chat, prázdny stav a „+“ panela v Pokročilom rozložení) aj `onCreateProject` Domova (odkaz „Pridať klienta“ pri chybe a položka výberu klienta) vedú cez `liteClientFormPath()` na `NEW_CLIENT_PATH` (formulár klienta LAWOSS, klient v `Klienti/` kancelárie so súbormi OKF), nie do upstream `CreateProjectModal`, ktorý bez priečinka zakladal v `Documents/LegalWork/Projects` (+1 import, 2× dva riadky na začiatku obsluhy, `useCallback` závisí od `navigate`). Režim Pokročilé ostáva pri upstream okne; predvolený koreň projektov servera sa nemení. |
 | `apps/server/src/opencode-plugins/lawoss-memory-tools.ts` (LAWOSS, + test), `lawoss/okf-handoff/plugin.mjs` (zelená zóna, uvedené kvôli úplnosti; + test `host-memory-grants.test.ts`) | #426: pevná veta v systémovom texte nástrojov pamäte: klient bez `Spisy/`, karty klienta a `memory/` nie je zavedený do štandardu kancelárie a nemá pamäť prípadu; agent si to overí čítaním priečinka, povie, že lehoty ani úlohy nie sú zaznamenané, netvrdí ani neopisuje pamäť a ponúkne prejsť dokumenty alebo klienta najprv zaviesť. Handoff OKF v natívnom režime pri priečinku bez väzby na pamäť (žiadna karta prípadu, pamäť ani profil) nevráti „Memory handoff FAILED“, ale pevný text, že priečinok nemá vlastnú pamäť prípadu a nejde o zlyhanie; skutočné zlyhanie (host, poškodená pamäť) ostáva FAILED. Texty sa nemenia medzi ťahmi (cache promptu). |
 
 ## Alfa 14: čitateľné karty súhlasu pri novom prípade a úlohe vetou (2026-11-15)

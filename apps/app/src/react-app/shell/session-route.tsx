@@ -51,6 +51,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useLocale } from "@/i18n/use-locale";
 import { LAWOSS_ROUTES, lawossScreenTitle } from "../../lawoss/shell/routes"; // 🟡 LAWOSS: titulok s parametrami trasy
 import { isLandingPath } from "../../lawoss/lite/visibility";
+import { liteClientFormPath } from "../../lawoss/lite/client-entry"; // 🟡 LAWOSS #424
 import { useDetachedWindow } from "./use-detached-window";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
@@ -1967,9 +1968,11 @@ export function SessionRoute() {
   ]);
 
   const handleOpenCreateWorkspace = useCallback(() => {
+    const liteClientForm = liteClientFormPath(); // 🟡 LAWOSS #424: bežný režim zakladá klienta v kancelárii
+    if (liteClientForm) { navigate(liteClientForm); return; }
     setSelectCreatedProjectForHome(false);
     setCreateWorkspaceOpen(true);
-  }, []);
+  }, [navigate]);
 
   const handleOpenRenameWorkspace = useCallback((workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -3088,6 +3091,8 @@ export function SessionRoute() {
             assistantProfile={assistant.data?.profile}
             projectId={homeProjectId}
             onCreateProject={() => {
+              const liteClientForm = liteClientFormPath(); // 🟡 LAWOSS #424
+              if (liteClientForm) { navigate(liteClientForm); return; }
               setSelectCreatedProjectForHome(true);
               setCreateWorkspaceError(null);
               setCreateWorkspaceOpen(true);
