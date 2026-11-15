@@ -364,3 +364,18 @@ test("#417: zlyhanie zápisu úlohy vráti VSTUPY.md späť; zmena registra po k
   expect((await refusal(f.write({ ...body, apply: true, approved: second.approved })))?.code).toBe("memory_write_changed");
   expect((await readdir(join(dir, "memory"))).sort()).toEqual(["M-001.md"]);
 });
+
+test("#444: pokyn len z `|` a riadiacich znakov nie je veta advokáta: úloha bez riadka vo VSTUPY.md", async () => {
+  const f = await fixture();
+  const dir = f.cases[0]!, register = join(dir, "VSTUPY.md");
+  for (const instruction of ["|", " | \u0001 |\t"]) {
+    const body = { matter: dir, record: task(), reason: "SYN", instruction };
+    const preview = previewOf(await f.write(body));
+    expect(preview.type).toBe("task");
+    expect(preview.task).toBeUndefined();
+  }
+  const body = { matter: dir, record: task(), reason: "SYN", instruction: "|" };
+  const preview = previewOf(await f.write(body));
+  expect(await f.write({ ...body, apply: true, approved: preview.approved })).toMatchObject({ status: "written", id: "T-001" });
+  expect(await stat(register).catch(() => null)).toBeNull();
+});

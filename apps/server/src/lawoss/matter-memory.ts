@@ -286,8 +286,9 @@ export async function writeMatterMemoryForChat(config: ServerConfig, workspace: 
   // instruction like a deadline: its row in the case's input register. Without it (a task derived from a document,
   // which cites the document itself) or with `deadlines` (those go through `lawoss_memory_deadline`) there is no row.
   // The card quotes exactly what the register row will hold: a table cell has no `|` or control characters (`cellText`).
+  // An instruction left empty by that (#444) is no sentence for the register.
   const said = instruction?.replace(/[\u0000-\u001f|]/g, " ").replace(/\s+/g, " ").trim();
-  const instructed = said !== undefined && !client && plan.kind === "create" && plan.type === "task" && !plan.fields.some((field) => field.startsWith("deadlines:"));
+  const instructed = Boolean(said) && !client && plan.kind === "create" && plan.type === "task" && !plan.fields.some((field) => field.startsWith("deadlines:"));
   const task = instructed ? await taskRegister(target, own) : null;
   // Bound to the file, the preview and the exact bytes of the record that will be written (and the register as shown).
   const token = createHash("sha256").update(`${file}\0${plan.recordHash}\0${preview.out}${task ? `\0${task.register}\0${registerHash(task.before)}\0${task.inputId}\0${said}` : ""}`).digest("hex");
