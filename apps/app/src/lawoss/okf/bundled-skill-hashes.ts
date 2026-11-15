@@ -26,6 +26,7 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "2571048a4af6d4375faf682a0f4b67c4c21bd78483d3d1e7e7ef76fe768edef0", // lawoss/okf-pamat/SKILL.md @ 0fa9dfbb
   "2ee9a6e11908e90e2df487bff8aff1edfb2be968aae61fb01e1bbff0f748f1b8", // lawoss/okf-pamat/SKILL.md @ PR B, jedna popiska Zapojené subjekty
   "31056d6d659154f8d5b18f5a4c4a80b674725eb28b62dbea730ef6d7b82a44a3", // lawoss/okf-pamat/SKILL.md @ 540df6cc
+  "3413af4a2f7d29c4469c26d17ea387220eabd8e3e77db1e8e14ae0cc2294d1d3", // lawoss/skills/novy-spis/SKILL.md @ #423 review, validate pri vlastných .md advokáta
   "376b579194aa6b8f484050dd2fba08161a417c0c19831f2016852e33e16b70c0", // lawoss/okf-pamat/SKILL.md @ 55159fbb
   "38b1727bbee79e01ca9a5b8852adbe954937815248c132691ebc6f9c34323b18", // lawoss/skills/novy-spis/SKILL.md @ f8153756
   "485cd7d719e54b66d9f912ec31036a4f3376fc198ef6edf84e677dba7daca730", // lawoss/skills/novy-spis/SKILL.md @ #422, bez okf.config a so zamietnutou kartou
@@ -59,6 +60,7 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "f7eee8ca3806176713d3d49afd5a08ca7850e756be9acd0f03c3575aaa57d82d", // lawoss/okf-pamat/SKILL.md @ b03f82fe
   "f872ac3d24a2b2bc2ce83a12c086fae5358ad8c64f66eb6c757adcf6d3c84191", // lawoss/skills/novy-spis/SKILL.cs.md @ caacdf9c
   "fcb9cad3b3d0bfc978d613671768811f8e49c8af5a2f6b9f9709e8c2d877469c", // lawoss/skills/novy-spis/SKILL.cs.md @ #423 review, typ klienta a zavedení složky chatu na místě
+  "a8ca3ebdb54bde7da1f634dad40b2d659d392a4c7951bf4260473494d309bd59", // lawoss/skills/novy-spis/SKILL.cs.md @ #423 review, validate u vlastních .md advokáta
   "aab723e10fcc234db66e51f3020d498e7eb1409b30e22a81e7bd8a5f1822646e", // lawoss/skills/roztried-spis/SKILL.md @ feat/alfa-roztriedenie-spisu
   "64de8e0c8d2a02e2cce88cc66fa40a157eae8a20f35430128927f5aba2e2b62d", // lawoss/skills/roztried-spis/SKILL.cs.md @ feat/alfa-roztriedenie-spisu
   "e1dd31551fc99c2ce420e0ef98f559d9fe996554cb78c8008794dc7100b0f123", // lawoss/skills/roztried-spis/SKILL.md @ fix/alfa-roztriedenie-po-teste

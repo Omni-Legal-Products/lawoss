@@ -54,6 +54,8 @@ test("success: plan from the chat's own client, one card with everything written
   expect(fixed).toContain("call lawoss_new_client with the client's name and its type");
   expect(fixed).toContain("when the name and the lawyer's words do not make the type clear, ask one short question first");
   expect(fixed).toContain("Never create a new client's folder or client card by hand");
+  // The client form's handoff (compose-prompt.ts) names its target folder and stays valid.
+  expect(fixed).toContain("unless a request from the LAWOSS client form names the exact target folder");
   // An existing folder of this chat is onboarded in place with /novy-spis, not offered to lawoss_new_client.
   expect(fixed).toContain("to bring this chat's own folder into the office standard, use the /novy-spis skill in place (okf plan klient . and, after approval, apply)");
   expect(fixed).toContain("do it only when the lawyer asks");
