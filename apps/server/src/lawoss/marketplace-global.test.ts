@@ -9,7 +9,7 @@ import { addMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled } from "../
 import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
 import { availableUpdates, installGlobalPlugin, missingMcp, moveWorkspacePlugin, pluginFileChanges, removeGlobalPlugin, updateGlobalPlugin, workspaceTarget } from "./marketplace-global.js";
-import { marketplaceStatePath, readUpdateState, runMarketplaceCheck } from "./marketplace-updates.js";
+import { marketplaceStatePath, readUpdateState, runMarketplaceCheck, updateUpdateState } from "./marketplace-updates.js";
 import { globalPluginTarget } from "./plugin-install-target.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
 
@@ -144,6 +144,49 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     expect(await readFile(skillPath(), "utf8")).toBe("Moja úprava.\n");
     // With the connection in place it stays an ordinary repeated install.
     expect((await installGlobalPlugin(config, url(SHA1))).status).toBe("already_installed");
+  });
+
+  // #420, #421: katalóg dodáva runtime registra ako jeden zbalený súbor (slovlex 6,25 MB + 2,08 MB).
+  test("pribalený runtime nad 1 MiB sa nainštaluje aj aktualizuje celý a nie je uložený v zázname inštalácie", async () => {
+    const MIB = 1024 * 1024;
+    const SHA3 = "3".repeat(40);
+    const SHA4 = "4".repeat(40);
+    const big = (version: string, size: number) => `// ${version}\n${"x".repeat(size - version.length - 4)}`;
+    repo[SHA3] = { ...pluginFiles("1.0.0", "Verzia jedna."), "plugins/demo/dist/index.js": big("1.0.0", 6 * MIB), "plugins/demo/dist/pdf.worker.mjs": big("1.0.0", 2 * MIB) };
+    repo[SHA4] = { ...pluginFiles("1.2.0", "Verzia dva."), "plugins/demo/dist/index.js": big("1.2.0", 6.5 * MIB), "plugins/demo/dist/pdf.worker.mjs": big("1.2.0", 2 * MIB) };
+    const config = serverConfig(root);
+    const resourceDir = join(root, "config", "opencode", "plugin-resources", "demo-plugin");
+    const runtime = async (version: string) => {
+      for (const digest of await readdir(resourceDir)) {
+        const content = await readFile(join(resourceDir, digest, "dist", "index.js"), "utf8").catch(() => "");
+        if (content.startsWith(`// ${version}\n`)) return { digest, bytes: Buffer.byteLength(content) };
+      }
+      return null;
+    };
+    const recordBytes = async () => JSON.stringify(await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).length;
+
+    // #420: SHA3 nie je commit pribaleného katalógu; vyšší limit dostane len ako SHA vydania, ktoré zistila vlastná kontrola.
+    const failure = await installGlobalPlugin(config, url(SHA3)).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: "unsupported_plugin_resources", message: "Plugin resource is binary or exceeds 1 MiB" });
+    await updateUpdateState(marketplaceStatePath(config), (current) => ({
+      ...current,
+      lastCheckedAt: Date.now(),
+      lastCheck: { status: "ok", release: { tag: "v0.3.0", sha: SHA3, publishedAt: null, source: "release", plugins: [{ name: "demo", version: "1.0.0", path: "plugins/demo" }] } },
+    }));
+    const installed = await installGlobalPlugin(config, url(SHA3));
+    expect(installed.status).toBe("installed");
+    expect(await runtime("1.0.0")).toMatchObject({ digest: expect.stringMatching(/^[a-f0-9]{64}$/), bytes: 6 * MIB });
+    // Záznam inštalácie (configJson v runtime.sqlite) a odpoveď trasy nesú len cesty a hash, nie obsah.
+    expect(JSON.stringify(installed.item).length).toBeLessThan(64 * 1024);
+    expect(await recordBytes()).toBeLessThan(64 * 1024);
+
+    const checked = await runMarketplaceCheck(marketplaceStatePath(config), "manual");
+    if (checked.lastCheck?.status !== "ok") throw new Error("expected ok check");
+    const state = { ...checked, lastCheck: { ...checked.lastCheck, release: { ...checked.lastCheck.release, sha: SHA4, plugins: [{ name: "demo", version: "1.2.0", path: "plugins/demo" }] } } };
+    const updated = await updateGlobalPlugin(config, PLUGIN_ID, state, {});
+    expect(updated.status).toBe("updated");
+    expect(await runtime("1.2.0")).toMatchObject({ bytes: 6.5 * MIB });
+    expect(await recordBytes()).toBeLessThan(64 * 1024);
   });
 
   test("globálne sa inštaluje len z LAWOSS Marketplace na pripnutom commite", async () => {
