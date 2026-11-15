@@ -62,6 +62,7 @@ import {
 } from "../extension-state";
 import { HubScopeToggle, useHubScope } from "./hub-scope-context";
 import { McpConfigExportDialog } from "../../../../lawoss/domains/integrations/mcp-config-export";
+import { reportMcpRemoval } from "../../../../lawoss/domains/integrations/mcp-removal";
 import { marketplaceConnector } from "../../../../lawoss/domains/marketplace/mcp-servers";
 import { orgPolicyAllows, orgPolicyOffText, useOrgPolicyForbids } from "../../connections/org-policy";
 import { OrgPolicyNote } from "../../connections/org-policy-ui";
@@ -738,7 +739,8 @@ export function McpView(props: McpViewProps) {
               setLegalWorkExtensionEnabled(detailEntry, false);
             } : isQuickConnectConfigured(detailEntry) ? () => {
               const slug = getMcpIdentityKey(detailEntry);
-              props.removeMcp(slug);
+              // 🟡 LAWOSS #442: the dialog closes at once; a failure or a removal still running reaches the lawyer as a toast.
+              void reportMcpRemoval(props.removeMcp(slug), (message) => toast.error(message));
               setDetailEntry(null);
             } : undefined}
             onHide={() => setLegalWorkExtensionHidden(detailEntry, true)}

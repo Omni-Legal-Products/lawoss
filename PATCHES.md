@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Odstránenie pripojenia z detailu integrácie hlási výsledok (#442) (2026-11-15)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/settings/pages/mcp-view.tsx`, `apps/app/src/lawoss/domains/integrations/mcp-removal.ts` (LAWOSS okrem prvého, + test `apps/app/tests/lawoss-odstranenie-z-detailu-442.test.ts`) | „Odinštalovať“ v detaile integrácie volal `removeMcp` bez `await` a `catch` a dialóg hneď zavrel; po limite 180 s (#436) vzniklo neošetrené odmietnutie promise a advokát nevidel nič. Volanie ide cez `reportMcpRemoval` (+1 import, 1 riadok): zlyhanie aj „odstraňovanie ešte beží“ sa ukáže ako toast, rovnako ako v ostatných dialógoch odstránenia. |
+
 ## Katalóg registrov: pribalené runtime z LAWOSS Marketplace (#420, #421) (2026-11-16)
 
 Katalóg `Omni-Legal-Products/lawoss-marketplace` dodáva runtime registrov ako jeden súbor zbalený cez esbuild (bez `npm ci`, kvôli firewallom s rozbaľovaním TLS). Súbory majú 1,2–6,3 MB (slovlex spolu 8,5 MB), importér ich odmietal (`unsupported_plugin_resources`).

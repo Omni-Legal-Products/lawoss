@@ -12,3 +12,14 @@ export const MCP_REMOVE_TIMEOUT_MS = 180_000;
 export function removalMayBeRunning(error: unknown): boolean {
   return error instanceof Error && error.message === t("app.request_timed_out");
 }
+
+/**
+ * #442: odstránenie spustené z dialógu, ktorý sa hneď zavrie (detail integrácie). Zlyhanie aj odstránenie bežiace po
+ * limite sa ukáže ako v ostatných dialógoch odstránenia, namiesto neošetreného odmietnutia promise.
+ */
+export function reportMcpRemoval(removal: void | false | Promise<void | false>, showError: (message: string) => void): Promise<void> {
+  return Promise.resolve(removal).then(
+    (result) => { if (result === false) showError(t("mcp.remove_failed")); },
+    (error: unknown) => showError(error instanceof Error ? error.message : t("common.something_went_wrong")),
+  );
+}
