@@ -19,7 +19,7 @@ import {
   type WorkspaceList,
 } from "@/app/lib/desktop";
 import { createClient } from "@/app/lib/opencode";
-import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { createLegalworkServerClient, readLegalworkServerSettings, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
 import {
   createWorkspaceEndpoint,
@@ -31,6 +31,7 @@ import {
 import type { WorkspaceConnectionState } from "@/app/types";
 import { normalizeDirectoryPath } from "@/app/utils";
 import { effectiveSessionDirectory, isWithinClientFolder } from "@/lawoss/shell/session-directory";
+import { initialWorkspaceRouteState, rememberWorkspaceRoute, storedSettingsKey, workspaceConnectionKey, workspaceRouteForRemount } from "@/lawoss/shell/route-snapshot"; // 🟡 LAWOSS #418
 import { t } from "@/i18n";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { avoidLawossHomeId, conversationWorkspaceId, defaultWorkspaceId, withoutLawossHome } from "../../lawoss/home-workspace";
@@ -119,14 +120,17 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   }, [navigate]);
 
   const { markRouteReady: markBootRouteReady } = useBootState();
-  const [loading, setLoading] = useState(true);
-  const [client, setClient] = useState<LegalworkServerClient | null>(null);
-  const [baseUrl, setBaseUrl] = useState("");
-  const [token, setToken] = useState("");
-  const [hostToken, setHostToken] = useState("");
-  const [workspaces, setWorkspaces] = useState<RouteWorkspace[]>([]);
-  const [hasLoadedServerWorkspaces, setHasLoadedServerWorkspaces] = useState(false);
-  const hasLoadedServerWorkspacesRef = useRef(false);
+  // 🟡 LAWOSS #418: a remount (e.g. after closing Settings) starts from the last list of the same connection.
+  const [remount] = useState(() => initialWorkspaceRouteState(workspaceRouteForRemount(storedSettingsKey(readLegalworkServerSettings()), routeWorkspaceId)));
+  const remountConnectionKeyRef = useRef(remount.connection?.key ?? null);
+  const [loading, setLoading] = useState(remount.loading);
+  const [client, setClient] = useState<LegalworkServerClient | null>(remount.client);
+  const [baseUrl, setBaseUrl] = useState(remount.baseUrl);
+  const [token, setToken] = useState(remount.token);
+  const [hostToken, setHostToken] = useState(remount.hostToken);
+  const [workspaces, setWorkspaces] = useState<RouteWorkspace[]>(remount.workspaces);
+  const [hasLoadedServerWorkspaces, setHasLoadedServerWorkspaces] = useState(remount.hasLoadedServerWorkspaces);
+  const hasLoadedServerWorkspacesRef = useRef(remount.hasLoadedServerWorkspaces);
   const [workspaceOrderIds, setWorkspaceOrderIds] = useState<string[]>(() => readWorkspaceOrderIds());
   const [sessionsByWorkspaceId, setSessionsByWorkspaceId] = useState<Record<string, RouteSession[]>>({});
   const [errorsByWorkspaceId, setErrorsByWorkspaceId] = useState<Record<string, string | null>>({});
@@ -151,7 +155,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // would change on every `setBaseUrl`/`setToken`, which used to cascade up
   // through `loadWorkspaceSessionsInBackground` and `refreshRouteState` and
   // produce a tight render-refresh-setWorkspaces loop.
-  const localServerRef = useRef<{ baseUrl: string; token: string; hostToken: string }>({ baseUrl: "", token: "", hostToken: "" });
+  const localServerRef = useRef<{ baseUrl: string; token: string; hostToken: string }>({ baseUrl: remount.baseUrl, token: remount.token, hostToken: remount.hostToken });
   useEffect(() => {
     localServerRef.current = { baseUrl, token, hostToken };
   }, [baseUrl, token, hostToken]);
@@ -164,8 +168,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   routeSelectionRef.current = { routeWorkspaceId, selectedSessionId };
   const callbacksRef = useRef(input);
   callbacksRef.current = input;
-  const clientConnectionRef = useRef<{ key: string; client: LegalworkServerClient } | null>(null);
-  const workspacesRef = useRef<RouteWorkspace[]>([]);
+  const clientConnectionRef = useRef<{ key: string; client: LegalworkServerClient } | null>(remount.connection);
+  const workspacesRef = useRef<RouteWorkspace[]>(remount.workspaces);
   const workspaceOrderIdsRef = useRef(workspaceOrderIds);
   // Remember the first-seen order too, so desktop/server refreshes cannot
   // reshuffle projects before the user has ever dragged one. New projects go first.
@@ -384,6 +388,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       if (!isCurrent()) return;
       callbacksRef.current.onHostInfo(hostInfo);
       if (!normalizedBaseUrl || !resolvedToken) {
+        remountConnectionKeyRef.current = null;
+        rememberWorkspaceRoute(null);
         hasLoadedServerWorkspacesRef.current = false;
         setHasLoadedServerWorkspaces(false);
         // Keep `localServerRef` in lockstep with the disconnected state.
@@ -414,7 +420,17 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       // local workspaces => sidebar gets stuck in "loading" forever.
       localServerRef.current = { baseUrl: normalizedBaseUrl, token: resolvedToken, hostToken: resolvedHostToken };
 
-      const connectionKey = JSON.stringify([normalizedBaseUrl, resolvedToken, resolvedHostToken]);
+      const connectionKey = workspaceConnectionKey(normalizedBaseUrl, resolvedToken, resolvedHostToken);
+      // LAWOSS #418: the remount showed the last list of its connection; another connection never keeps it.
+      if (remountConnectionKeyRef.current !== null && remountConnectionKeyRef.current !== connectionKey) {
+        rememberWorkspaceRoute(null);
+        hasLoadedServerWorkspacesRef.current = false;
+        setHasLoadedServerWorkspaces(false);
+        setLoading(true);
+        workspacesRef.current = [];
+        setWorkspaces([]);
+      }
+      remountConnectionKeyRef.current = null;
       const legalworkClient = clientConnectionRef.current?.key === connectionKey
         ? clientConnectionRef.current.client : createLegalworkServerClient({
         baseUrl: normalizedBaseUrl,
@@ -550,6 +566,12 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     }
   }, [loadWorkspaceSessionsInBackground, markBootRouteReady]);
   const refreshRouteState = useMemo(() => createCoalescedRefresh(refreshOnce), [refreshOnce]);
+  // LAWOSS #418: keep the loaded list of this connection for the next remount of the route.
+  useEffect(() => {
+    if (!hasLoadedServerWorkspaces || !client || !baseUrl || !token) return;
+    rememberWorkspaceRoute({ settingsKey: storedSettingsKey(readLegalworkServerSettings()), connectionKey: workspaceConnectionKey(baseUrl, token, hostToken),
+      client, baseUrl, token, hostToken, workspaces });
+  }, [baseUrl, client, hasLoadedServerWorkspaces, hostToken, token, workspaces]);
 
   // Changing the URL selects a known project without rerunning desktop boot,
   // reconnecting the server, or reloading every project's sessions.

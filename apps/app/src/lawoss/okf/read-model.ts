@@ -800,6 +800,17 @@ const SERVER_SETTINGS_CHANGED = "legalwork-server-settings-changed";
 /** LAWOSS: rozsah kanceláře byl obnoven (lite/office-scope) - stránky načtou spojení i data znovu. */
 export const OFFICE_SCOPE_RESTORED = "lawoss-office-scope-restored";
 
+/**
+ * #418: zmena nastavení servera (napr. zatvorenie Nastavení) prehľad nemaže, len ho označí na nové čítanie. Kľúč
+ * prehľadu nesie adresu, token, `authGeneration` a rozsah, takže iné spojenie starý prehľad nikdy nedostane;
+ * pri tom istom spojení ostáva posledný prehľad viditeľný, kým sa číta znova.
+ */
+export function revalidateOkfOverview(queries: QueryClient): void {
+  void queries.cancelQueries({ queryKey: ["okf-overview"] });
+  void queries.invalidateQueries({ queryKey: ["okf-overview"] });
+  void queries.invalidateQueries({ queryKey: ["okf-practice-root"] });
+}
+
 export function useOkfConnection(): { connection: OkfConnection | null; error: string | null } {
   const [connection, setConnection] = useState<OkfConnection | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -809,9 +820,7 @@ export function useOkfConnection(): { connection: OkfConnection | null; error: s
   const [generation, setGeneration] = useState(0);
   useEffect(() => {
     const onChange = () => {
-      void queries.cancelQueries({ queryKey: ["okf-overview"] });
-      queries.removeQueries({ queryKey: ["okf-overview"] });
-      void queries.invalidateQueries({ queryKey: ["okf-practice-root"] });
+      revalidateOkfOverview(queries);
       setConnection(null); setGeneration(value => value + 1);
     };
     for (const name of [SERVER_SETTINGS_CHANGED, OFFICE_SCOPE_RESTORED]) window.addEventListener(name, onChange);
