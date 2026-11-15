@@ -60,7 +60,7 @@ describe("dlaždice", () => {
     const deadlines = [invalidDeadline(), deadline("2026-11-10", -4, { basis: "instruction" }), deadline("2026-11-18", 4, { basis: "instruction" }), deadline("2026-11-19", 5)];
     const unreadable: TodayTask[] = [{ key: "u", id: "U", title: "Zlý dátum", due: "31. 2.", matters: [MATTER] }];
     const waiting = waitingCounts({ inputs: 3, deadlines, dates: [work("P", "2026-11-12", -2)], unreadable, events: [{ kind: "candidate" }, { kind: "deadline" }, { kind: "work" }] });
-    expect(waiting).toEqual({ filing: 3, overdue: 2, verify: 3, confirm: 1, total: 9 });
+    expect(waiting).toEqual({ filing: 3, overdue: 2, verify: 3, confirm: 1, adopt: 0, total: 9 });
     expect(waiting.filing + waiting.overdue + waiting.verify + waiting.confirm).toBe(waiting.total);
     expect(waitingCounts({ inputs: 0, deadlines: [], dates: [], unreadable: [] }).total).toBe(0);
   });

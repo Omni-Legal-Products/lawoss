@@ -861,6 +861,7 @@ export const shellEn = {
   "lawoss.lite.wait_overdue": "past due",
   "lawoss.lite.wait_verify": "to verify",
   "lawoss.lite.wait_confirm": "to confirm",
+  "lawoss.lite.wait_adopt": "to set up",
   "lawoss.lite.wait_none": "nothing waiting",
   // Alfa 14: Prípad ako pasívny prehľad (spec-pripad.md).
   "lawoss.lite.pripad_stage": "Where the case stands",
@@ -1800,6 +1801,7 @@ export const shellCs = {
   "lawoss.lite.wait_overdue": "po termínu",
   "lawoss.lite.wait_verify": "k ověření",
   "lawoss.lite.wait_confirm": "k potvrzení",
+  "lawoss.lite.wait_adopt": "k zavedení",
   "lawoss.lite.wait_none": "nic nečeká",
   // Alfa 14: Prípad ako pasívny prehľad (spec-pripad.md).
   "lawoss.lite.pripad_stage": "Kde případ stojí",
@@ -2748,6 +2750,7 @@ export const shellSk = {
   "lawoss.lite.wait_overdue": "po termíne",
   "lawoss.lite.wait_verify": "na overenie",
   "lawoss.lite.wait_confirm": "na potvrdenie",
+  "lawoss.lite.wait_adopt": "na zavedenie",
   "lawoss.lite.wait_none": "nič nečaká",
   // Alfa 14: Prípad ako pasívny prehľad (spec-pripad.md).
   "lawoss.lite.pripad_stage": "Kde prípad stojí",
@@ -3690,6 +3693,7 @@ export const shellDe = {
   "lawoss.lite.wait_overdue": "überfällig",
   "lawoss.lite.wait_verify": "zu prüfen",
   "lawoss.lite.wait_confirm": "zu bestätigen",
+  "lawoss.lite.wait_adopt": "einzurichten",
   "lawoss.lite.wait_none": "nichts offen",
   // Alfa 14: Prípad ako pasívny prehľad (spec-pripad.md).
   "lawoss.lite.pripad_stage": "Stand des Falls",

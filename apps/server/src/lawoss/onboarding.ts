@@ -14,6 +14,7 @@ import { registrationName, withClientCardTitles } from "./client-card-title.js";
 import { registerTriageRoutes } from "./triage.js";
 import { readOfficeMemory } from "./office-memory.js";
 import { assertClientFolderNotNested } from "./nested-client.js";
+import { unadoptedClientFolders } from "./unadopted-clients.js";
 import { folderGone, inferPracticeMove, movedClientOf, previewMovedFolder, rebaseOfficeGrants, syncOfficeGrant } from "./moved-practice.js";
 import { executeOnboarding, inspectCardLevel, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, suggestOnboardingLevel, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
 
@@ -255,6 +256,12 @@ export function registerOnboardingRoutes(options: {
     const input = z.strictObject({ root: z.string().min(1).max(4096) }).parse(await body(ctx));
     await canonicalDirectory(input.root);
     return await withClientCardTitles(await suggestOnboardingLevel(input.root));
+  });
+  // #425: priečinky v `Klienti/` kancelárie, ktoré nie sú registrovaným klientom (Dnes ich ponúkne na zavedenie). Len zoznam priečinkov.
+  route("GET", "unadopted-clients", async () => {
+    const officeRoot = (await readProfile())?.officeRoot;
+    if (!officeRoot || await missingDirectory(officeRoot)) return { folders: [] };
+    return { officeRoot, folders: await unadoptedClientFolders(officeRoot, config.workspaces.map(workspace => workspace.path)) };
   });
   route("POST", "plan", async ctx => {
     const input = await body(ctx);
