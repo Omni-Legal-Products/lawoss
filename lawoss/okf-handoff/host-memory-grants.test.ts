@@ -131,6 +131,9 @@ test("#426: klient bez karty prípadu a pamäte nie je zlyhanie handoffu; text j
     expect(first.system[0]).toContain("has no case memory of its own");
     expect(first.system[0]).toContain("This is not a failure.");
     expect(first.system[0]).toContain("Never claim that memory or records exist");
+    // Netvrdí, že klient nemá žiadne úlohy: úlohy z appky sú mimo pamäte prípadu.
+    expect(first.system[0]).toContain("so no deadlines are recorded in case memory for it. That does not mean the client has no tasks");
+    expect(first.system[0]).not.toContain("nothing is recorded for it");
     expect(first.system[0]).not.toContain("FAILED");
     expect(first.system[0]).not.toContain("do not treat incomplete context as empty");
     expect(second.system).toEqual(first.system);

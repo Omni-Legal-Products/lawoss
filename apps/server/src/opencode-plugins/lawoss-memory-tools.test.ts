@@ -69,9 +69,13 @@ test("lawoss_memory posts the case folder of this chat to its own client and nev
     expect(fixed).toContain("say in one sentence what the user can do next");
     // #426: a client without Spisy/ (not onboarded) has no case memory; the agent must not invent or describe it.
     expect(fixed).toContain("A client folder without a Spisy/ folder, without a client card and without a memory/ folder is not yet onboarded into the office standard and has no case memory.");
-    expect(fixed).toContain("say plainly that no deadlines or tasks are recorded for this client because it has no case memory yet");
+    expect(fixed).toContain("say plainly that this client has no case memory yet, so no deadlines are recorded in case memory for it");
+    // Tasks created in the app live outside case memory: never claim that the client has none.
+    expect(fixed).toContain("Do not say that the client has no deadlines or tasks at all: tasks created in the app are kept outside case memory.");
+    expect(fixed).not.toContain("no deadlines or tasks are recorded for this client");
     expect(fixed).toContain("Never say that memory, a register or records of this client exist and never describe what they contain.");
-    expect(fixed).toContain("Offer either to go through the documents in the folder and look for deadlines in them, or to onboard the client into the office standard first.");
+    // #426 + #423: onboarding an existing folder is the in-place /novy-spis conversion, never lawoss_new_client.
+    expect(fixed).toContain("to bring the folder into the office standard in place with the /novy-spis skill (okf plan klient . and, after approval, apply), which only adds the missing files and never moves or overwrites the lawyer's documents. lawoss_new_client cannot do this");
     // The text is fixed: a second read gives the same bytes (prompt caching).
     expect((await plugin.system()).join("\n")).toBe(fixed);
   } finally {

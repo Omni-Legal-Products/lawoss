@@ -15,6 +15,7 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "01de6798b2d44beedba136b36b8741732db60f2974a82e5d2b75c0c01391508e", // lawoss/okf-pamat/SKILL.md @ 04d3d2dc
   "04f60d70f08f79216840bb867333255668170d2bab7d7126693fc7f6f2003d71", // lawoss/okf-pamat/SKILL.md @ 168221d2
   "0620619c4340d3dc6ed90f4115e005e00da68308048d26e224c676118c6ad663", // lawoss/skills/novy-spis/SKILL.md @ f253188a
+  "067e3e8d9b438fa55b9b86cbdd2330a487a200ee3f4e4d821f91f66fb761ebd5", // lawoss/skills/novy-spis/SKILL.md @ #423 review, typ klienta a zavedenie priečinka chatu na mieste
   "0782b3b9aded745def112d42c2dc379015a07aac03e8a393bfa1b1b8b9aa79eb", // lawoss/okf-pamat/SKILL.md @ a4b540e2
   "0f68063b78c5df2d28b1fd525966889640d4aa9f8f5f5a8f969f6d243f62b7ba", // lawoss/okf-pamat/SKILL.md @ 61422e82
   "0f824e3f65eee0e2851a483713b951fb23fe73ff51b95ca68b4caec92917a2bf", // lawoss/okf-pamat/SKILL.md @ 0daa193a
@@ -57,6 +58,7 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "f20e0208616f3fe50860caa94cbc004e776582d41948fbac278abfba224df922", // lawoss/skills/usporiadaj-spis/SKILL.md @ 0f9681d3
   "f7eee8ca3806176713d3d49afd5a08ca7850e756be9acd0f03c3575aaa57d82d", // lawoss/okf-pamat/SKILL.md @ b03f82fe
   "f872ac3d24a2b2bc2ce83a12c086fae5358ad8c64f66eb6c757adcf6d3c84191", // lawoss/skills/novy-spis/SKILL.cs.md @ caacdf9c
+  "fcb9cad3b3d0bfc978d613671768811f8e49c8af5a2f6b9f9709e8c2d877469c", // lawoss/skills/novy-spis/SKILL.cs.md @ #423 review, typ klienta a zavedení složky chatu na místě
   "aab723e10fcc234db66e51f3020d498e7eb1409b30e22a81e7bd8a5f1822646e", // lawoss/skills/roztried-spis/SKILL.md @ feat/alfa-roztriedenie-spisu
   "64de8e0c8d2a02e2cce88cc66fa40a157eae8a20f35430128927f5aba2e2b62d", // lawoss/skills/roztried-spis/SKILL.cs.md @ feat/alfa-roztriedenie-spisu
   "e1dd31551fc99c2ce420e0ef98f559d9fe996554cb78c8008794dc7100b0f123", // lawoss/skills/roztried-spis/SKILL.md @ fix/alfa-roztriedenie-po-teste
