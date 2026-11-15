@@ -52,6 +52,8 @@ export function initialWorkspaceRouteState(snapshot: WorkspaceRouteSnapshot | nu
     baseUrl: snapshot?.baseUrl ?? "",
     token: snapshot?.token ?? "",
     hostToken: snapshot?.hostToken ?? "",
+    // The chats of each client load again in the background, as after a refresh: shown as loading, not "not found".
+    retryingWorkspaceIds: snapshot?.workspaces.map((workspace) => workspace.id) ?? [],
     connection: snapshot ? { key: snapshot.connectionKey, client: snapshot.client } : null,
   };
 }

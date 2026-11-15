@@ -185,7 +185,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const sessionsByWorkspaceIdRef = useRef<Record<string, RouteSession[]>>({});
   const pendingCreatedSessionIdsRef = useRef<Record<string, Record<string, number>>>({});
   const startupRetryTimerRef = useRef<number | null>(null);
-  const [retryingWorkspaceIds, setRetryingWorkspaceIds] = useState<string[]>([]);
+  const [retryingWorkspaceIds, setRetryingWorkspaceIds] = useState<string[]>(remount.retryingWorkspaceIds);
   const launchActivatedWorkspaceIdsRef = useRef(new Set<string>());
   const reconnectAttemptedWorkspaceIdRef = useRef("");
   const backgroundSessionLoadInFlight = useRef<Map<string, number>>(new Map());
@@ -429,6 +429,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         setLoading(true);
         workspacesRef.current = [];
         setWorkspaces([]);
+        if (!desktopList) desktopWorkspaces = [];
       }
       remountConnectionKeyRef.current = null;
       const legalworkClient = clientConnectionRef.current?.key === connectionKey

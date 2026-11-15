@@ -22,7 +22,7 @@ afterEach(() => rememberWorkspaceRoute(null));
 describe("#418: počiatočný stav trasy po opätovnom pripojení", () => {
   test("prvé pripojenie bez uloženého zoznamu: prázdne a načítava sa", () => {
     expect(initialWorkspaceRouteState(workspaceRouteForRemount(storedSettingsKey(settings), ""))).toEqual({
-      loading: true, hasLoadedServerWorkspaces: false, workspaces: [], client: null, baseUrl: "", token: "", hostToken: "", connection: null });
+      loading: true, hasLoadedServerWorkspaces: false, workspaces: [], client: null, baseUrl: "", token: "", hostToken: "", retryingWorkspaceIds: [], connection: null });
   });
 
   test("to isté spojenie: posledný zoznam klientov, spojenie a žiadne načítavanie", () => {
@@ -33,6 +33,8 @@ describe("#418: počiatočný stav trasy po opätovnom pripojení", () => {
     expect(state.hasLoadedServerWorkspaces).toBe(true);
     expect(state.workspaces.map((item) => item.id)).toEqual(["K1-Tatran", "K3-Hron"]);
     expect(state.client).toBe(client);
+    // Chats load again in the background: the clients show as loading, an open chat is not "not found" meanwhile.
+    expect(state.retryingWorkspaceIds).toEqual(["K1-Tatran", "K3-Hron"]);
     expect(state).toMatchObject({ baseUrl: settings.urlOverride, token: settings.token, hostToken: settings.hostToken,
       connection: { key: workspaceConnectionKey(settings.urlOverride, settings.token, settings.hostToken), client } });
     // An address with a known client keeps the list too.
@@ -49,7 +51,7 @@ describe("#418: počiatočný stav trasy po opätovnom pripojení", () => {
       {},
     ]) {
       const state = initialWorkspaceRouteState(workspaceRouteForRemount(storedSettingsKey(other), ""));
-      expect(state).toMatchObject({ loading: true, hasLoadedServerWorkspaces: false, workspaces: [], client: null, connection: null });
+      expect(state).toMatchObject({ loading: true, hasLoadedServerWorkspaces: false, workspaces: [], client: null, retryingWorkspaceIds: [], connection: null });
     }
   });
 
