@@ -28,7 +28,6 @@ import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js
 import { prepareManagedOpencodeDependencies } from "./managed-opencode-dependencies.js";
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { prepareIsolatedEngineHome } from "./lawoss/engine-home.js";
-import { officeProfileEnv } from "./lawoss/linked-folders.js"; // 🟡 LAWOSS #415
 import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import { issueWikiAgentTicket } from "./wiki/agent-access.js";
 import { settleEngineAgentTicket } from "./lawoss/engine-agent-ticket.js";
@@ -143,8 +142,6 @@ const server = await startServer(config, { publicEngineBinary: () => managedOpen
           OPENCODE_DB: database,
           // LAWOSS: no OPENCODE_MODELS_URL; the engine reads only the bundled catalog (lawossEngineEnv in managed-opencode.ts).
           ...isolatedEngineEnv,
-          // 🟡 LAWOSS #415: cesta k profilu kancelárie pre jurisdikciu nového prípadu (lawoss/linked-folders.ts).
-          ...officeProfileEnv(config),
         },
         });
         managedOpencode = engine;

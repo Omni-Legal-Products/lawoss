@@ -1,5 +1,5 @@
-// LAWOSS #415: kancelária z onboardingu appky nemá okf.config a karty klientov jurisdikciu nenesú. Engine dostane cestu
-// k profilu kancelárie a CLI `okf` z neho vezme jurisdikciu nového prípadu bez otázky na advokáta.
+// LAWOSS #415: kancelária z onboardingu appky nemá okf.config a karty klientov jurisdikciu nenesú. Appka drží vedľa
+// pribaleného CLI `okf` `.office.json` s jurisdikciou z profilu kancelárie a CLI z neho vezme jurisdikciu nového prípadu.
 import { afterEach, expect, test } from "bun:test";
 import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { runtimeStorageDir } from "../runtime-opencode-config-store.js";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
-import { officeProfileEnv, officeRoot } from "./linked-folders.js";
+import { officeProfilePath } from "./linked-folders.js";
 import { LEGACY_OFFICE_FACTS_FILE, OFFICE_FACTS_FILE, officeFactsContent, refreshAllOfficeFacts, refreshOfficeFacts, writeOfficeFacts } from "./office-facts.js";
 
 const roots: string[] = [];
@@ -18,36 +18,6 @@ const prior = process.env.LEGALWORK_DATA_DIR;
 afterEach(async () => {
   if (prior === undefined) delete process.env.LEGALWORK_DATA_DIR; else process.env.LEGALWORK_DATA_DIR = prior;
   while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
-});
-
-test("#415: engine dostane cestu k profilu onboardingu a CLI z neho vezme jurisdikciu kancelárie bez okf.config", async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "lawoss-office-profile-")));
-  roots.push(root);
-  process.env.LEGALWORK_DATA_DIR = join(root, "data");
-  const practice = join(root, "prax"), client = join(practice, "Klienti", "Alfa");
-  await mkdir(join(practice, "Office", "memory"), { recursive: true });
-  await writeFile(join(practice, "Office", "AGENTS.md"), "# Kancelária\n");
-  await mkdir(client, { recursive: true });
-  await writeFile(join(client, "client.md"), "---\ntype: klient\ntitle: Alfa\n---\n");
-  const config: ServerConfig = {
-    host: "127.0.0.1", port: 0, configPath: join(root, "server", "server.json"), token: "owt_office_profile", hostToken: "owt_office_profile_host",
-    approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"], workspaces: [], authorizedRoots: [], readOnly: false, startedAt: Date.now(),
-    tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
-  };
-  const env = officeProfileEnv(config);
-  // The same file onboarding writes (`<runtimeStorage>/lawoss-onboarding/profile.json`) and `officeRoot` reads.
-  expect(env.LAWOSS_OFFICE_PROFILE).toBe(join(runtimeStorageDir(config), "lawoss-onboarding", "profile.json"));
-  // The bundled CLI the novy-spis skill runs, with the engine's environment: a new case without --sk/--cz.
-  const cli = fileURLToPath(new URL("../../../../lawoss/okf/bundle/okf.js", import.meta.url));
-  const okf = (command: "plan" | "apply", extra: Record<string, string>) => spawnSync("node", [cli, command, "spis", "--title", "Spor", "--date", "2026-11-15"],
-    { cwd: client, encoding: "utf8", env: { ...process.env, LAWOSS_OFFICE_PROFILE: "", ...extra } });
-  expect(okf("plan", env).status).toBe(2);
-  await mkdir(join(runtimeStorageDir(config), "lawoss-onboarding"), { recursive: true });
-  await writeFile(env.LAWOSS_OFFICE_PROFILE, JSON.stringify({ officeRoot: join(practice, "Office"), jurisdiction: "sk", language: "sk" }));
-  expect(await officeRoot(config)).toBe(join(practice, "Office"));
-  expect(okf("plan", {}).status).toBe(2);
-  expect(okf("apply", env).status).toBe(0);
-  expect(await readFile(join(client, "Spisy", "2026-11 Spor", "matter.md"), "utf8")).toMatch(/^jurisdiction: "?sk"?$/m);
 });
 
 test("#415: .office.json vedľa okf.js klientov z profilu kancelárie; CLI ho použije bez premennej prostredia", async () => {
@@ -75,7 +45,7 @@ test("#415: .office.json vedľa okf.js klientov z profilu kancelárie; CLI ho po
   await refreshAllOfficeFacts(config);
   expect(await stat(facts(client)).catch(() => null)).toBeNull();
   await mkdir(join(runtimeStorageDir(config), "lawoss-onboarding"), { recursive: true });
-  await writeFile(officeProfileEnv(config).LAWOSS_OFFICE_PROFILE, JSON.stringify({ officeRoot: join(practice, "Office"), jurisdiction: "sk" }));
+  await writeFile(officeProfilePath(config), JSON.stringify({ officeRoot: join(practice, "Office"), jurisdiction: "sk" }));
   await refreshAllOfficeFacts(config);
   expect(await readFile(facts(client), "utf8")).toBe(officeFactsContent("sk"));
   // Only next to okf.js, only for a client of this practice; an unchanged file is not rewritten.
@@ -83,16 +53,14 @@ test("#415: .office.json vedľa okf.js klientov z profilu kancelárie; CLI ho po
   expect(await stat(facts(outside)).catch(() => null)).toBeNull();
   expect(await refreshOfficeFacts(config, config.workspaces[0]!)).toBe(0);
 
-  // The deployed CLI in the client folder, with an environment that has no LAWOSS variable (as the server's shells).
-  const env = { ...process.env };
-  delete env.LAWOSS_OFFICE_PROFILE;
+  // The deployed CLI in the client folder, run as the server's shells run it.
   const cli = join(client, ".opencode", "skills", "novy-spis", "resources", "okf.js");
-  const applied = spawnSync("node", [cli, "apply", "spis", "--title", "Spor", "--date", "2026-11-15"], { cwd: client, encoding: "utf8", env });
+  const applied = spawnSync("node", [cli, "apply", "spis", "--title", "Spor", "--date", "2026-11-15"], { cwd: client, encoding: "utf8" });
   expect(applied.status).toBe(0);
   expect(await readFile(join(client, "Spisy", "2026-11 Spor", "matter.md"), "utf8")).toMatch(/^jurisdiction: "?sk"?$/m);
 
   // A changed profile rewrites it; a client that leaves the practice loses it; a link in its place is replaced, not followed.
-  await writeFile(officeProfileEnv(config).LAWOSS_OFFICE_PROFILE, JSON.stringify({ officeRoot: join(practice, "Office"), jurisdiction: "cz" }));
+  await writeFile(officeProfilePath(config), JSON.stringify({ officeRoot: join(practice, "Office"), jurisdiction: "cz" }));
   await refreshAllOfficeFacts(config);
   expect(await readFile(facts(client), "utf8")).toBe(officeFactsContent("cz"));
   const elsewhere = join(root, "elsewhere.json");
@@ -103,7 +71,7 @@ test("#415: .office.json vedľa okf.js klientov z profilu kancelárie; CLI ho po
   expect(await readFile(elsewhere, "utf8")).toBe("keep");
   expect((await lstat(facts(client))).isSymbolicLink()).toBe(false);
   await mkdir(join(root, "Iná", "Office"), { recursive: true });
-  await writeFile(officeProfileEnv(config).LAWOSS_OFFICE_PROFILE, JSON.stringify({ officeRoot: join(root, "Iná", "Office"), jurisdiction: "sk" }));
+  await writeFile(officeProfilePath(config), JSON.stringify({ officeRoot: join(root, "Iná", "Office"), jurisdiction: "sk" }));
   await refreshAllOfficeFacts(config);
   expect(await stat(facts(client)).catch(() => null)).toBeNull();
 });
@@ -135,7 +103,7 @@ test("#415: .office.json sa nezobrazí medzi prostriedkami skillu; starý office
     authorizedRoots: [client, other], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
   };
   await mkdir(join(runtimeStorageDir(config), "lawoss-onboarding"), { recursive: true });
-  await writeFile(officeProfileEnv(config).LAWOSS_OFFICE_PROFILE, JSON.stringify({ officeRoot: join(root, "odkaz", "Office"), jurisdiction: "sk" }));
+  await writeFile(officeProfilePath(config), JSON.stringify({ officeRoot: join(root, "odkaz", "Office"), jurisdiction: "sk" }));
   await refreshAllOfficeFacts(config);
   expect(await readFile(join(resources(client), OFFICE_FACTS_FILE), "utf8")).toBe(officeFactsContent("sk"));
   expect((await readdir(resources(client))).sort()).toEqual([OFFICE_FACTS_FILE, `${OFFICE_FACTS_FILE}.11111111-1111-4111-8111-111111111111.tmp`, "okf.js"].sort());
@@ -143,7 +111,7 @@ test("#415: .office.json sa nezobrazí medzi prostriedkami skillu; starý office
   // The skill's resource listing skips dot files, so the app's file is not an attachment of the lawyer.
   expect((await readdir(resources(client))).filter((name) => !name.startsWith("."))).toEqual(["okf.js"]);
   // A practice whose real path cannot be found (a disconnected drive) changes nothing.
-  await writeFile(officeProfileEnv(config).LAWOSS_OFFICE_PROFILE, JSON.stringify({ officeRoot: join(root, "odpojený", "Office"), jurisdiction: "sk" }));
+  await writeFile(officeProfilePath(config), JSON.stringify({ officeRoot: join(root, "odpojený", "Office"), jurisdiction: "sk" }));
   expect(await refreshOfficeFacts(config, config.workspaces[0]!)).toBe(0);
   expect(await readFile(join(resources(client), OFFICE_FACTS_FILE), "utf8")).toBe(officeFactsContent("sk"));
 });
@@ -165,7 +133,7 @@ test("#415: zápis okf.js do skillu cez server dopíše .office.json hneď", asy
     authorizedRoots: [client], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
   };
   await mkdir(join(runtimeStorageDir(config), "lawoss-onboarding"), { recursive: true });
-  await writeFile(officeProfileEnv(config).LAWOSS_OFFICE_PROFILE, JSON.stringify({ officeRoot: join(practice, "Office"), jurisdiction: "sk" }));
+  await writeFile(officeProfilePath(config), JSON.stringify({ officeRoot: join(practice, "Office"), jurisdiction: "sk" }));
   const server = await startServer(config);
   try {
     const response = await fetch(`http://127.0.0.1:${server.port}/workspace/ws_alfa/skills/novy-spis/resources`, {
