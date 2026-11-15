@@ -92,7 +92,7 @@ function planOrApply(cmd: "plan" | "apply", args: string[]): Step | null {
     i++;
   }
   if (sk && cz) return null;
-  if (entity === "spis" && !sk && !cz) return null; // CLI by odmietlo, karta nemá čo opísať
+  // #415: spis bez --sk/--cz je platný, CLI vezme jurisdikciu z karty klienta alebo kancelárie; karta ju vtedy neuvádza.
   const kind = values.get("matter-kind"), mode = values.get("mode");
   if (kind !== undefined && !known(KIND_KEYS, kind)) return null;
   if (mode !== undefined && !known(MODE_KEYS, mode)) return null;
