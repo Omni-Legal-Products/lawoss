@@ -318,6 +318,12 @@ jobs:
         if: needs.changes.outputs.engine == 'true'
         run: pnpm --filter legalwork-server build
 
+      # 🟡 LAWOSS #440: vygenerované bundly v apps/server/src (gen-*-code.ts) sa nesmú líšiť od commitnutých,
+      # ani cestou ku checkoutu.
+      - name: Generated server code is fresh
+        if: (runner.os == 'Linux') && (needs.changes.outputs.engine == 'true')
+        run: git diff --exit-code -- apps/server/src
+
       - name: Check packaged OpenCode plugins are self-contained
         if: (runner.os == 'Linux') && (needs.changes.outputs.engine == 'true')
         run: node apps/desktop/scripts/check-plugin-bundles.mjs apps/server/dist/opencode-plugins
