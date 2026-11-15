@@ -39,6 +39,7 @@ import { getReactQueryClient } from "../../infra/query-client";
 import type { LegalworkServerStore } from "./legalwork-server-store";
 import { orgPolicyAllows } from "./org-policy";
 import { readConfiguredMcpServers, readMcpStatuses, removeMcpCredentials } from "./native-mcp";
+import { removalMayBeRunning } from "@/lawoss/domains/integrations/mcp-removal"; // 🟡 LAWOSS #436
 
 type SetStateAction<T> = T | ((current: T) => T);
 
@@ -832,10 +833,15 @@ export function createConnectionsStore(options: {
       setStateField("mcpStatus", null);
       captureAnalyticsEvent("integration_disconnected", {});
     } catch (error) {
+      // 🟡 LAWOSS #436: the server may have finished (or still finish) the removal; show the real list, and
+      // say that a request past its deadline may still be running instead of a plain failure.
+      await refreshMcpServers().catch(() => undefined);
+      const pending = removalMayBeRunning(error);
       setStateField(
         "mcpStatus",
-        error instanceof Error ? error.message : t("mcp.remove_failed"),
+        pending ? t("lawoss.integrations.remove_pending") : error instanceof Error ? error.message : t("mcp.remove_failed"),
       );
+      if (pending) throw new Error(t("lawoss.integrations.remove_pending"));
       return false;
     }
   }

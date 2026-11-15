@@ -5,6 +5,7 @@ import type { OfficeMemoryRead } from "../../lawoss/okf/office-memory";
 import type { MovedFolderApiPath } from "../../lawoss/okf/moved-folder";
 import type { LawossOcrView } from "../../lawoss/domains/settings/ocr-opt-in";
 import { lawossMarketplaceMethods } from "../../lawoss/domains/marketplace/marketplace-api";
+import { MCP_REMOVE_TIMEOUT_MS } from "../../lawoss/domains/integrations/mcp-removal"; // 🟡 LAWOSS #436
 import type { WorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
 export type { WorkspaceMemoryStatus as LegalworkWorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
 import { trackLegalMemoryInterfaceRead } from "./legalmemory-interface-activity";
@@ -1750,6 +1751,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // Connector creation waits for OAuth discovery and engine registration
     // across local workspaces before it is safe to open sign-in.
     mcpSetup: 90_000,
+    // 🟡 LAWOSS #436: removal disconnects the connector from every open client before it answers.
+    mcpRemove: MCP_REMOVE_TIMEOUT_MS,
     workspaceExport: 30_000,
     // A dragged folder is many downloads behind one call.
     legalMemoryFolderExport: 300_000,
@@ -3293,6 +3296,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         token,
         hostToken,
         method: "DELETE",
+        timeoutMs: timeouts.mcpRemove,
       }),
     setMcpEnabled: (workspaceId: string, name: string, enabled: boolean) =>
       requestJson<{ items: LegalworkMcpItem[] }>(

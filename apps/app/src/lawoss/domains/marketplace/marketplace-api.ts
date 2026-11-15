@@ -15,6 +15,8 @@ export type MarketplaceCheck =
 export type MarketplaceView = {
   global: ImportedPlugin[];
   globalChanges: Record<string, FileChange[]>;
+  /** #436: connections of a plugin for all clients removed in Settings; such a plugin counts as not installed. */
+  globalMissingMcp?: Record<string, string[]>;
   /** Doterajšie inštalácie len v tomto priečinku (pred inštaláciou pre všetkých klientov). */
   workspace: ImportedPlugin[];
   settings: { weeklyCheck: boolean; lastCheckedAt: number | null };
