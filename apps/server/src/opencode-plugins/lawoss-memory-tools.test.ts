@@ -182,6 +182,8 @@ test("lawoss_memory_write of a new task: one card with the case and both files, 
       const input = tool === "lawoss_memory_write" ? { record: "x", reason: "y", matter: "Spisy/M001", instruction: " \n " } : { date: "2026-11-25", what: "Odpoveď", matter: "Spisy/M001", instruction: "   " };
       await expect(plugin.tool[tool].execute(input, context)).rejects.toThrow("instruction is empty");
       expect(z.fromJSONSchema(JSON.parse(JSON.stringify(plugin.tool[tool].input))).safeParse(input).success).toBe(false);
+      // #444: only `|` or control characters is no sentence either (the register cell would be empty).
+      for (const instruction of ["|", " | \u0001 "]) await expect(plugin.tool[tool].execute({ ...input, instruction }, context)).rejects.toThrow("instruction is empty");
     }
     expect(bodies).toHaveLength(sent);
   } finally {
