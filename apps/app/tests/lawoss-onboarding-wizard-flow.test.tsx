@@ -127,6 +127,19 @@ describe("C1 fix 1: riadenie sprievodcu", () => {
     expect(trustedProgress({ lane: "detailed", step: "ready", connected: { kind: "fresh", root: "/p/LAWOSS", result: { result: "applied" } } }, { officeRoot: "/p/LAWOSS" }).connected?.kind).toBe("fresh");
     expect(wizardOpeningStep("ready", undefined, "/p/prax")).toBe("ready");
   });
+  test("priečinok z odkazu (?root=) na už zobrazenom sprievodcovi: krok aj obsah „Toto sme našli“ a zápis do profilu (#478)", () => {
+    const link = { ...base, initialRoot: "/p/odkaz" };
+    const fresh = wizardResume({ ...link, profile: profile({ step: "folder" }), saved: { lane: "detailed", step: "folder" } });
+    expect([fresh.step, fresh.foundRoot, fresh.profilePatch]).toEqual(["found", "/p/odkaz", { foundRoot: "/p/odkaz", step: "found" }]);
+    // Uložený iný priečinok a pripojenie k nemu nepatria priečinku z odkazu.
+    const other = wizardResume({ ...link, profile: profile({ step: "found", foundRoot: "/p/prax" }), saved: { lane: "detailed", step: "found", connected: clients } });
+    expect([other.step, other.foundRoot, other.connected, other.profilePatch]).toEqual(["found", "/p/odkaz", undefined, { foundRoot: "/p/odkaz", step: "found" }]);
+    // Už uložený priečinok z odkazu sa nezapisuje znova.
+    expect(wizardResume({ ...link, profile: profile({ step: "found", foundRoot: "/p/odkaz" }), saved: { lane: "detailed", step: "found" } }).profilePatch).toBeUndefined();
+    // Tok z bočného panela obnovu v profile nemá.
+    const side = wizardResume({ ...link, hasCompletedOnboarding: true, sidebarFlow: true, profile: profile({ step: "folder", completedAt: "2026-11-01T00:00:00.000Z" }), saved: { lane: "detailed", step: "folder" } });
+    expect([side.foundRoot, side.profilePatch]).toEqual(["/p/odkaz", undefined]);
+  });
   test("pripojenie z kroku 3: zaregistruje, uloží krok ai cez klienta z registrácie a nestratí voľby", async () => {
     const storage = memoryStorage();
     patchOnboardingProgress(storage, { lane: "detailed", step: "found", found: { root: "/p/prax", level: "practice", scope: "client", selected: ["A"] } });
