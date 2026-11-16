@@ -34,6 +34,7 @@ import { z } from "zod";
 import { chatFilePath, chatWorkspace } from "./lawoss-file-paths.js";
 import { listWorkspaces, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 import { nativeTool } from "./native-tool.js";
+import { directTool } from "./lawoss-direct-tool.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
 import { askOrDeclined } from "./lawoss-declined-card.js";
 import { NEW_CLIENT_SYSTEM, newClientTool } from "./lawoss-new-client.js";
@@ -178,8 +179,8 @@ export default Plugin.define({
         execute: (input, context) => readMemory(input, context),
       });
       // The model sees the exact arguments; a call that misses them still gets the actionable text above.
-      editor.add({ ...read, input: z.toJSONSchema(args, { io: "input" }) });
-      editor.add(nativeTool(ctx, {
+      editor.add(directTool({ ...read, input: z.toJSONSchema(args, { io: "input" }) }));
+      editor.add(directTool(nativeTool(ctx, {
         name: "lawoss_memory_write",
         description: "Write one case memory (OKF) record of this client: a new record or a change of an existing one (with if_revision from lawoss_memory read). Shows the user one approval card with the record's text and its file (no card when YOLO Mode is on); after approval the server writes it with the same code as okf-memory write --apply. A declined card writes nothing. Only layer L2 records of a case (a folder with matter.md) in this client's own folder, or with scope client a record for the whole client (client_note, subject or screening) in the client's own memory; the office memory, linked folders, L1/L3 records and deletions are refused.",
         schema: writeArgs,
@@ -187,17 +188,17 @@ export default Plugin.define({
         permission: "domain",
         prevalidate: nonBlankInstruction,
         execute: writeMemory,
-      }));
-      editor.add(nativeTool(ctx, {
+      })));
+      editor.add(directTool(nativeTool(ctx, {
         name: "lawoss_memory_deadline",
         description: "Record a deadline the lawyer stated in chat with an explicit date, in one call: registers the lawyer's instruction in the case's input register and writes the deadline into the case memory, marked as given by the lawyer's instruction and not verified from a document. Shows the user one approval card with the case, the date, what it is for and both files (no card when YOLO Mode is on); a declined card writes nothing, and either both files are written or neither. The date must be the one the lawyer gave; a missing or computed date is refused.",
         schema: deadlineArgs,
         permission: "domain",
         prevalidate: nonBlankInstruction,
         execute: writeDeadline,
-      }));
-      editor.add(newClientTool(ctx));
-      editor.add(integrationsTool(ctx));
+      })));
+      editor.add(directTool(newClientTool(ctx)));
+      editor.add(directTool(integrationsTool(ctx)));
     });
     const listing = await ctx.tool.hook("execute.after", (event) => {
       if (event.status === "completed" && event.tool === EXTENSION_LISTING_TOOL) event.result = annotateExtensionListing(event.result);
