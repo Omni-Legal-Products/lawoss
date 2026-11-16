@@ -2,7 +2,7 @@ import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { clientFolderSlug, newClientFolder, newClientFolderName } from "../src/onboarding/entities.ts";
+import { ClientExistsError, clientFolderSlug, newClientFolder, newClientFolderName } from "../src/onboarding/entities.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
 
 // #433: priečinok nového klienta podľa zvyklosti kancelárie (kód `C025-slug`, inak meno klienta).
@@ -63,8 +63,28 @@ test("collision: never overwrite, take the next number", () => {
   expect(newClientFolderName("Novák", ["C001-a", "C002-b"], ["C001-a", "C002-b", "c003-novak"])).toBe("C004-novak");
   // The same code with another slug is also taken.
   expect(newClientFolderName("Novák", ["C001-a", "C002-b"], ["C001-a", "C002-b", "C003-ine.pdf"])).toBe("C004-novak");
-  // The same client name twice in a coded office gets two codes (the folder never collides).
-  expect(newClientFolderName("Novák", ["C001-a", "C002-b", "C003-novak"])).toBe("C004-novak");
+  // A genuine number collision: another client already holds C003, so the new one moves on.
+  expect(newClientFolderName("Novák", ["C001-a", "C002-b"], ["C001-a", "C002-b", "C003-horvath"])).toBe("C004-novak");
+});
+
+test("the same client again in a coded office is refused, naming the existing folder", () => {
+  const same = () => newClientFolderName("SYN Tomáš Švec – remeslá", SYNTHETIC);
+  expect(same).toThrow(ClientExistsError);
+  try { same(); } catch (error) { expect(error).toMatchObject({ code: "client_exists", folder: "C024-syn-tomas-svec-remesla" }); }
+  // Punctuation, case and diacritics do not make it a new client.
+  expect(() => newClientFolderName("syn tatran automatika s.r.o.", SYNTHETIC)).toThrow(ClientExistsError);
+  // The client card's name counts even when the folder slug differs (e.g. a renamed folder).
+  const cards = new Map([["C002-hron", "Hron Technológie, a. s."]]);
+  expect(() => newClientFolderName("HRON technologie a.s.", ["C001-a", "C002-hron"], undefined, cards)).toThrow(ClientExistsError);
+  expect(newClientFolderName("Hron Stavby, a. s.", ["C001-a", "C002-hron"], undefined, cards)).toBe("C003-hron-stavby-a-s");
+});
+
+test("the same client again is found also by the card on disk", async () => {
+  const parent = await directory("okf-klienti-");
+  for (const name of ["C001-a", "C002-b"]) await mkdir(join(parent, name));
+  await writeFile(join(parent, "C002-b", "client.md"), '---\ntype: client\ntitle: "SYN Novák Reality, s. r. o."\n---\n');
+  await expect(newClientFolder(parent, "SYN Novák Reality s.r.o.")).rejects.toMatchObject({ code: "client_exists", folder: "C002-b" });
+  expect(await newClientFolder(parent, "SYN Iná Firma")).toBe("C003-syn-ina-firma");
 });
 
 test("a name without letters or digits still gets a code", () => {

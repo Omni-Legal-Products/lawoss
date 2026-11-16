@@ -46,7 +46,7 @@ async function post(context: OpenCodeContext, workspace: string, route: "plan" |
 
 const NOTES: Record<string, string> = {
   new_client_no_office: "No office is connected, so no client was created. Tell the lawyer plainly that nothing was created and that they first need to connect their office in LAWOSS.",
-  new_client_exists: "A folder with this name already exists in the office's clients folder, so nothing was created or overwritten. Tell the lawyer, and ask whether they mean the existing client or want a different name. If it is this chat's own folder, offer to bring it into the office standard in place with the /novy-spis skill instead.",
+  new_client_exists: "A folder or client with this name already exists in the office's clients folder (the error names its folder), so nothing was created or overwritten. Tell the lawyer which folder it is, and ask whether they mean the existing client or want a different name. If it is this chat's own folder, offer to bring it into the office standard in place with the /novy-spis skill instead.",
   new_client_name: "The name cannot be a folder name (it contains / or \\, starts with a dot or is only dots), so nothing was created. Ask the lawyer for the client's name without these characters.",
 };
 

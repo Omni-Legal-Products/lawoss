@@ -86,6 +86,17 @@ const assertClientFolders = async (config: ServerConfig, preview: Parameters<typ
     if (moved) throw new ApiError(409, "onboarding_client_moved", "This folder may belong to a registered client whose folder was not found. Choose whether to reconnect it or add it as a new client. Nothing was changed.", { ...moved, folderPath: folder });
   }
 };
+/**
+ * #433: v kancelárii s kódovanými priečinkami ten istý klient znova (rovnaký slug za kódom alebo meno z karty) nie je
+ * nový klient. OKF to hlási `ClientExistsError` (`code: "client_exists"`, meno priečinka); ako kolízia mena bez kódu.
+ */
+const clientExists = (error: unknown, parent: string): unknown => {
+  if (!(error instanceof Error) || Reflect.get(error, "code") !== "client_exists") return error;
+  const folder: unknown = Reflect.get(error, "folder");
+  if (typeof folder !== "string") return error;
+  const target = join(parent, folder);
+  return new ApiError(409, "new_client_exists", `A client with this name already exists (${target}). Nothing was created or overwritten.`, { target });
+};
 /** Miestny deň advokáta (ako karta z obrazovky „Toto som našiel“), nie UTC. */
 const localDay = () => { const now = new Date(); return [now.getFullYear(), now.getMonth() + 1, now.getDate()].map((part, index) => String(part).padStart(index ? 2 : 4, "0")).join("-"); };
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
@@ -287,7 +298,7 @@ export function registerOnboardingRoutes(options: {
   const plan = async (input: Record<string, unknown>) => {
     // Vybraný existujúci priečinok sa overí ešte pred prehliadkou: odmietnutie má prednosť pred inou chybou plánu.
     if (input.action === "existing" && typeof input.root === "string" && isAbsolute(input.root)) await assertClientFolderNotNested(config, input.root, input.mode === "trial_clone" ? "copy" : "in_place");
-    const preview = await previewOnboarding(input);
+    const preview = await previewOnboarding(input).catch(error => { throw clientExists(error, typeof input.parent === "string" ? input.parent : ""); });
     // The state/journal must never live inside an inspected client or parent.
     const original = preview.mode === "map" ? preview.root : preview.mode === "trial_clone" ? preview.source : preview.plan?.root;
     if (!original || inside(original, storage)) throw new ApiError(400, "invalid_storage", "Application state must be outside the selected source directory.");
@@ -400,7 +411,7 @@ export function registerOnboardingRoutes(options: {
     const plain = input.name.trim().replace(/[. ]+$/, "");
     if (/[\\/]/.test(input.name) || !plain || plain.startsWith(".")) throw new ApiError(400, "new_client_name", "A client name cannot contain / or \\, start with a dot or consist only of dots. Nothing was created.");
     // #433: priečinok podľa zvyklosti kancelárie (ďalší kód `C025-slug`, ak ho priečinky klientov nesú), tou istou funkciou ako plán.
-    const target = join(parent, await newClientFolder(parent, input.name));
+    const target = join(parent, await newClientFolder(parent, input.name).catch(error => { throw clientExists(error, parent); }));
     if (!await missingDirectory(target)) throw new ApiError(409, "new_client_exists", `A folder with this name already exists (${target}). Nothing was created or overwritten.`, { target });
     // Typ klienta sa nedopĺňa: agent ho musí zadať (pri nejasnosti sa spýta), karta ukáže všetko, čo sa zapíše.
     const note = input.note?.replace(/\s+/g, " ");

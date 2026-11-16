@@ -199,7 +199,7 @@ const comparableName = (name: string) => name.normalize("NFC").toLocaleLowerCase
  * priečinkov klientov. Potom `<predpona><najvyššie číslo + 1>-<slug mena>`; medzery v číslovaní sa nevypĺňajú.
  * Obsadené meno (aj inou veľkosťou písmen) sa nikdy neprepíše, berie sa ďalšie číslo. Inak meno klienta (`safeSegment`).
  */
-export function newClientFolderName(name: string, folders: readonly string[], taken: readonly string[] = folders): string {
+export function newClientFolderName(name: string, folders: readonly string[], taken: readonly string[] = folders, cardTitles: ReadonlyMap<string, string> = new Map()): string {
   const plain = safeSegment(name);
   const clients = folders.filter(countsAsClientFolder);
   const groups = new Map<string, { prefix: string; width: number; count: number; max: number }>();
@@ -217,6 +217,13 @@ export function newClientFolderName(name: string, folders: readonly string[], ta
   const max = Math.max(...[...groups.values()].filter(group => comparableName(group.prefix) === comparableName(rule.prefix)).map(group => group.max));
   const used = new Set(taken.map(comparableName));
   const slug = clientFolderSlug(name) || "klient";
+  // Ten istý klient znova nie je nový klient: rovnaký slug za kódom alebo rovnaké meno na karte (porovnané slugom,
+  // teda bez diakritiky, veľkosti písmen a interpunkcie: „s.r.o.“ = „s. r. o.“). Iný klient s obsadeným číslom ide ďalej.
+  const sameClient = clients.find(folder => {
+    const match = CLIENT_CODE.exec(folder), title = cardTitles.get(folder);
+    return (match && match[3].toLowerCase() === slug) || (title !== undefined && clientFolderSlug(title) === slug);
+  });
+  if (sameClient && clientFolderSlug(name)) throw new ClientExistsError(sameClient);
   for (let number = max + 1; ; number += 1) {
     const code = `${rule.prefix}${String(number).padStart(rule.width, "0")}`;
     const folder = safeSegment(`${code}-${slug}`);
@@ -225,16 +232,33 @@ export function newClientFolderName(name: string, folders: readonly string[], ta
   }
 }
 
-/** Mená v priečinku klientov pre `newClientFolderName`; nečitateľný priečinok = žiadne (chybu potom ohlási plán). */
-export async function clientsFolderEntries(parent: string): Promise<{ folders: string[]; taken: string[] }> {
-  const entries = await readdir(parent, { withFileTypes: true }).catch(() => []);
-  return { folders: entries.filter(entry => entry.isDirectory()).map(entry => entry.name), taken: entries.map(entry => entry.name) };
+/** Klient s týmto menom už v priečinku klientov je (#433); `folder` je meno jeho priečinka. */
+export class ClientExistsError extends Error {
+  readonly code = "client_exists";
+  constructor(readonly folder: string) { super(`A client with this name already exists in the clients folder (${folder}). Nothing was created or overwritten.`); }
 }
 
-/** Priečinok, ktorý pre nového klienta vznikne v `parent` (formulár aj `lawoss_new_client`, #433). */
+/** Koľko kariet klientov sa číta naraz (veľká kancelária, pomalý NAS). */
+const CARD_READS_AT_ONCE = 8;
+
+/** Mená v priečinku klientov pre `newClientFolderName` a názvy z kariet kódovaných priečinkov; nečitateľný priečinok = žiadne (chybu potom ohlási plán). */
+export async function clientsFolderEntries(parent: string): Promise<{ folders: string[]; taken: string[]; cardTitles: Map<string, string> }> {
+  const entries = await readdir(parent, { withFileTypes: true }).catch(() => []);
+  const folders = entries.filter(entry => entry.isDirectory()).map(entry => entry.name), cardTitles = new Map<string, string>();
+  const coded = folders.filter(folder => countsAsClientFolder(folder) && CLIENT_CODE.test(folder));
+  for (let index = 0; index < coded.length; index += CARD_READS_AT_ONCE) {
+    await Promise.all(coded.slice(index, index + CARD_READS_AT_ONCE).map(async folder => {
+      const title = (await clientCard(join(parent, folder)))?.title;
+      if (title) cardTitles.set(folder, title);
+    }));
+  }
+  return { folders, taken: entries.map(entry => entry.name), cardTitles };
+}
+
+/** Priečinok, ktorý pre nového klienta vznikne v `parent` (formulár aj `lawoss_new_client`, #433); ten istý klient znova = `ClientExistsError`. */
 export async function newClientFolder(parent: string, name: string): Promise<string> {
-  const { folders, taken } = await clientsFolderEntries(parent);
-  return newClientFolderName(name, folders, taken);
+  const { folders, taken, cardTitles } = await clientsFolderEntries(parent);
+  return newClientFolderName(name, folders, taken, cardTitles);
 }
 
 export async function planNewClient(request: ClientRequest): Promise<CreatePreview> {

@@ -119,8 +119,13 @@ test("lawoss_new_client in a coded office: next code and slug as the folder, the
   expect(await readFile(join(target, "client.md"), "utf8")).toContain(name);
   expect(config.workspaces.find(workspace => workspace.path === target)?.name).toBe(name);
 
-  // Rovnaké meno znova: priečinok sa neprepíše, dostane ďalší kód (kód je jedinečný, meno klienta nie).
-  const again = JSON.parse(await tools.lawoss_new_client.execute({ name, client_type: "po" }, context));
-  expect(again).toMatchObject({ created: true, path: join(clients, "C009-syn-novak-reality-s-r-o") });
+  // Ten istý klient znova (iný zápis mena): „už existuje“ s jeho priečinkom ešte pred kartou, nie druhý klient s C009.
+  const again = JSON.parse(await tools.lawoss_new_client.execute({ name: "syn novák reality s.r.o.", client_type: "po" }, context));
+  expect(again).toMatchObject({ created: false, code: "new_client_exists" });
+  expect(again.error).toContain(target);
+  expect(cards).toHaveLength(1);
+  // Iný klient: ďalšie voľné číslo.
+  const other = JSON.parse(await tools.lawoss_new_client.execute({ name: "SYN Iná Firma", client_type: "po" }, context));
+  expect(other).toMatchObject({ created: true, path: join(clients, "C009-syn-ina-firma") });
   await rm(join(profileDir, "profile.json"));
 }, 30_000);
