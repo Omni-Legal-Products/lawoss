@@ -20,6 +20,7 @@ import { canonicalPathOf, withCanonicalPaths } from "@/lawoss/domains/onboarding
 import { watchLegalworkConnection } from "@/lawoss/domains/onboarding/server-connection";
 import { registerOnboardedWorkspace } from "@/lawoss/domains/onboarding/register-clients";
 import { openOnboardedClientChat } from "@/lawoss/domains/onboarding/client-chat-open";
+import { useBootState } from "./boot-state";
 
 // 🟡 LAWOSS: napísané a vložené cesty idú na server v tvare ako vybrané v dialógu (Windows, typed-paths.ts); v prehliadači bez zmeny.
 const typedPaths = (client: LegalworkServerClient) => isDesktopRuntime() ? withCanonicalPaths(client, canonicalDirectoryPath) : client;
@@ -47,6 +48,9 @@ export function WelcomeRoute() {
   const registeredClient = useRef<LegalworkServerClient | null>(null);
   const continuation = new URLSearchParams(location.search).get("continue");
   const initialStep = continuationStep(continuation);
+  // 🟡 LAWOSS #452: reload priamo na /welcome nesmie nechať štartovací prekryv navždy (ako ostatné trasy).
+  const { markRouteReady } = useBootState();
+  useEffect(() => markRouteReady(), [markRouteReady]);
 
   // 🟡 LAWOSS: pri prvom štarte počká, kým boot spustí server (server-connection.ts), namiesto okamžitej chyby.
   useEffect(() => watchLegalworkConnection({

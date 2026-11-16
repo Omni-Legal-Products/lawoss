@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Sprievodca, engine, hľadanie a nahlásenie chyby (#452–#456, #464, #465) (2026-11-16)
+
+Nálezy z testu desktopovej appky 15. 11. 2026 (dev 259201bc a alfa 13).
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/shell/welcome-route.tsx` (+ test `tests/lawoss-welcome-boot-overlay-452.test.ts`) | #452: +1 import, 2 riadky: `/welcome` po vykreslení zavolá `markRouteReady` (ako trasa pracovného priestoru a Nastavenia), takže reload počas sprievodcu nenechá štartovací prekryv navždy. |
+
 ## Katalóg registrov: pribalené runtime z LAWOSS Marketplace (#420, #421) (2026-11-16)
 
 Katalóg `Omni-Legal-Products/lawoss-marketplace` dodáva runtime registrov ako jeden súbor zbalený cez esbuild (bez `npm ci`, kvôli firewallom s rozbaľovaním TLS). Súbory majú 1,2–6,3 MB (slovlex spolu 8,5 MB), importér ich odmietal (`unsupported_plugin_resources`).
