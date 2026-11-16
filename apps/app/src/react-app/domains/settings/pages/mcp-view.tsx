@@ -63,6 +63,7 @@ import {
 import { HubScopeToggle, useHubScope } from "./hub-scope-context";
 import { McpConfigExportDialog } from "../../../../lawoss/domains/integrations/mcp-config-export";
 import { marketplaceConnector } from "../../../../lawoss/domains/marketplace/mcp-servers";
+import { settleMcpRemoval } from "../../../../lawoss/domains/integrations/mcp-removal";
 import { orgPolicyAllows, orgPolicyOffText, useOrgPolicyForbids } from "../../connections/org-policy";
 import { OrgPolicyNote } from "../../connections/org-policy-ui";
 import { HubTabs, type HubTab } from "../segmented-tabs";
@@ -738,7 +739,7 @@ export function McpView(props: McpViewProps) {
               setLegalWorkExtensionEnabled(detailEntry, false);
             } : isQuickConnectConfigured(detailEntry) ? () => {
               const slug = getMcpIdentityKey(detailEntry);
-              props.removeMcp(slug);
+              void settleMcpRemoval(props.removeMcp(slug), message => toast.error(message)); // 🟡 LAWOSS #442
               setDetailEntry(null);
             } : undefined}
             onHide={() => setLegalWorkExtensionHidden(detailEntry, true)}
