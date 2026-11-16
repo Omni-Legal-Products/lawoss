@@ -27,8 +27,8 @@ export type WizardResume = {
   connected?: WizardConnected;
   /** Uložený priečinok zmizol: veta pre advokáta a zabudnutie priečinka aj pripojenia. */
   missing?: string;
-  /** Zmena profilu na serveri pri zmiznutom priečinku. */
-  profilePatch?: { foundRoot: null; step?: OnboardingStep };
+  /** Zmena profilu na serveri: zmiznutý priečinok, alebo priečinok z odkazu (`?root=`) uložený ako pri výbere dialógom. */
+  profilePatch?: { foundRoot: string | null; step?: OnboardingStep };
 };
 
 /**
@@ -45,7 +45,9 @@ export function wizardResume(input: {
   sidebarFlow: boolean;
 }): WizardResume {
   const { initialStep, initialRoot, profile, saved, sidebarFlow } = input;
-  const trusted = sidebarFlow ? {} : trustedProgress(saved, profile);
+  // Priečinok z odkazu má prednosť; voľby a pripojenie uložené k inému priečinku k nemu nepatria (#478).
+  const linked = initialRoot && profile ? { ...profile, foundRoot: initialRoot } : profile;
+  const trusted = sidebarFlow ? {} : trustedProgress(saved, linked);
   const opening = wizardOpeningStep(
     visibleOnboardingStep(openingStep(initialStep, profile, saved.step, input.hasCompletedOnboarding), profile !== null),
     trusted.connected,
@@ -56,7 +58,10 @@ export function wizardResume(input: {
   if (resumed && "missing" in resumed) {
     return { step: "folder", missing: resumed.missing, profilePatch: { foundRoot: null, ...(opening === "folder" ? {} : { step: "folder" }) } };
   }
-  return { step, ...(resumed ? { foundRoot: resumed.root } : {}), ...trusted };
+  const foundRoot = initialRoot ?? resumed?.root;
+  // #478: „Toto sme našli“ z odkazu sa zapíše do profilu ako výber dialógom, aby ho obnova (návrat z Nastavení) našla.
+  const linkPatch = initialRoot && !sidebarFlow && profile && step === "found" && (profile.foundRoot !== initialRoot || profile.step !== "found");
+  return { step, ...(foundRoot ? { foundRoot } : {}), ...trusted, ...(linkPatch ? { profilePatch: { foundRoot: initialRoot, step } } : {}) };
 }
 
 export type WizardFlowDeps = {
