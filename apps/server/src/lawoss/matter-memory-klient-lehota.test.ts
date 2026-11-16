@@ -364,3 +364,21 @@ test("#417: zlyhanie zápisu úlohy vráti VSTUPY.md späť; zmena registra po k
   expect((await refusal(f.write({ ...body, apply: true, approved: second.approved })))?.code).toBe("memory_write_changed");
   expect((await readdir(join(dir, "memory"))).sort()).toEqual(["M-001.md"]);
 });
+
+// #444: a sentence of only `|` or control characters would leave an empty quote in `VSTUPY.md`; it is refused.
+test("#444: pokyn len zo znakov „|“ alebo riadiacich znakov sa odmietne pri úlohe aj lehote, nič sa nezapíše", async () => {
+  const f = await fixture();
+  const dir = f.cases[0]!;
+  const before = await snapshot(f.root);
+  for (const instruction of ["|", " | | ", "\u0001\u0002", "|\t|\n|", "\u0007 |"]) {
+    for (const body of [{ matter: dir, record: task(), reason: "Pokyn advokáta v chate", instruction }, deadline(f, { instruction })]) {
+      const refused = await refusal(f.write(body));
+      expect(refused).toMatchObject({ code: "memory_instruction_empty", status: 400 });
+      expect(refused?.message).toContain("Quote the lawyer's sentence");
+      expect((await refusal(f.write({ ...body, apply: true, approved: "0".repeat(64) })))?.code).toBe("memory_instruction_empty");
+    }
+  }
+  expect(await snapshot(f.root)).toEqual(before);
+  // A sentence with words around a `|` is still the lawyer's sentence.
+  expect(previewOf(await f.write({ matter: dir, record: task(), reason: "SYN", instruction: "| Pripomeň mi prílohu č. 4 |" })).task?.instruction).toBe("Pripomeň mi prílohu č. 4");
+});

@@ -69,10 +69,14 @@ const preview = z.object({
   task: z.object({ case: z.string(), register: z.string(), inputId: z.string(), instruction: z.string() }).optional(),
 });
 
-/** A blank `instruction` would reach the server as a generic argument error; say what is wrong instead. */
+/**
+ * A blank `instruction` would reach the server as a generic argument error; say what is wrong instead. #444: as the
+ * server, an instruction with no letter or digit once `|` and control characters are removed (the register cell) is
+ * empty too.
+ */
 function nonBlankInstruction(raw: unknown): void {
   const instruction: unknown = raw && typeof raw === "object" ? Reflect.get(raw, "instruction") : undefined;
-  if (typeof instruction === "string" && !instruction.trim()) {
+  if (typeof instruction === "string" && !/[\p{L}\p{N}]/u.test(instruction.replace(/[\u0000-\u001f|]/g, " "))) {
     throw new Error("instruction is empty: give the lawyer's sentence quoted as written, or omit instruction for a task you derived from a document. Nothing was written.");
   }
 }

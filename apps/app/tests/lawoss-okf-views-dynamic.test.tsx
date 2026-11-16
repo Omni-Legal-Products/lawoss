@@ -169,11 +169,12 @@ describe("dynamické pohľady z OKF", () => {
     expect(deadlineText({ title: "Spis", raw: "2026-10-09 ", recordId: "Q-9" })).toBe("Spis");
   });
 
-  test("hraničné prípady: obnova sa pri pomalom čítaní predĺži, najviac na 2 minúty", () => {
-    expect(okfRefreshInterval(undefined)).toBe(15_000);
-    expect(okfRefreshInterval(800)).toBe(15_000);
-    expect(okfRefreshInterval(4_000)).toBe(40_000);
-    expect(okfRefreshInterval(60_000)).toBe(120_000);
+  // #460: tichá obnova pri nečinnosti je 5 minút (inak po zápise agenta, pri návrate do okna a otvorení stránky).
+  test("hraničné prípady: obnova pri nečinnosti je 5 minút, pri pomalom čítaní dlhšia, najviac 15 minút", () => {
+    expect(okfRefreshInterval(undefined)).toBe(300_000);
+    expect(okfRefreshInterval(800)).toBe(300_000);
+    expect(okfRefreshInterval(40_000)).toBe(400_000);
+    expect(okfRefreshInterval(600_000)).toBe(900_000);
   });
 
   test("hraničné prípady: zlyhané obnovenie povie, z kedy sú údaje", () => {

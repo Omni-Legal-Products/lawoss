@@ -7,7 +7,7 @@ import { join, relative } from "node:path";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
-import { practiceRootOf, unadoptedClientFolders } from "./unadopted-clients.js";
+import { createCanonicalPaths, practiceRootOf, unadoptedClientFolders } from "./unadopted-clients.js";
 
 const roots: string[] = [], stops: (() => void | Promise<void>)[] = [];
 const originalData = process.env.LEGALWORK_DATA_DIR, originalTokens = process.env.LEGALWORK_TOKEN_STORE;
@@ -84,6 +84,41 @@ describe("unadoptedClientFolders", () => {
     expect([practiceRootOf(join(practice, "Office")), practiceRootOf(join(practice, "_KANCELARIA")), practiceRootOf(practice)]).toEqual([practice, practice, practice]);
     // Iný podpriečinok nie je kancelária: jeho Klienti/ sa hľadajú v ňom.
     expect(practiceRootOf(join(practice, "Klienti"))).toBe(join(practice, "Klienti"));
+  });
+});
+
+// #443: Dnes sa číta pri každom zobrazení; realpath každého priečinka klienta sa nesmie opakovať po jednom.
+describe("createCanonicalPaths", () => {
+  test("najviac `concurrency` naraz, výsledky v poradí vstupu a v rámci platnosti bez nového realpath", async () => {
+    let clock = 0, running = 0, peak = 0;
+    const calls: string[] = [];
+    const paths = createCanonicalPaths({ now: () => clock, ttlMs: 1_000, concurrency: 3, realpath: async (path) => {
+      calls.push(path); running += 1; peak = Math.max(peak, running);
+      await new Promise(done => setTimeout(done, 1));
+      running -= 1;
+      return `/real${path}`;
+    } });
+    const input = Array.from({ length: 20 }, (_, index) => `/k/${index}`);
+    expect(await paths.many(input)).toEqual(input.map(path => `/real${path}`));
+    expect(peak).toBe(3);
+    expect(calls).toHaveLength(20);
+    clock = 999;
+    expect(await paths.many(input)).toEqual(input.map(path => `/real${path}`));
+    expect(calls).toHaveLength(20);
+    clock = 1_000;
+    await paths.one("/k/0");
+    expect(calls).toHaveLength(21);
+  });
+
+  test("zlyhanie sa nepamätá a vráti cestu bez zmeny, pamäť má hornú hranicu", async () => {
+    let fail = true, count = 0;
+    const paths = createCanonicalPaths({ maxPaths: 2, realpath: async (path) => { count += 1; if (fail) throw new Error("ENOENT"); return `${path}-real`; } });
+    expect(await paths.one("/a")).toBe("/a");
+    fail = false;
+    expect(await paths.one("/a")).toBe("/a-real");
+    expect(count).toBe(2);
+    await paths.many(["/b", "/c", "/d"]);
+    expect(paths.size).toBe(2);
   });
 });
 

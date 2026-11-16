@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:f
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installCloudPlugin, readInstalledCloudPlugins } from "../cloud-plugins.js";
+import { installCloudPlugin, readInstalledCloudPlugins, writeInstalledCloudPlugins } from "../cloud-plugins.js";
 import { resolveClaudePluginBundle } from "../claude-plugin-bundle.js";
 import { addMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled } from "../mcp.js";
 import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
@@ -146,6 +146,45 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     expect((await installGlobalPlugin(config, url(SHA1))).status).toBe("already_installed");
   });
 
+  test("#441: opätovná inštalácia po odstránenom pripojení ponechá vypnutého súrodenca vypnutého s jeho nastavením a nainštalovanú verziu", async () => {
+    const SHA3 = "3".repeat(40), SHA4 = "4".repeat(40);
+    const pair = (version: string) => ({
+      "plugins/dvojica/.claude-plugin/plugin.json": JSON.stringify({ name: "dvojica", version, description: "Vymyslený plugin s dvoma pripojeniami" }),
+      "plugins/dvojica/.mcp.json": JSON.stringify({ mcpServers: { alfa: { command: "node", args: ["scripts/run.mjs", "alfa"] }, beta: { command: "node", args: ["scripts/run.mjs", "beta"] } } }),
+      "plugins/dvojica/scripts/run.mjs": `// runtime ${version}\n`,
+      "plugins/dvojica/skills/dvojica/SKILL.md": `---\nname: dvojica\ndescription: Vymyslený skill\n---\nVerzia ${version}.\n`,
+    });
+    repo[SHA3] = pair("1.0.0");
+    repo[SHA4] = pair("2.0.0");
+    const pairUrl = (sha: string) => `https://github.com/${OWNER_REPO}/tree/${sha}/plugins/dvojica`;
+    const config = serverConfig(root);
+    await installGlobalPlugin(config, pairUrl(SHA3));
+    // The lawyer adds a setting to beta, turns beta off and removes alfa in Settings › Integrations.
+    const beta = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.beta;
+    expect(beta).toBeDefined();
+    await addMcp(config, "ws_a", "beta", { ...beta!, environment: { ADVOKAT_NASTAVENIE: "moje" } }, "global");
+    await setMcpEnabled(config, "ws_a", "beta", false);
+    expect(await removeMcp(config, "ws_a", "alfa")).toEqual(["global"]);
+    const before = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.beta;
+    if (!before) throw new Error("beta is missing");
+    expect(before).toMatchObject({ environment: { ADVOKAT_NASTAVENIE: "moje" } });
+
+    // The catalog now offers 2.0.0; the install button brings back alfa at the installed 1.0.0.
+    const again = await installGlobalPlugin(config, pairUrl(SHA4));
+    expect(again.status).toBe("installed");
+    expect(again.item.lawossProvenance).toEqual({ source: { owner: "Omni-Legal-Products", repo: "lawoss-marketplace", ref: SHA3, dir: "plugins/dvojica" }, version: "1.0.0" });
+    expect(await missingMcp(config, again.item)).toEqual([]);
+    const after = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers ?? {};
+    expect(after.beta).toEqual(before);
+    for (const workspaceId of ["ws_a", "ws_b"]) {
+      const mcp = await runtimeMcpMapForWorkspace(config, workspaceId);
+      expect(mcp.alfa).toBeDefined();
+      expect(mcp.alfa?.disabled).not.toBe(true);
+      expect(mcp.beta?.disabled === true || mcp.beta?.enabled === false).toBe(true);
+    }
+    expect(await readFile(join(root, "config", "opencode", "skills", "dvojica-plugin", "dvojica", "SKILL.md"), "utf8")).toContain("Verzia 1.0.0.");
+  });
+
   // #420, #421: katalóg dodáva runtime registra ako jeden zbalený súbor (slovlex 6,25 MB + 2,08 MB).
   test("pribalený runtime nad 1 MiB sa nainštaluje aj aktualizuje celý a nie je uložený v zázname inštalácie", async () => {
     const MIB = 1024 * 1024;
@@ -187,6 +226,55 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     expect(updated.status).toBe("updated");
     expect(await runtime("1.2.0")).toMatchObject({ bytes: 6.5 * MIB });
     expect(await recordBytes()).toBeLessThan(64 * 1024);
+  });
+
+  // #441: the reinstall after a removed connection fetches the installed commit again. That commit passed the importer
+  // under the higher limit when the app trusted it; after a newer release it is no longer the release commit, yet its
+  // own bytes may be fetched again. Any other commit stays at 1 MiB.
+  test("#441: opätovná inštalácia veľkého runtime z nainštalovaného commitu po novšom vydaní; iný commit ostane pri 1 MiB", async () => {
+    const MIB = 1024 * 1024;
+    const SHA5 = "5".repeat(40), SHA6 = "6".repeat(40), SHA7 = "7".repeat(40);
+    const big = (version: string) => `// ${version}\n${"x".repeat(2 * MIB)}`;
+    repo[SHA5] = { ...pluginFiles("1.0.0", "Verzia jedna."), "plugins/demo/dist/index.js": big("1.0.0") };
+    repo[SHA6] = { ...pluginFiles("1.1.0", "Verzia dva."), "plugins/demo/dist/index.js": big("1.1.0") };
+    repo[SHA7] = { ...pluginFiles("1.0.0", "Verzia jedna."), "plugins/demo/dist/index.js": big("fork") };
+    const config = serverConfig(root);
+    const release = (sha: string, version: string) => updateUpdateState(marketplaceStatePath(config), (current) => ({ ...current, lastCheckedAt: Date.now(),
+      lastCheck: { status: "ok", release: { tag: `v${version}`, sha, publishedAt: null, source: "release", plugins: [{ name: "demo", version, path: "plugins/demo" }] } } }));
+    await release(SHA5, "1.0.0");
+    // A commit that is neither the release nor installed stays at 1 MiB.
+    await expect(installGlobalPlugin(config, url(SHA7))).rejects.toMatchObject({ code: "unsupported_plugin_resources" });
+    const first = await installGlobalPlugin(config, url(SHA5));
+    expect(first.status).toBe("installed");
+    // The record says the server trusted this commit (the release SHA its own check resolved).
+    expect(first.item.lawossProvenance?.trustedRef).toBe(true);
+    await release(SHA6, "1.1.0");
+    expect(await removeMcp(config, "ws_a", "demo")).toEqual(["global"]);
+    const again = await installGlobalPlugin(config, url(SHA6));
+    expect(again.status).toBe("installed");
+    expect(again.item.lawossProvenance?.source.ref).toBe(SHA5);
+    expect(again.item.lawossProvenance?.trustedRef).toBe(true);
+    expect(await missingMcp(config, again.item)).toEqual([]);
+
+    // A record without the flag (an older install, or a commit that came only from a request URL) gets the generic
+    // limits on reinstall: the large runtime is refused and nothing changes.
+    await writeInstalledCloudPlugins(config, globalPluginTarget().recordId, (current) => {
+      const plugin = current.plugins[PLUGIN_ID]!;
+      const { trustedRef: _dropped, ...provenance } = plugin.lawossProvenance!;
+      return { ...current, plugins: { ...current.plugins, [PLUGIN_ID]: { ...plugin, lawossProvenance: provenance } } };
+    });
+    expect(await removeMcp(config, "ws_a", "demo")).toEqual(["global"]);
+    await expect(installGlobalPlugin(config, url(SHA6))).rejects.toMatchObject({ code: "unsupported_plugin_resources" });
+    expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo).toBeUndefined();
+  });
+
+  test("#441: commit len z URL požiadavky sa v zázname neoznačí ako dôveryhodný", async () => {
+    const config = serverConfig(root);
+    const installed = await installGlobalPlugin(config, url(SHA1));
+    expect(installed.item.lawossProvenance?.source.ref).toBe(SHA1);
+    expect(installed.item.lawossProvenance?.trustedRef).toBeUndefined();
+    const stored = (await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID];
+    expect(stored?.lawossProvenance?.trustedRef).toBeUndefined();
   });
 
   test("globálne sa inštaluje len z LAWOSS Marketplace na pripnutom commite", async () => {

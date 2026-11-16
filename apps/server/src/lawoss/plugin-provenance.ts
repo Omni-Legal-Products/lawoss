@@ -16,6 +16,12 @@ import { createHash } from "node:crypto";
 export type PluginProvenance = {
   source: { owner: string; repo: string; ref: string; dir: string | null };
   version: string | null;
+  /**
+   * #441: the commit was one the server itself trusted when it installed it (bundled catalog commit or a release SHA
+   * its own update check resolved), never only the URL of the request. Only then may a reinstall of the same commit
+   * use the higher resource limits again; records without it get the generic limits.
+   */
+  trustedRef?: true;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -44,7 +50,7 @@ export function readProvenance(value: Record<string, unknown>): { lawossProvenan
   const repo = text(raw.source.repo);
   const ref = text(raw.source.ref);
   if (!owner || !repo || !ref) return {};
-  return { lawossProvenance: { source: { owner, repo, ref, dir: text(raw.source.dir) }, version: text(raw.version) } };
+  return { lawossProvenance: { source: { owner, repo, ref, dir: text(raw.source.dir) }, version: text(raw.version), ...(raw.trustedRef === true ? { trustedRef: true as const } : {}) } };
 }
 
 export function readContentHash(file: Record<string, unknown>): { contentSha256?: string } {

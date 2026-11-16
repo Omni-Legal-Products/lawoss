@@ -50,9 +50,44 @@ async function childDirectories(parent: string): Promise<string[]> {
   }
 }
 
-async function canonical(path: string): Promise<string> {
-  return realpath(path).catch(() => resolve(path));
+/** #443: súbežné zisťovanie skutočných ciest (NAS, cloudový disk) a ako dlho platí zistená cesta. */
+const CANONICAL_CONCURRENCY = 8;
+const CANONICAL_TTL_MS = 30_000;
+const MAX_CANONICAL_PATHS = 4_096;
+
+/**
+ * #443: skutočná cesta priečinka s krátkou pamäťou. Dnes sa číta pri každom zobrazení a návrate do okna; priečinky
+ * klientov sa medzi dvoma zobrazeniami nemenia, takže `realpath` každého z nich na NAS netreba opakovať. Pamätá si len
+ * zistenú cestu (nie zlyhanie, to sa skúsi znova), najviac `maxPaths` ciest a každú najviac `ttlMs`; výsledok je ten
+ * istý ako bez pamäte. Volania bežia najviac po `concurrency` naraz, nie všetky naraz (limit RAM, AGENTS.md).
+ */
+export function createCanonicalPaths(options: { realpath?: (path: string) => Promise<string>; now?: () => number; ttlMs?: number; maxPaths?: number; concurrency?: number } = {}) {
+  const resolveReal = options.realpath ?? realpath, now = options.now ?? Date.now;
+  const ttl = options.ttlMs ?? CANONICAL_TTL_MS, maxPaths = options.maxPaths ?? MAX_CANONICAL_PATHS, concurrency = options.concurrency ?? CANONICAL_CONCURRENCY;
+  const known = new Map<string, { real: string; at: number }>();
+  const one = async (path: string): Promise<string> => {
+    const hit = known.get(path);
+    if (hit && now() - hit.at < ttl) return hit.real;
+    known.delete(path);
+    let real: string;
+    try { real = await resolveReal(path); } catch { return resolve(path); }
+    known.set(path, { real, at: now() });
+    for (const oldest of known.keys()) { if (known.size <= maxPaths) break; known.delete(oldest); }
+    return real;
+  };
+  /** Skutočné cesty v poradí vstupu. */
+  const many = async (paths: readonly string[]): Promise<string[]> => {
+    const out = new Array<string>(paths.length);
+    let next = 0;
+    const worker = async (): Promise<void> => { while (next < paths.length) { const index = next++; out[index] = await one(paths[index]!); } };
+    await Promise.all(Array.from({ length: Math.min(concurrency, paths.length) }, worker));
+    return out;
+  };
+  return { one, many, get size() { return known.size; } };
 }
+
+const canonicalPaths = createCanonicalPaths();
+const canonical = canonicalPaths.one;
 
 const inside = (root: string, path: string) => { const rel = relative(root, path); return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`)); };
 
@@ -74,16 +109,19 @@ export async function unadoptedClientFolders(officeRoot: string, registeredPaths
     }
     level = next;
   }
-  // Po jednom, nie Promise.all nad všetkými priečinkami (limit RAM, AGENTS.md).
-  const registered: string[] = [];
-  for (const path of registeredPaths) registered.push(await canonical(path));
+  // #443: s obmedzenou súbežnosťou a krátkou pamäťou ciest, nie Promise.all nad všetkými priečinkami (limit RAM).
+  const registered = await canonicalPaths.many(registeredPaths);
   const folders: UnadoptedClientFolder[] = [];
-  for (const candidate of level) {
-    if (folders.length >= MAX_FOLDERS) break;
-    const real = await canonical(candidate);
-    if (real === office || !inside(office, real)) continue;
-    if (registered.some(path => inside(real, path))) continue;
-    folders.push({ path: candidate, name: basename(candidate) });
+  for (let start = 0; start < level.length && folders.length < MAX_FOLDERS; start += CANONICAL_CONCURRENCY * 8) {
+    const batch = level.slice(start, start + CANONICAL_CONCURRENCY * 8);
+    const reals = await canonicalPaths.many(batch);
+    for (const [index, candidate] of batch.entries()) {
+      if (folders.length >= MAX_FOLDERS) break;
+      const real = reals[index]!;
+      if (real === office || !inside(office, real)) continue;
+      if (registered.some(path => inside(real, path))) continue;
+      folders.push({ path: candidate, name: basename(candidate) });
+    }
   }
   return folders;
 }
