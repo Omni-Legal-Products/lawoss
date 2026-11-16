@@ -3631,8 +3631,82 @@ async function planPracticeOffice(request) {
   const officeOperations = existing ? [config(existing.name), ...existing.memory ? [] : memory(existing.name)] : [directory("Office"), config("Office"), ...memory("Office")];
   return { mode: "new", appFiles: "inside", target: root, plan: await rootPlan(root, [...officeOperations, ...practiceInstructions(names, request.language, clientPath, request.scope)]) };
 }
+var CLIENT_CODE = /^([A-Za-z]{1,3})(\d{2,})-(.+)$/;
+var MAX_CLIENT_SLUG = 60;
+var ASCII_LETTERS = { ß: "ss", æ: "ae", œ: "oe", ø: "o", ł: "l", đ: "d", ð: "d", þ: "th", ı: "i" };
+function clientFolderSlug(name) {
+  const ascii = name.normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^\x00-\x7f]/g, (letter) => ASCII_LETTERS[letter] ?? "-");
+  const slug = ascii.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  if (slug.length <= MAX_CLIENT_SLUG)
+    return slug;
+  const cut = slug.slice(0, MAX_CLIENT_SLUG + 1), boundary = cut.lastIndexOf("-");
+  return (boundary > 0 ? cut.slice(0, boundary) : slug.slice(0, MAX_CLIENT_SLUG)).replace(/-+$/, "");
+}
+var countsAsClientFolder = (name) => !name.startsWith(".") && !VOLATILE_ENTRY.test(name);
+var comparableName = (name) => name.normalize("NFC").toLocaleLowerCase();
+function newClientFolderName(name, folders, taken = folders, cardTitles = new Map) {
+  const plain = safeSegment(name);
+  const clients = folders.filter(countsAsClientFolder);
+  const groups = new Map;
+  for (const folder of clients) {
+    const match = CLIENT_CODE.exec(folder);
+    if (!match)
+      continue;
+    const [, prefix, digits] = match, key = `${prefix}\x00${digits.length}`;
+    const group = groups.get(key) ?? { prefix, width: digits.length, count: 0, max: 0 };
+    group.count += 1;
+    group.max = Math.max(group.max, Number(digits));
+    groups.set(key, group);
+  }
+  const rule = [...groups.values()].sort((a, b) => b.count - a.count)[0];
+  if (!rule || rule.count < 2 || rule.count * 2 <= clients.length)
+    return plain;
+  const max = Math.max(...[...groups.values()].filter((group) => comparableName(group.prefix) === comparableName(rule.prefix)).map((group) => group.max));
+  const used = new Set(taken.map(comparableName));
+  const slug = clientFolderSlug(name) || "klient";
+  const sameClient = clients.find((folder) => {
+    const match = CLIENT_CODE.exec(folder), title = cardTitles.get(folder);
+    return match && match[3].toLowerCase() === slug || title !== undefined && clientFolderSlug(title) === slug;
+  });
+  if (sameClient && clientFolderSlug(name))
+    throw new ClientExistsError(sameClient);
+  for (let number = max + 1;; number += 1) {
+    const code = `${rule.prefix}${String(number).padStart(rule.width, "0")}`;
+    const folder = safeSegment(`${code}-${slug}`);
+    const clash = (entry) => entry === comparableName(folder) || entry === comparableName(code) || entry.startsWith(`${comparableName(code)}-`);
+    if (![...used].some(clash))
+      return folder;
+  }
+}
+
+class ClientExistsError extends Error {
+  folder;
+  code = "client_exists";
+  constructor(folder) {
+    super(`A client with this name already exists in the clients folder (${folder}). Nothing was created or overwritten.`);
+    this.folder = folder;
+  }
+}
+var CARD_READS_AT_ONCE = 8;
+async function clientsFolderEntries(parent) {
+  const entries = await readdir4(parent, { withFileTypes: true }).catch(() => []);
+  const folders = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name), cardTitles = new Map;
+  const coded = folders.filter((folder) => countsAsClientFolder(folder) && CLIENT_CODE.test(folder));
+  for (let index = 0;index < coded.length; index += CARD_READS_AT_ONCE) {
+    await Promise.all(coded.slice(index, index + CARD_READS_AT_ONCE).map(async (folder) => {
+      const title = (await clientCard(join8(parent, folder)))?.title;
+      if (title)
+        cardTitles.set(folder, title);
+    }));
+  }
+  return { folders, taken: entries.map((entry) => entry.name), cardTitles };
+}
+async function newClientFolder(parent, name) {
+  const { folders, taken, cardTitles } = await clientsFolderEntries(parent);
+  return newClientFolderName(name, folders, taken, cardTitles);
+}
 async function planNewClient(request) {
-  const name = safeSegment(request.name), target = join8(request.parent, name), language = request.language ?? "sk";
+  const name = await newClientFolder(request.parent, request.name), target = join8(request.parent, name), language = request.language ?? "sk";
   const generated = planEntity({ type: "klient", dir: target, title: request.title, clientType: request.clientType, language, jurisdiction: request.jurisdiction, date: request.date, ...request.ico ? { ico: request.ico } : {}, ...request.description ? { description: request.description } : {} }, LOCALIZED_TEMPLATES, () => false);
   return { mode: "new", appFiles: "inside", target, clientRoot: target, plan: await rootPlan(request.parent, templateOperations(name, generated.entries)) };
 }

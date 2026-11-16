@@ -168,8 +168,101 @@ export async function planPracticeOffice(request: PracticeRequest): Promise<Crea
   const officeOperations = existing ? [config(existing.name), ...(existing.memory ? [] : memory(existing.name))] : [directory("Office"), config("Office"), ...memory("Office")];
   return { mode: "new", appFiles: "inside", target: root, plan: await rootPlan(root, [...officeOperations, ...practiceInstructions(names, request.language, clientPath, request.scope)]) };
 }
+/**
+ * #433 „podľa zvyklosti kancelárie“ (MČ 16. 11. 2026): keď priečinky klientov už nesú kód (`C001-syn-tatran-automatika-s-r-o`),
+ * nový klient dostane ďalší kód a slug mena; inak ostáva priečinok s menom klienta. Bez nového kľúča v `okf.config`.
+ * Kód číta aj `clientCode` v appke: 1–3 písmená a aspoň dve číslice, tu ešte pomlčka a slug za ním.
+ */
+const CLIENT_CODE = /^([A-Za-z]{1,3})(\d{2,})-(.+)$/;
+/** Najdlhší slug za kódom; skracuje sa na hranici slova (pomlčke). */
+const MAX_CLIENT_SLUG = 60;
+/** Písmená, ktoré Unicode rozklad (NFD) nerozloží na ASCII písmeno a diakritiku. */
+const ASCII_LETTERS: Record<string, string> = { ß: "ss", æ: "ae", œ: "oe", ø: "o", ł: "l", đ: "d", ð: "d", þ: "th", ı: "i" };
+
+/** Slug ako v kódovaných priečinkoch syntetickej kancelárie: malé ASCII písmená a číslice, pomlčky („s. r. o.“ → `s-r-o`). */
+export function clientFolderSlug(name: string): string {
+  const ascii = name.normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^\x00-\x7f]/g, letter => ASCII_LETTERS[letter] ?? "-");
+  const slug = ascii.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  if (slug.length <= MAX_CLIENT_SLUG) return slug;
+  const cut = slug.slice(0, MAX_CLIENT_SLUG + 1), boundary = cut.lastIndexOf("-");
+  return (boundary > 0 ? cut.slice(0, boundary) : slug.slice(0, MAX_CLIENT_SLUG)).replace(/-+$/, "");
+}
+
+/** Bežný priečinok klienta: nie skrytý (`.…`) ani prchavý (`Thumbs.db`, `~$…`); súbory a odkazy volajúci nepošle. */
+const countsAsClientFolder = (name: string) => !name.startsWith(".") && !VOLATILE_ENTRY.test(name);
+const comparableName = (name: string) => name.normalize("NFC").toLocaleLowerCase();
+
+/**
+ * Meno priečinka nového klienta podľa existujúcich priečinkov v priečinku klientov (čistá funkcia, #433).
+ * `folders` sú mená podpriečinkov (len skutočné priečinky, na väčšinu), `taken` všetky mená v priečinku (na kolíziu).
+ * Pravidlo: najčastejšia dvojica predpona + počet číslic kódu (`C` + 3) musí mať aspoň 2 priečinky a viac ako polovicu
+ * priečinkov klientov. Potom `<predpona><najvyššie číslo + 1>-<slug mena>`; medzery v číslovaní sa nevypĺňajú.
+ * Obsadené meno (aj inou veľkosťou písmen) sa nikdy neprepíše, berie sa ďalšie číslo. Inak meno klienta (`safeSegment`).
+ */
+export function newClientFolderName(name: string, folders: readonly string[], taken: readonly string[] = folders, cardTitles: ReadonlyMap<string, string> = new Map()): string {
+  const plain = safeSegment(name);
+  const clients = folders.filter(countsAsClientFolder);
+  const groups = new Map<string, { prefix: string; width: number; count: number; max: number }>();
+  for (const folder of clients) {
+    const match = CLIENT_CODE.exec(folder);
+    if (!match) continue;
+    const [, prefix, digits] = match, key = `${prefix}\u0000${digits.length}`;
+    const group = groups.get(key) ?? { prefix, width: digits.length, count: 0, max: 0 };
+    group.count += 1; group.max = Math.max(group.max, Number(digits));
+    groups.set(key, group);
+  }
+  const rule = [...groups.values()].sort((a, b) => b.count - a.count)[0];
+  if (!rule || rule.count < 2 || rule.count * 2 <= clients.length) return plain;
+  // Číslo nad šírkou kódu (C999 → C1000) predpona aj tak nesie; obsadené číslo inej šírky sa preskočí kolíziou nižšie.
+  const max = Math.max(...[...groups.values()].filter(group => comparableName(group.prefix) === comparableName(rule.prefix)).map(group => group.max));
+  const used = new Set(taken.map(comparableName));
+  const slug = clientFolderSlug(name) || "klient";
+  // Ten istý klient znova nie je nový klient: rovnaký slug za kódom alebo rovnaké meno na karte (porovnané slugom,
+  // teda bez diakritiky, veľkosti písmen a interpunkcie: „s.r.o.“ = „s. r. o.“). Iný klient s obsadeným číslom ide ďalej.
+  const sameClient = clients.find(folder => {
+    const match = CLIENT_CODE.exec(folder), title = cardTitles.get(folder);
+    return (match && match[3].toLowerCase() === slug) || (title !== undefined && clientFolderSlug(title) === slug);
+  });
+  if (sameClient && clientFolderSlug(name)) throw new ClientExistsError(sameClient);
+  for (let number = max + 1; ; number += 1) {
+    const code = `${rule.prefix}${String(number).padStart(rule.width, "0")}`;
+    const folder = safeSegment(`${code}-${slug}`);
+    const clash = (entry: string) => entry === comparableName(folder) || entry === comparableName(code) || entry.startsWith(`${comparableName(code)}-`);
+    if (![...used].some(clash)) return folder;
+  }
+}
+
+/** Klient s týmto menom už v priečinku klientov je (#433); `folder` je meno jeho priečinka. */
+export class ClientExistsError extends Error {
+  readonly code = "client_exists";
+  constructor(readonly folder: string) { super(`A client with this name already exists in the clients folder (${folder}). Nothing was created or overwritten.`); }
+}
+
+/** Koľko kariet klientov sa číta naraz (veľká kancelária, pomalý NAS). */
+const CARD_READS_AT_ONCE = 8;
+
+/** Mená v priečinku klientov pre `newClientFolderName` a názvy z kariet kódovaných priečinkov; nečitateľný priečinok = žiadne (chybu potom ohlási plán). */
+export async function clientsFolderEntries(parent: string): Promise<{ folders: string[]; taken: string[]; cardTitles: Map<string, string> }> {
+  const entries = await readdir(parent, { withFileTypes: true }).catch(() => []);
+  const folders = entries.filter(entry => entry.isDirectory()).map(entry => entry.name), cardTitles = new Map<string, string>();
+  const coded = folders.filter(folder => countsAsClientFolder(folder) && CLIENT_CODE.test(folder));
+  for (let index = 0; index < coded.length; index += CARD_READS_AT_ONCE) {
+    await Promise.all(coded.slice(index, index + CARD_READS_AT_ONCE).map(async folder => {
+      const title = (await clientCard(join(parent, folder)))?.title;
+      if (title) cardTitles.set(folder, title);
+    }));
+  }
+  return { folders, taken: entries.map(entry => entry.name), cardTitles };
+}
+
+/** Priečinok, ktorý pre nového klienta vznikne v `parent` (formulár aj `lawoss_new_client`, #433); ten istý klient znova = `ClientExistsError`. */
+export async function newClientFolder(parent: string, name: string): Promise<string> {
+  const { folders, taken, cardTitles } = await clientsFolderEntries(parent);
+  return newClientFolderName(name, folders, taken, cardTitles);
+}
+
 export async function planNewClient(request: ClientRequest): Promise<CreatePreview> {
-  const name = safeSegment(request.name), target = join(request.parent, name), language = request.language ?? "sk";
+  const name = await newClientFolder(request.parent, request.name), target = join(request.parent, name), language = request.language ?? "sk";
   const generated = planEntity({ type: "klient", dir: target, title: request.title, clientType: request.clientType, language, jurisdiction: request.jurisdiction, date: request.date, ...(request.ico ? { ico: request.ico } : {}), ...(request.description ? { description: request.description } : {}) }, LOCALIZED_TEMPLATES, () => false);
   return { mode: "new", appFiles: "inside", target, clientRoot: target, plan: await rootPlan(request.parent, templateOperations(name, generated.entries)) };
 }
