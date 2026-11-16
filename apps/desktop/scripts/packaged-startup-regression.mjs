@@ -194,6 +194,10 @@ try {
       catch (error) { if (error.code === "ESRCH") return false; throw error; }
     };
     for (const { file, text, pid } of registrations) {
+      // 🟡 LAWOSS #454: engine beží vo vlastnej skupine procesov, takže ukončenie skupiny desktopu ho
+      // nezasiahne; skončí sám po strážcovi rodiča. Počas jeho vypínania discover zlyhá, preto najprv
+      // krátko počkať na jeho koniec a overovať len službu, ktorá naozaj ostala bežať.
+      for (let waited = 0; waited < 15_000 && alive(pid); waited += 250) await setTimeout(250);
       if (!alive(pid)) continue;
       assert.equal(await readFile(file, "utf8"), text, "Private service registration changed during cleanup");
       assert.ok(await Service.discover({ file, version: opencodeEngineSelection.version }), "Refuse to stop an unverified service");
