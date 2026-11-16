@@ -1363,6 +1363,7 @@ export function SessionPage(props: SessionPageProps) {
                   mcpConnectedCount={props.mcpConnectedCount}
                   loading={props.statusBar?.loading ?? false}
                   showSettingsButton={props.statusBar?.showSettingsButton}
+                  legalworkServerClient={props.legalworkServerClient} /* 🟡 LAWOSS #477 */
                 />
               ) : null}
             </main>
@@ -1585,6 +1586,7 @@ export function SessionPage(props: SessionPageProps) {
               mcpConnectedCount={props.mcpConnectedCount}
               loading={props.statusBar?.loading ?? false}
               showSettingsButton={props.statusBar?.showSettingsButton}
+              legalworkServerClient={props.legalworkServerClient} /* 🟡 LAWOSS #477 */
             />
           ) : null}
               </main>

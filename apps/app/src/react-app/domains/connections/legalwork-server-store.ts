@@ -23,7 +23,7 @@ import {
   type LegalworkServerSettings,
   type LegalworkServerStatus,
 } from "../../../app/lib/legalwork-server";
-import { engineHealthPending, reportEngineHealth } from "@/lawoss/shell/engine-status"; // 🟡 LAWOSS #454
+import { engineHealthPollDelay, reportEngineHealth } from "@/lawoss/shell/engine-status"; // 🟡 LAWOSS #454, #477
 
 type SetStateAction<T> = T | ((current: T) => T);
 
@@ -271,7 +271,7 @@ export function createLegalworkServerStore(options: CreateLegalworkServerStoreOp
   const checkLegalworkServer = async (url: string, token?: string, hostToken?: string) => {
     const client = createLegalworkServerClient({ baseUrl: url, token, hostToken });
     try {
-      reportEngineHealth((await client.health()).engine?.status); // 🟡 LAWOSS #454
+      reportEngineHealth((await client.health()).engine?.status, token ? () => client.restartEngine() : undefined); // 🟡 LAWOSS #454, #477
     } catch (error) {
       reportEngineHealth(null);
       const resolved = error as LegalworkServerError | Error;
@@ -371,13 +371,9 @@ export function createLegalworkServerStore(options: CreateLegalworkServerStoreOp
       const previousStatus = state.legalworkServerStatus;
       const previousCapabilities = state.legalworkServerCapabilities;
       const healthy = result.status === "connected" || result.status === "limited";
-      if (healthy) {
-        consecutiveHealthFailures = 0;
-        healthDelayMs = engineHealthPending() ? 2_000 : 10_000; // 🟡 LAWOSS #454
-      } else {
-        consecutiveHealthFailures += 1;
-        healthDelayMs = Math.min(healthDelayMs * 2, 60_000);
-      }
+      if (healthy) consecutiveHealthFailures = 0;
+      else consecutiveHealthFailures += 1;
+      healthDelayMs = engineHealthPollDelay(healthy, healthDelayMs); // 🟡 LAWOSS #454, #477
 
       const preservePrevious =
         !healthy &&
