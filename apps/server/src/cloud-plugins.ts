@@ -796,7 +796,8 @@ export async function installCloudPlugin(input: {
   const resourceRoot = resolveWorkspaceInstallPath(input.workspaceRoot, `.opencode/plugin-resources/${resourceNamespace}`, input.global);
   const cloudImports = await readInstalledCloudPlugins(input.serverConfig, input.workspaceId);
   const existing = cloudImports.plugins[input.resolved.plugin.id];
-  const previousMcp = input.preserveConnectorSetup ? (await readRuntimeOpencodeConfig(input.serverConfig, input.workspaceId)).mcp?.servers ?? {} : {};
+  // 🟡 LAWOSS #441: a global plugin's connections live in the shared row (`addMcp(…, "global")` below), not in its record's.
+  const previousMcp = input.preserveConnectorSetup ? (await readRuntimeOpencodeConfig(input.serverConfig, input.global ? GLOBAL_MCP_ID : input.workspaceId)).mcp?.servers ?? {} : {};
   const connectorDefaults: Record<string, Record<string, unknown>> = {};
   const files: CloudImportedPluginFile[] = [];
 
