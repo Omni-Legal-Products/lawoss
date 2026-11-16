@@ -230,7 +230,7 @@ export async function searchFileContents(
   const deadline = Date.now() + 2500;
   // 🟡 LAWOSS #465: po čase na obsah sa prechádzanie nezastaví, len hľadá ďalej podľa názvu (bez prípravy obsahu).
   const nameDeadline = deadline + 5000;
-  const nameItems: ContentSearchResult[] = [];
+  const nameItems: ContentSearchResult[] = [], pathItems: ContentSearchResult[] = [];
   let stopped = false;
   const issue = (path: string, reason: string) => {
     if (issues.length < 20) issues.push({ path, reason });
@@ -259,8 +259,11 @@ export async function searchFileContents(
       }
       if (!entry.isFile()) continue;
       const relativePath = relative(root, path).split("\\").join("/");
-      const nameMatch = matchesSearch(relativePath, query) || fileNameMatches(relativePath, query);
-      if (!contentOpen && !nameMatch) continue;
+      // Názov súboru má prednosť; zhoda len v ceste (napr. názov priečinka klienta) ide až za obsah.
+      const fileName = basename(path);
+      const nameMatch = matchesSearch(fileName, query) || fileNameMatches(fileName, query);
+      const pathMatch = nameMatch || matchesSearch(relativePath, query) || fileNameMatches(relativePath, query);
+      if (!contentOpen && !pathMatch) continue;
       try {
         const canonicalPath = await realpath(path);
         if (!within(root, canonicalPath)) continue;
@@ -307,8 +310,8 @@ export async function searchFileContents(
         const matches = source
           ? documentMatches(source, relativePath, query)
           : { sources: [], sourcesLimited: false };
-        if (!nameMatch && !matches.sources.length) continue;
-        (nameMatch ? nameItems : items).push({
+        if (!pathMatch && !matches.sources.length) continue;
+        (nameMatch ? nameItems : matches.sources.length ? items : pathItems).push({
           kind: "files",
           id: relativePath,
           workspaceId: workspace.id,
@@ -332,6 +335,7 @@ export async function searchFileContents(
   await visit(root);
   // 🟡 LAWOSS #465: zhody názvu pred zhodami obsahu, aby ich limit výsledkov neodrezal.
   items.unshift(...nameItems);
+  items.push(...pathItems);
   return {
     items: items.slice(0, RESULT_LIMIT),
     limited: limited || items.length > RESULT_LIMIT,

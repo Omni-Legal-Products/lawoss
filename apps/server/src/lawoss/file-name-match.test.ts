@@ -55,3 +55,17 @@ test("#465: zhody názvu sú pred zhodami obsahu a bez diakritiky", async () => 
   const result = await searchFileContents(f.workspace, "zmluva najme", new AbortController().signal, f.preparation, "owner");
   expect(paths(result)[0]).toBe("Klienti/Klient 7/Zmluva_o_nájme.docx");
 });
+
+test("#465: zhoda názvu súboru je pred zhodami v ceste (názov priečinka klienta nezaplní limit)", async () => {
+  const f = await office();
+  await mkdir(join(f.workspace.path, "Archív"), { recursive: true });
+  await writeFile(join(f.workspace.path, "Archív", "klient-7-poznamka.txt"), "");
+  await mkdir(join(f.workspace.path, "Klienti", "Klient 7", "Prilohy"), { recursive: true });
+  for (let index = 0; index < 70; index++) await writeFile(join(f.workspace.path, "Klienti", "Klient 7", "Prilohy", `priloha-${index}.pdf`), "");
+  const result = await searchFileContents(f.workspace, "Klient 7", new AbortController().signal, f.preparation, "owner");
+  expect(paths(result)[0]).toBe("Archív/klient-7-poznamka.txt");
+  // Zhody len v ceste („Klienti/Klient 7/…“) sú až za ním; je ich viac ako limit, napriek tomu sa nestratí.
+  expect(paths(result).slice(1).every(path => path?.startsWith("Klienti/"))).toBe(true);
+  expect(result.items.length).toBe(60);
+  expect(result.limited).toBe(true);
+});
