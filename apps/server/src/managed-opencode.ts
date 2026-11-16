@@ -23,6 +23,8 @@ export type ManagedOpencodeServer = {
   running: () => boolean;
   execution: OpencodeExecutionSnapshot;
   close: () => Promise<void>;
+  /** 🟡 LAWOSS #454: ukončenie po štarte, ktoré nespustil `close()` (pád, OOM, kill); vráti odhlásenie. */
+  onUnexpectedExit?: (listener: () => void) => () => void;
 };
 
 export type OpencodeExecutionEnvEntry = {
@@ -406,9 +408,11 @@ export async function createManagedOpencodeServer(options: {
       options.onAuthenticated?.({ url, username, password, pid: child.pid ?? null });
       await waitForMigration(child, url, username, password, options.signal, options.onMigrationProgress);
       options.signal?.removeEventListener("abort", abortStartup);
+      const exitListeners = new Set<() => void>();
       child.once("exit", (code, signal) => {
         if (!closing) {
           console.error(`[managed-opencode] engine exited after startup (code ${code}, signal ${signal})${lastStderr.trim() ? `: ${lastStderr.trim()}` : ""}`);
+          for (const listener of exitListeners) listener();
         }
       });
       return {
@@ -422,6 +426,7 @@ export async function createManagedOpencodeServer(options: {
           closing = true;
           return terminate();
         },
+        onUnexpectedExit: (listener) => { exitListeners.add(listener); return () => { exitListeners.delete(listener); }; },
       };
     } catch (error) {
       options.signal?.removeEventListener("abort", abortStartup);
