@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
 import { assertEngineProjectReady, engineProjectStatus, nativeEngineProjectRegistryPath, writeNativeEngineProjectRegistry, writeNativeProjectProjection } from "./engine-project.js";
 import { nativeEngineLocationApproved, nativeEngineLocationApprovedSync } from "./native-engine-project-registry.js";
+import { readLegalworkWorkspaceConfig, writeLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 
 async function fixture() {
@@ -151,4 +152,82 @@ test("registered projects require no automation approval and retain their native
     expect((await engineProjectStatus(config,workspace)).required).toBe(false);
     expect(nativeEngineLocationApprovedSync(registry,directory)).toBe(true);
   } finally {await rm(root,{recursive:true,force:true});}
+});
+
+// 🟡 LAWOSS #439: after the private receipt is lost (reinstall, reset of app data), the generator's own document is
+// LegalWork's projection again, not an authored file; the authored sibling stays byte for byte.
+async function dropReceipt(config: ServerConfig, workspace: WorkspaceInfo) {
+  await writeLegalworkWorkspaceConfig(config, workspace.id, current => { const { nativeEngineProject: _lost, ...rest } = current; return rest; });
+}
+
+test("#439: vygenerovaný súbor bez súkromného potvrdenia sa prevezme, autorský opencode.jsonc ostane", async () => {
+  const { root, directory, config, workspace } = await fixture();
+  try {
+    const input = Schema.decodeUnknownSync(Config.Info)({ agents: { legalwork: { system: "Synthetic managed prompt", steps: 5, hidden: false } } });
+    const path = await writeNativeProjectProjection(config, workspace, input);
+    expect(path).toBe(join(directory, ".opencode", "opencode.json"));
+    const before = await readFile(path, "utf8");
+    const authored = "// Advokát\n{ \"model\": \"fixture/authored\", }\n";
+    await writeFile(join(directory, ".opencode", "opencode.jsonc"), authored);
+    await dropReceipt(config, workspace);
+    // Until the next publication the file is not the lawyer's, and the message says what happened and what to do.
+    const status = await engineProjectStatus(config, workspace);
+    expect(status.state).toBe("configuration_conflict");
+    expect(status.projection.diagnostic).toContain("private receipt is missing");
+    expect(status.projection.diagnostic).not.toContain("already authored");
+    // The publication (server start, any settings change) takes it over: other text values, same structure.
+    const next = Schema.decodeUnknownSync(Config.Info)({ agents: { legalwork: { system: "Synthetic managed prompt, changed", steps: 5, hidden: false } } });
+    expect(await writeNativeProjectProjection(config, workspace, next)).toBe(path);
+    expect(await readFile(join(directory, ".opencode", "opencode.jsonc"), "utf8")).toBe(authored);
+    // A backup copy of the taken-over file stays next to it.
+    const backups = (await readdir(join(directory, ".opencode"))).filter(name => name.startsWith("opencode.json.bak-"));
+    expect(backups).toHaveLength(1);
+    expect(await readFile(join(directory, ".opencode", backups[0]!), "utf8")).toBe(before);
+    await expect(assertEngineProjectReady(config, workspace)).resolves.toBeUndefined();
+    expect((await engineProjectStatus(config, workspace)).projection).toEqual({ path });
+    expect((await readLegalworkWorkspaceConfig(config, workspace.id)).nativeEngineProject).toMatchObject({ projection: { path } });
+    expect((await engineProjectStatus(config, workspace)).state).toBe("ready");
+    // The receipt is back: an edit of the generated file is a conflict again.
+    await writeFile(path, `${await readFile(path, "utf8")}// edit\n`);
+    expect((await engineProjectStatus(config, workspace)).state).toBe("configuration_conflict");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("#439: bez potvrdenia ostane konfliktom upravený súbor (text, boolean, číslo, zmazaný kľúč), súbor z inej knižnice aj súbor bez reťazcov", async () => {
+  const { root, directory, config, workspace } = await fixture();
+  try {
+    const input = Schema.decodeUnknownSync(Config.Info)({ agents: { legalwork: { system: "Synthetic managed prompt", steps: 5, hidden: false } } });
+    const path = await writeNativeProjectProjection(config, workspace, input);
+    const generated = await readFile(path, "utf8");
+    const authored = "{ \"model\": \"fixture/authored\" }\n";
+    await writeFile(join(directory, ".opencode", "opencode.jsonc"), authored);
+    await dropReceipt(config, workspace);
+    const edited = (change: (agent: Record<string, unknown>) => void) => {
+      const header = generated.slice(0, generated.indexOf("\n") + 1);
+      const json = JSON.parse(generated.slice(header.length)) as { agents: { legalwork: Record<string, unknown> } };
+      change(json.agents.legalwork);
+      return `${header}${JSON.stringify(json, null, 2)}\n`;
+    };
+    const variants = [
+      // The lawyer changed a boolean or a number, or deleted a key: still the generator's format, but not its settings.
+      edited(agent => { agent.hidden = true; }),
+      edited(agent => { agent.steps = 50; }),
+      edited(agent => { delete agent.steps; }),
+      // A literal string the lawyer added: no longer only references into the private library.
+      generated.replace(/\{file:[^}]+\}/, "my own prompt"),
+      // The same document written on another computer: another private library path.
+      generated.replace(/\{file:([^}]+)\/native-config-strings\//g, (_match, library: string) => `{file:${library}-another-computer/native-config-strings/`),
+      // Nothing to recognise: the generator's header with no string at all.
+      "// Generated by LegalWork. Definitions are kept in its private shared library.\n{}\n",
+    ];
+    for (const variant of variants) {
+      expect(variant).not.toBe(generated);
+      await writeFile(path, variant);
+      expect((await engineProjectStatus(config, workspace)).state).toBe("configuration_conflict");
+      await expect(writeNativeProjectProjection(config, workspace, input)).rejects.toMatchObject({ code: "project_engine_configuration_conflict" });
+      expect(await readFile(path, "utf8")).toBe(variant);
+      expect((await readdir(join(directory, ".opencode"))).filter(name => name.includes(".bak-"))).toEqual([]);
+      expect(await readFile(join(directory, ".opencode", "opencode.jsonc"), "utf8")).toBe(authored);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
