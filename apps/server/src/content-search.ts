@@ -195,6 +195,8 @@ function documentEntry(
       retry:
         retry ||
         (prior?.revision === revision && prior.retryRequested === true),
+      // 🟡 LAWOSS #465: bez výslovného zopakovania hľadanie skeny nevykresľuje (corpus/extract.ts).
+      scans: retry || (prior?.revision === revision && prior.retryRequested === true) ? "prepare" : "native-only",
     },
   )
     .then(
