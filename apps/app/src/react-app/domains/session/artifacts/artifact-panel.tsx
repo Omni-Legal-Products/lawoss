@@ -743,7 +743,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
                         }}
                         disabled={isSaving}
                       >
-                        Discard
+                        {t("lawoss.csv_editor.discard")}{/* 🟡 LAWOSS #493 */}
                       </Button>
                     )}
                   />
@@ -762,7 +762,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
               <Tooltip>
                 <TooltipTrigger
                   render={(
-                    <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>Edit</Button>
+                    <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>{t("common.edit") /* 🟡 LAWOSS #493 */}</Button>
                   )}
                 />
                 <TooltipContent>{t("artifact.edit")}</TooltipContent>
