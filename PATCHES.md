@@ -2342,6 +2342,21 @@ Len bežný režim; pokročilý ostáva natívny. Logika je v nových alebo zele
 | `apps/app/src/react-app/shell/command-palette.tsx` | Úryvok výsledku hľadania cez `plainSearchExcerpt()` (+1 import, 1 výraz): v bežnom režime bez `**`, `*`, `` ` ``, `#` a odkazov markdownu; porovnanie s cestou ostáva na pôvodnom texte. |
 | `apps/app/src/react-app/domains/session/panel/workspace-files-panel.tsx` | `DocumentProcessingPanel` obalený `LiteDocumentsDisclosure` (+1 import, 2 riadky): v bežnom režime za zbaleným riadkom „Spracovanie dokumentov pre asistenta“, obsah ostáva pripojený; pokročilý bez obalu. |
 
+### Chyby poskytovateľa AI v chate a kľúč OpenAI (2026-11-16, fix/502-chyby-poskytovatela, #502)
+
+Logika je v nových LAWOSS súboroch `apps/app/src/lawoss/chat/provider-error.tsx` (typ chyby enginu → preložená veta, karta s akciou a technickými podrobnosťami), `apps/app/src/lawoss/providers/method-labels.ts` a `openai-key-check.ts`; texty v `lawoss/i18n/shell.ts`; test `apps/app/tests/lawoss-chyby-poskytovatela.test.tsx`.
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/session/sync/usechat-adapter.ts` | Telo `describeOpencodeSessionError` presunuté do `describeSessionFailure`, ktorá vracia `{ text, providerError? }` (návraty zabalené do `{ text }`); pri `provider.auth`/`ProviderAuthError`/`provider.no-route` je `text` preložená veta a pôvodný text ide do `providerError.detail`. Eigenwelt, limity a predplatné ostávajú pred ňou. `describeOpencodeSessionError` vracia `.text`. `createSessionErrorUIMessage` uloží `providerError` do `metadata.opencode`; snapshot ho odovzdá. |
+| `apps/app/src/react-app/domains/session/sync/session-sync.ts` | `session.execution.failed`: `describeSessionFailure` namiesto `describeOpencodeSessionError` a `providerError` do syntetickej správy (3 riadky). |
+| `apps/app/src/components/chat/message-list.tsx` | `MessageComponent`: správa s `providerError` sa vykreslí ako `ProviderErrorCard` (2 riadky); `MessageList` má voliteľnú prop `onOpenAiSettings` v `OpenAiSettingsContext` (+1 import, +1 prop, 2 riadky). |
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `MessageList` dostane existujúce `openAiSettings` (Nastavenia → Poskytovatelia AI) (1 atribút). |
+| `apps/app/src/react-app/domains/connections/provider-auth/provider-auth-modal.tsx` | `methodLabel = providerMethodLabel` (známe metódy enginu `chatgpt-token-sharing`, `chatgpt-browser`, `chatgpt-headless` preložené podľa ID); hľadanie aj podľa prekladu; `methodDescription` číta pôvodný `method.label` (kontrola `headless`/`device`). |
+| `apps/app/src/react-app/domains/connections/provider-auth/store.ts` | `submitProviderApiKey`: pred uložením kľúča `openai` zoznam modelov cez existujúcu trasu `provider-models`; iba kód `model_discovery_unauthorized` (HTTP 401) kľúč neuloží s preloženou hláškou (+1 import, 5 riadkov). |
+| `apps/server/src/provider-model-discovery.ts` | HTTP 401 z koncového bodu modelov má kód `model_discovery_unauthorized`, ostatné ostávajú `model_discovery_failed` (stav 502 bez zmeny). Test v `provider-model-discovery.test.ts`. |
+| `apps/app/tests/eigenwelt-provider-error.test.ts` | Vlastný poskytovateľ s `provider.auth`: surový text sa overuje v `providerError.detail`, nie vo vete. |
+
 ## Prevzatie enginu v alfa buildoch (2026-11-13)
 
 | Súbory | Downstream doplnenie a dôvod |
