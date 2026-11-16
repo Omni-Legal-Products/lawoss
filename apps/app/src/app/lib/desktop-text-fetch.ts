@@ -1,7 +1,7 @@
 import type { DesktopFetchInit, DesktopFetchResult } from "@legalwork/types/desktop-ipc";
 
 type TextBridge = {
-  __fetch: (url: string, init: DesktopFetchInit) => Promise<DesktopFetchResult>;
+  __fetch: (url: string, init: DesktopFetchInit) => Promise<DesktopFetchResult | null>;
   __fetchCancel: (id: string) => Promise<void>;
 };
 
@@ -29,6 +29,8 @@ export async function fetchDesktopText(bridge: TextBridge, input: RequestInfo | 
   if (signal?.aborted) abort();
   try {
     const result = await Promise.race([pending, cancelled]);
+    // Main resolves null for a request the window cancelled or closed (#506).
+    if (!result) throw signal?.reason ?? new DOMException("Request cancelled", "AbortError");
     return new Response([101, 204, 205, 304].includes(result.status) ? null : result.body, {
       status: result.status, statusText: result.statusText, headers: result.headers,
     });
