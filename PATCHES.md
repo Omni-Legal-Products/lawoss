@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Windows: QEMU izolovaného prostredia so sdl2-compat (#419) (2026-11-16)
+
+Od 12. 11. MSYS2 inštaluje namiesto `SDL2` balík `sdl2-compat` + `sdl3` (pinovaný je len balík QEMU, závislosti idú z repozitára). `SDL2.dll` zo `sdl2-compat` načíta `SDL3.dll` cez `LoadLibrary` v `DllMain`, takže v tabuľke importov nie je a balenie ho nepribalilo; pri jeho chýbaní ukáže modálne okno a pribalené `qemu-system-*.exe --version` visí do limitu (60 s, `killed: true`). Padali `sandbox-runtime / runtime (windows-*)` a `Package and launch (windows-*)` (`Packaged sandbox probe failed`).
+
+| Súbor | Zmena |
+|---|---|
+| `scripts/sandbox/package-runtime.mjs` | Na Windows sa k pribalenej `SDL2.dll`, ktorá odkazuje na `SDL3.dll` (sdl2-compat), pribalí aj `SDL3.dll` s jej importmi (cez existujúce `bundle`); keď chýba, balenie zlyhá. Po pribalení sa `qemu-system-*.exe --version` spustí z výsledného priečinka s `PATH` len na systémové priečinky Windows a limitom 60 s, aby chýbajúca knižnica načítaná za behu zlyhala pri balení, nie ako zaseknutie testov. |
+
 ## Katalóg registrov: pribalené runtime z LAWOSS Marketplace (#420, #421) (2026-11-16)
 
 Katalóg `Omni-Legal-Products/lawoss-marketplace` dodáva runtime registrov ako jeden súbor zbalený cez esbuild (bez `npm ci`, kvôli firewallom s rozbaľovaním TLS). Súbory majú 1,2–6,3 MB (slovlex spolu 8,5 MB), importér ich odmietal (`unsupported_plugin_resources`).
