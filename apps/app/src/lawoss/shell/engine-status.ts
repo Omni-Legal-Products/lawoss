@@ -3,7 +3,8 @@
  * neukáže „pripravené“, kým engine po páde nebeží. Hodnotu zapisuje existujúca kontrola zdravia servera
  * (každých 10 s, kým sa engine spúšťa každé 2 s; legalwork-server-store.ts); žiadne ďalšie dopytovanie.
  */
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import type { LegalworkServerClient } from "../../app/lib/legalwork-server";
 
 export type EngineHealth = "starting" | "migrating" | "ready" | "error";
 
@@ -67,4 +68,42 @@ export function engineStatusText(status: EngineHealth | null, canRetry = false):
   return status === "error"
     ? { label: "lawoss.engine.unavailable", hint: canRetry ? "lawoss.engine.unavailable_retry_hint" : "lawoss.engine.unavailable_hint", failed: true }
     : { label: "lawoss.engine.starting", hint: "lawoss.engine.starting_hint", failed: false };
+}
+
+type EngineHealthClient = Pick<LegalworkServerClient, "health"> & Partial<Pick<LegalworkServerClient, "restartEngine">>;
+
+/**
+ * #477: stavový riadok si zdravie enginu pýta sám. Store servera (legalwork-server-store.ts) kontroluje /health
+ * len kým je otvorená trasa Nastavení; v chate by inak riadok ukazoval posledný stav z Nastavení (napr. ešte
+ * minútu „Agent nie je dostupný“ po obnove) a pri výpadku by sa „Skúsiť znova“ neukázalo. Odstup podľa
+ * `engineHealthPollDelay`, pri skrytom okne sa nepýta.
+ */
+export function useEngineHealthPolling(client: EngineHealthClient | null | undefined): void {
+  const latest = useRef(client);
+  latest.current = client;
+  const connected = Boolean(client);
+  useEffect(() => {
+    if (!connected) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let delay = 10_000;
+    const run = async () => {
+      const current = latest.current;
+      if (current && (typeof document === "undefined" || document.visibilityState !== "hidden")) {
+        let healthy = true;
+        try {
+          const status = (await current.health()).engine?.status;
+          if (stopped) return;
+          reportEngineHealth(status, current.restartEngine ? () => current.restartEngine!() : undefined);
+        } catch {
+          if (stopped) return;
+          healthy = false;
+        }
+        delay = engineHealthPollDelay(healthy, delay);
+      }
+      timer = setTimeout(() => void run(), delay);
+    };
+    void run();
+    return () => { stopped = true; if (timer) clearTimeout(timer); };
+  }, [connected]);
 }

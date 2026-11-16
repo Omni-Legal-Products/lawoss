@@ -7,8 +7,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
-import type { LegalworkServerStatus } from "../../../../app/lib/legalwork-server";
-import { engineStatusText, retryEngine, useEngineHealth, useEngineRetryAvailable } from "@/lawoss/shell/engine-status"; // 🟡 LAWOSS #454, #477
+import type { LegalworkServerClient, LegalworkServerStatus } from "../../../../app/lib/legalwork-server";
+import { engineStatusText, retryEngine, useEngineHealth, useEngineHealthPolling, useEngineRetryAvailable } from "@/lawoss/shell/engine-status"; // 🟡 LAWOSS #454, #477
 
 const STATUS_BAR_BOOT_STARTED_AT = Date.now();
 const STATUS_BAR_INITIALIZING_MS = 15_000;
@@ -147,10 +147,13 @@ export type StatusBarProps = {
   loading?: boolean;
   showSettingsButton?: boolean;
   initializing?: boolean;
+  /** 🟡 LAWOSS #477: klient servera, cez ktorý si riadok sám pýta zdravie enginu. */
+  legalworkServerClient?: LegalworkServerClient | null;
 };
 
 export function StatusBar(props: StatusBarProps) {
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  useEngineHealthPolling(props.legalworkServerClient); // 🟡 LAWOSS #477
   const [initializing, setInitializing] = useState(
     () => Date.now() - STATUS_BAR_BOOT_STARTED_AT < STATUS_BAR_INITIALIZING_MS,
   );
