@@ -15,6 +15,7 @@ import { scheduledTextMetadata } from "../../scheduled-tasks/scheduled-message";
 import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
 import { textPartProviderMetadata } from "./assistant-message-sender";
 import { commentaryTag, isModelCommentary, keepCommentaryAnswer, nativeTextMetadata } from "@/lawoss/chat/commentary";
+import { revalidateOkfAfterAgentTool, revalidateOkfAfterAgentTurn } from "@/lawoss/okf/overview-refresh";
 
 /** LAWOSS: engine v2 reports a text fragment's provider phase only when it ends (`data.native`). */
 const liveCommentary = (event: { type: string; data: { native?: unknown } }): boolean =>
@@ -1339,6 +1340,7 @@ function applyEvent(
           state: { ...part.state, metadata: event.data.metadata },
         };
       if (event.type === "session.tool.success") {
+        revalidateOkfAfterAgentTool(cache, part.tool); // 🟡 LAWOSS #460: a write in the chat updates the OKF overview.
         const attachments = event.data.content.flatMap(
           (content, index): FilePart[] =>
             content.type === "file"
@@ -1515,6 +1517,7 @@ function applyEvent(
     ["workspace-files", workspaceId],
   ])
     void cache.invalidateQueries({ queryKey: key });
+  revalidateOkfAfterAgentTurn(cache); // 🟡 LAWOSS #460: files may have changed during the turn (OKF overview).
   const runStartedAt = takeTaskRunStart(sessionId);
   if (runStartedAt !== null)
     captureRunOutcome(
