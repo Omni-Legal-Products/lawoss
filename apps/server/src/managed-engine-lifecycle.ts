@@ -13,6 +13,8 @@ import type { ServerConfig } from "./types.js";
 import { engineStorageDir } from "./engine-storage.js";
 import { legacyMcpCredentialImportPending, migrateLegacyMcpCredentials } from "./legacy-mcp-credentials.js";
 import { importLegacyProviderCredentials } from "./legacy-provider-credentials.js";
+// 🟡 LAWOSS #454: engine, ktorý po štarte skončí, sa spustí znova (lawoss/engine-supervisor.ts).
+import { createEngineSupervisor } from "./lawoss/engine-supervisor.js";
 
 /** One engine at a time. Plain serve makes history readable while the global
  * native recovery sweep is held; only upstream service mode resumes old work. */
@@ -45,10 +47,45 @@ export async function startManagedEngineLifecycle(options: {
     const workspace = config.workspaces[0];
     if (migrated.changed && workspace) await writeLegalworkRuntimeConfigFile(config, workspace.id);
   };
+  // 🟡 LAWOSS #454: náhrada spadnutého enginu (lawoss/engine-supervisor.ts). Režim služby s rovnakým
+  // preflight → obnova ako pri štarte; beží ako `checking`, aby ho refresh/reloadCatalog neprekrížili.
+  const supervisor = createEngineSupervisor<ManagedOpencodeServer>({
+    current: () => engine,
+    status: (status) => { config.managedEngineStatus = status; },
+    restart: async () => {
+      while (checking) await checking;
+      const exited = engine;
+      if (closed || !supervisor.isDead(exited)) return;
+      const attempt = (async () => {
+        events?.abort(); events = undefined;
+        imageAffinity.disconnect();
+        endpointLive = false;
+        await exited.close();
+        await stopManagedOpencodeService(options.service);
+        let target: "service" | "recovery" = "recovery", attemptedService = false;
+        try {
+          if (mode === "service") {
+            await preflight(); attemptedService = true;
+            engine = await createStopped("service", preflight); target = "service";
+          } else engine = await createStopped("recovery");
+        } catch (error) {
+          if (mode !== "service") throw error;
+          remember(error); serviceStartupFailed = attemptedService;
+          engine = await createStopped("recovery");
+        }
+        try { await publish(); }
+        catch (error) { engine = exited; throw error; }
+        mode = target;
+        if (mode === "recovery") monitor();
+      })();
+      checking = attempt.catch(() => {}).finally(() => { checking = undefined; });
+      await attempt;
+    },
+  });
   const createStopped = (target: "service" | "recovery", check?: () => Promise<void>) => options.create(target, async () => {
     await prepareStoppedApprovals();
     await check?.();
-  });
+  }).then(supervisor.watch);
   await stopManagedOpencodeService(options.service);
   await prepareStoppedApprovals();
   const held = (await inspectNativeEngineRecovery(options.database)).sessions;
@@ -212,7 +249,7 @@ export async function startManagedEngineLifecycle(options: {
     refresh,
     reloadCatalog,
     async close() {
-      closed = true; endpointLive = false; imageAffinity.disconnect(); delete config.managedImageAffinity; events?.abort(); if (retryTimer) clearTimeout(retryTimer);
+      closed = true; supervisor.close(); endpointLive = false; imageAffinity.disconnect(); delete config.managedImageAffinity; events?.abort(); if (retryTimer) clearTimeout(retryTimer);
       await checking; await engine.close();
       delete config.managedEngineRecoveryState; delete config.retryManagedEngineRecovery; delete config.reloadManagedEngineCatalog; delete config.withManagedEngineAdmission; delete config.observeManagedEngineResponse;
     },

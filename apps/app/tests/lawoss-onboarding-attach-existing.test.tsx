@@ -76,7 +76,7 @@ describe("connecting an existing client folder", () => {
 
   test("the onboarding folder picker asks for the canonical path (mapped drive on Windows)", () => {
     const route = readFileSync(join(import.meta.dir, "../src/react-app/shell/welcome-route.tsx"), "utf8");
-    expect(route).toContain('pickDirectory({ title: "Select LAWOSS folder", canonical: true })');
+    expect(route).toContain('pickDirectory({ title: t("lawoss.setup.welcome.pickFolderTitle"), canonical: true })');
     // Nový spis porovnáva výber s uloženou cestou pracovného priestoru, preto voľbu nemá.
     const novySpis = readFileSync(join(import.meta.dir, "../src/lawoss/domains/novy-spis/novy-spis-page.tsx"), "utf8");
     expect(novySpis).not.toContain("canonical: true");

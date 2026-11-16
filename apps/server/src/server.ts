@@ -53,6 +53,7 @@ import { eigenweltUsageRequest } from "./eigenwelt-usage.js";
 import { z } from "zod";
 import { reviewSourcePage } from "./reviews/source-page.js";
 import { searchSessionContents, searchFileContents } from "./content-search.js";
+import { withSearchSlot } from "./lawoss/search-admission.js";
 import { CorpusService } from "./corpus/service.js";
 import { extractCorpusText } from "./corpus/extract.js";
 import { readSystemOneSettings, systemOne } from "./systemone.js";
@@ -4197,8 +4198,9 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const query = (ctx.url.searchParams.get("q") ?? "").trim().slice(0, 300);
     if (query.length < 2 && !(ctx.params.kind === "tasks" && !query)) return jsonResponse({ items: [] });
-    if (ctx.params.kind === "sessions") return jsonResponse(await searchSessionContents(config, workspace, query, ctx.request.signal));
-    if (ctx.params.kind === "files") return jsonResponse(await searchFileContents(workspace, query, ctx.request.signal, preparation, actorReadScope(ctx), ctx.url.searchParams.get("retry") === "true"));
+    // 🟡 LAWOSS #465: obmedzený počet hľadaní naraz (lawoss/search-admission.ts).
+    if (ctx.params.kind === "sessions") return jsonResponse(await withSearchSlot("sessions", ctx.request.signal, () => searchSessionContents(config, workspace, query, ctx.request.signal)));
+    if (ctx.params.kind === "files") return jsonResponse(await withSearchSlot("files", ctx.request.signal, () => searchFileContents(workspace, query, ctx.request.signal, preparation, actorReadScope(ctx), ctx.url.searchParams.get("retry") === "true")));
     if (ctx.params.kind === "tasks") {
       const { orgId } = await localTaskConnection();
       const items = (await taskStore(config)).searchTasks(query, orgId, workspace.id, ctx.url.searchParams.get("scope") === "project");
