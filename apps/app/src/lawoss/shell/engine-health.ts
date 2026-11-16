@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { LegalworkServerClient } from "../../app/lib/legalwork-server";
 
 /**
@@ -19,16 +19,23 @@ export function engineHealthFromStatus(status: ServerEngineStatus | undefined): 
   return status === "error" ? "unavailable" : "restarting";
 }
 
-/** `null`: server bez spravovaného enginu alebo nedostupný `/health` (ten hlási iný indikátor). */
-export function useEngineHealth(client: Pick<LegalworkServerClient, "health"> | null | undefined): EngineHealth | null {
+type EngineHealthClient = Pick<LegalworkServerClient, "health"> & Partial<Pick<LegalworkServerClient, "restartEngine">>;
+
+/**
+ * `health` je `null` pri serveri bez spravovaného enginu alebo nedostupnom `/health` (ten hlási iný indikátor).
+ * `retry` (len keď ho klient vie): po vyčerpaní automatických reštartov požiada server o nový pokus.
+ */
+export function useEngineHealth(client: EngineHealthClient | null | undefined): { health: EngineHealth | null; retry?: () => Promise<void> } {
   const [health, setHealth] = useState<EngineHealth | null>(null);
+  // Bumped by `retry` so polling restarts at once at the outage pace.
+  const [round, setRound] = useState(0);
   // The client object can be rebuilt on every render; polling follows the latest one without restarting.
   const current = useRef(client);
   current.current = client;
   const connected = Boolean(client);
+  const canRetry = Boolean(client?.restartEngine);
   useEffect(() => {
-    setHealth(null);
-    if (!connected) return;
+    if (!connected) { setHealth(null); return; }
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
@@ -42,6 +49,11 @@ export function useEngineHealth(client: Pick<LegalworkServerClient, "health"> | 
     };
     void poll();
     return () => { stopped = true; if (timer) clearTimeout(timer); };
-  }, [connected]);
-  return health;
+  }, [connected, round]);
+  const retry = useCallback(async () => {
+    const result = await current.current?.restartEngine?.();
+    if (result?.restarting) setHealth("restarting");
+    setRound(value => value + 1);
+  }, []);
+  return canRetry ? { health, retry } : { health };
 }

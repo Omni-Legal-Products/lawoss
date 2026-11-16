@@ -49,9 +49,11 @@ type StatusIndicatorProps = {
   loading?: boolean;
   initializing: boolean;
   engineHealth: EngineHealth | null;
+  onRetryEngine?: () => Promise<void>;
 };
 
 function StatusIndicator(props: StatusIndicatorProps) {
+  const [retrying, setRetrying] = useState(false);
   if (props.loading || (props.legalworkServerStatus === "disconnected" && props.initializing)) {
     return (
       <div className="flex min-w-0 items-center gap-2.5">
@@ -75,8 +77,24 @@ function StatusIndicator(props: StatusIndicatorProps) {
           {t(restarting ? "lawoss.status.engine_restarting" : "lawoss.status.engine_unavailable")}
         </span>
         <span className="truncate text-muted-foreground text-xs">
-          {t(restarting ? "lawoss.status.engine_restarting_hint" : "lawoss.status.engine_unavailable_hint")}
+          {t(restarting ? "lawoss.status.engine_restarting_hint" : props.onRetryEngine ? "lawoss.status.engine_unavailable_retry_hint" : "lawoss.status.engine_unavailable_hint")}
         </span>
+        {!restarting && props.onRetryEngine ? (
+          <Button
+            className="h-5 shrink-0 px-2 text-xs"
+            variant="outline"
+            size="xs"
+            disabled={retrying}
+            onClick={() => {
+              const retry = props.onRetryEngine;
+              if (!retry) return;
+              setRetrying(true);
+              void retry().catch(() => undefined).finally(() => setRetrying(false));
+            }}
+          >
+            {t("lawoss.status.engine_retry")}
+          </Button>
+        ) : null}
       </div>
     );
   }
@@ -144,12 +162,12 @@ export type StatusBarProps = {
   loading?: boolean;
   showSettingsButton?: boolean;
   initializing?: boolean;
-  legalworkServerClient?: Pick<LegalworkServerClient, "health"> | null;
+  legalworkServerClient?: (Pick<LegalworkServerClient, "health"> & Partial<Pick<LegalworkServerClient, "restartEngine">>) | null;
 };
 
 export function StatusBar(props: StatusBarProps) {
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
-  const engineHealth = useEngineHealth(props.legalworkServerClient);
+  const engine = useEngineHealth(props.legalworkServerClient);
   const [initializing, setInitializing] = useState(
     () => Date.now() - STATUS_BAR_BOOT_STARTED_AT < STATUS_BAR_INITIALIZING_MS,
   );
@@ -185,7 +203,8 @@ export function StatusBar(props: StatusBarProps) {
           mcpConnectedCount={props.mcpConnectedCount}
           loading={props.loading}
           initializing={initializing}
-          engineHealth={engineHealth}
+          engineHealth={engine.health}
+          onRetryEngine={engine.retry}
         />
 
         <div className="flex items-center gap-1">

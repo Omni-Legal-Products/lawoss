@@ -81,7 +81,7 @@ const lifecycleScript = (src: string, scenario: string) => `
       await lifecycle.close();
       await new Promise(r => setTimeout(r, 100));
       assert.equal(engines.length, 1, "closing during the backoff cancels the restart");
-    } else {
+    } else if (scenario === "exhausted") {
       failStarts = true;
       engines[0].crash();
       await until(() => config.managedEngineStatus === "error", "restart gives up");
@@ -91,12 +91,31 @@ const lifecycleScript = (src: string, scenario: string) => `
       assert.equal(engines.filter(engine => engine.failed).length, 6, "no attempts after the budget is spent");
       assert.equal(config.managedEngineRecoveryState().error.code, "engine_restart_failed");
       await assert.rejects(config.withManagedEngineAdmission("new", async () => {}), error => error.code === "engine_restart_failed");
+    } else if (scenario === "manual-retry") {
+      assert.equal(config.retryManagedEngineRestart(), false, "a running engine is not restarted on request");
+      failStarts = true;
+      engines[0].crash();
+      await until(() => config.managedEngineStatus === "error", "restart gives up");
+      // A retry that fails again spends a fresh budget and reports the failure again.
+      assert.equal(config.retryManagedEngineRestart(), true);
+      assert.equal(config.managedEngineStatus, "starting");
+      await assert.rejects(config.withManagedEngineAdmission("new", async () => {}), error => error.code === "engine_restarting");
+      assert.equal(config.retryManagedEngineRestart(), false, "a retry while restarting does not queue another");
+      await until(() => config.managedEngineStatus === "error", "the retry gives up too");
+      assert.equal(engines.filter(engine => engine.failed).length, 12);
+      failStarts = false;
+      assert.equal(config.retryManagedEngineRestart(), true);
+      await until(() => config.managedEngineStatus === "ready" && config.opencodeBaseUrl === engines.at(-1).url, "the retried engine is published");
+      await config.withManagedEngineAdmission("new", async () => {});
+      assert.equal(config.managedEngineRecoveryState().error, undefined);
+      engines.at(-1).crash();
+      await until(() => engines.filter(engine => !engine.failed).length === 3 && config.managedEngineStatus === "ready", "the retried engine is supervised");
     }
   } finally { await lifecycle.close(); }
   console.log("completed " + scenario);
 `;
 
-for (const scenario of ["restart", "crash-while-restarting", "close", "close-during-backoff", "exhausted"]) {
+for (const scenario of ["restart", "crash-while-restarting", "close", "close-during-backoff", "exhausted", "manual-retry"]) {
   test(`#454: managed engine lifecycle after an unexpected engine exit: ${scenario}`, async () => {
     const root = await mkdtemp(join(tmpdir(), "lawoss-engine-restart-")), script = join(root, "control.mjs");
     await writeFile(script, lifecycleScript(new URL("../", import.meta.url).href, scenario));

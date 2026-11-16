@@ -204,11 +204,14 @@ export async function startManagedEngineLifecycle(options: {
   const supervise = (current: ManagedOpencodeServer) => {
     void current.unexpectedExit.then((exit) => {
       if (closed || engine !== current) return;
-      // Queue behind a running restart: its new engine can exit before that restart returns.
-      const next = (restarting ?? Promise.resolve()).then(() => restartAfterExit(current, exit));
-      restarting = next;
-      void next.finally(() => { if (restarting === next) restarting = undefined; });
+      queueRestart(() => restartAfterExit(current, exit));
     });
+  };
+  // Queue behind a running restart: its new engine can exit before that restart returns.
+  const queueRestart = (run: () => Promise<void>) => {
+    const next = (restarting ?? Promise.resolve()).then(run);
+    restarting = next;
+    void next.finally(() => { if (restarting === next) restarting = undefined; });
   };
   const restartAfterExit = async (current: ManagedOpencodeServer, exit: EngineExit) => {
     await checking;
@@ -218,6 +221,9 @@ export async function startManagedEngineLifecycle(options: {
     endpointLive = false; imageAffinity.disconnect(); events?.abort(); events = undefined;
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = undefined; }
     console.error(`[managed-engine] engine stopped unexpectedly (code ${exit.code}, signal ${exit.signal}); restarting`);
+    await restartWithinBudget();
+  };
+  const restartWithinBudget = async () => {
     for (let delay = restartBudget.nextDelay(); delay !== null; delay = restartBudget.nextDelay()) {
       await sleepUnlessAborted(delay, lifetime.signal);
       if (closed) return;
@@ -240,10 +246,20 @@ export async function startManagedEngineLifecycle(options: {
     remember(outageError());
     console.error("[managed-engine] engine restart attempts exhausted");
   };
+  // After the budget is spent, the user can ask for one more round instead of restarting the app.
+  const retryRestart = () => {
+    if (closed || outage !== "failed") return false;
+    restartBudget.reset();
+    outage = "restarting"; config.managedEngineStatus = "starting";
+    console.warn("[managed-engine] engine restart requested by the user");
+    queueRestart(restartWithinBudget);
+    return true;
+  };
   await start();
   config.managedImageAffinity = imageAffinity.resolve;
   config.managedEngineRecoveryState = () => ({ mode, heldSessions: mode === "service" ? [] : held, ...(failure ? { error: failure } : {}) });
   config.retryManagedEngineRecovery = refresh;
+  config.retryManagedEngineRestart = retryRestart; // 🟡 LAWOSS #454
   config.reloadManagedEngineCatalog = reloadCatalog;
   config.withManagedEngineAdmission = async (sessionID, action) => {
     if (outage) throw outageError();
@@ -277,7 +293,7 @@ export async function startManagedEngineLifecycle(options: {
       closed = true; endpointLive = false; imageAffinity.disconnect(); delete config.managedImageAffinity; events?.abort(); if (retryTimer) clearTimeout(retryTimer);
       lifetime.abort();
       await checking; await restarting; await engine.close();
-      delete config.managedEngineRecoveryState; delete config.retryManagedEngineRecovery; delete config.reloadManagedEngineCatalog; delete config.withManagedEngineAdmission; delete config.observeManagedEngineResponse;
+      delete config.managedEngineRecoveryState; delete config.retryManagedEngineRecovery; delete config.retryManagedEngineRestart; delete config.reloadManagedEngineCatalog; delete config.withManagedEngineAdmission; delete config.observeManagedEngineResponse;
     },
   };
 }

@@ -26,4 +26,13 @@ export function registerEngineProjectRoutes(options: {
     response.headers.set("Cache-Control", "no-store");
     return response;
   });
+  // 🟡 LAWOSS #454: "Try again" in the status bar after the automatic engine restarts failed.
+  addRoute(options.routes, "POST", "/engine/restart", "client", async ctx => {
+    options.requireClientScope(ctx, "collaborator");
+    options.ensureWritable(options.config);
+    const restarting = options.config.retryManagedEngineRestart?.() ?? false;
+    const response = options.jsonResponse({ restarting, engine: { status: options.config.managedEngineStatus ?? "ready" } });
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  });
 }

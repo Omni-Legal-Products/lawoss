@@ -22,6 +22,8 @@ export function createEngineRestartBudget(options: EngineRestartOptions = ENGINE
   return {
     /** Engine je pripravený a zverejnený. */
     started() { startedAt = now(); },
+    /** Používateľ po vyčerpaní pokusov žiada nový pokus: plný rozpočet znova. */
+    reset() { used = 0; },
     /** Engine skončil sám; ak bežal dosť dlho, ide o nový výpadok. */
     exited() { if (now() - startedAt >= options.stableMs) used = 0; },
     /** Čakanie pred ďalším pokusom, alebo `null`, keď je rozpočet vyčerpaný. */
