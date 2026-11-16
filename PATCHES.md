@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Potvrdenie akcie ovládania appky nezmrazí appku (#511) (2026-11-17)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/shell/control/control-provider.tsx`, nový `apps/app/src/lawoss/shell/control-confirmation.tsx` (LAWOSS, + test `tests/lawoss-control-potvrdenie-511.test.tsx`) | #511: akcia s `requiresConfirmation` (napr. `session.delete`, `session.group.remove`) sa pýtala cez `window.confirm`, ktoré v Electrone zablokuje celý renderer (žiadne UI, dopytovanie ani odpoveď servera ovládania na `/snapshot`), a to ešte pred kontrolou argumentov. Teraz sa najprv skontrolujú deklarované povinné argumenty (`controlConfirmationArgsError`: chýbajúca hodnota → `<názov> is required`, povinný booleovský `confirmed` musí byť `true` → `control.needs_confirm`) a až potom sa ukáže existujúci `ConfirmModal` (`control.confirm_allow`, „Povoliť“ / „Zrušiť“ z existujúcich kľúčov). Zrušenie volajúcim (`execution.signal`, odpojenie HTTP alebo limit) dialóg zavrie a akcia sa nevykoná. Kým potvrdenie čaká, ďalšia nepozadová akcia dostane `Already acting` ako pri rozbehnutej akcii. V providerovi +1 import, +1 hook, ~8 zmenených riadkov, +1 riadok vykreslenia dialógu, všetko s `🟡 LAWOSS #511`; kontroly v `execute()` akcií ostávajú. |
+
 ## Nálezy po zlúčení #429 a #437 (#439–#444, #460) (2026-11-16)
 
 Nálezy z revízie kódu a testu Docker zostavy po zlúčení PR #429 a #437.
