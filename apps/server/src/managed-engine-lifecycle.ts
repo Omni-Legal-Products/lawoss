@@ -220,6 +220,7 @@ export async function startManagedEngineLifecycle(options: {
   config.managedImageAffinity = imageAffinity.resolve;
   config.managedEngineRecoveryState = () => ({ mode, heldSessions: mode === "service" ? [] : held, ...(failure ? { error: failure } : {}) });
   config.retryManagedEngineRecovery = refresh;
+  config.retryManagedEngineRestart = supervisor.retryNow; // 🟡 LAWOSS #477
   config.reloadManagedEngineCatalog = reloadCatalog;
   config.withManagedEngineAdmission = async (sessionID, action) => {
     if (mode === "promoting" || catalogReloading) throw new ApiError(503, "engine_recovery_transition", catalogReloading
@@ -251,7 +252,7 @@ export async function startManagedEngineLifecycle(options: {
     async close() {
       closed = true; supervisor.close(); endpointLive = false; imageAffinity.disconnect(); delete config.managedImageAffinity; events?.abort(); if (retryTimer) clearTimeout(retryTimer);
       await checking; await engine.close();
-      delete config.managedEngineRecoveryState; delete config.retryManagedEngineRecovery; delete config.reloadManagedEngineCatalog; delete config.withManagedEngineAdmission; delete config.observeManagedEngineResponse;
+      delete config.managedEngineRecoveryState; delete config.retryManagedEngineRecovery; delete config.retryManagedEngineRestart; delete config.reloadManagedEngineCatalog; delete config.withManagedEngineAdmission; delete config.observeManagedEngineResponse;
     },
   };
 }

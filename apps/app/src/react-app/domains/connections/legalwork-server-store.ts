@@ -271,7 +271,7 @@ export function createLegalworkServerStore(options: CreateLegalworkServerStoreOp
   const checkLegalworkServer = async (url: string, token?: string, hostToken?: string) => {
     const client = createLegalworkServerClient({ baseUrl: url, token, hostToken });
     try {
-      reportEngineHealth((await client.health()).engine?.status); // 🟡 LAWOSS #454
+      reportEngineHealth((await client.health()).engine?.status, token ? () => client.restartEngine() : undefined); // 🟡 LAWOSS #454, #477
     } catch (error) {
       reportEngineHealth(null);
       const resolved = error as LegalworkServerError | Error;

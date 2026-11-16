@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
 import type { LegalworkServerStatus } from "../../../../app/lib/legalwork-server";
-import { engineStatusText, useEngineHealth } from "@/lawoss/shell/engine-status"; // 🟡 LAWOSS #454
+import { engineStatusText, retryEngine, useEngineHealth, useEngineRetryAvailable } from "@/lawoss/shell/engine-status"; // 🟡 LAWOSS #454, #477
 
 const STATUS_BAR_BOOT_STARTED_AT = Date.now();
 const STATUS_BAR_INITIALIZING_MS = 15_000;
@@ -51,7 +51,8 @@ type StatusIndicatorProps = {
 
 function StatusIndicator(props: StatusIndicatorProps) {
   // 🟡 LAWOSS #454: spojenie so serverom nestačí; kým engine nebeží, riadok nehlási „pripravené“.
-  const engine = engineStatusText(useEngineHealth());
+  const canRetryEngine = useEngineRetryAvailable(); // 🟡 LAWOSS #477
+  const engine = engineStatusText(useEngineHealth(), canRetryEngine);
   if (props.loading || (props.legalworkServerStatus === "disconnected" && props.initializing)) {
     return (
       <div className="flex min-w-0 items-center gap-2.5">
@@ -72,6 +73,11 @@ function StatusIndicator(props: StatusIndicatorProps) {
         <StatusDot variant={engine.failed ? "disconnected" : "loading"} />
         <span className="shrink-0 font-medium text-foreground text-xs">{t(engine.label)}</span>
         <span className="truncate text-muted-foreground text-xs">{t(engine.hint)}</span>
+        {engine.failed && canRetryEngine ? (
+          <Button className="h-5 shrink-0 px-2 text-xs" variant="outline" size="xs" onClick={() => { void retryEngine().catch(() => undefined); }}>
+            {t("lawoss.engine.retry")}
+          </Button>
+        ) : null}
       </div>
     );
   }

@@ -53,6 +53,40 @@ test("#454: zlyhané pokusy po limite hlásia error a skúšajú ďalej pomaly (
   expect(time.pending).toBe(0);
 });
 
+test("#477: „Skúsiť znova“ spustí pokus hneď, nie počas pokusu ani pri bežiacom engine, a nezaradí druhý", async () => {
+  const time = clock();
+  let failures = 3, release: (() => void) | undefined;
+  const h = harness(time, async () => {
+    if (failures-- > 0) throw new Error("synthetic start failure");
+    await new Promise<void>(resolve => { release = resolve; });
+  });
+  expect(h.supervisor.retryNow()).toBe(false);
+  h.current.exit();
+  await time.advance(100); await time.advance(200);
+  expect(h.statuses.at(-1)).toBe("error");
+  expect(h.created.length).toBe(2);
+  expect(time.pending).toBe(1);
+
+  expect(h.supervisor.retryNow()).toBe(true);
+  for (let i = 0; i < 5; i++) await Bun.sleep(0);
+  expect(h.created.length).toBe(3);
+  expect(h.statuses.at(-1)).toBe("error");
+  expect(time.pending).toBe(1);
+
+  expect(h.supervisor.retryNow()).toBe(true);
+  expect(h.statuses.at(-1)).toBe("starting");
+  expect(h.supervisor.retryNow()).toBe(false);
+  for (let i = 0; i < 5; i++) await Bun.sleep(0);
+  expect(h.created.length).toBe(4);
+  expect(time.pending).toBe(0);
+  release?.();
+  for (let i = 0; i < 5; i++) await Bun.sleep(0);
+  expect(h.current.id).toBe(4);
+  expect(h.supervisor.retryNow()).toBe(false);
+  await time.advance(10_000);
+  expect(h.created.length).toBe(4);
+});
+
 test("#454: náhrada spadne počas publikovania a pokus zlyhá: ďalší pokus sa nezahodí", async () => {
   const time = clock();
   let crashFirst = true;
@@ -135,6 +169,7 @@ async function lifecycle(scenario: "publish-retry" | "recovery-fallback") {
     try {
       assert.equal(config.managedEngineRecoveryState().mode, "service");
       const stopsBefore = serviceStops;
+      assert.equal(config.retryManagedEngineRestart(), false, "a running engine is not restarted on request");
       if (scenario === "publish-retry") {
         failConnect = 1;
         created[0].crash();
@@ -162,6 +197,7 @@ async function lifecycle(scenario: "publish-retry" | "recovery-fallback") {
         assert.equal(config.managedEngineStatus, "ready");
       }
     } finally { await lifecycle.close(); }
+    assert.equal(config.retryManagedEngineRestart, undefined, "a closed lifecycle offers no restart");
     created.at(-1).crash();
     await Bun.sleep(1_200);
     assert.equal(created.length, scenario === "publish-retry" ? 3 : 2, "nothing restarts after the lifecycle closed");
