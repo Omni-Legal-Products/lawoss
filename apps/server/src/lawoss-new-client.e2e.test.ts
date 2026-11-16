@@ -84,3 +84,43 @@ test("lawoss_new_client: one card, the client form's path creates and registers 
   expect(bearer.status).toBe(403);
   await rm(join(profileDir, "profile.json"));
 }, 30_000);
+
+// #433: kancelária s kódovanými priečinkami klientov („podľa zvyklosti kancelárie“): nový klient dostane ďalší kód a slug,
+// karta enginu ukáže presne tento priečinok a klient sa v appke volá skutočným menom.
+test("lawoss_new_client in a coded office: next code and slug as the folder, the real name as the client", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "lawoss-new-client-code-"))); roots.push(base);
+  process.env.LEGALWORK_DATA_DIR = join(base, "data"); process.env.LEGALWORK_TOKEN_STORE = join(base, "tokens.json");
+  await mkdir(join(base, "runtime"));
+  const practice = join(base, "Prax"), clients = join(practice, "Klienti"), client = join(clients, "C001-syn-tatran-automatika-s-r-o");
+  await mkdir(client, { recursive: true });
+  // Medzera v číslovaní (C003–C006) sa nevypĺňa: ďalší je C008.
+  for (const name of ["C002-syn-hron-technologie-a-s", "C007-syn-zuzana-simkova"]) await mkdir(join(clients, name));
+  await mkdir(join(practice, "Office"));
+  const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(base, "runtime", "server.json"), token: "synthetic-client", hostToken: "synthetic-host",
+    approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "c1", name: "SYN Tatran Automatika, s. r. o.", preset: "starter", path: client, workspaceType: "local" }],
+    authorizedRoots: [client], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  process.env.LEGALWORK_RUNTIME_DB = join(base, "runtime", "runtime.sqlite");
+  const server = await startServer(config); stops.push(() => server.stop());
+  const previousUrl = process.env.LEGALWORK_SERVER_URL;
+  process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${server.port}`;
+  const agent = await engineAgentSession(config, { sessionID: "ses_new_client_code", directory: client });
+  stops.push(() => { agent.restore(); if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl; });
+  const profileDir = join(runtimeStorageDir(config), "lawoss-onboarding");
+  await mkdir(profileDir, { recursive: true });
+  await writeFile(join(profileDir, "profile.json"), JSON.stringify({ version: 1, lawyerName: "Advokát SYN", jurisdiction: "sk", language: "sk", officeRoot: join(practice, "Office") }));
+  const tools = (await nativePluginTools(LawossMemoryTools)).tool;
+  const cards: { patterns: string[]; metadata?: unknown }[] = [];
+  const context = { ...agent.context, ask: async (card: { patterns: string[] }) => { cards.push(card); } };
+
+  const name = "SYN Novák Reality, s. r. o.", target = join(clients, "C008-syn-novak-reality-s-r-o");
+  const created = JSON.parse(await tools.lawoss_new_client.execute({ name, client_type: "po" }, context));
+  expect(created).toMatchObject({ created: true, path: target, name });
+  expect(cards).toEqual([expect.objectContaining({ patterns: [target], metadata: { lawossNewClient: expect.objectContaining({ target, name }) } })]);
+  expect(await readFile(join(target, "client.md"), "utf8")).toContain(name);
+  expect(config.workspaces.find(workspace => workspace.path === target)?.name).toBe(name);
+
+  // Rovnaké meno znova: priečinok sa neprepíše, dostane ďalší kód (kód je jedinečný, meno klienta nie).
+  const again = JSON.parse(await tools.lawoss_new_client.execute({ name, client_type: "po" }, context));
+  expect(again).toMatchObject({ created: true, path: join(clients, "C009-syn-novak-reality-s-r-o") });
+  await rm(join(profileDir, "profile.json"));
+}, 30_000);

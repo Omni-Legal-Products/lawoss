@@ -19,7 +19,7 @@ import { assertClientFolderNotNested } from "./nested-client.js";
 import { practiceRootOf, unadoptedClientFolders } from "./unadopted-clients.js";
 import { refreshAllOfficeFacts } from "./office-facts.js";
 import { folderGone, inferPracticeMove, movedClientOf, previewMovedFolder, rebaseOfficeGrants, syncOfficeGrant } from "./moved-practice.js";
-import { executeOnboarding, inspectCardLevel, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, suggestOnboardingLevel, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
+import { executeOnboarding, inspectCardLevel, inspectOnboardingRoot, newClientFolder, previewOnboarding, recoverOnboardingOperation, suggestOnboardingLevel, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
 
 /** OKF is opt-in; enabling it requires a dated acknowledgement of a versioned notice. */
 const okfChoiceSchema = z.strictObject({
@@ -397,9 +397,10 @@ export function registerOnboardingRoutes(options: {
     if (await missingDirectory(parent)) throw new ApiError(409, "new_client_no_clients_folder", `The office has no clients folder (${parent}). Nothing was created.`, { parent });
     // Meno priečinka ako `safeSegment` plánovača: bez medzier a bodiek na konci, nie prázdne ani s bodkou na začiatku
     // (`.`, `..` by inak boli priečinok Klienti alebo kancelária sama a hlásili by sa ako existujúci klient).
-    const folder = input.name.trim().replace(/[. ]+$/, "");
-    if (/[\\/]/.test(input.name) || !folder || folder.startsWith(".")) throw new ApiError(400, "new_client_name", "A client name cannot contain / or \\, start with a dot or consist only of dots. Nothing was created.");
-    const target = join(parent, folder);
+    const plain = input.name.trim().replace(/[. ]+$/, "");
+    if (/[\\/]/.test(input.name) || !plain || plain.startsWith(".")) throw new ApiError(400, "new_client_name", "A client name cannot contain / or \\, start with a dot or consist only of dots. Nothing was created.");
+    // #433: priečinok podľa zvyklosti kancelárie (ďalší kód `C025-slug`, ak ho priečinky klientov nesú), tou istou funkciou ako plán.
+    const target = join(parent, await newClientFolder(parent, input.name));
     if (!await missingDirectory(target)) throw new ApiError(409, "new_client_exists", `A folder with this name already exists (${target}). Nothing was created or overwritten.`, { target });
     // Typ klienta sa nedopĺňa: agent ho musí zadať (pri nejasnosti sa spýta), karta ukáže všetko, čo sa zapíše.
     const note = input.note?.replace(/\s+/g, " ");

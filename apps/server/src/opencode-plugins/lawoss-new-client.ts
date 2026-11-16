@@ -22,7 +22,7 @@ import { NEW_CLIENT_PERMISSION } from "../lawoss/tool-permission-defaults.js";
 export const NEW_CLIENT_TOOL = "lawoss_new_client";
 
 const args = z.object({
-  name: z.string().trim().min(1).max(120).describe("The client's name as the lawyer said it, e.g. \"Novák s. r. o.\" or \"Ján Novák\". It becomes the client's folder and the title of the client card."),
+  name: z.string().trim().min(1).max(120).describe("The client's name as the lawyer said it, e.g. \"Novák s. r. o.\" or \"Ján Novák\". It becomes the title of the client card and names the client's folder; when the office's client folders carry a code (e.g. C024-…), the folder gets the next code, and the approval card shows the exact folder."),
   client_type: z.enum(["fo", "fo-podnikatel", "po", "iny"]).describe("Required. po: a company or other legal person, fo: a private person, fo-podnikatel: a sole trader, iny: other. When the name and the lawyer's words do not make it clear, ask the lawyer before calling; never guess."),
   ico: z.string().regex(/^\d{6,8}$/).optional().describe("The identification number (IČO) if the lawyer gave it, digits only."),
   note: z.string().trim().min(1).max(1000).optional().describe("A short note about the client for the client card, only if the lawyer gave one."),
