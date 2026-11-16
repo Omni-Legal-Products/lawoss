@@ -51,6 +51,16 @@ export function ocrModelState(view: LawossOcrView): ModelState {
   return fast && layout ? "ready" : any ? "partial" : "missing";
 }
 
+type SwitchStatus = "lawoss.ocr.switch_off" | "lawoss.ocr.switch_on" | "lawoss.ocr.switch_on_downloading" | "lawoss.ocr.switch_on_no_model";
+
+/** Text pod prepínačom: „zapnuté“ sľubuje čítanie skenov, len keď je predvolený model pripravený (#496). */
+export function ocrSwitchStatus(view: LawossOcrView): SwitchStatus {
+  if (!view.enabled) return "lawoss.ocr.switch_off";
+  if (ocrModelState(view) === "downloading") return "lawoss.ocr.switch_on_downloading";
+  const { engines, defaultEngineId } = view.settings;
+  return engines.find((engine) => engine.id === defaultEngineId)?.status === "ready" ? "lawoss.ocr.switch_on" : "lawoss.ocr.switch_on_no_model";
+}
+
 export function LawossOcrSettings({ client }: { client: Client | null }) {
   const locale = useLocale();
   const [view, setView] = useState<LawossOcrView | null>(null);
@@ -126,7 +136,7 @@ export function OcrOptInPanel({ view, error, connected, busy, locale, actions }:
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 space-y-1">
               <p id="lawoss-ocr-switch-label" className="text-sm font-medium">{t("lawoss.ocr.switch", locale)}</p>
-              <p className="text-xs text-muted-foreground">{t(view.enabled ? "lawoss.ocr.switch_on" : "lawoss.ocr.switch_off", locale)}</p>
+              <p className="text-xs text-muted-foreground">{t(ocrSwitchStatus(view), locale)}</p>
             </div>
             <Switch aria-labelledby="lawoss-ocr-switch-label" checked={view.enabled} disabled={disabled} onCheckedChange={(enabled) => actions.toggle(enabled)} />
           </div>
