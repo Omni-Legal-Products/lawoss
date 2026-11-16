@@ -958,7 +958,15 @@ export const shellEn = {
   "lawoss.chat.trim.edit_title": "Edit message?",
   "lawoss.chat.trim.edit_description": "The message returns to the input field and the replies from it onward are removed from the conversation. Files stay unchanged.",
   "lawoss.chat.trim.edit_confirm": "Edit",
-  "lawoss.chat.trim.done": "The conversation is trimmed. Files are unchanged."
+  "lawoss.chat.trim.done": "The conversation is trimmed. Files are unchanged.",
+  // LAWOSS #502: chyby poskytovateľa v chate a voľby pripojenia OpenAI
+  "lawoss.provider_error.auth": "The AI provider rejected the sign-in. The API key or connection is invalid or has expired. Check it in Settings → AI providers, or choose another model.",
+  "lawoss.provider_error.open_settings": "Open AI provider settings",
+  "lawoss.provider_error.details": "Technical details",
+  "lawoss.provider_error.key_rejected": "The provider rejected this API key. Check that you copied the whole key and that it is still active. The key was not saved.",
+  "lawoss.provider_method.chatgpt_sign_in": "Sign in with ChatGPT",
+  "lawoss.provider_method.codex_browser": "Codex in the browser (older method)",
+  "lawoss.provider_method.codex_device": "Codex with a device code (older method)"
 };
 
 /** Čeština a slovenština potřebují navíc tvary few/many (Intl.PluralRules, viz `t()` v i18n/index.ts). */
@@ -1941,7 +1949,15 @@ export const shellCs = {
   "lawoss.chat.trim.edit_title": "Upravit zprávu?",
   "lawoss.chat.trim.edit_description": "Zpráva se vrátí do pole pro psaní a odpovědi od ní dál z konverzace odstraním. Soubory se nezmění.",
   "lawoss.chat.trim.edit_confirm": "Upravit",
-  "lawoss.chat.trim.done": "Konverzace je zkrácená. Soubory se nezměnily."
+  "lawoss.chat.trim.done": "Konverzace je zkrácená. Soubory se nezměnily.",
+  // LAWOSS #502: chyby poskytovateľa v chate a voľby pripojenia OpenAI
+  "lawoss.provider_error.auth": "Poskytovatel AI odmítl přihlášení. Klíč API nebo připojení je neplatné nebo vypršelo. Zkontrolujte je v Nastavení → Poskytovatelé AI, nebo zvolte jiný model.",
+  "lawoss.provider_error.open_settings": "Otevřít nastavení poskytovatelů AI",
+  "lawoss.provider_error.details": "Technické podrobnosti",
+  "lawoss.provider_error.key_rejected": "Poskytovatel tento klíč API odmítl. Zkontrolujte, že jste zkopírovali celý klíč a že je stále aktivní. Klíč se neuložil.",
+  "lawoss.provider_method.chatgpt_sign_in": "Přihlásit se přes ChatGPT",
+  "lawoss.provider_method.codex_browser": "Codex v prohlížeči (starší způsob)",
+  "lawoss.provider_method.codex_device": "Codex pomocí kódu zařízení (starší způsob)"
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
@@ -2921,7 +2937,15 @@ export const shellSk = {
   "lawoss.chat.trim.edit_title": "Upraviť správu?",
   "lawoss.chat.trim.edit_description": "Správa sa vráti do poľa na písanie a odpovede od nej ďalej z rozhovoru odstránim. Súbory sa nezmenia.",
   "lawoss.chat.trim.edit_confirm": "Upraviť",
-  "lawoss.chat.trim.done": "Rozhovor je skrátený. Súbory sa nezmenili."
+  "lawoss.chat.trim.done": "Rozhovor je skrátený. Súbory sa nezmenili.",
+  // LAWOSS #502: chyby poskytovateľa v chate a voľby pripojenia OpenAI
+  "lawoss.provider_error.auth": "Poskytovateľ AI odmietol prihlásenie. Kľúč API alebo pripojenie je neplatné alebo vypršalo. Skontrolujte ho v Nastaveniach → Poskytovatelia AI, alebo zvoľte iný model.",
+  "lawoss.provider_error.open_settings": "Otvoriť nastavenia poskytovateľov AI",
+  "lawoss.provider_error.details": "Technické podrobnosti",
+  "lawoss.provider_error.key_rejected": "Poskytovateľ tento kľúč API odmietol. Skontrolujte, že ste skopírovali celý kľúč a že je stále aktívny. Kľúč sa neuložil.",
+  "lawoss.provider_method.chatgpt_sign_in": "Prihlásiť sa cez ChatGPT",
+  "lawoss.provider_method.codex_browser": "Codex v prehliadači (starší spôsob)",
+  "lawoss.provider_method.codex_device": "Codex pomocou kódu zariadenia (starší spôsob)"
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
@@ -3883,5 +3907,13 @@ export const shellDe = {
   "lawoss.chat.trim.edit_title": "Nachricht bearbeiten?",
   "lawoss.chat.trim.edit_description": "Die Nachricht kehrt ins Eingabefeld zurück, die Antworten ab ihr entferne ich aus der Unterhaltung. Dateien bleiben unverändert.",
   "lawoss.chat.trim.edit_confirm": "Bearbeiten",
-  "lawoss.chat.trim.done": "Die Unterhaltung ist gekürzt. Dateien sind unverändert."
+  "lawoss.chat.trim.done": "Die Unterhaltung ist gekürzt. Dateien sind unverändert.",
+  // LAWOSS #502: chyby poskytovateľa v chate a voľby pripojenia OpenAI
+  "lawoss.provider_error.auth": "Der KI-Anbieter hat die Anmeldung abgelehnt. Der API-Schlüssel oder die Verbindung ist ungültig oder abgelaufen. Prüfen Sie sie unter Einstellungen → KI-Anbieter oder wählen Sie ein anderes Modell.",
+  "lawoss.provider_error.open_settings": "KI-Anbieter-Einstellungen öffnen",
+  "lawoss.provider_error.details": "Technische Details",
+  "lawoss.provider_error.key_rejected": "Der Anbieter hat diesen API-Schlüssel abgelehnt. Prüfen Sie, ob Sie den ganzen Schlüssel kopiert haben und ob er noch aktiv ist. Der Schlüssel wurde nicht gespeichert.",
+  "lawoss.provider_method.chatgpt_sign_in": "Mit ChatGPT anmelden",
+  "lawoss.provider_method.codex_browser": "Codex im Browser (ältere Methode)",
+  "lawoss.provider_method.codex_device": "Codex mit Gerätecode (ältere Methode)"
 } satisfies Record<keyof typeof shellEn, string>;

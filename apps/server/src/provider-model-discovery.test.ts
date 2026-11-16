@@ -84,6 +84,9 @@ test("rejects HTTP errors, malformed inventories, and redirects without catalog 
     const baseURL = modelServer(() => response.clone());
     await expect(discoverProviderModels(baseURL, "")).rejects.toThrow();
   }
+  // 🟡 LAWOSS #502: a rejected key (401) is distinguishable from other failures; 403 (restricted key) is not a rejection.
+  await expect(discoverProviderModels(modelServer(() => new Response("", { status: 401 })), "k")).rejects.toMatchObject({ code: "model_discovery_unauthorized" });
+  await expect(discoverProviderModels(modelServer(() => new Response("", { status: 403 })), "k")).rejects.toMatchObject({ code: "model_discovery_failed" });
   for (const baseURL of ["", "file:///tmp/models", "http://user:secret@localhost/v1", "http://localhost/v1?x=1"]) {
     await expect(discoverProviderModels(baseURL, "")).rejects.toThrow("Enter an HTTP or HTTPS base URL");
   }
