@@ -46,12 +46,27 @@ async function writeRecord(config: ServerConfig, workspace: WorkspaceInfo, recor
   await writeLegalworkWorkspaceConfig(config, workspace.id, current => ({ ...current, [key]: record }));
 }
 
-/** 🟡 LAWOSS #439: exactly the generator's own document (a regular file) whose private receipt was lost (reinstall,
- * reset of app data); it is LegalWork's projection, taken over on the next publication, never an authored file. */
-async function unreceiptedProjection(config: ServerConfig, path: string): Promise<boolean> {
+/** 🟡 LAWOSS #439: the generator's own format (a regular file) whose private receipt was lost (reinstall, reset of app
+ * data). It is taken over only on publication, when it also matches what LegalWork generates now (`sameShape`). */
+async function unreceiptedProjection(config: ServerConfig, path: string): Promise<string | undefined> {
   const info = await lstat(path).catch(error => { if (missing(error)) return undefined; throw error; });
-  return Boolean(info?.isFile() && !info.isSymbolicLink() && isGeneratedProjectionText(config, await readFile(path, "utf8")));
+  if (!info?.isFile() || info.isSymbolicLink()) return undefined;
+  const text = await readFile(path, "utf8");
+  return isGeneratedProjectionText(config, text) ? text : undefined;
 }
+/** 🟡 LAWOSS #439: same keys, array lengths and every non-text value (a changed boolean or number, a removed key is the
+ * lawyer's edit); text values are references into the private library and may name other strings. */
+function sameShape(left: unknown, right: unknown): boolean {
+  if (typeof left === "string" || typeof right === "string") return typeof left === typeof right;
+  if (Array.isArray(left) || Array.isArray(right)) return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => sameShape(item, right[index]));
+  if (left && right && typeof left === "object" && typeof right === "object") {
+    const keys = Object.keys(left), other = Object.keys(right);
+    return keys.length === other.length && keys.every(key => Object.hasOwn(right, key) && sameShape(Reflect.get(left, key), Reflect.get(right, key)));
+  }
+  return left === right;
+}
+const projectionJson = (text: string): unknown => JSON.parse(text.slice(text.indexOf("\n") + 1));
+const unreceiptedDiagnostic = "LegalWork generated the OpenCode settings file in .opencode, but its private receipt is missing (app data was reset, or the folder was opened on another computer). LegalWork takes it over when it next publishes settings, if the file still matches them. If you edited it, move your edits into another native OpenCode config file, remove .opencode/opencode.json and retry.";
 
 async function projectionStatus(config: ServerConfig, record: ProjectRecord): Promise<EngineProjectStatus["projection"]> {
   try { if (!(await lstat(record.directory)).isDirectory()) return { diagnostic: "This project folder is unavailable. Reconnect its existing folder before starting OpenCode automation." }; }
@@ -60,7 +75,7 @@ async function projectionStatus(config: ServerConfig, record: ProjectRecord): Pr
     const candidates = names.map(name => join(record.directory, ".opencode", name));
     const occupied = await Promise.all(candidates.map(path => lstat(path).then(() => true, error => { if (missing(error)) return false; throw error; })));
     if (!occupied.every(Boolean)) return {};
-    for (const path of candidates) if (await unreceiptedProjection(config, path)) return { path }; // 🟡 LAWOSS #439
+    for (const path of candidates) if (await unreceiptedProjection(config, path)) return { diagnostic: unreceiptedDiagnostic }; // 🟡 LAWOSS #439
     return { diagnostic: "Both native OpenCode files inside .opencode are already authored. Preserve them and reserve .opencode/opencode.json or .opencode/opencode.jsonc for LegalWork's generated project settings." };
   }
   try {
@@ -274,14 +289,19 @@ async function writeProjectProjection(config: ServerConfig, workspace: Workspace
   const candidates = record.projection ? [record.projection.path] : [
     ...names.map(name => join(directory, ".opencode", name)),
   ];
+  let unreceipted = false;
   for (const path of candidates) {
     const written = await withFileWriteLock(path, async () => {
       let current: string | undefined;
       try { current = await readFile(path, "utf8"); }
       catch (error) { if (!missing(error)) throw error; }
-      // 🟡 LAWOSS #439: without a receipt, the generator's own document is replaced and the receipt written again.
-      const adopted = current !== undefined && !record.projection && await unreceiptedProjection(config, path);
+      // 🟡 LAWOSS #439: without a receipt, the generator's own document that still matches the settings is replaced
+      // (after a backup copy next to it) and the receipt written again; any doubt keeps it as authored.
+      const generated = current !== undefined && !record.projection ? await unreceiptedProjection(config, path) : undefined;
+      const adopted = generated !== undefined && generated === current && sameShape(projectionJson(current), projectionJson(content));
+      if (generated !== undefined) unreceipted = true;
       if (current !== undefined && !adopted && (record.projection?.path !== path || digest(current) !== record.projection.digest)) return false;
+      if (adopted && current !== undefined && current !== content) await writeFile(`${path}.bak-${new Date().toISOString().replace(/[:.]/g, "-")}`, current, { flag: "wx", mode: 0o600 });
       let transitioning = false;
       try {
       if (current !== content) {
@@ -307,7 +327,7 @@ async function writeProjectProjection(config: ServerConfig, workspace: Workspace
     });
     if (written) return path;
   }
-  throw new ApiError(409, "project_engine_configuration_conflict", record.projection
+  throw new ApiError(409, "project_engine_configuration_conflict", unreceipted ? unreceiptedDiagnostic : record.projection
     ? "The LegalWork-generated OpenCode file contains edits. Preserve them in an authored config file, remove the generated file and retry."
     : "Both native OpenCode files inside .opencode are authored. Keep them intact and reserve .opencode/opencode.json or .opencode/opencode.jsonc for LegalWork's generated project settings.",
   { directory, paths: candidates });

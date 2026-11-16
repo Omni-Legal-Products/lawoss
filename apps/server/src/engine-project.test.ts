@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Config } from "@opencode/schema/config";
@@ -163,19 +163,28 @@ async function dropReceipt(config: ServerConfig, workspace: WorkspaceInfo) {
 test("#439: vygenerovaný súbor bez súkromného potvrdenia sa prevezme, autorský opencode.jsonc ostane", async () => {
   const { root, directory, config, workspace } = await fixture();
   try {
-    const input = Schema.decodeUnknownSync(Config.Info)({ agents: { legalwork: { system: "Synthetic managed prompt" } } });
+    const input = Schema.decodeUnknownSync(Config.Info)({ agents: { legalwork: { system: "Synthetic managed prompt", steps: 5, hidden: false } } });
     const path = await writeNativeProjectProjection(config, workspace, input);
     expect(path).toBe(join(directory, ".opencode", "opencode.json"));
+    const before = await readFile(path, "utf8");
     const authored = "// Advokát\n{ \"model\": \"fixture/authored\", }\n";
     await writeFile(join(directory, ".opencode", "opencode.jsonc"), authored);
     await dropReceipt(config, workspace);
+    // Until the next publication the file is not the lawyer's, and the message says what happened and what to do.
     const status = await engineProjectStatus(config, workspace);
-    expect(status.state).toBe("ready");
-    expect(status.projection).toEqual({ path });
-    await expect(assertEngineProjectReady(config, workspace)).resolves.toBeUndefined();
-    const next = Schema.decodeUnknownSync(Config.Info)({ agents: { legalwork: { system: "Synthetic managed prompt, changed" } } });
+    expect(status.state).toBe("configuration_conflict");
+    expect(status.projection.diagnostic).toContain("private receipt is missing");
+    expect(status.projection.diagnostic).not.toContain("already authored");
+    // The publication (server start, any settings change) takes it over: other text values, same structure.
+    const next = Schema.decodeUnknownSync(Config.Info)({ agents: { legalwork: { system: "Synthetic managed prompt, changed", steps: 5, hidden: false } } });
     expect(await writeNativeProjectProjection(config, workspace, next)).toBe(path);
     expect(await readFile(join(directory, ".opencode", "opencode.jsonc"), "utf8")).toBe(authored);
+    // A backup copy of the taken-over file stays next to it.
+    const backups = (await readdir(join(directory, ".opencode"))).filter(name => name.startsWith("opencode.json.bak-"));
+    expect(backups).toHaveLength(1);
+    expect(await readFile(join(directory, ".opencode", backups[0]!), "utf8")).toBe(before);
+    await expect(assertEngineProjectReady(config, workspace)).resolves.toBeUndefined();
+    expect((await engineProjectStatus(config, workspace)).projection).toEqual({ path });
     expect((await readLegalworkWorkspaceConfig(config, workspace.id)).nativeEngineProject).toMatchObject({ projection: { path } });
     expect((await engineProjectStatus(config, workspace)).state).toBe("ready");
     // The receipt is back: an edit of the generated file is a conflict again.
@@ -184,16 +193,26 @@ test("#439: vygenerovaný súbor bez súkromného potvrdenia sa prevezme, autors
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("#439: bez potvrdenia ostane konfliktom upravený súbor, súbor z inej knižnice aj súbor bez reťazcov", async () => {
+test("#439: bez potvrdenia ostane konfliktom upravený súbor (text, boolean, číslo, zmazaný kľúč), súbor z inej knižnice aj súbor bez reťazcov", async () => {
   const { root, directory, config, workspace } = await fixture();
   try {
-    const input = Schema.decodeUnknownSync(Config.Info)({ agents: { legalwork: { system: "Synthetic managed prompt" } } });
+    const input = Schema.decodeUnknownSync(Config.Info)({ agents: { legalwork: { system: "Synthetic managed prompt", steps: 5, hidden: false } } });
     const path = await writeNativeProjectProjection(config, workspace, input);
     const generated = await readFile(path, "utf8");
     const authored = "{ \"model\": \"fixture/authored\" }\n";
     await writeFile(join(directory, ".opencode", "opencode.jsonc"), authored);
     await dropReceipt(config, workspace);
+    const edited = (change: (agent: Record<string, unknown>) => void) => {
+      const header = generated.slice(0, generated.indexOf("\n") + 1);
+      const json = JSON.parse(generated.slice(header.length)) as { agents: { legalwork: Record<string, unknown> } };
+      change(json.agents.legalwork);
+      return `${header}${JSON.stringify(json, null, 2)}\n`;
+    };
     const variants = [
+      // The lawyer changed a boolean or a number, or deleted a key: still the generator's format, but not its settings.
+      edited(agent => { agent.hidden = true; }),
+      edited(agent => { agent.steps = 50; }),
+      edited(agent => { delete agent.steps; }),
       // A literal string the lawyer added: no longer only references into the private library.
       generated.replace(/\{file:[^}]+\}/, "my own prompt"),
       // The same document written on another computer: another private library path.
@@ -207,6 +226,7 @@ test("#439: bez potvrdenia ostane konfliktom upravený súbor, súbor z inej kni
       expect((await engineProjectStatus(config, workspace)).state).toBe("configuration_conflict");
       await expect(writeNativeProjectProjection(config, workspace, input)).rejects.toMatchObject({ code: "project_engine_configuration_conflict" });
       expect(await readFile(path, "utf8")).toBe(variant);
+      expect((await readdir(join(directory, ".opencode"))).filter(name => name.includes(".bak-"))).toEqual([]);
       expect(await readFile(join(directory, ".opencode", "opencode.jsonc"), "utf8")).toBe(authored);
     }
   } finally { await rm(root, { recursive: true, force: true }); }
