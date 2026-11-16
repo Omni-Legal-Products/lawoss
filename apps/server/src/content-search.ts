@@ -24,6 +24,7 @@ import { documentMatches } from "./corpus/passages.js";
 import type { DocumentPreparation } from "./document-preparation/service.js";
 import { within } from "./reviews/storage.js";
 import { viewerProtectedPaths } from "./lawoss/filesystem-boundary.js";
+import { fileNameMatches } from "./lawoss/file-name-match.js";
 
 const RESULT_LIMIT = 60;
 
@@ -227,6 +228,10 @@ export async function searchFileContents(
     preparing = 0,
     limited = false;
   const deadline = Date.now() + 2500;
+  // 🟡 LAWOSS #465: po čase na obsah sa prechádzanie nezastaví, len hľadá ďalej podľa názvu (bez prípravy obsahu).
+  const nameDeadline = deadline + 5000;
+  const nameItems: ContentSearchResult[] = [], pathItems: ContentSearchResult[] = [];
+  let stopped = false;
   const issue = (path: string, reason: string) => {
     if (issues.length < 20) issues.push({ path, reason });
   };
@@ -235,10 +240,12 @@ export async function searchFileContents(
     const entries = await opendir(directory);
     for await (const entry of entries) {
       signal.throwIfAborted();
-      if (++visited > 20_000 || Date.now() > deadline) {
-        limited = true;
+      if (++visited > 20_000 || Date.now() > nameDeadline) {
+        limited = stopped = true;
         break;
       }
+      const contentOpen = Date.now() <= deadline;
+      if (!contentOpen) limited = true;
       if (entry.name.startsWith(".") || entry.isSymbolicLink()) continue;
       const path = join(directory, entry.name);
       if (entry.isDirectory()) {
@@ -247,20 +254,26 @@ export async function searchFileContents(
             if (signal.aborted) throw error;
             skipped++;
           });
-        if (limited) break;
+        if (stopped) break;
         continue;
       }
       if (!entry.isFile()) continue;
       const relativePath = relative(root, path).split("\\").join("/");
+      // Názov súboru má prednosť; zhoda len v ceste (napr. názov priečinka klienta) ide až za obsah.
+      const fileName = basename(path);
+      const nameMatch = matchesSearch(fileName, query) || fileNameMatches(fileName, query);
+      const pathMatch = nameMatch || matchesSearch(relativePath, query) || fileNameMatches(relativePath, query);
+      if (!contentOpen && !pathMatch) continue;
       try {
         const canonicalPath = await realpath(path);
         if (!within(root, canonicalPath)) continue;
         // Before the preparation cache, which all roles share.
         if (isProtected(canonicalPath, relativePath)) continue;
         const info = await stat(canonicalPath);
-        const nameMatch = matchesSearch(relativePath, query);
         let source: CorpusText | undefined;
-        if (CORPUS_EXTENSIONS.has(extname(path).toLowerCase())) {
+        if (!contentOpen) {
+          // Len zhoda názvu (overená pred realpath), obsah sa už nepripravuje.
+        } else if (CORPUS_EXTENSIONS.has(extname(path).toLowerCase())) {
           if (info.size > 64 * 1024 * 1024) {
             skipped++;
             issue(relativePath, "File exceeds the 64 MiB preparation limit.");
@@ -297,8 +310,8 @@ export async function searchFileContents(
         const matches = source
           ? documentMatches(source, relativePath, query)
           : { sources: [], sourcesLimited: false };
-        if (!nameMatch && !matches.sources.length) continue;
-        items.push({
+        if (!pathMatch && !matches.sources.length) continue;
+        (nameMatch ? nameItems : matches.sources.length ? items : pathItems).push({
           kind: "files",
           id: relativePath,
           workspaceId: workspace.id,
@@ -320,6 +333,9 @@ export async function searchFileContents(
     }
   }
   await visit(root);
+  // 🟡 LAWOSS #465: zhody názvu pred zhodami obsahu, aby ich limit výsledkov neodrezal.
+  items.unshift(...nameItems);
+  items.push(...pathItems);
   return {
     items: items.slice(0, RESULT_LIMIT),
     limited: limited || items.length > RESULT_LIMIT,

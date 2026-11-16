@@ -8,7 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useOptionalLocal } from "@/react-app/kernel/local-provider";
 import { PracticeMoveNotice } from "../../domains/practice-move-notice";
 import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
-import { onboardingIncomplete } from "../../domains/onboarding/resume";
+import { onboardingIncomplete, onboardingNotStarted } from "../../domains/onboarding/resume";
 import { OnboardingResumeCardView } from "../../domains/onboarding/resume-card";
 import { litePageProps } from "../state-text";
 import { addDays, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
@@ -51,7 +51,9 @@ export function TodayPage() {
     staleTime: 0,
     queryFn: async () => (await connection?.client?.onboardingStatus())?.profile ?? null,
   });
-  const resume = profile.data && onboardingIncomplete(profile.data, local?.prefs.hasCompletedOnboarding ?? false)
+  // #453: aj sprievodca opustený pred uložením profilu (bez profilu a bez priečinka) ponúkne návrat.
+  const notStarted = profile.isSuccess && onboardingNotStarted(profile.data, connection?.workspaces ?? []);
+  const resume = notStarted || (profile.data && onboardingIncomplete(profile.data, local?.prefs.hasCompletedOnboarding ?? false))
     ? <OnboardingResumeCardView locale={locale} />
     : null;
   // N-A7-1: nedokončený presun praxe sa ponúkne dokončiť (klienti sú už prepojení).

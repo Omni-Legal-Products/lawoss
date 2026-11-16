@@ -14,6 +14,8 @@ import { engineStartTimeoutMs } from "./lawoss/engine-start-timeout.js";
 import { killProcessTree } from "./lawoss/process-tree.js";
 // LAWOSS: engine a jeho MCP neprežijú pád appky (rozpočet RAM 2 GB, #367).
 import { watchEngineParent } from "./lawoss/engine-parent-watchdog.js";
+// 🟡 LAWOSS #454: siroty spadnutého enginu (MCP, nástroje) sa ukončia pred reštartom.
+import { engineProcessGroup, reapEngineOrphans } from "./lawoss/engine-orphans.js";
 
 export type ManagedOpencodeServer = {
   url: string;
@@ -23,6 +25,8 @@ export type ManagedOpencodeServer = {
   running: () => boolean;
   execution: OpencodeExecutionSnapshot;
   close: () => Promise<void>;
+  /** 🟡 LAWOSS #454: ukončenie po štarte, ktoré nespustil `close()` (pád, OOM, kill); vráti odhlásenie. */
+  onUnexpectedExit?: (listener: () => void) => () => void;
 };
 
 export type OpencodeExecutionEnvEntry = {
@@ -378,10 +382,12 @@ export async function createManagedOpencodeServer(options: {
     const args = ["serve", ...(options.service ? ["--service"] : options.parentLease ? ["--stdio"] : []), "--hostname", hostname, "--port", String(port), "--cors", "*"];
     if (options.logLevel) args.push("--log-level", options.logLevel);
     const expectedVersion = await expectedOpencodeVersion(command, options.candidateBuild);
+    const spawnedAt = Date.now();
     const child: ChildProcess = spawn(command, args, {
       cwd: options.cwd,
       env,
       stdio: [options.parentLease ? "pipe" : "ignore", "pipe", "pipe"],
+      ...engineProcessGroup(),
     });
     const exited = new Promise<void>((resolve) => {
       child.once("exit", () => resolve());
@@ -406,9 +412,14 @@ export async function createManagedOpencodeServer(options: {
       options.onAuthenticated?.({ url, username, password, pid: child.pid ?? null });
       await waitForMigration(child, url, username, password, options.signal, options.onMigrationProgress);
       options.signal?.removeEventListener("abort", abortStartup);
+      // 🟡 LAWOSS #454: neočakávané ukončenie sa zapamätá, aby ho dostal aj neskôr pridaný poslucháč.
+      const exitListeners = new Set<() => void>();
+      let unexpectedExit: Promise<void> | undefined;
       child.once("exit", (code, signal) => {
         if (!closing) {
           console.error(`[managed-opencode] engine exited after startup (code ${code}, signal ${signal})${lastStderr.trim() ? `: ${lastStderr.trim()}` : ""}`);
+          unexpectedExit = reapEngineOrphans(child.pid, spawnedAt);
+          void unexpectedExit.then(() => { for (const listener of exitListeners) listener(); });
         }
       });
       return {
@@ -421,6 +432,12 @@ export async function createManagedOpencodeServer(options: {
         close: () => {
           closing = true;
           return terminate();
+        },
+        onUnexpectedExit: (listener) => {
+          if (!unexpectedExit) { exitListeners.add(listener); return () => { exitListeners.delete(listener); }; }
+          let active = true;
+          void unexpectedExit.then(() => { if (active) listener(); });
+          return () => { active = false; };
         },
       };
     } catch (error) {
