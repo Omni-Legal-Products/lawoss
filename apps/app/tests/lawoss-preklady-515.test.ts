@@ -22,6 +22,15 @@ describe("preklady #515", () => {
     });
   }
 
+  test("zástupný text pokynov má skutočné zalomenia riadkov, nie znaky \\n", async () => {
+    for (const lang of ["en", "sk", "cs", "de"]) {
+      const dict: Record<string, string> = (await import(`../src/i18n/locales/${lang}`)).default;
+      const value = dict["skills.instructions_placeholder"] ?? "";
+      expect(value).toContain("\n\n1. ...");
+      expect(value).not.toContain("\\n");
+    }
+  });
+
   test("skills-view.tsx nemá v dialógu Nový skill anglické texty natvrdo", () => {
     const source = readFileSync(join(import.meta.dir, "..", "src", "react-app", "domains", "settings", "pages", "skills-view.tsx"), "utf8");
     expect(source).not.toContain(">Name</span>");
