@@ -3860,6 +3860,7 @@ export default {
   "content_search.files_skipped": "Niektoré súbory klienta {project} sa nepodarilo prehľadať.",
   "content_search.searching": "Hľadanie…",
   "content_search.no_results": "Neboli nájdené výsledky. Skúste iné slová.",
+  "content_search.no_results_preparing": "Zatiaľ sa nič nenašlo. Ešte sa pripravujú súbory: {count}.",
   "content_search.start": "Prehľadajte svojich klientov a obsah ich priečinkov.",
   "content_search.refine": "Zobrazujú sa najlepšie výsledky. Spresnite vyhľadávanie a nájdite ďalšie.",
   "content_search.results": "Počet výsledkov: {count}",

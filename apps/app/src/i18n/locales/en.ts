@@ -1424,6 +1424,7 @@ export default {
   "content_search.files_skipped": "Some files in {project} could not be searched.",
   "content_search.searching": "Searching…",
   "content_search.no_results": "No matches. Try different words.",
+  "content_search.no_results_preparing": "No matches yet. Still preparing files: {count}.",
   "content_search.start": "Search your projects and their contents.",
   "content_search.refine": "Showing top matches. Narrow your search for more.",
   "content_search.results": "{count} results",

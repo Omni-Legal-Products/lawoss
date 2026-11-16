@@ -3859,6 +3859,7 @@ export default {
   "content_search.files_skipped": "Některé soubory v {project} nelze prohledat.",
   "content_search.searching": "Vyhledávání…",
   "content_search.no_results": "Žádné výsledky. Zkuste jiná slova.",
+  "content_search.no_results_preparing": "Zatím nic nenalezeno. Ještě se připravují soubory: {count}.",
   "content_search.start": "Prohledávejte své klienty a obsah jejich složek.",
   "content_search.refine": "Zobrazují se nejlepší výsledky. Pro více výsledků vyhledávání upřesněte.",
   "content_search.results": "Výsledky {count}",

@@ -1428,6 +1428,7 @@ const de = {
   "content_search.files_skipped": "Einige Dateien in {project} konnten nicht durchsucht werden.",
   "content_search.searching": "Suche läuft…",
   "content_search.no_results": "Keine Treffer. Versuchen Sie andere Wörter.",
+  "content_search.no_results_preparing": "Noch keine Treffer. Dateien werden noch vorbereitet: {count}.",
   "content_search.start": "Durchsuchen Sie Ihre Projekte und deren Inhalte.",
   "content_search.refine": "Die besten Treffer werden angezeigt. Grenze die Suche weiter ein.",
   "content_search.results": "{count} Treffer",
