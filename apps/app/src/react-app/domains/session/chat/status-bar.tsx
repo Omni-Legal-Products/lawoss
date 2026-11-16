@@ -47,6 +47,7 @@ type StatusIndicatorProps = {
   mcpConnectedCount: number;
   loading?: boolean;
   initializing: boolean;
+  folderUnavailable?: string; // 🟡 LAWOSS #494
 };
 
 function StatusIndicator(props: StatusIndicatorProps) {
@@ -107,6 +108,17 @@ function StatusIndicator(props: StatusIndicatorProps) {
     );
   }
 
+  // 🟡 LAWOSS #494: server beží, chýba len priečinok vybraného klienta; nie „Odpojené · v nastaveniach“ pre celú appku.
+  if (props.folderUnavailable && props.legalworkServerStatus !== "disconnected") {
+    return (
+      <div className="flex min-w-0 items-center gap-2.5" data-lawoss-folder-unavailable="">
+        <StatusDot variant="partial" />
+        <span className="shrink-0 font-medium text-foreground text-xs">{t("lawoss.status.folder_unavailable")}</span>
+        <span className="truncate text-muted-foreground text-xs">{t("lawoss.status.folder_unavailable_hint", { name: props.folderUnavailable })}</span>
+      </div>
+    );
+  }
+
   if (props.legalworkServerStatus === "limited") {
     return (
       <div className="flex min-w-0 items-center gap-2.5">
@@ -149,6 +161,8 @@ export type StatusBarProps = {
   initializing?: boolean;
   /** 🟡 LAWOSS #477: klient servera, cez ktorý si riadok sám pýta zdravie enginu. */
   legalworkServerClient?: LegalworkServerClient | null;
+  /** 🟡 LAWOSS #494: meno klienta, ktorého priečinok chýba (vybraný priestor), inak nič. */
+  folderUnavailable?: string;
 };
 
 export function StatusBar(props: StatusBarProps) {
@@ -189,6 +203,7 @@ export function StatusBar(props: StatusBarProps) {
           mcpConnectedCount={props.mcpConnectedCount}
           loading={props.loading}
           initializing={initializing}
+          folderUnavailable={props.folderUnavailable}
         />
 
         <div className="flex items-center gap-1">

@@ -2352,6 +2352,20 @@ Len bežný režim; pokročilý ostáva natívny. Logika je v nových alebo zele
 | `apps/app/src/react-app/domains/session/artifacts/artifact-spreadsheet-model.ts` | #493: CSV/TSV číta a zapisuje `lawoss/domains/artifacts/delimited-text.ts` (+1 import, 2 volania, voliteľný parameter `source` v `serializeSpreadsheet`). Oddeľovač (`;`, `,`, tab) sa určí z obsahu mimo úvodzoviek, nie z prípony; uloženie zachová oddeľovač, CRLF, BOM, koncový riadok a pôvodné znenie nezmenených buniek (desatinná čiarka, úvodzovky). Lokálny parser a serializér upstreamu sú odstránené. Test `apps/app/tests/lawoss-csv-delimiter.test.tsx`. |
 | `apps/app/src/react-app/domains/session/artifacts/artifact-spreadsheet-editor.tsx`, `artifact-panel.tsx`, `apps/app/src/i18n/locales/{en,de}.ts` | #493: editor posiela `props.content` do `serializeSpreadsheet` (2 výrazy); „Row“, „Column“, „Discard“, „Save“, „Saving“ a „Edit“ cez `t()` (`lawoss/i18n/csv-editor.ts`, `common.save`, `common.saving`, `common.edit`); locales +1 import a 1 spread. |
 
+### Zmiznutý priečinok klienta (2026-11-16, fix/494-zmiznuty-priecinok-klienta, #494)
+
+Návrat priečinka bez obnovenia okna: karta `lawoss/domains/missing-folder.tsx` („Skúsiť znova“, overenie každých 5 s, `recoverFolder`), test `apps/app/tests/lawoss-missing-folder-return-494.test.tsx`. Logika je v novom `apps/app/src/lawoss/shell/workspace-folder.ts` a v zelených `lawoss/lite/client-overview.tsx`, `client-row-view.tsx`; testy `apps/app/tests/lawoss-missing-client-folder-494.test.tsx`, `apps/server/src/lawoss/missing-client-folder.e2e.test.ts`.
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/shell/route-workspaces.ts` | `mergeRouteWorkspaces`: meno/zobrazované meno z desktopového registra, ktoré je len menom priečinka (sprievodca tak registruje klientov), nezakryje meno servera; inak sa bez karty klienta (chýbajúci priečinok) všade ukáže slug. Meno, ktoré advokát dal v desktope, ostáva. |
+| `apps/app/src/react-app/shell/use-workspace-route-state.ts` | Chyba načítania chatov priestoru cez `workspaceErrorMessage(error)` (+1 import, 1 výraz): pri `project_folder_unavailable` nesie text kód `[project_folder_unavailable]` na preklad. |
+| `apps/app/src/react-app/domains/session/chat/session-page.tsx` | Chyba vybraného priestoru cez `workspaceErrorText(…, projectName)` (+1 import, 2 výrazy): chýbajúci priečinok preložene s menom klienta; titulok „OpenCode unavailable“ → `lawoss.engine.unavailable`; `folderUnavailable` pre `StatusBar` (2 atribúty). |
+| `apps/app/src/react-app/domains/session/chat/status-bar.tsx` | Voliteľná prop `folderUnavailable` (+1 vetva): server beží, chýba len priečinok vybraného klienta = „Priečinok klienta sa nenašiel · {meno}…“, nie „Odpojené · Znova sa pripojíte v nastaveniach“. |
+| `apps/app/src/react-app/domains/workspace/engine-project-approval.tsx` | Diagnostika projektu s kódom `project_folder_unavailable` sa neukáže (1 riadok); preložene to hovorí stránka a stavový riadok. |
+| `apps/app/src/react-app/domains/workspace/project-home.tsx` | „Skúsiť znova“ volá `retryProjectQueries` (+1 import, 1 výraz): po úspechu obnoví všetky dopyty a vyšle `PROJECT_FOLDER_RECONNECTED_EVENT` (stav trasy znova načíta chaty, synchronizácia skupín sa obnoví). |
+| `apps/server/src/engine-project.ts`, `packages/types/src/engine-project.ts` | `projection.code: "project_folder_unavailable"` pri chýbajúcom priečinku projektu (voliteľné pole schémy, text diagnostiky bez zmeny). |
+
 ## Prevzatie enginu v alfa buildoch (2026-11-13)
 
 | Súbory | Downstream doplnenie a dôvod |

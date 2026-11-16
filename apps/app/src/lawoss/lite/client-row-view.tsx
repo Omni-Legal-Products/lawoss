@@ -43,7 +43,8 @@ export type ClientRow = {
  */
 export function clientRowFrom(facts: ClientRowFacts | undefined, nativeLabel: string, locale: Language, remembered?: string): ClientRow {
   if (!facts || (facts.pending && remembered)) return { label: remembered ?? nativeLabel, nativeLabel, client: false };
-  const named = clientLabel({ nativeLabel, path: facts.path, eligible: facts.eligible, cardTitle: facts.cardTitle });
+  // #494: priečinok klienta chýba, prehľad meno z karty neprečítal; meno zapamätané z karty má prednosť pred slugom.
+  const named = clientLabel({ nativeLabel, path: facts.path, eligible: facts.eligible, cardTitle: facts.cardTitle ?? remembered });
   if (!named.path) return { label: named.label, nativeLabel, client: false };
   return {
     label: named.label, nativeLabel, client: true,

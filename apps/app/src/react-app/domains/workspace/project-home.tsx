@@ -33,6 +33,7 @@ import { defaultProjectFields, useProjectDefaultsStore, withInitialProjectFields
 import { t } from "@/i18n";
 import { isHiddenSettingsTab, isProjectViewHidden } from "@/lawoss/feature-flags";
 import { useUiMode } from "@/lawoss/lite/ui-mode"; // 🟡 LAWOSS (#428)
+import { retryProjectQueries } from "@/lawoss/shell/workspace-folder"; // 🟡 LAWOSS #494
 import { projectErrorMessage } from "./project-errors";
 import { ProjectShareButton, ProjectSyncNotice } from "./project-sync";
 import { deleteProjectNote } from "./delete-project-note";
@@ -210,9 +211,8 @@ export function ProjectHome(props: {
           <p role="alert" className="text-sm text-destructive">{projectErrorMessage(details.error ?? rootFiles.error)}</p>
           <ProjectFolderRecoveryAction client={client} workspaceId={workspaceId} error={details.error ?? rootFiles.error} />
           <Button variant="outline" size="sm" disabled={details.isFetching || rootFiles.isFetching} onClick={() => {
-            void details.refetch();
-            void rootFiles.refetch();
-            void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
+            // 🟡 LAWOSS #494: po návrate priečinka obnoví aj stav trasy a synchronizáciu, nie len tieto dva dopyty.
+            void retryProjectQueries([details.refetch, rootFiles.refetch], () => queryClient.invalidateQueries());
           }}>{t("workspace_files.try_again")}</Button>
         </Surface> : null}
 
