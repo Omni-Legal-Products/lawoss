@@ -85,3 +85,39 @@ test("vnorenie sa porovná po NFC, nie podľa dĺžky zápisu, a zlyhaný vnúto
   const other = [...workspaces, { id: "ws_c2", path: `${practice}/C2` }];
   expect((await findDocumentProject("ses_nfd", other, answering(["ws_c2"]))).projectId).toBe("ws_c1");
 });
+
+test("chat z URL sa hľadá najprv v priestore z URL; ostatní klienti sa nepýtajú (#480)", async () => {
+  const clients = Array.from({ length: 24 }, (_, i) => ({ id: `ws_k${i}`, path: `/prax/K${i}` }));
+  const directories = { ses_k7: "/prax/K7/Spisy/M001", ses_iny: "/prax/K3" };
+  const asked = [];
+  const endpointFor = workspace => ({
+    workspaceId: workspace.id, isRemote: false,
+    client: { baseUrl: "http://server", getSession: async (workspaceId, sessionId) => {
+      asked.push(workspaceId);
+      const directory = directories[sessionId];
+      if (!directory || !(directory === workspace.path || directory.startsWith(`${workspace.path}/`))) throw new Error(`404 session_not_found ${workspaceId}`);
+      return { item: { id: sessionId, directory } };
+    } },
+  });
+  expect((await findDocumentProject("ses_k7", clients, endpointFor, "ws_k7")).projectId).toBe("ws_k7");
+  expect(asked).toEqual(["ws_k7"]);
+  // Odkaz s cudzím priestorom: najprv ten z URL, potom zvyšok ako doteraz.
+  asked.length = 0;
+  expect((await findDocumentProject("ses_iny", clients, endpointFor, "ws_k7")).projectId).toBe("ws_k3");
+  expect(asked[0]).toBe("ws_k7");
+  expect(asked).toHaveLength(24);
+});
+
+test("priestor z URL nepreskočí vnútorný priečinok, ktorý chat tiež drží (#480, #223)", async () => {
+  const workspaces = [{ id: "ws_prax", path: "/prax" }, { id: "ws_c1", path: "/prax/C1" }, { id: "ws_c2", path: "/prax/C2" }];
+  const asked = [];
+  const endpointFor = workspace => ({
+    workspaceId: workspace.id, isRemote: false,
+    client: { baseUrl: "http://server", getSession: async (workspaceId) => {
+      asked.push(workspaceId);
+      return { item: { id: "ses", directory: "/prax/C1/Spisy/M1" } };
+    } },
+  });
+  expect((await findDocumentProject("ses", workspaces, endpointFor, "ws_prax")).projectId).toBe("ws_c1");
+  expect(asked).toEqual(["ws_prax", "ws_c1"]);
+});
