@@ -2049,6 +2049,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             fusionView={
               <FusionSettingsSection
                 fusionModels={local.prefs.fusionModels ?? []}
+                providers={providers} // 🟡 LAWOSS #479
                 onPickModel={(slot) => {
                   setFusionPickerSlot(slot);
                   modelPicker.setQuery("");

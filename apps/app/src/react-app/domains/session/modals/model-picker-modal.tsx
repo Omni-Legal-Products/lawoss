@@ -172,7 +172,8 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
     >
       <DialogContent className="flex max-h-[calc(100vh-2rem)] min-h-0 w-full max-w-lg flex-col overflow-hidden sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Models</DialogTitle>
+          {/* 🟡 LAWOSS #479: title, counts, badges and Done through i18n. */}
+          <DialogTitle>{t("model_picker.title")}</DialogTitle>
           <DialogDescription>
             {t("model_picker.select_for_session")}
           </DialogDescription>
@@ -225,7 +226,7 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
         {/* Footer */}
         <DialogFooter className="shrink-0">
           <DialogClose render={<Button variant="outline" />}>
-            Done
+            {t("model_picker.done")}
           </DialogClose>
         </DialogFooter>
       </DialogContent>
@@ -271,18 +272,18 @@ function ProviderAccordion({
           <div className="min-w-0 flex-1">
             <span className="text-[13px] font-medium text-dls-text">{group.name}</span>
             <span className="ml-2 text-[11px] text-dls-secondary">
-              {totalModels} model{totalModels === 1 ? "" : "s"}
+              {t("model_picker.model_count", { count: totalModels })}
             </span>
           </div>
           <span className="flex shrink-0 items-center gap-1.5">
             {group.isNew ? (
-              <span className="rounded-md bg-[rgba(var(--dls-accent-rgb),0.1)] px-1.5 py-0.5 text-[10px] font-medium text-dls-accent">New</span>
+              <span className="rounded-md bg-[rgba(var(--dls-accent-rgb),0.1)] px-1.5 py-0.5 text-[10px] font-medium text-dls-accent">{t("model_picker.badge_new")}</span>
             ) : null}
             {group.isCloud ? (
               <span className="rounded-md bg-[rgba(var(--dls-accent-rgb),0.06)] px-1.5 py-0.5 text-[10px] font-medium text-dls-accent">Cloud</span>
             ) : null}
             {group.hasCurrent ? (
-              <span className="rounded-md bg-emerald-3 px-1.5 py-0.5 text-[10px] font-medium text-emerald-11">Current</span>
+              <span className="rounded-md bg-emerald-3 px-1.5 py-0.5 text-[10px] font-medium text-emerald-11">{t("model_picker.badge_current")}</span>
             ) : null}
           </span>
         </button>
@@ -298,7 +299,7 @@ function ProviderAccordion({
             onClick={(e) => { e.stopPropagation(); onToggleProvider?.(group.id, group.isDisabled); }}
             title={group.isDisabled ? t("model_picker.enable_provider") : t("model_picker.disable_provider")}
           >
-            {group.isDisabled ? "Enable" : "Enabled"}
+            {group.isDisabled ? t("model_picker.provider_enable") : t("model_picker.provider_enabled")}
           </button>
         ) : null}
       </div>
@@ -309,7 +310,7 @@ function ProviderAccordion({
           {group.recommended.length > 0 ? (
             <>
               <div className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-dls-secondary">
-                Recommended
+                {t("model_picker.recommended_section")}
               </div>
               {group.recommended.map((opt) => (
                 <DefaultModelRow key={opt.modelID} opt={opt} current={current} onSelect={onSelect} recommended />
