@@ -69,8 +69,10 @@ const projectionJson = (text: string): unknown => JSON.parse(text.slice(text.ind
 const unreceiptedDiagnostic = "LegalWork generated the OpenCode settings file in .opencode, but its private receipt is missing (app data was reset, or the folder was opened on another computer). LegalWork takes it over when it next publishes settings, if the file still matches them. If you edited it, move your edits into another native OpenCode config file, remove .opencode/opencode.json and retry.";
 
 async function projectionStatus(config: ServerConfig, record: ProjectRecord): Promise<EngineProjectStatus["projection"]> {
-  try { if (!(await lstat(record.directory)).isDirectory()) return { diagnostic: "This project folder is unavailable. Reconnect its existing folder before starting OpenCode automation." }; }
-  catch (error) { if (missing(error)) return { diagnostic: "This project folder is unavailable. Reconnect its existing folder before starting OpenCode automation." }; throw error; }
+  // 🟡 LAWOSS #494: kód, podľa ktorého appka ukáže preložený text namiesto vety o „OpenCode“.
+  const unavailable = { diagnostic: "This project folder is unavailable. Reconnect its existing folder before starting OpenCode automation.", code: "project_folder_unavailable" };
+  try { if (!(await lstat(record.directory)).isDirectory()) return unavailable; }
+  catch (error) { if (missing(error)) return unavailable; throw error; }
   if (!record.projection) {
     const candidates = names.map(name => join(record.directory, ".opencode", name));
     const occupied = await Promise.all(candidates.map(path => lstat(path).then(() => true, error => { if (missing(error)) return false; throw error; })));

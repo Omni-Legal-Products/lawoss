@@ -27,6 +27,7 @@ import { useClientDisplayName } from "@/lawoss/lite/client-row-view";
 import { clientDeadlinesLink } from "@/lawoss/lite/links";
 import { ProjectPersonalisationProvider } from "../../workspace/project-personalisation-modal";
 import { EngineProjectRecovery } from "../../workspace/engine-project-approval";
+import { isFolderUnavailableMessage, workspaceErrorText } from "@/lawoss/shell/workspace-folder"; // 🟡 LAWOSS #494
 /** @jsxImportSource react */
 import { LanguageSwitcher } from "@/lawoss/shell/language-switcher";
 import { isProjectViewHidden, isWikiHidden } from "@/lawoss/feature-flags";
@@ -946,12 +947,15 @@ export function SessionPage(props: SessionPageProps) {
     selectedWorkspaceGroupError ||
     "";
   const showSelectedWorkspaceError = Boolean(selectedWorkspaceErrorMessage);
+  // 🟡 LAWOSS #494: chýbajúci priečinok klienta preložene s jeho menom (kód zo `workspaceErrorMessage`), nie anglická veta servera.
+  const selectedWorkspaceErrorText = workspaceErrorText(selectedWorkspaceErrorMessage, projectName);
+  const folderUnavailable = isFolderUnavailableMessage(selectedWorkspaceErrorMessage) ? projectName : undefined;
   const workspaceErrorNotice = showSelectedWorkspaceError ? (
     <div role="alert" className="mx-6 mt-4 shrink-0 rounded-xl border border-red-7/35 bg-red-1/40 p-4 text-sm text-red-11">
-      <p className="whitespace-pre-wrap wrap-anywhere">{selectedWorkspaceErrorMessage}</p>
+      <p className="whitespace-pre-wrap wrap-anywhere">{selectedWorkspaceErrorText}</p>
     </div>
   ) : null;
-  const selectedWorkspaceErrorTitle = "OpenCode unavailable";
+  const selectedWorkspaceErrorTitle = t("lawoss.engine.unavailable"); // 🟡 LAWOSS #494: bez „OpenCode“
 
   const reactSessionBaseUrl = props.opencodeBaseUrl?.trim() ?? "";
   const reactSessionToken =
@@ -1363,6 +1367,7 @@ export function SessionPage(props: SessionPageProps) {
                   mcpConnectedCount={props.mcpConnectedCount}
                   loading={props.statusBar?.loading ?? false}
                   showSettingsButton={props.statusBar?.showSettingsButton}
+                  folderUnavailable={folderUnavailable}
                 />
               ) : null}
             </main>
@@ -1526,7 +1531,7 @@ export function SessionPage(props: SessionPageProps) {
                       <div className="mx-auto max-w-lg rounded-2xl border border-red-7/35 bg-red-1/40 p-5 text-left shadow-[var(--dls-card-shadow)]">
                         <div className="text-sm font-medium text-red-11">{selectedWorkspaceErrorTitle}</div>
                         <p className="mt-2 whitespace-pre-wrap wrap-anywhere text-sm leading-6 text-red-11/90">
-                          {selectedWorkspaceErrorMessage}
+                          {selectedWorkspaceErrorText}
                         </p>
                         <div className="mt-4 flex flex-wrap gap-2">
                           <Button
@@ -1585,6 +1590,7 @@ export function SessionPage(props: SessionPageProps) {
               mcpConnectedCount={props.mcpConnectedCount}
               loading={props.statusBar?.loading ?? false}
               showSettingsButton={props.statusBar?.showSettingsButton}
+              folderUnavailable={folderUnavailable}
             />
           ) : null}
               </main>

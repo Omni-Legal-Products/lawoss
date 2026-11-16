@@ -2342,6 +2342,19 @@ Len bežný režim; pokročilý ostáva natívny. Logika je v nových alebo zele
 | `apps/app/src/react-app/shell/command-palette.tsx` | Úryvok výsledku hľadania cez `plainSearchExcerpt()` (+1 import, 1 výraz): v bežnom režime bez `**`, `*`, `` ` ``, `#` a odkazov markdownu; porovnanie s cestou ostáva na pôvodnom texte. |
 | `apps/app/src/react-app/domains/session/panel/workspace-files-panel.tsx` | `DocumentProcessingPanel` obalený `LiteDocumentsDisclosure` (+1 import, 2 riadky): v bežnom režime za zbaleným riadkom „Spracovanie dokumentov pre asistenta“, obsah ostáva pripojený; pokročilý bez obalu. |
 
+### Zmiznutý priečinok klienta (2026-11-16, fix/494-zmiznuty-priecinok-klienta, #494)
+
+Logika je v novom `apps/app/src/lawoss/shell/workspace-folder.ts` a v zelených `lawoss/lite/client-overview.tsx`, `client-row-view.tsx`; testy `apps/app/tests/lawoss-missing-client-folder-494.test.tsx`, `apps/server/src/lawoss/missing-client-folder.e2e.test.ts`.
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/shell/use-workspace-route-state.ts` | Chyba načítania chatov priestoru cez `workspaceErrorMessage(error)` (+1 import, 1 výraz): pri `project_folder_unavailable` nesie text kód `[project_folder_unavailable]` na preklad. |
+| `apps/app/src/react-app/domains/session/chat/session-page.tsx` | Chyba vybraného priestoru cez `workspaceErrorText(…, projectName)` (+1 import, 2 výrazy): chýbajúci priečinok preložene s menom klienta; titulok „OpenCode unavailable“ → `lawoss.engine.unavailable`; `folderUnavailable` pre `StatusBar` (2 atribúty). |
+| `apps/app/src/react-app/domains/session/chat/status-bar.tsx` | Voliteľná prop `folderUnavailable` (+1 vetva): server beží, chýba len priečinok vybraného klienta = „Priečinok klienta sa nenašiel · {meno}…“, nie „Odpojené · Znova sa pripojíte v nastaveniach“. |
+| `apps/app/src/react-app/domains/workspace/engine-project-approval.tsx` | Diagnostika projektu s kódom `project_folder_unavailable` sa neukáže (1 riadok); preložene to hovorí stránka a stavový riadok. |
+| `apps/app/src/react-app/domains/workspace/project-home.tsx` | „Skúsiť znova“ volá `retryProjectQueries` (+1 import, 1 výraz): po úspechu obnoví všetky dopyty a vyšle `PROJECT_FOLDER_RECONNECTED_EVENT` (stav trasy znova načíta chaty, synchronizácia skupín sa obnoví). |
+| `apps/server/src/engine-project.ts`, `packages/types/src/engine-project.ts` | `projection.code: "project_folder_unavailable"` pri chýbajúcom priečinku projektu (voliteľné pole schémy, text diagnostiky bez zmeny). |
+
 ## Prevzatie enginu v alfa buildoch (2026-11-13)
 
 | Súbory | Downstream doplnenie a dôvod |
