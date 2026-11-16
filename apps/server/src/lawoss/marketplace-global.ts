@@ -23,10 +23,10 @@ import { ApiError } from "../errors.js";
 import { addMcp, setMcpEnabled } from "../mcp.js";
 import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig, runtimeMcpMap } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
-import { contentSha256 } from "./plugin-provenance.js";
+import { contentSha256, type PluginProvenance } from "./plugin-provenance.js";
 import { globalPluginTarget, installLocation, type PluginInstallTarget } from "./plugin-install-target.js";
 import { isNewerVersion, MARKETPLACE_OWNER, MARKETPLACE_REPO, marketplacePluginUrl, marketplaceStatePath, readUpdateState, type MarketplaceUpdateState } from "./marketplace-updates.js";
-import { trustedReleaseRefs } from "./marketplace-limits.js";
+import { isTrustedMarketplaceSource, trustedReleaseRefs } from "./marketplace-limits.js";
 
 export type FileResolution = "keep" | "replace" | "backup";
 export type FileChange = { path: string; title: string; state: "modified" | "missing" };
@@ -124,8 +124,11 @@ function unresolved(changes: readonly FileChange[], resolutions: Readonly<Record
   return changes.filter((change) => !resolutions[change.path]);
 }
 
-function provenanceOf(bundle: ClaudePluginBundle) {
-  return { source: bundle.preview.source, version: bundle.preview.version };
+/** #441: the record says whether the server trusted this commit (`trustedRefs` of this install, never the request URL). */
+function provenanceOf(bundle: ClaudePluginBundle, trustedRefs: readonly string[]): PluginProvenance {
+  const source = bundle.preview.source;
+  const trusted = source.dir !== null && isTrustedMarketplaceSource(source, source.ref, `${source.dir}/`, trustedRefs);
+  return { source, version: bundle.preview.version, ...(trusted ? { trustedRef: true as const } : {}) };
 }
 
 /** Vypnuté MCP z daného riadku, aby ho reinštalácia znova nezapla (engine v2: `disabled: true`, starší tvar `enabled: false`). */
@@ -139,7 +142,7 @@ async function restoreDisabled(config: ServerConfig, names: readonly string[]): 
   for (const name of names) await setMcpEnabled(config, target.recordId, name, false).catch(() => false);
 }
 
-async function installGlobal(config: ServerConfig, bundle: ClaudePluginBundle, preserve?: ReadonlySet<string>, disabledMcpNames?: ReadonlySet<string>): Promise<CloudImportedPlugin> {
+async function installGlobal(config: ServerConfig, bundle: ClaudePluginBundle, trustedRefs: readonly string[], preserve?: ReadonlySet<string>, disabledMcpNames?: ReadonlySet<string>): Promise<CloudImportedPlugin> {
   const target = globalPluginTarget();
   return installCloudPlugin({
     serverConfig: config,
@@ -147,7 +150,7 @@ async function installGlobal(config: ServerConfig, bundle: ClaudePluginBundle, p
     workspaceRoot: target.root,
     marketplaceId: null,
     resolved: bundle.resolved,
-    provenance: provenanceOf(bundle),
+    provenance: provenanceOf(bundle, trustedRefs),
     global: true,
     preserve,
     disabledMcpNames,
@@ -166,7 +169,8 @@ export async function installGlobalPlugin(config: ServerConfig, url: string): Pr
   const existing = (await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[pluginId];
   if (existing && !(await missingMcp(config, existing)).length) return { status: "already_installed", item: existing };
   if (existing) return { status: "installed", item: await reinstallRemovedMcp(config, existing, url) };
-  return { status: "installed", item: await installGlobal(config, await resolveClaudePluginBundle({ url, trustedRefs: await savedReleaseRefs(config) })) };
+  const trustedRefs = await savedReleaseRefs(config);
+  return { status: "installed", item: await installGlobal(config, await resolveClaudePluginBundle({ url, trustedRefs }), trustedRefs) };
 }
 
 /** The commit of the installed version, when its provenance names this marketplace. */
@@ -185,16 +189,17 @@ function installedRef(plugin: CloudImportedPlugin): { ref: string; dir: string }
 async function reinstallRemovedMcp(config: ServerConfig, existing: CloudImportedPlugin, url: string): Promise<CloudImportedPlugin> {
   const target = globalPluginTarget();
   const installed = installedRef(existing);
-  // The installed commit already passed the importer (under the higher limit only when the app trusted it), so the
-  // same bytes may be fetched again under the same limit after an app update moved the bundled catalog commit.
-  const trustedRefs = [...await savedReleaseRefs(config), ...(installed ? [installed.ref] : [])];
+  // The installed commit is trusted again only when the server itself trusted it at install time (`trustedRef` in the
+  // record: bundled catalog commit or a release SHA it resolved), e.g. after a newer release moved the trusted SHA. A
+  // commit that came only from a request URL (possibly fork-only), or an older record without the flag, stays generic.
+  const trustedRefs = [...await savedReleaseRefs(config), ...(installed && existing.lawossProvenance?.trustedRef ? [installed.ref] : [])];
   // Network before any change on disk: on failure everything stays as it was.
   const bundle = await resolveClaudePluginBundle({ url: installed ? marketplacePluginUrl(installed.ref, installed.dir) : url, trustedRefs });
   const kept = (await pluginFileChanges(target, existing)).filter((change) => change.state === "modified").map((change) => change.path);
   const names = mcpNames(existing);
   const shared = runtimeMcpMap(await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID));
   const disabled = await disabledMcp(config, GLOBAL_MCP_ID, names);
-  const item = await installGlobal(config, bundle, kept.length ? new Set(kept) : undefined, new Set(disabled));
+  const item = await installGlobal(config, bundle, trustedRefs, kept.length ? new Set(kept) : undefined, new Set(disabled));
   // The publication wrote the plugin's defaults; connections that stayed get back exactly their own entries.
   for (const name of names) {
     const entry = Object.hasOwn(shared, name) ? shared[name] : undefined;
@@ -234,12 +239,13 @@ export async function updateGlobalPlugin(
   const changes = await pluginFileChanges(target, installed);
   if (unresolved(changes, resolutions).length) return { status: "needs_decision", changes };
   // Sieť (GitHub) pred akoukoľvek zmenou na disku: pri chybe ostane všetko, ako bolo.
-  const bundle = await resolveClaudePluginBundle({ url: marketplacePluginUrl(state.lastCheck.release.sha, update.path), trustedRefs: trustedReleaseRefs(state) });
+  const releaseRefs = trustedReleaseRefs(state);
+  const bundle = await resolveClaudePluginBundle({ url: marketplacePluginUrl(state.lastCheck.release.sha, update.path), trustedRefs: releaseRefs });
   const stamp = now.toISOString().replace(/[:.]/g, "-");
   const backups = await backupFiles(target, changes.filter((change) => change.state === "modified" && resolutions[change.path] === "backup").map((change) => change.path), stamp);
   const kept = changes.filter((change) => resolutions[change.path] === "keep").map((change) => change.path);
   const disabled = await disabledMcp(config, GLOBAL_MCP_ID, mcpNames(installed));
-  const item = await installGlobal(config, bundle, new Set(kept));
+  const item = await installGlobal(config, bundle, releaseRefs, new Set(kept));
   await restoreDisabled(config, disabled);
   return { status: "updated", item, backups, kept };
 }
@@ -287,7 +293,8 @@ export async function moveWorkspacePlugin(
   const target = globalPluginTarget();
   const existing = (await readInstalledCloudPlugins(config, target.recordId)).plugins[pluginId];
   // Sieť len vtedy, keď plugin pre všetkých klientov ešte nie je; pri chybe sa nič nezmení.
-  const bundle = existing ? null : await resolveClaudePluginBundle({ url, trustedRefs: await savedReleaseRefs(config) });
+  const moveRefs = await savedReleaseRefs(config);
+  const bundle = existing ? null : await resolveClaudePluginBundle({ url, trustedRefs: moveRefs });
   const stamp = now.toISOString().replace(/[:.]/g, "-");
   const backups = await backupFiles(workspace, changes.filter((change) => resolutions[change.path] === "backup").map((change) => change.path), stamp);
   const carriedContent = new Map<string, string>();
@@ -300,7 +307,7 @@ export async function moveWorkspacePlugin(
   const disabled = [...await disabledMcp(config, workspace.recordId, names), ...await disabledMcp(config, GLOBAL_MCP_ID, names)];
   // Destination publication can fail. Keep the active source and its registry
   // until the global files, carried edits and backups have all been written.
-  const item = bundle ? await installGlobal(config, bundle, undefined, new Set(disabled)) : existing!;
+  const item = bundle ? await installGlobal(config, bundle, moveRefs, undefined, new Set(disabled)) : existing!;
 
   // Prenesená úprava: prepíše globálny súbor, len ak ho advokát globálne neupravil; inak ide bokom.
   const globalChanged = new Set((await pluginFileChanges(target, item)).map((change) => change.path));

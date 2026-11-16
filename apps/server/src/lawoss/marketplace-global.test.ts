@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:f
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installCloudPlugin, readInstalledCloudPlugins } from "../cloud-plugins.js";
+import { installCloudPlugin, readInstalledCloudPlugins, writeInstalledCloudPlugins } from "../cloud-plugins.js";
 import { resolveClaudePluginBundle } from "../claude-plugin-bundle.js";
 import { addMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled } from "../mcp.js";
 import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
@@ -244,13 +244,37 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     await release(SHA5, "1.0.0");
     // A commit that is neither the release nor installed stays at 1 MiB.
     await expect(installGlobalPlugin(config, url(SHA7))).rejects.toMatchObject({ code: "unsupported_plugin_resources" });
-    expect((await installGlobalPlugin(config, url(SHA5))).status).toBe("installed");
+    const first = await installGlobalPlugin(config, url(SHA5));
+    expect(first.status).toBe("installed");
+    // The record says the server trusted this commit (the release SHA its own check resolved).
+    expect(first.item.lawossProvenance?.trustedRef).toBe(true);
     await release(SHA6, "1.1.0");
     expect(await removeMcp(config, "ws_a", "demo")).toEqual(["global"]);
     const again = await installGlobalPlugin(config, url(SHA6));
     expect(again.status).toBe("installed");
     expect(again.item.lawossProvenance?.source.ref).toBe(SHA5);
+    expect(again.item.lawossProvenance?.trustedRef).toBe(true);
     expect(await missingMcp(config, again.item)).toEqual([]);
+
+    // A record without the flag (an older install, or a commit that came only from a request URL) gets the generic
+    // limits on reinstall: the large runtime is refused and nothing changes.
+    await writeInstalledCloudPlugins(config, globalPluginTarget().recordId, (current) => {
+      const plugin = current.plugins[PLUGIN_ID]!;
+      const { trustedRef: _dropped, ...provenance } = plugin.lawossProvenance!;
+      return { ...current, plugins: { ...current.plugins, [PLUGIN_ID]: { ...plugin, lawossProvenance: provenance } } };
+    });
+    expect(await removeMcp(config, "ws_a", "demo")).toEqual(["global"]);
+    await expect(installGlobalPlugin(config, url(SHA6))).rejects.toMatchObject({ code: "unsupported_plugin_resources" });
+    expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo).toBeUndefined();
+  });
+
+  test("#441: commit len z URL požiadavky sa v zázname neoznačí ako dôveryhodný", async () => {
+    const config = serverConfig(root);
+    const installed = await installGlobalPlugin(config, url(SHA1));
+    expect(installed.item.lawossProvenance?.source.ref).toBe(SHA1);
+    expect(installed.item.lawossProvenance?.trustedRef).toBeUndefined();
+    const stored = (await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID];
+    expect(stored?.lawossProvenance?.trustedRef).toBeUndefined();
   });
 
   test("globálne sa inštaluje len z LAWOSS Marketplace na pripnutom commite", async () => {
