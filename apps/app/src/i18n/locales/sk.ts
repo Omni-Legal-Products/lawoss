@@ -1,5 +1,6 @@
 import { projectTemplateStrings } from "@legalwork/types/workspace";
 import { diagnosticsSk } from "../../lawoss/i18n/diagnostics";
+import { filePreviewSk } from "../../lawoss/i18n/file-preview";
 import { deadlinesSk } from "../../lawoss/i18n/deadlines";
 import { setupSk } from "../../lawoss/i18n/setup";
 import { initialSk } from "../../lawoss/i18n/initial";
@@ -15,6 +16,7 @@ import { ocrSk } from "../../lawoss/i18n/ocr";
 export default {
   ...projectTemplateStrings.sk,
   ...diagnosticsSk,
+  ...filePreviewSk,
   ...setupSk,
   ...initialSk,
   ...mattersSk,

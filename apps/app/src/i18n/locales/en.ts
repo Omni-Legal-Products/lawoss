@@ -1,4 +1,5 @@
 import { diagnosticsEn } from "../../lawoss/i18n/diagnostics";
+import { filePreviewEn } from "../../lawoss/i18n/file-preview";
 import { deadlinesEn } from "../../lawoss/i18n/deadlines";
 import { setupEn } from "../../lawoss/i18n/setup";
 import { initialEn } from "../../lawoss/i18n/initial";
@@ -14,6 +15,7 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
 
 export default {
   ...diagnosticsEn,
+  ...filePreviewEn,
   ...setupEn,
   ...initialEn,
   ...mattersEn,
