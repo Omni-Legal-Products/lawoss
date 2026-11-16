@@ -6,6 +6,7 @@ import { mattersDe } from "../../lawoss/i18n/matters";
 import { integrationsDe } from "../../lawoss/i18n/integrations";
 import { shellDe } from "../../lawoss/i18n/shell";
 import { ocrDe } from "../../lawoss/i18n/ocr";
+import { csvEditorDe } from "../../lawoss/i18n/csv-editor";
 import { projectTemplateStrings } from "@legalwork/types/workspace";
 /**
  * German translations (Deutsch)
@@ -30,6 +31,7 @@ const de = {
   ...integrationsDe,
   ...shellDe,
   ...ocrDe,
+  ...csvEditorDe,
   "shutdown.restart_title": "Änderungen vor dem Neustart speichern?",
   "shutdown.close_title": "Änderungen vor dem Schließen speichern?",
   "shutdown.description": "Diese Dateien enthalten ungespeicherte Änderungen. Speichern Sie Ihre Arbeit oder verwerfen Sie die Änderungen, um fortzufahren.",

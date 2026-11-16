@@ -7,6 +7,7 @@ import { mattersCs } from "../../lawoss/i18n/matters";
 import { integrationsCs } from "../../lawoss/i18n/integrations";
 import { shellCs } from "../../lawoss/i18n/shell";
 import { ocrCs } from "../../lawoss/i18n/ocr";
+import { csvEditorCs } from "../../lawoss/i18n/csv-editor";
 /**
  * LAWOSS česká lokalizace — celé rozhraní. Právní názvosloví podle českého práva (ČAK, o. s. ř., IZ);
  * nikdy nepřekládat slovenské pojmy do češtiny záměnou písmen (AGENTS.md). Chybějící klíče padají v t() na angličtinu.
@@ -21,6 +22,7 @@ export default {
   ...integrationsCs,
   ...shellCs,
   ...ocrCs,
+  ...csvEditorCs,
   "office_addins.tab_label": "Doplňky Office",
   "office_addins.tab_description": "LegalWork v aplikacích Word, Excel a PowerPoint",
   "office_addins.about_title": "LegalWork v Microsoft Office",

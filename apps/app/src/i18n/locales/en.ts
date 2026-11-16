@@ -6,6 +6,7 @@ import { mattersEn } from "../../lawoss/i18n/matters";
 import { integrationsEn } from "../../lawoss/i18n/integrations";
 import { shellEn } from "../../lawoss/i18n/shell";
 import { ocrEn } from "../../lawoss/i18n/ocr";
+import { csvEditorEn } from "../../lawoss/i18n/csv-editor";
 import { projectTemplateStrings } from "@legalwork/types/workspace";
 /**
  * English translations
@@ -20,6 +21,7 @@ export default {
   ...integrationsEn,
   ...shellEn,
   ...ocrEn,
+  ...csvEditorEn,
   "shutdown.restart_title": "Save changes before restarting?",
   "shutdown.close_title": "Save changes before closing?",
   "shutdown.description": "These files have unsaved changes. Save them to keep your work, or discard the changes to continue.",
