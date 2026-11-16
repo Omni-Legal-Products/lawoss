@@ -4,7 +4,7 @@ import { LEGALWORK_EXTENSION_STATE_CHANGED, isLegalWorkExtensionHidden } from "@
 
 /**
  * Nastavenia → Workflows → Skills ukazujú len skilly, ktoré nie sú skryté (#514).
- * Rovnaká voľba ako v katalógu integrácií a v ponuke „/“: balíky lehôt LegalWorku sú
+ * Rovnaká voľba ako v katalógu integrácií a v ponuke „/“: upstreamové balíky lehôt sú
  * predvolene skryté (`isSkillHiddenByDefault`, N-A3-4) a advokát ich môže v katalógu odkryť.
  */
 export function visibleSettingsSkills<T extends { name: string }>(skills: readonly T[]): T[] {
