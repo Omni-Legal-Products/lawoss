@@ -11,6 +11,7 @@ import { readLegalworkWorkspaceConfig, writeLegalworkWorkspaceConfig } from "./l
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { nativeEngineProjectRegistrySchema } from "./native-engine-project-registry.js";
 import { engineStorageDir } from "./engine-storage.js";
+import { isGeneratedProjectionText } from "./lawoss/outside-stale-projection.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 
 const recordSchema = z.object({
@@ -45,13 +46,22 @@ async function writeRecord(config: ServerConfig, workspace: WorkspaceInfo, recor
   await writeLegalworkWorkspaceConfig(config, workspace.id, current => ({ ...current, [key]: record }));
 }
 
-async function projectionStatus(record: ProjectRecord): Promise<EngineProjectStatus["projection"]> {
+/** 🟡 LAWOSS #439: exactly the generator's own document (a regular file) whose private receipt was lost (reinstall,
+ * reset of app data); it is LegalWork's projection, taken over on the next publication, never an authored file. */
+async function unreceiptedProjection(config: ServerConfig, path: string): Promise<boolean> {
+  const info = await lstat(path).catch(error => { if (missing(error)) return undefined; throw error; });
+  return Boolean(info?.isFile() && !info.isSymbolicLink() && isGeneratedProjectionText(config, await readFile(path, "utf8")));
+}
+
+async function projectionStatus(config: ServerConfig, record: ProjectRecord): Promise<EngineProjectStatus["projection"]> {
   try { if (!(await lstat(record.directory)).isDirectory()) return { diagnostic: "This project folder is unavailable. Reconnect its existing folder before starting OpenCode automation." }; }
   catch (error) { if (missing(error)) return { diagnostic: "This project folder is unavailable. Reconnect its existing folder before starting OpenCode automation." }; throw error; }
   if (!record.projection) {
     const candidates = names.map(name => join(record.directory, ".opencode", name));
     const occupied = await Promise.all(candidates.map(path => lstat(path).then(() => true, error => { if (missing(error)) return false; throw error; })));
-    return occupied.every(Boolean) ? { diagnostic: "Both native OpenCode files inside .opencode are already authored. Preserve them and reserve .opencode/opencode.json or .opencode/opencode.jsonc for LegalWork's generated project settings." } : {};
+    if (!occupied.every(Boolean)) return {};
+    for (const path of candidates) if (await unreceiptedProjection(config, path)) return { path }; // 🟡 LAWOSS #439
+    return { diagnostic: "Both native OpenCode files inside .opencode are already authored. Preserve them and reserve .opencode/opencode.json or .opencode/opencode.jsonc for LegalWork's generated project settings." };
   }
   try {
     if (digest(await readFile(record.projection.path, "utf8")) !== record.projection.digest) {
@@ -69,7 +79,7 @@ export async function engineProjectStatus(config: ServerConfig, workspace: Works
   const projection = await withProjectLock(config, workspace, async () => {
     const record = await readRecord(config, workspace, directory);
     const diagnostic = projectionFailures.get(config)?.get(workspace.id);
-    return diagnostic ? { diagnostic } : projectionStatus(record);
+    return diagnostic ? { diagnostic } : projectionStatus(config, record);
   }).catch(error => {
     const diagnostic = projectFileFailure(error, directory);
     if (!diagnostic) throw error;
@@ -269,7 +279,9 @@ async function writeProjectProjection(config: ServerConfig, workspace: Workspace
       let current: string | undefined;
       try { current = await readFile(path, "utf8"); }
       catch (error) { if (!missing(error)) throw error; }
-      if (current !== undefined && (record.projection?.path !== path || digest(current) !== record.projection.digest)) return false;
+      // 🟡 LAWOSS #439: without a receipt, the generator's own document is replaced and the receipt written again.
+      const adopted = current !== undefined && !record.projection && await unreceiptedProjection(config, path);
+      if (current !== undefined && !adopted && (record.projection?.path !== path || digest(current) !== record.projection.digest)) return false;
       let transitioning = false;
       try {
       if (current !== content) {
