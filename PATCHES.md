@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Nálezy po zlúčení #429 a #437 (#439–#444, #460) (2026-11-16)
+
+Nálezy z revízie kódu a testu Docker zostavy po zlúčení PR #429 a #437.
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/scripts/gen-raw-http-node-code.ts`, generovaný `apps/server/src/agent-sandbox/raw-http-node-code.ts` (+ test `lawoss/raw-http-node-code-path.test.ts`) | #440: Bun pri zbalení vložil `__filename` modulu undici ako absolútnu cestu stroja (`var __filename="/Users/…/node_modules/.pnpm/undici@…/index.js"`), takže každý build na inom stroji súbor prepísal a do repozitára aj appky unikla cesta vývojára. Generátor nastaví `define` pre `__filename` a `__dirname` na konštanty bez cesty (undici ich používa len na doplnenie stack trace) a skončí chybou, ak by výstup obsahoval cestu koreňa repozitára. Výstup je pri opakovanom builde bajtovo zhodný; v balíku sa zmenili len tieto dve miesta. |
+
 ## Katalóg registrov: pribalené runtime z LAWOSS Marketplace (#420, #421) (2026-11-16)
 
 Katalóg `Omni-Legal-Products/lawoss-marketplace` dodáva runtime registrov ako jeden súbor zbalený cez esbuild (bez `npm ci`, kvôli firewallom s rozbaľovaním TLS). Súbory majú 1,2–6,3 MB (slovlex spolu 8,5 MB), importér ich odmietal (`unsupported_plugin_resources`).
