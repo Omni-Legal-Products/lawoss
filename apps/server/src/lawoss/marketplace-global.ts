@@ -13,6 +13,8 @@
  *   Voľby: `keep` (ponechať moju úpravu), `replace` (prevziať novú verziu), `backup`
  *   (prevziať novú a moju úpravu uložiť bokom do `lawoss-zalohy/`).
  * - Vypnuté MCP ostane po aktualizácii, presune aj opätovnej inštalácii (#441) vypnuté.
+ * - #510: aktualizácia sa ponúkne z novšieho z dvoch zdrojov, posledného vydania alebo katalógu pribaleného
+ *   v appke (`BUNDLED_MARKETPLACE_REF`), aj keď kontrola vydaní neprebehla (offline, bez vydania).
  */
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
@@ -25,12 +27,17 @@ import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig, runtimeMcpMap } from "../runt
 import type { ServerConfig } from "../types.js";
 import { contentSha256, type PluginProvenance } from "./plugin-provenance.js";
 import { globalPluginTarget, installLocation, type PluginInstallTarget } from "./plugin-install-target.js";
-import { isNewerVersion, MARKETPLACE_OWNER, MARKETPLACE_REPO, marketplacePluginUrl, marketplaceStatePath, readUpdateState, type MarketplaceUpdateState } from "./marketplace-updates.js";
+import { isNewerVersion, MARKETPLACE_OWNER, MARKETPLACE_REPO, marketplacePluginUrl, marketplaceStatePath, readUpdateState, type MarketplaceReleasePlugin, type MarketplaceUpdateState } from "./marketplace-updates.js";
+import { BUNDLED_MARKETPLACE_PLUGINS, BUNDLED_MARKETPLACE_REF } from "./marketplace-bundled-ref.js";
 import { isTrustedMarketplaceSource, trustedReleaseRefs } from "./marketplace-limits.js";
 
 export type FileResolution = "keep" | "replace" | "backup";
 export type FileChange = { path: string; title: string; state: "modified" | "missing" };
-export type PluginUpdate = { pluginId: string; name: string; installed: string | null; available: string; path: string };
+/** #510: `source` says where the update comes from; `ref` is the commit it installs from. */
+export type PluginUpdate = { pluginId: string; name: string; installed: string | null; available: string; path: string; source: "release" | "bundled"; ref: string };
+/** #510: the catalog bundled with the app (generated next to `BUNDLED_MARKETPLACE_REF`); a parameter only for tests. */
+export type BundledCatalog = { ref: string; plugins: readonly MarketplaceReleasePlugin[] };
+export const BUNDLED_CATALOG: BundledCatalog = { ref: BUNDLED_MARKETPLACE_REF, plugins: BUNDLED_MARKETPLACE_PLUGINS };
 
 const MCP_PATH_PREFIX = "opencode.jsonc#mcp.";
 const MARKETPLACE_ID_PREFIX = `github:${MARKETPLACE_OWNER}/${MARKETPLACE_REPO}#`;
@@ -85,16 +92,36 @@ export async function listInstalled(config: ServerConfig, recordId: string): Pro
   return Object.values((await readInstalledCloudPlugins(config, recordId)).plugins);
 }
 
-/** Dostupné aktualizácie globálnych pluginov podľa posledného vydania marketplace (bez siete). */
-export function availableUpdates(plugins: readonly CloudImportedPlugin[], state: MarketplaceUpdateState): PluginUpdate[] {
-  if (state.lastCheck?.status !== "ok") return [];
-  const release = state.lastCheck.release;
+const SEMVER = /^v?(\d+)\.(\d+)\.(\d+)$/;
+
+/** #510: strict semver comparison of two catalog versions; anything unparsable is never "newer". */
+function strictlyNewer(available: string, than: string): boolean {
+  const next = SEMVER.exec(available), current = SEMVER.exec(than);
+  if (!next || !current) return false;
+  for (let index = 1; index <= 3; index += 1) {
+    const difference = Number(next[index]) - Number(current[index]);
+    if (difference) return difference > 0;
+  }
+  return false;
+}
+
+/**
+ * Dostupné aktualizácie globálnych pluginov (bez siete). #510: kandidát je posledné vydanie (len po úspešnej
+ * kontrole) a katalóg pribalený v appke; vyhrá vyššia verzia, pri rovnosti vydanie (ako doteraz).
+ */
+export function availableUpdates(plugins: readonly CloudImportedPlugin[], state: MarketplaceUpdateState, bundled: BundledCatalog = BUNDLED_CATALOG): PluginUpdate[] {
+  const release = state.lastCheck?.status === "ok" ? state.lastCheck.release : null;
   return plugins.flatMap((plugin) => {
     if (!isMarketplacePlugin(plugin)) return [];
     const dir = plugin.lawossProvenance?.source.dir ?? plugin.pluginId.slice(MARKETPLACE_ID_PREFIX.length);
-    const next = release.plugins.find((item) => item.path === dir);
-    if (!next || !isNewerVersion(next.version, plugin.lawossProvenance?.version ?? null)) return [];
-    return [{ pluginId: plugin.pluginId, name: plugin.name, installed: plugin.lawossProvenance?.version ?? null, available: next.version, path: next.path }];
+    const fromRelease = release?.plugins.find((item) => item.path === dir);
+    const fromBundled = bundled.plugins.find((item) => item.path === dir);
+    const next = fromBundled && (!fromRelease || strictlyNewer(fromBundled.version, fromRelease.version))
+      ? { ...fromBundled, source: "bundled" as const, ref: bundled.ref }
+      : fromRelease && release ? { ...fromRelease, source: "release" as const, ref: release.sha } : null;
+    const installed = plugin.lawossProvenance?.version ?? null;
+    if (!next || !isNewerVersion(next.version, installed)) return [];
+    return [{ pluginId: plugin.pluginId, name: plugin.name, installed, available: next.version, path: next.path, source: next.source, ref: next.ref }];
   });
 }
 
@@ -157,18 +184,22 @@ async function installGlobal(config: ServerConfig, bundle: ClaudePluginBundle, t
   });
 }
 
-export type InstallOutcome = { status: "installed" | "already_installed"; item: CloudImportedPlugin };
+/** #510: `update` when the plugin was already installed in an older version than the one available. */
+export type InstallOutcome = { status: "installed" | "already_installed"; item: CloudImportedPlugin; update?: PluginUpdate };
 
 /**
  * Nová globálna inštalácia z LAWOSS Marketplace. Už nainštalovaný plugin sa tu nemení
  * (ani neprepíše, ani nevráti na staršiu verziu); mení ho len `updateGlobalPlugin`.
  */
-export async function installGlobalPlugin(config: ServerConfig, url: string): Promise<InstallOutcome> {
+export async function installGlobalPlugin(config: ServerConfig, url: string, bundled: BundledCatalog = BUNDLED_CATALOG): Promise<InstallOutcome> {
   assertMarketplaceUrl(url);
   const pluginId = `${MARKETPLACE_ID_PREFIX}${url.replace(/^.*\/tree\/[a-f0-9]{40}\//, "")}`;
   const existing = (await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[pluginId];
-  if (existing && !(await missingMcp(config, existing)).length) return { status: "already_installed", item: existing };
-  if (existing) return { status: "installed", item: await reinstallRemovedMcp(config, existing, url) };
+  // #510: the installed version stays (only an update changes it); the outcome says a newer one is available.
+  const update = existing ? availableUpdates([existing], await readUpdateState(marketplaceStatePath(config)), bundled)[0] : undefined;
+  const pending = update ? { update } : {};
+  if (existing && !(await missingMcp(config, existing)).length) return { status: "already_installed", item: existing, ...pending };
+  if (existing) return { status: "installed", item: await reinstallRemovedMcp(config, existing, url), ...pending };
   const trustedRefs = await savedReleaseRefs(config);
   return { status: "installed", item: await installGlobal(config, await resolveClaudePluginBundle({ url, trustedRefs }), trustedRefs) };
 }
@@ -223,24 +254,26 @@ export type UpdateOutcome =
   | { status: "needs_decision"; changes: FileChange[] }
   | { status: "updated"; item: CloudImportedPlugin; backups: string[]; kept: string[] };
 
-/** Aktualizácia globálneho pluginu na verziu z posledného vydania marketplace. */
+/** Aktualizácia globálneho pluginu na verziu z posledného vydania alebo z novšieho pribaleného katalógu (#510). */
 export async function updateGlobalPlugin(
   config: ServerConfig,
   pluginId: string,
   state: MarketplaceUpdateState,
   resolutions: Readonly<Record<string, FileResolution>>,
   now: Date = new Date(),
+  bundled: BundledCatalog = BUNDLED_CATALOG,
 ): Promise<UpdateOutcome> {
   const target = globalPluginTarget();
   const installed = (await readInstalledCloudPlugins(config, target.recordId)).plugins[pluginId];
   if (!installed) throw new ApiError(404, "plugin_not_installed", "This plugin is not installed for all clients.");
-  const update = availableUpdates([installed], state)[0];
-  if (!update || state.lastCheck?.status !== "ok") throw new ApiError(409, "no_update", "No update is available for this plugin. Check for updates first.");
+  const update = availableUpdates([installed], state, bundled)[0];
+  if (!update) throw new ApiError(409, "no_update", "No update is available for this plugin. Check for updates first.");
   const changes = await pluginFileChanges(target, installed);
   if (unresolved(changes, resolutions).length) return { status: "needs_decision", changes };
   // Sieť (GitHub) pred akoukoľvek zmenou na disku: pri chybe ostane všetko, ako bolo.
-  const releaseRefs = trustedReleaseRefs(state);
-  const bundle = await resolveClaudePluginBundle({ url: marketplacePluginUrl(state.lastCheck.release.sha, update.path), trustedRefs: releaseRefs });
+  // #510: the commit of the update (release SHA or the bundled catalog's), both trusted by the server itself.
+  const releaseRefs = [...trustedReleaseRefs(state), ...(update.source === "bundled" ? [update.ref] : [])];
+  const bundle = await resolveClaudePluginBundle({ url: marketplacePluginUrl(update.ref, update.path), trustedRefs: releaseRefs });
   const stamp = now.toISOString().replace(/[:.]/g, "-");
   const backups = await backupFiles(target, changes.filter((change) => change.state === "modified" && resolutions[change.path] === "backup").map((change) => change.path), stamp);
   const kept = changes.filter((change) => resolutions[change.path] === "keep").map((change) => change.path);
