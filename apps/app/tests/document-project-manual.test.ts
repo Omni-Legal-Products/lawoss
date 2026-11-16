@@ -22,3 +22,21 @@ test("task documents and browsers resolve a manually selected server's own proje
     foreign = true; await expect(resolveDocumentProject("chat")).rejects.toThrow("project is unavailable");
   } finally { server.stop(true); if (original) Object.defineProperty(globalThis, "window", original); else Reflect.deleteProperty(globalThis, "window"); }
 });
+
+test("an opened chat URL asks only its own workspace for the session (#480)", async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const calls: string[] = [];
+  const ids = Array.from({ length: 24 }, (_, i) => `k${i}`);
+  const server = Bun.serve({ port: 0, fetch(request) {
+    const pathname = new URL(request.url).pathname; calls.push(pathname);
+    if (pathname === "/workspaces") return Response.json({ items: ids.map(id => ({ id, name: id, path: `/prax/${id}`, preset: "starter", workspaceType: "local" })) });
+    if (pathname === "/workspace/k7/sessions/chat") return Response.json({ item: { id: "chat", agent: "legalwork", location: { directory: "/prax/k7/Spisy/M1" }, title: "Chat", time: { created: 1, updated: 1 } } });
+    return new Response(null, { status: 404 });
+  } });
+  const storage = new Map([["legalwork.server.urlOverride", server.url.origin], ["legalwork.server.token", "manual-project-fixture"]]);
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { location: { hash: "#/workspace/k7/session/chat" }, localStorage: { getItem: (key: string) => storage.get(key) ?? null }, __LEGALWORK_ELECTRON__: { invokeDesktop: async () => { throw new Error("manual server"); } } } });
+  try {
+    expect((await resolveDocumentProject("chat")).projectId).toBe("k7");
+    expect(calls).toEqual(["/workspaces", "/workspace/k7/sessions/chat"]);
+  } finally { server.stop(true); if (original) Object.defineProperty(globalThis, "window", original); else Reflect.deleteProperty(globalThis, "window"); }
+});
