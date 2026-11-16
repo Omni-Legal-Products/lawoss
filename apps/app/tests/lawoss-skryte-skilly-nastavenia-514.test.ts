@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { visibleSettingsSkills } from "../src/lawoss/domains/integrations/hidden-skills";
-import { setLegalWorkExtensionHidden } from "../src/react-app/domains/settings/extension-state";
+import { setLegalWorkExtensionHidden, visibleSettingsSkills } from "../src/react-app/domains/settings/extension-state";
 
 // #514: skryté balíky lehôt LegalWorku (N-A3-4, #255) sa ukazovali v Nastavenia → Workflows → Skills,
 // hoci katalóg integrácií a ponuka „/“ ich skrývajú. Stránka používa rovnakú voľbu advokáta.

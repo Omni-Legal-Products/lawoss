@@ -86,7 +86,7 @@ import { importedSkillPlugin, pluginImportName, pluginImportSkillName } from "./
 import { SkillDetailsDialog } from "./skill-details-dialog";
 import { FirmSkillDialog } from "./firm-skill-dialog";
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
-import { useExtensionHiddenVersion, visibleSettingsSkills } from "@/lawoss/domains/integrations/hidden-skills"; // 🟡 LAWOSS #514
+import { useExtensionHiddenVersion, visibleSettingsSkills } from "../extension-state"; // 🟡 LAWOSS #514
 
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
