@@ -1223,7 +1223,7 @@ function SkillCreatorButton(props: {
             ) : null}
 
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-dls-text">Name</span>
+              <span className="text-xs font-medium text-dls-text">{t("lawoss.skills.field_name")}</span>{/* 🟡 LAWOSS #515 */}
               <input
                 value={name}
                 onChange={(event) => setName(event.currentTarget.value)}
@@ -1255,12 +1255,12 @@ function SkillCreatorButton(props: {
             </label>
 
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-dls-text">Instructions</span>
+              <span className="text-xs font-medium text-dls-text">{t("workflows.instructions")}</span>{/* 🟡 LAWOSS #515 */}
               <textarea
                 value={body}
                 onChange={(event) => setBody(event.currentTarget.value)}
                 rows={12}
-                placeholder={"Step-by-step instructions the agent follows when this skill is active.\n\n1. ...\n2. ..."}
+                placeholder={t("skills.instructions_placeholder")}
                 spellCheck={false}
                 className={`${inputClass} min-h-[240px] font-mono text-xs`}
               />
@@ -1278,7 +1278,7 @@ function SkillCreatorButton(props: {
                   Creating...
                 </>
               ) : (
-                "Create skill"
+                t("lawoss.skills.create")
               )}
             </Button>
           </DialogFooter>
@@ -1475,7 +1475,7 @@ function WorkflowCreatorButton(props: {
             ) : null}
 
                 <label className="block space-y-1.5">
-                  <span className="text-xs font-medium text-dls-text">Name</span>
+                  <span className="text-xs font-medium text-dls-text">{t("lawoss.skills.field_name")}</span>{/* 🟡 LAWOSS #515 */}
                   <input
                     value={name}
                     onChange={(event) => setName(event.currentTarget.value)}
