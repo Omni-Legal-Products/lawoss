@@ -123,7 +123,8 @@ async function lifecycle(scenario: "publish-retry" | "recovery-fallback") {
     }) } }));
     const { startManagedEngineLifecycle } = await import(${at("../managed-engine-lifecycle.ts")});
     const workspace = { id: "project", path: ${JSON.stringify(root)}, name: "Project", preset: "starter", workspaceType: "local" }, config = { workspaces: [workspace] };
-    const lifecycle = await startManagedEngineLifecycle({ config, database: "synthetic", service: {}, create: async (mode, beforeSpawn) => {
+    const published = [];
+    const lifecycle = await startManagedEngineLifecycle({ config, database: "synthetic", service: {}, onEnginePublished: engine => published.push(engine), create: async (mode, beforeSpawn) => {
       await beforeSpawn?.();
       const listeners = new Set();
       const child = { mode, url: "http://127.0.0.1:" + (32700 + created.length), username: "synthetic", password: "synthetic", closed: false,
@@ -134,6 +135,7 @@ async function lifecycle(scenario: "publish-retry" | "recovery-fallback") {
     const until = async (condition, ms) => { for (let i = 0; i < ms / 50 && !condition(); i++) await Bun.sleep(50); };
     try {
       assert.equal(config.managedEngineRecoveryState().mode, "service");
+      assert.deepEqual(published, [], "#476: the engine found at startup is settled by the caller");
       const stopsBefore = serviceStops;
       if (scenario === "publish-retry") {
         failConnect = 1;
@@ -148,6 +150,7 @@ async function lifecycle(scenario: "publish-retry" | "recovery-fallback") {
         assert.equal(workspace.baseUrl, created[2].url);
         assert.equal(config.managedEngineStatus, "ready");
         assert.equal(config.managedImageAffinity(workspace).storageNamespace, "owned");
+        assert.deepEqual(published, [created[2]], "#476: only the published replacement is announced for its agent ticket");
         created[0].crash();
         await Bun.sleep(1_200);
         assert.equal(created.length, 3, "an engine already replaced is not restarted again");
@@ -159,6 +162,7 @@ async function lifecycle(scenario: "publish-retry" | "recovery-fallback") {
         assert.equal(created[1].mode, "recovery", "a failed service preflight falls back to recovery like startup");
         assert.equal(config.managedEngineRecoveryState().mode, "recovery");
         assert.match(config.managedEngineRecoveryState().error.message, /synthetic project approval held/);
+        assert.deepEqual(published, [created[1]], "#476: a recovery replacement is announced for its agent ticket");
         assert.equal(config.managedEngineStatus, "ready");
       }
     } finally { await lifecycle.close(); }
