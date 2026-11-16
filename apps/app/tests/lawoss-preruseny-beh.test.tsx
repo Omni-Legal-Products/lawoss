@@ -6,7 +6,7 @@ import type { UIMessage } from "ai";
 import { MessageList } from "../src/components/chat/message-list";
 import { MessageListProvider } from "../src/components/chat/message-list-provider";
 import { setLocale, t } from "../src/i18n";
-import { InterruptedRunNotice, interruptedBeforeLoad, isInterruptedRun } from "../src/lawoss/chat/interrupted-run";
+import { InterruptedRunNotice, interruptedReason, interruptedRun, questionBefore } from "../src/lawoss/chat/interrupted-run";
 import { snapshotToUIMessages } from "../src/react-app/domains/session/sync/usechat-adapter";
 import type { LegalworkSessionSnapshot } from "../src/app/lib/legalwork-server";
 
@@ -17,21 +17,21 @@ const tool = { id: "prt_t1", sessionID: "ses_p", messageID: "msg_a1", type: "too
   state: { status: "completed", input: { filePath: "a.md" }, output: "", title: "", metadata: {}, time: { start: 2, end: 3 } } };
 const assistant = (time: Record<string, number>, extra: Record<string, unknown> = {}) =>
   ({ info: { id: "msg_a1", role: "assistant", sessionID: "ses_p", parentID: "msg_u1", time, ...extra }, parts: [tool] });
-const snapshot = (messages: unknown[], status: "idle" | "busy" = "idle") =>
-  ({ session: { id: "ses_p" }, todos: [], status: { type: status }, messages }) as unknown as LegalworkSessionSnapshot; // Fixture: len polia, ktoré konverzia číta.
-const flagged = (value: LegalworkSessionSnapshot) => snapshotToUIMessages(value).filter(isInterruptedRun).map((message) => message.id);
+const snapshot = (messages: unknown[], status: "idle" | "busy" = "idle", engineRestartedAt?: number) =>
+  ({ session: { id: "ses_p" }, todos: [], status: { type: status }, messages, ...(engineRestartedAt ? { engineRestartedAt } : {}) }) as unknown as LegalworkSessionSnapshot; // Fixture: len polia, ktoré konverzia číta.
+const flagged = (value: LegalworkSessionSnapshot) => snapshotToUIMessages(value).filter((message) => interruptedReason(message) !== null).map((message) => message.id);
 
 describe("N-A9-16: prerušený beh po reštarte", () => {
   test("rozhodnutie: len nedokončená odpoveď spred načítania appky, posledná len pri nečinnosti", () => {
     const loadedAt = 1_000;
-    expect(interruptedBeforeLoad({ role: "assistant", time: { created: 500 } }, { last: true, idle: true, loadedAt })).toBe(true);
-    expect(interruptedBeforeLoad({ role: "assistant", time: { created: 500 } }, { last: true, idle: false, loadedAt })).toBe(false);
-    expect(interruptedBeforeLoad({ role: "assistant", time: { created: 500 } }, { last: false, idle: false, loadedAt })).toBe(true);
-    expect(interruptedBeforeLoad({ role: "assistant", time: { created: 1_500 } }, { last: true, idle: true, loadedAt })).toBe(false);
-    expect(interruptedBeforeLoad({ role: "assistant", time: { created: 500, completed: 600 } }, { last: true, idle: true, loadedAt })).toBe(false);
-    expect(interruptedBeforeLoad({ role: "assistant", time: { created: 500 }, error: { name: "MessageAbortedError" } }, { last: true, idle: true, loadedAt })).toBe(false);
-    expect(interruptedBeforeLoad({ role: "user", time: { created: 500 } }, { last: true, idle: true, loadedAt })).toBe(false);
-    expect(interruptedBeforeLoad({ role: "assistant" }, { last: true, idle: true, loadedAt })).toBe(false);
+    expect(interruptedRun({ role: "assistant", time: { created: 500 } }, { last: true, idle: true, loadedAt })).toBe("app_closed");
+    expect(interruptedRun({ role: "assistant", time: { created: 500 } }, { last: true, idle: false, loadedAt })).toBeNull();
+    expect(interruptedRun({ role: "assistant", time: { created: 500 } }, { last: false, idle: false, loadedAt })).toBe("app_closed");
+    expect(interruptedRun({ role: "assistant", time: { created: 1_500 } }, { last: true, idle: true, loadedAt })).toBeNull();
+    expect(interruptedRun({ role: "assistant", time: { created: 500, completed: 600 } }, { last: true, idle: true, loadedAt })).toBeNull();
+    expect(interruptedRun({ role: "assistant", time: { created: 500 }, error: { name: "MessageAbortedError" } }, { last: true, idle: true, loadedAt })).toBeNull();
+    expect(interruptedRun({ role: "user", time: { created: 500 } }, { last: true, idle: true, loadedAt })).toBeNull();
+    expect(interruptedRun({ role: "assistant" }, { last: true, idle: true, loadedAt })).toBeNull();
   });
 
   test("snapshot po reštarte označí odpoveď, beh v práci ani dokončená odpoveď nie", () => {
@@ -43,7 +43,7 @@ describe("N-A9-16: prerušený beh po reštarte", () => {
 
   test("zastavená odpoveď ostáva pri pôvodnom hlásení, bez druhého upozornenia", () => {
     const messages = snapshotToUIMessages(snapshot([user, assistant({ created: 2 }, { error: { name: "MessageAbortedError", data: {} } })]));
-    expect(messages.filter(isInterruptedRun)).toEqual([]);
+    expect(messages.filter((message) => interruptedReason(message) !== null)).toEqual([]);
     expect(messages.some((message) => message.id.startsWith("session-error"))).toBe(true);
   });
 
@@ -51,7 +51,7 @@ describe("N-A9-16: prerušený beh po reštarte", () => {
     setLocale("sk");
     const empty = { ...assistant({ created: 2 }), parts: [] };
     expect(flagged(snapshot([user, empty]))).toEqual(["msg_a1"]);
-    expect(renderToStaticMarkup(<InterruptedRunNotice />)).toContain(t("lawoss.chat.interrupted_run"));
+    expect(renderToStaticMarkup(<InterruptedRunNotice reason="app_closed" />)).toContain(t("lawoss.chat.interrupted_run"));
     expect(t("lawoss.chat.interrupted_run")).toStartWith("Odpoveď sa nedokončila");
   });
 
@@ -71,5 +71,49 @@ describe("N-A9-16: prerušený beh po reštarte", () => {
     expect(render(snapshotToUIMessages(snapshot([user, steps, empty])))).toContain(t("lawoss.chat.interrupted_run"));
     expect(render(snapshotToUIMessages(snapshot([user, empty])))).toContain(t("lawoss.chat.interrupted_run"));
     expect(render(snapshotToUIMessages(snapshot([user, steps])))).not.toContain(t("lawoss.chat.interrupted_run"));
+  });
+});
+
+describe("#473: odpoveď prerušená reštartom agenta, kým appka beží", () => {
+  test("rozhodnutie: nedokončená odpoveď spred reštartu enginu, posledná len pri nečinnosti", () => {
+    const input = { loadedAt: 1_000, engineRestartedAt: 5_000 };
+    expect(interruptedRun({ role: "assistant", time: { created: 2_000 } }, { last: true, idle: true, ...input })).toBe("engine_restart");
+    expect(interruptedRun({ role: "assistant", time: { created: 2_000 } }, { last: true, idle: false, ...input })).toBeNull();
+    expect(interruptedRun({ role: "assistant", time: { created: 6_000 } }, { last: true, idle: true, ...input })).toBeNull();
+    expect(interruptedRun({ role: "assistant", time: { created: 2_000, completed: 3_000 } }, { last: true, idle: true, ...input })).toBeNull();
+    expect(interruptedRun({ role: "assistant", time: { created: 500 } }, { last: true, idle: true, ...input })).toBe("app_closed");
+  });
+
+  test("snapshot s časom reštartu enginu označí useknutú odpoveď, novú ani bežiacu nie", () => {
+    const now = Date.now();
+    const cut = { ...assistant({ created: now + 1_000 }), parts: [] };
+    expect(flagged(snapshot([user, cut], "idle", now + 2_000))).toEqual(["msg_a1"]);
+    expect(flagged(snapshot([user, cut], "busy", now + 2_000))).toEqual([]);
+    expect(flagged(snapshot([user, cut], "idle", now + 500))).toEqual([]);
+    expect(flagged(snapshot([user, cut]))).toEqual([]);
+  });
+
+  test("zoznam správ: veta o reštarte agenta a tlačidlo, ktoré vloží otázku znova", () => {
+    setLocale("sk");
+    const now = Date.now();
+    const question = { info: { id: "msg_u1", role: "user", sessionID: "ses_p", time: { created: now } }, parts: [{ id: "prt_u1", sessionID: "ses_p", messageID: "msg_u1", type: "text", text: "Vymenuj dôkazné prostriedky." }] };
+    const cut = { ...assistant({ created: now + 1_000 }), parts: [] };
+    const prompts: string[] = [];
+    const messages = snapshotToUIMessages(snapshot([question, cut], "idle", now + 2_000));
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageListProvider workspaceId="w" sessionId="ses_p" showThinking={false} developerMode={false} displaySuggestions={false}
+          providerConnectedCount={0} dispatchAction={() => {}} setPrompt={(prompt) => { prompts.push(prompt); }} onRevertToUserMessage={() => {}}
+          onForkAtMessage={() => {}} onEditUserMessage={() => {}}>
+          <MessageList messages={messages} status="ready" />
+        </MessageListProvider>
+      </QueryClientProvider>,
+    );
+    expect(t("lawoss.chat.interrupted_restart")).toStartWith("Odpoveď sa prerušila, agent sa reštartoval");
+    expect(html).toContain(t("lawoss.chat.interrupted_restart"));
+    expect(html).not.toContain(t("lawoss.chat.interrupted_run"));
+    expect(html).toContain(t("lawoss.chat.interrupted_retry"));
+    expect(questionBefore(messages, messages.length - 1)).toBe("Vymenuj dôkazné prostriedky.");
+    expect(questionBefore(messages, 0)).toBeNull();
   });
 });

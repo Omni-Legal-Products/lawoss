@@ -570,7 +570,8 @@ export type LegalworkRecorderLiveTranscriptStatus = {
 };
 
 export type LegalworkSessionMessage = MessageView;
-export type LegalworkSessionSnapshot = SessionSnapshotView;
+// 🟡 LAWOSS #473: `engineRestartedAt` = posledný reštart spravovaného enginu (server), pre označenie useknutej odpovede.
+export type LegalworkSessionSnapshot = SessionSnapshotView & { engineRestartedAt?: number };
 export type NativeSessionSnapshot = {session:SessionInfo;messages:SessionMessageInfo[];todos:Array<{content:string;status:string;priority?:string;id?:string}>;status:SessionStatus;historyProvenance?:SessionHistoryProvenance};
 function projectSessionSnapshot(snapshot:NativeSessionSnapshot):LegalworkSessionSnapshot {
  const historical=snapshot.historyProvenance ? SessionHistoryProvenanceSchema.parse(snapshot.historyProvenance):undefined;

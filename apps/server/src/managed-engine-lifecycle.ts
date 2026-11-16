@@ -56,6 +56,7 @@ export async function startManagedEngineLifecycle(options: {
       while (checking) await checking;
       const exited = engine;
       if (closed || !supervisor.isDead(exited)) return;
+      config.managedEngineRestartedAt = Date.now(); // 🟡 LAWOSS #473
       const attempt = (async () => {
         events?.abort(); events = undefined;
         imageAffinity.disconnect();

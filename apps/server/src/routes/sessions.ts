@@ -305,7 +305,9 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     ]);
     const historyUndo=await prepareSessionHistoryUndo(config,workspace,client,session);
     const historyProvenance = {...await readSessionHistoryProvenance(config, workspace, session, messages),...(historyUndo.state ? {undo:historyUndo.state}:{})};
-    return { ...buildSessionSnapshot({ session, messages, todos, active: active[sessionID] }), historyProvenance };
+    // 🟡 LAWOSS #473: an answer the restarted engine left unfinished is marked as interrupted by the chat.
+    const engineRestartedAt = config.managedEngineRestartedAt;
+    return { ...buildSessionSnapshot({ session, messages, todos, active: active[sessionID] }), historyProvenance, ...(engineRestartedAt ? { engineRestartedAt } : {}) };
   }
   async function updateWorkspaceSessionGroups(
     workspaceId: string,

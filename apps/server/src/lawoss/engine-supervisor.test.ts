@@ -137,6 +137,8 @@ async function lifecycle(scenario: "publish-retry" | "recovery-fallback") {
       const stopsBefore = serviceStops;
       if (scenario === "publish-retry") {
         failConnect = 1;
+        assert.equal(config.managedEngineRestartedAt, undefined, "no restart yet");
+        const crashedAt = Date.now();
         created[0].crash();
         assert.equal(config.managedEngineStatus, "starting", "health reports the engine as not ready while it is down");
         // Prvý pokus (po 1 s) zlyhá pri publikovaní, druhý (o 3 s neskôr) uspeje.
@@ -148,6 +150,7 @@ async function lifecycle(scenario: "publish-retry" | "recovery-fallback") {
         assert.equal(workspace.baseUrl, created[2].url);
         assert.equal(config.managedEngineStatus, "ready");
         assert.equal(config.managedImageAffinity(workspace).storageNamespace, "owned");
+        assert(config.managedEngineRestartedAt >= crashedAt && config.managedEngineRestartedAt <= Date.now(), "the restart time bounds the cut-off answers (#473)");
         created[0].crash();
         await Bun.sleep(1_200);
         assert.equal(created.length, 3, "an engine already replaced is not restarted again");

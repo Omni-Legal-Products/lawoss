@@ -76,7 +76,7 @@ function startMockOpencode(input: { directory: string; sessionDirectory?: string
   return { server, requests, session };
 }
 
-async function startLegalworkServer(input: { workspaceRoot: string; opencodeBaseUrl: string; readOnly?: boolean; agentSandboxEnabled?: boolean; aiBoundaries?: boolean }) {
+async function startLegalworkServer(input: { workspaceRoot: string; opencodeBaseUrl: string; readOnly?: boolean; agentSandboxEnabled?: boolean; aiBoundaries?: boolean; managedEngineRestartedAt?: number }) {
   // LAWOSS: per-root token store, runtime DB and data, so AI hranice in one test never leak into another.
   const isolated = { LEGALWORK_TOKEN_STORE: join(input.workspaceRoot, "tokens.json"), LEGALWORK_RUNTIME_DB: join(input.workspaceRoot, "runtime.sqlite"), LEGALWORK_DATA_DIR: join(input.workspaceRoot, "data") };
   const previous = Object.fromEntries(Object.keys(isolated).map((key) => [key, process.env[key]]));
@@ -113,6 +113,7 @@ async function startLegalworkServer(input: { workspaceRoot: string; opencodeBase
     hostTokenSource: "cli",
     logFormat: "pretty",
     logRequests: false,
+    ...(input.managedEngineRestartedAt ? { managedEngineRestartedAt: input.managedEngineRestartedAt } : {}),
   };
   // #168 denial expectations: „AI hranice" on explicitly (per-root runtime DB).
   if (input.aiBoundaries) await enforceAiBoundaries(config);
@@ -194,6 +195,15 @@ describe("workspace session read APIs", () => {
     expect(wrongTurn.status).not.toBe(200);
   });
 
+  test("#473: snapshot nesie čas posledného reštartu spravovaného enginu", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode({ directory: workspaceRoot });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, managedEngineRestartedAt: 1_794_000_000_000 });
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/snapshot`, { headers: auth(legalwork.token) });
+    expect(response.status).toBe(200);
+    expect((await response.json()).item.engineRestartedAt).toBe(1_794_000_000_000);
+  });
+
   test("lists sessions and returns session details, messages, and snapshot", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const mock = startMockOpencode({ directory: workspaceRoot });
@@ -243,6 +253,7 @@ describe("workspace session read APIs", () => {
       },
     ]);
     expect(snapshotBody.item.status).toEqual({ type: "busy" });
+    expect(snapshotBody.item.engineRestartedAt).toBeUndefined();
 
     const listRequest = mock.requests.find((request) => request.pathname === "/api/session");
     expect(listRequest?.directory).toBe(workspaceRoot);

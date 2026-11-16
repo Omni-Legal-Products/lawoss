@@ -138,7 +138,7 @@ import { STORAGE_LINK_SOURCE, STORAGE_OPEN_EVENT, parseStorageRefLink, type Stor
 import { groupMessages, isMessageGroup, getAssistantRenderGroups, groupAssistantToolRuns, hasToolRunTail, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
 import { t } from "@/i18n";
 import { aiBoundariesRefusal } from "@/lawoss/domains/ai/boundaries-refusal";
-import { InterruptedRunNotice, isInterruptedRun } from "@/lawoss/chat/interrupted-run";
+import { InterruptedRunNotice, interruptedReason, questionBefore } from "@/lawoss/chat/interrupted-run";
 import { AssistantAvatar } from "@/react-app/domains/session/sidebar/assistant-appearance";
 import { assistantMessageSender } from "@/react-app/domains/session/sync/assistant-message-sender";
 
@@ -974,7 +974,7 @@ function MessageGroup({
   isStreaming,
   showTyping = false,
 }: AssistantMessageGroupProps) {
-  const { onRevertToUserMessage, onForkAtMessage, legalworkClient, workspaceId, showThinking, readOnly, assistantChat } = useMessageList()
+  const { onRevertToUserMessage, onForkAtMessage, legalworkClient, workspaceId, showThinking, readOnly, assistantChat, setPrompt } = useMessageList()
   const displayItems = React.useMemo(() => groupAssistantToolRuns(items, showThinking), [items, showThinking])
   const lastItem = items[items.length - 1]
   const isLiveGroup = isStreaming && lastItem?.index === messages.length - 1
@@ -1000,7 +1000,9 @@ function MessageGroup({
   // silently corrupt fork/revert boundaries.
   const lastRealItem = items.findLast((item) => !isSessionErrorMessage(item.message))
   // 🟡 LAWOSS: prázdna odpoveď prerušená zatvorením appky ostane viditeľná ako veta (N-A9-16).
-  const interrupted = !isLiveGroup && items.some((item) => isInterruptedRun(item.message))
+  // 🟡 LAWOSS #473: aj odpoveď useknutá reštartom agenta, s možnosťou vložiť otázku znova.
+  const interrupted = isLiveGroup ? null : items.map((item) => interruptedReason(item.message)).find((reason) => reason !== null) ?? null
+  const question = interrupted && !readOnly && items[0] ? questionBefore(messages, items[0].index) : null
   if (!lastItem || (isMessageEmptyGroup(items) && !interrupted)) return null
 
   const renderableItems = getRenderableMessages(items)
@@ -1024,7 +1026,7 @@ function MessageGroup({
   return (
       <div className={cn("relative flex flex-col gap-2 group/message-group", assistantChat && "pb-5")}>
       {displayItems.map(renderItem)}
-      {interrupted ? <InterruptedRunNotice /> : null}
+      {interrupted ? <InterruptedRunNotice reason={interrupted} onRetry={question ? () => setPrompt(question) : undefined} /> : null}
       {assistantChat && <AssistantLinkedFileCards messages={items.map(item => item.message)} />}
       {filedTasks.length > 0 ? <ArtifactList messages={EMPTY_MESSAGES} tasks={filedTasks} /> : null}
       {/* The graph and the sources belong under the finished answer, not among

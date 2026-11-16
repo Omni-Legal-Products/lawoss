@@ -7,7 +7,7 @@ import type { FilePart, Part, ToolPart } from "@/app/lib/opencode-view";
 import type { LegalworkSessionSnapshot } from "../../../../app/lib/legalwork-server";
 import { safeStringify } from "../../../../app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "../../../../app/types";
-import { appLoadedAt, interruptedBeforeLoad } from "../../../../lawoss/chat/interrupted-run";
+import { appLoadedAt, interruptedRun } from "../../../../lawoss/chat/interrupted-run";
 import { eigenweltProviderRecoveryMessage } from "./eigenwelt-provider-error";
 import {
   parseDynamicToolUIParts,
@@ -261,14 +261,14 @@ export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMess
   return snapshot.messages.flatMap((message, index) => {
     const created = message.info.time?.created;
     const summary = message.info.role === "assistant" && "summary" in message.info && message.info.summary === true;
-    // 🟡 LAWOSS: odpoveď prerušená zatvorením appky (N-A9-16); len zobrazenie, nie stav behu.
-    const interrupted = interruptedBeforeLoad(message.info, { last: index === snapshot.messages.length - 1, idle: snapshot.status.type === "idle", loadedAt });
+    // 🟡 LAWOSS: odpoveď prerušená zatvorením appky (N-A9-16) alebo reštartom agenta (#473); len zobrazenie, nie stav behu.
+    const interrupted = interruptedRun(message.info, { last: index === snapshot.messages.length - 1, idle: snapshot.status.type === "idle", loadedAt, engineRestartedAt: snapshot.engineRestartedAt });
     // 🟡 LAWOSS: správa, ktorá končí ťah a jej jediný text je komentár modelu, ho ukáže ako odpoveď (N-A5-2, #269).
     const commentaryAnswer = commentaryIsAnswer(message.parts, message.info);
     const uiMessage = {
       id: message.info.id,
       role: message.info.role,
-      metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), ...(summary ? { summary: true } : {}), ...(interrupted ? { interrupted: true } : {}), ...(message.info.role === "assistant" && (message.info.time.completed || message.info.error) ? { completed: true } : {}) } },
+      metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), ...(summary ? { summary: true } : {}), ...(interrupted ? { interrupted } : {}), ...(message.info.role === "assistant" && (message.info.time.completed || message.info.error) ? { completed: true } : {}) } },
       parts: message.parts.flatMap<UIMessage["parts"][number]>((part) => {
         if (part.type === "text") {
           if (part.synthetic || part.ignored) return [];
