@@ -12,7 +12,7 @@
  *   bez rozhodnutia advokáta vráti `needs_decision`; nič sa neprepíše bez opýtania.
  *   Voľby: `keep` (ponechať moju úpravu), `replace` (prevziať novú verziu), `backup`
  *   (prevziať novú a moju úpravu uložiť bokom do `lawoss-zalohy/`).
- * - Vypnuté MCP ostane po aktualizácii alebo presune vypnuté.
+ * - Vypnuté MCP ostane po aktualizácii, presune aj opätovnej inštalácii (#441) vypnuté.
  */
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
@@ -165,10 +165,42 @@ export async function installGlobalPlugin(config: ServerConfig, url: string): Pr
   const pluginId = `${MARKETPLACE_ID_PREFIX}${url.replace(/^.*\/tree\/[a-f0-9]{40}\//, "")}`;
   const existing = (await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[pluginId];
   if (existing && !(await missingMcp(config, existing)).length) return { status: "already_installed", item: existing };
-  // #436: a plugin whose connection was removed in Settings installs again (connection back); the lawyer's edited
-  // files stay as they are, like `keep` in an update.
-  const kept = existing ? (await pluginFileChanges(globalPluginTarget(), existing)).filter((change) => change.state === "modified").map((change) => change.path) : [];
-  return { status: "installed", item: await installGlobal(config, await resolveClaudePluginBundle({ url, trustedRefs: await savedReleaseRefs(config) }), kept.length ? new Set(kept) : undefined) };
+  if (existing) return { status: "installed", item: await reinstallRemovedMcp(config, existing, url) };
+  return { status: "installed", item: await installGlobal(config, await resolveClaudePluginBundle({ url, trustedRefs: await savedReleaseRefs(config) })) };
+}
+
+/** The commit of the installed version, when its provenance names this marketplace. */
+function installedRef(plugin: CloudImportedPlugin): { ref: string; dir: string } | null {
+  const source = plugin.lawossProvenance?.source;
+  if (!source || source.owner !== MARKETPLACE_OWNER || source.repo !== MARKETPLACE_REPO || !source.dir || !/^[a-f0-9]{40}$/.test(source.ref)) return null;
+  return { ref: source.ref, dir: source.dir };
+}
+
+/**
+ * #436, #441: a plugin whose connection was removed in Settings installs again, which brings the connection back. The
+ * rest stays as the lawyer left it, like the other two install paths: the installed version (not the catalog's), the
+ * edited files (as `keep` in an update), and every connection still in the shared row with its own settings, turned
+ * off ones off from the publication on (`disabledMcpNames`).
+ */
+async function reinstallRemovedMcp(config: ServerConfig, existing: CloudImportedPlugin, url: string): Promise<CloudImportedPlugin> {
+  const target = globalPluginTarget();
+  const installed = installedRef(existing);
+  // The installed commit already passed the importer (under the higher limit only when the app trusted it), so the
+  // same bytes may be fetched again under the same limit after an app update moved the bundled catalog commit.
+  const trustedRefs = [...await savedReleaseRefs(config), ...(installed ? [installed.ref] : [])];
+  // Network before any change on disk: on failure everything stays as it was.
+  const bundle = await resolveClaudePluginBundle({ url: installed ? marketplacePluginUrl(installed.ref, installed.dir) : url, trustedRefs });
+  const kept = (await pluginFileChanges(target, existing)).filter((change) => change.state === "modified").map((change) => change.path);
+  const names = mcpNames(existing);
+  const shared = runtimeMcpMap(await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID));
+  const disabled = await disabledMcp(config, GLOBAL_MCP_ID, names);
+  const item = await installGlobal(config, bundle, kept.length ? new Set(kept) : undefined, new Set(disabled));
+  // The publication wrote the plugin's defaults; connections that stayed get back exactly their own entries.
+  for (const name of names) {
+    const entry = Object.hasOwn(shared, name) ? shared[name] : undefined;
+    if (entry) await addMcp(config, target.recordId, name, entry, "global");
+  }
+  return item;
 }
 
 /**
