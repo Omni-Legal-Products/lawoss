@@ -89,10 +89,13 @@ export async function searchSessionContents(
         add(session);
       if (found.size > RESULT_LIMIT) break;
     }
-    let scanned = 0;
+    let scanned = 0, budgetHit = false;
+    // 🟡 LAWOSS #465: prepis chatov najviac 3 s na požiadavku, potom neúplný výsledok („spresnite“).
+    const sessionDeadline = Date.now() + 3000;
     for (const session of sessions) {
       signal.throwIfAborted();
       if (found.size > RESULT_LIMIT) break;
+      if (Date.now() > sessionDeadline) { budgetHit = true; break; }
       if (found.has(String(session.id))) continue;
       // Stream complete public prose, excluding synthetic messages, tool
       // results and reasoning. Native user.text includes model reminders;
@@ -110,7 +113,7 @@ export async function searchSessionContents(
         [String(session.id)],
       );
       for (const part of parts) {
-        if (++scanned % 200 === 0) {
+        if (++scanned % 50 === 0) {
           await setImmediate();
           signal.throwIfAborted();
         }
@@ -122,7 +125,7 @@ export async function searchSessionContents(
     }
     return {
       items: [...found.values()].slice(0, RESULT_LIMIT),
-      limited: found.size > RESULT_LIMIT,
+      limited: found.size > RESULT_LIMIT || budgetHit,
     };
   } finally {
     db.close();
@@ -228,8 +231,9 @@ export async function searchFileContents(
     preparing = 0,
     limited = false;
   const deadline = Date.now() + 2500;
-  // 🟡 LAWOSS #465: po čase na obsah sa prechádzanie nezastaví, len hľadá ďalej podľa názvu (bez prípravy obsahu).
-  const nameDeadline = deadline + 5000;
+  // 🟡 LAWOSS #465: po čase na obsah sa prechádzanie nezastaví, len hľadá ďalej podľa názvu (bez prípravy obsahu),
+  // spolu najviac 4 s; každých 64 položiek prepustí iné požiadavky servera (žiadne blokovanie slučky udalostí).
+  const nameDeadline = deadline + 1500;
   const nameItems: ContentSearchResult[] = [], pathItems: ContentSearchResult[] = [];
   let stopped = false;
   const issue = (path: string, reason: string) => {
@@ -244,6 +248,7 @@ export async function searchFileContents(
         limited = stopped = true;
         break;
       }
+      if (visited % 64 === 0) { await setImmediate(); signal.throwIfAborted(); }
       const contentOpen = Date.now() <= deadline;
       if (!contentOpen) limited = true;
       if (entry.name.startsWith(".") || entry.isSymbolicLink()) continue;
