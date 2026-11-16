@@ -32,5 +32,26 @@ export async function settleEngineAgentTicket(config: ServerConfig, engine: { ur
     }
   }
   } finally { release?.(); }
+  // 🟡 LAWOSS #454: a probe superseded by a restarted engine must not close that engine's new window.
+  if (stop?.aborted) return;
   closeWikiAgentTicketWindow(config);
+}
+
+/**
+ * LAWOSS #454: one settle per published engine (startup, restart after a crash, recovery → service).
+ * A new engine supersedes the previous probe; `stop` ends them all when the server stops.
+ */
+export function createEngineTicketSettler(config: ServerConfig, directory: () => string, stop: AbortSignal, warn: (error: unknown) => void) {
+  let current: AbortController | undefined;
+  let settled: Promise<void> = Promise.resolve();
+  return {
+    settle(engine: { url: string; username: string; password: string }) {
+      current?.abort();
+      const own = new AbortController();
+      current = own;
+      const signal = AbortSignal.any([stop, own.signal]);
+      settled = settleEngineAgentTicket(config, engine, directory(), signal).catch((error: unknown) => { if (!signal.aborted) warn(error); });
+    },
+    get settled() { return settled; },
+  };
 }

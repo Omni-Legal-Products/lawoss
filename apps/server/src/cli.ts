@@ -30,7 +30,7 @@ import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { prepareIsolatedEngineHome } from "./lawoss/engine-home.js";
 import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import { issueWikiAgentTicket } from "./wiki/agent-access.js";
-import { settleEngineAgentTicket } from "./lawoss/engine-agent-ticket.js";
+import { createEngineTicketSettler } from "./lawoss/engine-agent-ticket.js";
 import { WIKI_AGENT_TICKET_ENV } from "./lawoss/engine-agent-contract.js";
 import pkg from "../package.json" with { type: "json" };
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
@@ -57,6 +57,9 @@ config.engineConfigurationMode = "native-project";
 const logger = createServerLogger(config);
 let managedOpencode: ManagedOpencodeServer | null = null;
 let managedLifecycle: Awaited<ReturnType<typeof startManagedEngineLifecycle>> | null = null;
+// 🟡 LAWOSS #454: every engine the lifecycle publishes (also after a crash) gets its ticket window settled.
+const engineTickets = createEngineTicketSettler(config, () => config.workspaces[0]?.path ?? "", new AbortController().signal,
+  (error) => console.warn(`[legalwork-server] engine ticket window left open: ${error instanceof Error ? error.message : String(error)}`));
 let stopConfigRefresh: (() => Promise<void>) | null = null;
 
 // Complete private storage upgrades before any provider or connector producer
@@ -115,7 +118,7 @@ const server = await startServer(config, { publicEngineBinary: () => managedOpen
       const service = { configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineHome, "state") };
       const dependencies = await prepareManagedOpencodeDependencies(config);
       if (dependencies.reason === "bundle-unavailable") console.warn("[legalwork-server] Prepare desktop resources to validate the released engine's bundled runtime declaration.");
-      managedLifecycle = await startManagedEngineLifecycle({ config, database, service, legacyMcpAuthPath: legacyMcpAuthPath(), create: async (mode, beforeSpawn) => {
+      managedLifecycle = await startManagedEngineLifecycle({ config, database, service, legacyMcpAuthPath: legacyMcpAuthPath(), onEnginePublished: engine => engineTickets.settle(engine), create: async (mode, beforeSpawn) => {
         const engine = await createConfiguredManagedEngine(config, {
         bin: await resolveServerOpencodeExecutable(process.env.LEGALWORK_OPENCODE_BIN),
         ...(process.env.LEGALWORK_MANAGED_OPENCODE_PORT ? { port: Number(process.env.LEGALWORK_MANAGED_OPENCODE_PORT) } : {}),
@@ -159,8 +162,7 @@ const server = await startServer(config, { publicEngineBinary: () => managedOpen
 
 // LAWOSS: not awaited, a cold plugin load must not delay startup; no instance serves anything before it.
 if (managedOpencode) {
-  void settleEngineAgentTicket(config, managedOpencode, config.workspaces[0]?.path ?? "")
-    .catch((error: unknown) => console.warn(`[legalwork-server] engine ticket window left open: ${error instanceof Error ? error.message : String(error)}`));
+  engineTickets.settle(managedOpencode);
 }
 
 const url = `http://${config.host}:${server.port}`;

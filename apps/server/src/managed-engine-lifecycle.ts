@@ -25,6 +25,8 @@ export async function startManagedEngineLifecycle(options: {
   service: ManagedOpencodeServiceOptions;
   create: (mode: "service" | "recovery", beforeSpawn?: () => Promise<void>) => Promise<ManagedOpencodeServer>;
   restart?: EngineRestartOptions;
+  /** 🟡 LAWOSS #454: an engine published after startup (restart, recovery → service); its agent ticket needs settling. */
+  onEnginePublished?: (engine: ManagedOpencodeServer) => void;
 }) {
   const { config } = options;
   const legacyMcpSource = options.legacyMcpAuthPath;
@@ -46,6 +48,7 @@ export async function startManagedEngineLifecycle(options: {
   const restartBudget = createEngineRestartBudget(options.restart);
   const lifetime = new AbortController();
   let outage: "restarting" | "failed" | undefined;
+  let startedUp = false;
   let restarting: Promise<void> | undefined;
   const outageError = () => outage === "restarting"
     ? new ApiError(503, "engine_restarting", "The agent engine stopped unexpectedly and is restarting. Retry this action in a moment.")
@@ -106,6 +109,7 @@ export async function startManagedEngineLifecycle(options: {
     }
     endpointLive = true;
     restartBudget.started(); supervise(engine);
+    if (startedUp) options.onEnginePublished?.(engine);
     // Session get/update is passive in the released API. Restore original chat
     // policies before service promotion can resume any interrupted agent work.
     try { await prepareLegacyPolicies(); } catch (error) { remember(error); }
@@ -256,6 +260,7 @@ export async function startManagedEngineLifecycle(options: {
     return true;
   };
   await start();
+  startedUp = true;
   config.managedImageAffinity = imageAffinity.resolve;
   config.managedEngineRecoveryState = () => ({ mode, heldSessions: mode === "service" ? [] : held, ...(failure ? { error: failure } : {}) });
   config.retryManagedEngineRecovery = refresh;

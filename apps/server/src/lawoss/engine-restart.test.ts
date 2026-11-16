@@ -39,7 +39,9 @@ const lifecycleScript = (src: string, scenario: string) => `
   const config = { workspaces: [workspace] };
   const engines = [];
   let failStarts = false, crashOnStart = false;
+  const published = [];
   const lifecycle = await startManagedEngineLifecycle({ config, database: "synthetic", service: {}, restart: { delaysMs: [20, 20, 20], stableMs: 60_000 },
+    onEnginePublished: engine => published.push(engine),
     create: async mode => {
       if (failStarts) { engines.push({ failed: true }); throw new Error("Synthetic start failure"); }
       const exit = deferred();
@@ -51,6 +53,7 @@ const lifecycleScript = (src: string, scenario: string) => `
     } });
   try {
     assert.equal(engines.length, 1);
+    assert.deepEqual(published, [], "the engine found at startup is settled by the caller");
     if (scenario === "restart") {
       engines[0].crash();
       await until(() => config.managedEngineStatus === "starting", "outage reported");
@@ -60,6 +63,7 @@ const lifecycleScript = (src: string, scenario: string) => `
       assert.equal(workspace.opencodePassword, "pw1");
       assert.equal(config.managedEngineStatus, "ready");
       assert.equal(lifecycle.engine, engines[1]);
+      assert.deepEqual(published, [engines[1]], "a restarted engine is announced for its agent ticket");
       let admitted = false;
       await config.withManagedEngineAdmission("new", async () => { admitted = true; });
       assert.equal(admitted, true);

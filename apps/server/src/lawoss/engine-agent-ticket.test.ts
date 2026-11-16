@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig } from "../types.js";
 import { ensureWikiAgentToken, issueWikiAgentTicket, redeemWikiAgentTicket, retainWikiAgentRuntime } from "../wiki/agent-access.js";
-import { settleEngineAgentTicket } from "./engine-agent-ticket.js";
+import { createEngineTicketSettler, settleEngineAgentTicket } from "./engine-agent-ticket.js";
 
 const cleanup: Array<() => unknown> = [];
 afterEach(async () => { for (const stop of cleanup.splice(0).reverse()) await stop(); });
@@ -75,4 +75,31 @@ test("stopping the server abandons the probe without closing the window", async 
   stop.abort();
   await expect(settleEngineAgentTicket(config, engine, directory, stop.signal)).rejects.toThrow();
   expect(redeemWikiAgentTicket(config, ticket)).toBe(await ensureWikiAgentToken(config));
+});
+
+test("#454: a probe superseded after its engine answered does not close the next engine's window", async () => {
+  const { config, directory, engine } = await fixture(200);
+  issueWikiAgentTicket(config);
+  const superseded = new AbortController();
+  let next = "";
+  // The old engine has answered; the engine restarts (new ticket) before the old probe finishes.
+  config.lawossEngineMcpAdmission = async () => () => { next = issueWikiAgentTicket(config); superseded.abort(); };
+  await settleEngineAgentTicket(config, engine, directory, superseded.signal);
+  expect(redeemWikiAgentTicket(config, next)).toBe(await ensureWikiAgentToken(config));
+});
+
+test("#454: every engine published after a restart has its ticket window settled, and only the latest counts", async () => {
+  const { config, seen, directory, engine } = await fixture(200);
+  const stop = new AbortController();
+  const warnings: unknown[] = [];
+  const tickets = createEngineTicketSettler(config, () => directory, stop.signal, error => warnings.push(error));
+  const first = issueWikiAgentTicket(config);
+  tickets.settle(engine);
+  const restarted = issueWikiAgentTicket(config);
+  tickets.settle(engine);
+  await tickets.settled;
+  expect(() => redeemWikiAgentTicket(config, first)).toThrow(expect.objectContaining({ status: 403 }));
+  expect(() => redeemWikiAgentTicket(config, restarted)).toThrow(expect.objectContaining({ status: 403 }));
+  expect(seen.length).toBeGreaterThanOrEqual(1);
+  expect(warnings).toEqual([]);
 });

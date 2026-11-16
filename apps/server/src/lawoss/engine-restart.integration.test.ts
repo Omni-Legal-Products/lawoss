@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "../managed-engine-lifecycle.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
+import { issueWikiAgentTicket, redeemWikiAgentTicket, retainWikiAgentRuntime } from "../wiki/agent-access.js";
+import { createEngineTicketSettler } from "./engine-agent-ticket.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 
@@ -25,9 +27,14 @@ test.skipIf(!binary)("#454: a released engine killed after startup is restarted 
     const deadline = Date.now() + 60_000;
     while (!condition()) { if (Date.now() > deadline) throw new Error(`Timed out: ${label}`); await Bun.sleep(20); }
   };
+  const releaseAgentRuntime = retainWikiAgentRuntime(config);
+  const tickets = createEngineTicketSettler(config, () => project, new AbortController().signal, error => { throw error; });
+  // Every engine start issues its own ticket, as in embedded.ts.
+  let ticket = "";
   const lifecycle = await startManagedEngineLifecycle({ config, database, service, restart: { delaysMs: [100, 100], stableMs: 60_000 },
-    create: (mode, beforeSpawn) => createConfiguredManagedEngine(config, { bin: binary, cwd: home, timeoutMs: 30_000, env, beforeSpawn,
-      ...(mode === "service" ? { service } : { parentLease: true }) }) });
+    onEnginePublished: engine => tickets.settle(engine),
+    create: (mode, beforeSpawn) => (ticket = issueWikiAgentTicket(config), createConfiguredManagedEngine(config, { bin: binary, cwd: home, timeoutMs: 30_000, env, beforeSpawn,
+      ...(mode === "service" ? { service } : { parentLease: true }) })) });
   try {
     const original = lifecycle.engine;
     if (!original.pid) throw new Error("An engine PID is required");
@@ -42,8 +49,12 @@ test.skipIf(!binary)("#454: a released engine killed after startup is restarted 
     expect(workspace.opencodePassword).toBe(restarted.password);
     expect((await info(workspace.baseUrl!, workspace.opencodePassword!)).status).toBe(200);
     expect(config.managedEngineRecoveryState?.().mode).toBe("service");
+    // The restarted engine's plugins have loaded once: its ticket window is closed, not left open for ten minutes.
+    await tickets.settled;
+    expect(() => redeemWikiAgentTicket(config, ticket)).toThrow(expect.objectContaining({ status: 403 }));
   } finally {
     await lifecycle.close();
+    await releaseAgentRuntime();
     await rm(root, { recursive: true, force: true });
   }
 }, 120_000);
