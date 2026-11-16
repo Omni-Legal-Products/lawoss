@@ -54,13 +54,25 @@ function bundle(original) {
     }
     if (name.endsWith('.dylib')) run('install_name_tool', ['-id', `@loader_path/${name}`, output]);
   } else if (process.platform === 'win32') {
-    for (const name of peImports(readFileSync(canonical))) {
+    const bytes = readFileSync(canonical);
+    for (const name of peImports(bytes)) {
       const dll = join(dirname(source), name);
       if (existsSync(dll)) bundle(dll);
       else if (!existsSync(join(process.env.SystemRoot, 'System32', name)) && !/^(api|ext)-ms-/i.test(name)) throw new Error(`Missing QEMU library ${name}`);
     }
+    // 🟡 LAWOSS (#419): MSYS2 nahradil SDL2 balíkom sdl2-compat. Jeho SDL2.dll
+    // načíta SDL3.dll cez LoadLibrary v DllMain (nie je v tabuľke importov) a keď
+    // chýba, ukáže modálne okno; QEMU potom visí aj pri --version.
+    for (const [library, companion] of runtimeLoaded) {
+      if (name.toLowerCase() !== library || !bytes.includes(companion)) continue;
+      const dll = join(dirname(source), companion);
+      if (!existsSync(dll)) throw new Error(`Missing QEMU library ${companion} loaded at runtime by ${name}`);
+      if (!copied.has(companion)) console.log(`Bundling ${companion} loaded at runtime by ${name}`);
+      bundle(dll);
+    }
   }
 }
+const runtimeLoaded = [['sdl2.dll', 'SDL3.dll']];
 bundle(source);
 const notices = ['LegalWork protected execution runtime',
   'QEMU 11.1.2 source: https://download.qemu.org/qemu-11.1.2.tar.xz',
@@ -102,6 +114,17 @@ if (process.platform === 'darwin') {
   const identity = process.env.SANDBOX_SIGN_IDENTITY ?? '-';
   for (const name of [...copied.keys()].reverse()) run('codesign', ['--force', '--sign', identity,
     ...(identity === '-' ? [] : ['--options', 'runtime']), ...(name === executable ? ['--entitlements', entitlements] : []), join(destination, name)]);
+}
+// 🟡 LAWOSS (#419): spustiť pribalené QEMU bez priečinkov MSYS2 v PATH, aby sa
+// knižnica načítaná až za behu, ktorá v balíku chýba, ukázala tu a nie ako zaseknutie testov.
+if (process.platform === 'win32') {
+  const systemRoot = process.env.SystemRoot;
+  const env = { ...process.env, PATH: [join(systemRoot, 'System32'), systemRoot, join(systemRoot, 'System32', 'Wbem')].join(';') };
+  for (const key of Object.keys(env)) if (key !== 'PATH' && key.toUpperCase() === 'PATH') delete env[key];
+  const probe = spawnSync(join(destination, executable), ['--version'], { encoding: 'utf8', env, timeout: 60000, windowsHide: true });
+  if (probe.status !== 0 || !probe.stdout.includes('11.1.2')) {
+    throw new Error(`Bundled ${executable} --version failed outside MSYS2 (status ${probe.status}, signal ${probe.signal}): ${probe.stderr || probe.error || ''}`);
+  }
 }
 const files = {};
 for (const name of readdirSync(destination).sort()) {
