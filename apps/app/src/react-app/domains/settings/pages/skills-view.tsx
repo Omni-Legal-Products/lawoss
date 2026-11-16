@@ -86,6 +86,7 @@ import { importedSkillPlugin, pluginImportName, pluginImportSkillName } from "./
 import { SkillDetailsDialog } from "./skill-details-dialog";
 import { FirmSkillDialog } from "./firm-skill-dialog";
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
+import { useExtensionHiddenVersion, visibleSettingsSkills } from "@/lawoss/domains/integrations/hidden-skills"; // 🟡 LAWOSS #514
 
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
@@ -358,13 +359,14 @@ export function SkillsView(props: SkillsViewProps) {
     }
   }, [extensions, isWorkflowsView, templateRun?.status]);
   const allSkills = extensions.skills();
+  const hiddenVersion = useExtensionHiddenVersion(); // 🟡 LAWOSS #514: skryté skilly ako v katalógu integrácií
   // Each view shows only its own kind; both live in the same skill store.
   const skills = useMemo(
-    () => allSkills.filter((skill) => isWorkflowCard(skill) === isWorkflowsView
+    () => visibleSettingsSkills(allSkills).filter((skill) => isWorkflowCard(skill) === isWorkflowsView
       && (source === "all" || (source === "team" ? Boolean(skill.firm) : !skill.firm))
       // The embedded team catalogue includes installed and offered items together.
       && !(libraryLayout && !isWorkflowsView && props.firmDownloadView && skill.firm)),
-    [allSkills, isWorkflowsView, source, libraryLayout, props.firmDownloadView],
+    [allSkills, isWorkflowsView, source, libraryLayout, props.firmDownloadView, hiddenVersion],
   );
   const hubSkills = extensions.hubSkills();
   const hubRepo = extensions.hubRepo();
