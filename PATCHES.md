@@ -2348,6 +2348,7 @@ Návrat priečinka bez obnovenia okna: karta `lawoss/domains/missing-folder.tsx`
 
 | Súbor | Zmena |
 |---|---|
+| `apps/app/src/react-app/shell/route-workspaces.ts` | `mergeRouteWorkspaces`: meno/zobrazované meno z desktopového registra, ktoré je len menom priečinka (sprievodca tak registruje klientov), nezakryje meno servera; inak sa bez karty klienta (chýbajúci priečinok) všade ukáže slug. Meno, ktoré advokát dal v desktope, ostáva. |
 | `apps/app/src/react-app/shell/use-workspace-route-state.ts` | Chyba načítania chatov priestoru cez `workspaceErrorMessage(error)` (+1 import, 1 výraz): pri `project_folder_unavailable` nesie text kód `[project_folder_unavailable]` na preklad. |
 | `apps/app/src/react-app/domains/session/chat/session-page.tsx` | Chyba vybraného priestoru cez `workspaceErrorText(…, projectName)` (+1 import, 2 výrazy): chýbajúci priečinok preložene s menom klienta; titulok „OpenCode unavailable“ → `lawoss.engine.unavailable`; `folderUnavailable` pre `StatusBar` (2 atribúty). |
 | `apps/app/src/react-app/domains/session/chat/status-bar.tsx` | Voliteľná prop `folderUnavailable` (+1 vetva): server beží, chýba len priečinok vybraného klienta = „Priečinok klienta sa nenašiel · {meno}…“, nie „Odpojené · Znova sa pripojíte v nastaveniach“. |

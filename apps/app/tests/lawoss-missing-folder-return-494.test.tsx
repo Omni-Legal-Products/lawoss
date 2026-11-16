@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { MissingFolderView } from "../src/lawoss/domains/missing-folder";
-import { clientRowFrom } from "../src/lawoss/lite/client-row-view";
 import { recoverFolder } from "../src/lawoss/shell/workspace-folder";
 import { PROJECT_FOLDER_RECONNECTED_EVENT } from "../src/react-app/domains/workspace/project-folder-recovery";
 
@@ -28,9 +27,14 @@ test("#494: the missing-folder card offers Try again next to Find the moved fold
   expect(html).toContain("Nájsť presunutý priečinok");
 });
 
-test("#494: a client whose folder is missing keeps its remembered name, not the folder slug", () => {
-  const facts = { path: null, eligible: false, pending: false } as unknown as Parameters<typeof clientRowFrom>[0];
-  expect(clientRowFrom(facts, "C024-syn-tomas-svec-remesla", "sk", "SYN Tomáš Švec remeslá").label).toBe("SYN Tomáš Švec remeslá");
-  // A plain project without a remembered client card keeps its own name.
-  expect(clientRowFrom(facts, "Projekt X", "sk").label).toBe("Projekt X");
+test("#494: a client registered on the desktop under its folder name shows the server's name", async () => {
+  const { mergeRouteWorkspaces } = await import("../src/react-app/shell/route-workspaces");
+  const path = "/p/Klienti/C024-syn-tomas-svec-remesla";
+  const server = [{ id: "ws_c024", name: "SYN Tomáš Švec remeslá", path, workspaceType: "local" }];
+  const desktop = [{ id: "ws_c024", name: "C024-syn-tomas-svec-remesla", displayName: "C024-syn-tomas-svec-remesla", path, workspaceType: "local" }];
+  const merged = mergeRouteWorkspaces(server as never, desktop as never);
+  expect(merged.find(w => w.id === "ws_c024")?.displayNameResolved).toBe("SYN Tomáš Švec remeslá");
+  // A name the user gave on the desktop still wins.
+  const renamed = mergeRouteWorkspaces(server as never, [{ ...desktop[0], name: "Švec – remeslá", displayName: "Švec – remeslá" }] as never);
+  expect(renamed.find(w => w.id === "ws_c024")?.displayNameResolved).toBe("Švec – remeslá");
 });
