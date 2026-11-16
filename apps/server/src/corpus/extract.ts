@@ -57,7 +57,7 @@ export function officeText(bytes: Uint8Array, extension: string) {
   }).join("\n\n");
 }
 export type CorpusText = { text: string; pages: EvidencePage[]; complete: boolean; extraction: "native" | "ocr"; hash: string; preparationPath?: string; issue?: string; attachments?: CorpusAttachment[]; pdfCoverage?: PdfPageCoverage[] };
-export async function extractCorpusText(workspace: string, path: string, preparation: DocumentPreparation, signal: AbortSignal, options: { retry?: boolean; attachments?: boolean } = {}): Promise<CorpusText> {
+export async function extractCorpusText(workspace: string, path: string, preparation: DocumentPreparation, signal: AbortSignal, options: { retry?: boolean; attachments?: boolean; scans?: "prepare" | "native-only" } = {}): Promise<CorpusText> {
   signal.throwIfAborted();
   const root = await realpath(workspace), absolute = await realpath(resolve(root, path));
   if (!within(root, absolute)) throw new Error("The file is outside this project.");
@@ -75,12 +75,17 @@ export async function extractCorpusText(workspace: string, path: string, prepara
   let attachments: CorpusAttachment[] | undefined;
   let pdfCoverage: PdfPageCoverage[] | undefined;
   const requiredOcrPages = new Set<number>();
+  const nativeOnly = options.scans === "native-only";
+  let visualsUnchecked = false;
   if (extension === ".pdf") {
-    const inspected = await inspectPdfText(bytes, signal);
+    // 🟡 LAWOSS #465: pri hľadaní len text strán; kontrola obrázkov dekóduje skeny na hlavnom vlákne.
+    const inspected = await inspectPdfText(bytes, signal, !nativeOnly);
+    visualsUnchecked = nativeOnly;
     pdfCoverage = inspected.map(({ page, nativeTextCoverage, visualReasons }) => ({ page, nativeTextCoverage, visualReasons }));
     pages = inspected.map((page, index) => ({ page: index + 1, text: page.text, source: "native", status: page.needsOcr || page.visualReasons.length ? "needs-review" : "complete" }));
     inspected.forEach((page, index) => { if (page.needsOcr) requiredOcrPages.add(index + 1); });
-    needsOcr = requiredOcrPages.size > 0;
+    // 🟡 LAWOSS #465: pri hľadaní sa už pripravený dokument (OCR obrázkov a dodatkov) použije vždy, ak existuje.
+    needsOcr = requiredOcrPages.size > 0 || nativeOnly;
   } else if (extension === ".eml") {
     const message = await emailEvidence(bytes, signal); text = message.body; attachments = message.attachments;
     // Corpus-only readers do not recursively prepare attachments. The document
@@ -94,9 +99,11 @@ export async function extractCorpusText(workspace: string, path: string, prepara
     if (text.includes("\0")) throw new Error("The file is binary, not readable text.");
     if ([".html", ".htm", ".xml"].includes(extension)) text = xmlText(text);
   }
+  // 🟡 LAWOSS #465: hľadanie na pozadí (`native-only`) nevykresľuje ani nečíta skeny, len použije už pripravený
+  // dokument (vykreslenie strán blokovalo server); inak ostane neúplný s natívnym textom.
   if (needsOcr) {
     try {
-      const evidence = await prepareReviewEvidence({ workspace, path, preparation, signal, force: options.retry ?? false, onProgress: async () => {} });
+      const evidence = await prepareReviewEvidence({ workspace, path, preparation, signal, force: options.retry ?? false, cachedOnly: nativeOnly, onProgress: async () => {} });
       pages = evidence.pages; preparationPath = evidence.preparationPath; complete = evidence.complete;
       extraction = pages.some(page => page.source === "ocr" && page.text.trim()) ? "ocr" : "native";
       // Text-only preparation can keep long native passages, but it cannot cover
@@ -111,9 +118,11 @@ export async function extractCorpusText(workspace: string, path: string, prepara
       // Keep searchable native passages, but never present partial coverage as a
       // reliable negative. UI and agents receive the same incomplete document.
       complete = false;
-      issue = error instanceof Error ? error.message : "Document preparation failed.";
+      issue = nativeOnly ? "Scanned pages are not read during search. Open or prepare the document to search its scanned text."
+        : error instanceof Error ? error.message : "Document preparation failed.";
     }
   }
+  if (visualsUnchecked) { complete = false; issue ??= "Images in this PDF are not checked during search. Open or prepare the document to read them."; }
   // OCR cannot certify whether an unrecognized signature/path is decorative.
   if (pdfCoverage?.some(page => page.visualReasons.length)) {
     pages = pages.map(page => pdfCoverage!.some(coverage => coverage.page === page.page && coverage.visualReasons.length) ? { ...page, status: "needs-review" } : page);
