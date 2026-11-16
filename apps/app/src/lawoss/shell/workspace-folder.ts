@@ -38,3 +38,18 @@ export async function retryProjectQueries(refetches: readonly (() => Promise<{ e
   await invalidate();
   events.dispatchEvent(new Event(PROJECT_FOLDER_RECONNECTED_EVENT));
 }
+
+/** Ako často karta chýbajúceho priečinka overí, či je priečinok späť (jeden lacný výpis koreňa klienta). */
+export const FOLDER_RETURN_PROBE_MS = 5_000;
+
+/**
+ * #494: priečinok klienta je zase dostupný? `probe` je výpis jeho koreňa (404, kým chýba). Keď prejde, obnoví všetky
+ * dopyty (aj prehľad praxe, ktorý by klienta inak znova prečítal až o 5–15 min) a ohlási obnovený priečinok, takže
+ * stav trasy zruší chybu priestoru a obnoví synchronizáciu chatov – bez obnovenia okna.
+ */
+export async function recoverFolder(probe: () => Promise<unknown>, queries: { invalidateQueries: () => Promise<unknown> }, events: EventTarget = window): Promise<boolean> {
+  try { await probe(); } catch { return false; }
+  await queries.invalidateQueries();
+  events.dispatchEvent(new Event(PROJECT_FOLDER_RECONNECTED_EVENT));
+  return true;
+}

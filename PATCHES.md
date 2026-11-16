@@ -2344,7 +2344,7 @@ Len bežný režim; pokročilý ostáva natívny. Logika je v nových alebo zele
 
 ### Zmiznutý priečinok klienta (2026-11-16, fix/494-zmiznuty-priecinok-klienta, #494)
 
-Logika je v novom `apps/app/src/lawoss/shell/workspace-folder.ts` a v zelených `lawoss/lite/client-overview.tsx`, `client-row-view.tsx`; testy `apps/app/tests/lawoss-missing-client-folder-494.test.tsx`, `apps/server/src/lawoss/missing-client-folder.e2e.test.ts`.
+Návrat priečinka bez obnovenia okna: karta `lawoss/domains/missing-folder.tsx` („Skúsiť znova“, overenie každých 5 s, `recoverFolder`), test `apps/app/tests/lawoss-missing-folder-return-494.test.tsx`. Logika je v novom `apps/app/src/lawoss/shell/workspace-folder.ts` a v zelených `lawoss/lite/client-overview.tsx`, `client-row-view.tsx`; testy `apps/app/tests/lawoss-missing-client-folder-494.test.tsx`, `apps/server/src/lawoss/missing-client-folder.e2e.test.ts`.
 
 | Súbor | Zmena |
 |---|---|

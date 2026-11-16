@@ -45,7 +45,8 @@ export function clientRowFrom(facts: ClientRowFacts | undefined, nativeLabel: st
   if (!facts || (facts.pending && remembered)) return { label: remembered ?? nativeLabel, nativeLabel, client: false };
   // #494: priečinok klienta chýba, prehľad meno z karty neprečítal; meno zapamätané z karty má prednosť pred slugom.
   const named = clientLabel({ nativeLabel, path: facts.path, eligible: facts.eligible, cardTitle: facts.cardTitle ?? remembered });
-  if (!named.path) return { label: named.label, nativeLabel, client: false };
+  // #494: bez priečinka (chýba) klient nie je „eligible“; zapamätané meno z karty má aj tak prednosť pred slugom.
+  if (!named.path) return { label: remembered ?? named.label, nativeLabel, client: false };
   return {
     label: named.label, nativeLabel, client: true,
     // Celá lehota aj v bublinke (v úzkom riadku sa môže skrátiť nanajvýš kód klienta, nie lehota).
