@@ -2,10 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { StatusBar } from "../src/react-app/domains/session/chat/status-bar";
-import { engineStatusText, reportEngineHealth, retryEngine } from "../src/lawoss/shell/engine-status";
+import { engineHealthPollDelay, engineStatusText, reportEngineHealth, retryEngine } from "../src/lawoss/shell/engine-status";
 
-const bar = () => renderToStaticMarkup(<TooltipProvider><StatusBar clientConnected legalworkServerStatus="connected" developerMode={false}
-  settingsOpen={false} onOpenSettings={() => {}} providerConnectedIds={[]} mcpConnectedCount={0} showSettingsButton={false} /></TooltipProvider>);
+const bar = (connection: { clientConnected: boolean; legalworkServerStatus: "connected" | "disconnected" | "limited" } = { clientConnected: true, legalworkServerStatus: "connected" }) =>
+  renderToStaticMarkup(<TooltipProvider><StatusBar clientConnected={connection.clientConnected} legalworkServerStatus={connection.legalworkServerStatus} developerMode={false}
+    settingsOpen={false} onOpenSettings={() => {}} providerConnectedIds={[]} mcpConnectedCount={0} showSettingsButton={false} /></TooltipProvider>);
 
 afterEach(() => reportEngineHealth(null));
 
@@ -59,5 +60,41 @@ describe("#477: „Skúsiť znova“, keď agent nie je dostupný", () => {
     answer({ restarting: true, engine: { status: "starting" } });
     await Promise.all([first, second]);
     expect(bar()).toContain('data-lawoss-engine-status="starting"');
+  });
+});
+
+describe("#477: stav enginu aj vtedy, keď appka hlási odpojenie", () => {
+  // Keď engine nebeží, kontrola schopností servera zlyhá a store hlási „disconnected“; /health pritom stav enginu hlási.
+  const down = { clientConnected: false, legalworkServerStatus: "disconnected" as const };
+
+  test("nedostupný agent ukáže „Skúsiť znova“ namiesto „Odpojené“, aj počas prvých sekúnd po štarte", () => {
+    reportEngineHealth("error", async () => ({ restarting: true, engine: { status: "starting" } }));
+    const html = bar(down);
+    expect(html).toContain('data-lawoss-engine-status="error"');
+    expect(html).toContain("Try again");
+    expect(html).not.toContain("Preparing");
+  });
+
+  test("bez hláseného stavu enginu ostáva bežné „Odpojené“", () => {
+    reportEngineHealth(null);
+    expect(bar(down)).not.toContain("data-lawoss-engine-status");
+  });
+
+  test("kým engine nebeží, kontrola zdravia sa opakuje krátko a nenarastá na 60 s", () => {
+    reportEngineHealth("error");
+    expect(engineHealthPollDelay(false, 60_000)).toBe(5_000);
+    expect(engineHealthPollDelay(true, 10_000)).toBe(5_000);
+    reportEngineHealth("starting");
+    expect(engineHealthPollDelay(false, 40_000)).toBe(2_000);
+    reportEngineHealth("ready");
+    expect(engineHealthPollDelay(true, 60_000)).toBe(10_000);
+    reportEngineHealth(null);
+    expect(engineHealthPollDelay(false, 10_000)).toBe(20_000);
+    expect(engineHealthPollDelay(false, 40_000)).toBe(60_000);
+  });
+
+  test("store plánuje kontrolu zdravia podľa stavu enginu", async () => {
+    const source = await Bun.file(new URL("../src/react-app/domains/connections/legalwork-server-store.ts", import.meta.url)).text();
+    expect(source).toContain("healthDelayMs = engineHealthPollDelay(healthy, healthDelayMs);");
   });
 });

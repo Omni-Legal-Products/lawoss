@@ -53,21 +53,9 @@ function StatusIndicator(props: StatusIndicatorProps) {
   // 🟡 LAWOSS #454: spojenie so serverom nestačí; kým engine nebeží, riadok nehlási „pripravené“.
   const canRetryEngine = useEngineRetryAvailable(); // 🟡 LAWOSS #477
   const engine = engineStatusText(useEngineHealth(), canRetryEngine);
-  if (props.loading || (props.legalworkServerStatus === "disconnected" && props.initializing)) {
-    return (
-      <div className="flex min-w-0 items-center gap-2.5">
-        <StatusDot variant="loading" />
-        <span className="shrink-0 font-medium text-foreground text-xs">
-          {t("session.preparing_workspace")}
-        </span>
-        <span className="truncate text-muted-foreground text-xs">
-          {t("session.loading_detail")}
-        </span>
-      </div>
-    );
-  }
-
-  if (props.clientConnected && engine) {
+  // 🟡 LAWOSS #477: /health hlási stav enginu, teda server beží; „Odpojené“ (zlyhaná kontrola schopností, ktorá
+  // potrebuje engine) ani „Pripravujem“ po štarte nesmú skryť nedostupného agenta a jeho „Skúsiť znova“.
+  if (!props.loading && engine) {
     return (
       <div className="flex min-w-0 items-center gap-2.5" data-lawoss-engine-status={engine.failed ? "error" : "starting"}>
         <StatusDot variant={engine.failed ? "disconnected" : "loading"} />
@@ -78,6 +66,20 @@ function StatusIndicator(props: StatusIndicatorProps) {
             {t("lawoss.engine.retry")}
           </Button>
         ) : null}
+      </div>
+    );
+  }
+
+  if (props.loading || (props.legalworkServerStatus === "disconnected" && props.initializing)) {
+    return (
+      <div className="flex min-w-0 items-center gap-2.5">
+        <StatusDot variant="loading" />
+        <span className="shrink-0 font-medium text-foreground text-xs">
+          {t("session.preparing_workspace")}
+        </span>
+        <span className="truncate text-muted-foreground text-xs">
+          {t("session.loading_detail")}
+        </span>
       </div>
     );
   }

@@ -39,6 +39,17 @@ export function engineHealthPending(): boolean {
   return current === "starting" || current === "migrating";
 }
 
+/**
+ * #477: odstup ďalšej kontroly zdravia servera. Kým engine nebeží, /health odpovedá, ale kontrola schopností
+ * servera zlyhá a store by odstup zdvojnásoboval až na 60 s; riadok by potom ešte minútu hlásil nedostupného
+ * agenta, hoci už beží. Pri hlásenom výpadku enginu sa preto kontroluje krátko a stálo.
+ */
+export function engineHealthPollDelay(healthy: boolean, previousMs: number): number {
+  if (engineHealthPending()) return 2_000;
+  if (current === "error") return 5_000;
+  return healthy ? 10_000 : Math.min(previousMs * 2, 60_000);
+}
+
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 
 export function useEngineHealth(): EngineHealth | null {
