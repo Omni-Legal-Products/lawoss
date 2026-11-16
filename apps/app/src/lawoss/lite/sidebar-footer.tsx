@@ -12,7 +12,11 @@ import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui
 import { usePlatform } from "@/react-app/kernel/platform";
 import { workspaceSettingsRoute } from "@/react-app/shell/workspace-routes";
 import { useMcpStatuses } from "./mcp-status-store";
-import { feedbackPageUrl, registersSummary, type RegistersSummary } from "./sidebar-model";
+import { registersSummary, type RegistersSummary } from "./sidebar-model";
+import { reportProblem } from "./report-problem";
+import { toast } from "@/components/ui/sonner";
+import { openDesktopUrl } from "@/app/lib/desktop";
+import { isDesktopRuntime } from "@/app/utils";
 import { isSettingsPath, rememberSettingsReturn } from "./settings-return";
 
 const ROW_CLASS = "gap-2.5 text-[13px] text-sidebar-foreground/80 [&_svg]:size-4";
@@ -33,7 +37,7 @@ export function LiteSidebarFooter({ workspaceId }: { workspaceId?: string | null
   const platform = usePlatform();
   const locale = useLocale();
   const summary = registersSummary(useMcpStatuses());
-  return <LiteSidebarFooterView workspaceId={workspaceId} summary={summary} locale={locale} onReport={() => platform.openLink(feedbackPageUrl(locale))} />;
+  return <LiteSidebarFooterView workspaceId={workspaceId} summary={summary} locale={locale} onReport={() => void reportProblem(locale, isDesktopRuntime() ? openDesktopUrl : async (url) => platform.openLink(url), toast)} />;
 }
 
 export function LiteSidebarFooterView(props: { workspaceId?: string | null; summary: RegistersSummary; locale: Language; onReport: () => void }) {

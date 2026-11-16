@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n";
 import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resolveWorkspaceListSelectedId, workspaceCreate, workspaceSetRuntimeActive, workspaceSetSelected } from "@/app/lib/desktop";
 import { canonicalDirectoryPath, pickDirectory } from "@/app/lib/desktop";
@@ -20,6 +21,7 @@ import { canonicalPathOf, withCanonicalPaths } from "@/lawoss/domains/onboarding
 import { watchLegalworkConnection } from "@/lawoss/domains/onboarding/server-connection";
 import { registerOnboardedWorkspace } from "@/lawoss/domains/onboarding/register-clients";
 import { openOnboardedClientChat } from "@/lawoss/domains/onboarding/client-chat-open";
+import { useBootState } from "./boot-state";
 
 // 🟡 LAWOSS: napísané a vložené cesty idú na server v tvare ako vybrané v dialógu (Windows, typed-paths.ts); v prehliadači bez zmeny.
 const typedPaths = (client: LegalworkServerClient) => isDesktopRuntime() ? withCanonicalPaths(client, canonicalDirectoryPath) : client;
@@ -47,6 +49,9 @@ export function WelcomeRoute() {
   const registeredClient = useRef<LegalworkServerClient | null>(null);
   const continuation = new URLSearchParams(location.search).get("continue");
   const initialStep = continuationStep(continuation);
+  // 🟡 LAWOSS #452: reload priamo na /welcome nesmie nechať štartovací prekryv navždy (ako ostatné trasy).
+  const { markRouteReady } = useBootState();
+  useEffect(() => markRouteReady(), [markRouteReady]);
 
   // 🟡 LAWOSS: pri prvom štarte počká, kým boot spustí server (server-connection.ts), namiesto okamžitej chyby.
   useEffect(() => watchLegalworkConnection({
@@ -84,7 +89,7 @@ export function WelcomeRoute() {
   };
   // LAWOSS: tok z bočného panela po dokončenom onboardingu má „Zrušiť“ späť (prvá stránka histórie: domov).
   // 🟡 LAWOSS: „Otvoriť chat s klientom“ po pridaní priečinka (client-chat-open.ts); dokončenie pristane v chate (`landing`).
-  return <LawossWelcomePage api={client} initialStep={initialStep} initialRoot={new URLSearchParams(location.search).get("root") ?? undefined} hasCompletedOnboarding={local.prefs.hasCompletedOnboarding} onCancel={() => location.key === "default" ? navigate("/home") : navigate(-1)} pickDirectory={async () => { const result = await pickDirectory({ title: "Select LAWOSS folder", canonical: true }); return typeof result === "string" ? result : null; }} onOpenAiSettings={() => navigate("/settings/ai")} onRegister={async (result, completion) => (await register(result, completion)).registered?.client} onOpenClientChat={(request, skillLanguage) => openOnboardedClientChat(request, { skillLanguage, defaultModel: local.prefs.defaultModel })} onComplete={async (result, completion) => {
+  return <LawossWelcomePage api={client} initialStep={initialStep} initialRoot={new URLSearchParams(location.search).get("root") ?? undefined} hasCompletedOnboarding={local.prefs.hasCompletedOnboarding} onCancel={() => location.key === "default" ? navigate("/home") : navigate(-1)} pickDirectory={async () => { const result = await pickDirectory({ title: t("lawoss.setup.welcome.pickFolderTitle"), canonical: true }); return typeof result === "string" ? result : null; }} onOpenAiSettings={() => navigate("/settings/ai")} onRegister={async (result, completion) => (await register(result, completion)).registered?.client} onOpenClientChat={(request, skillLanguage) => openOnboardedClientChat(request, { skillLanguage, defaultModel: local.prefs.defaultModel })} onComplete={async (result, completion) => {
     const { status, registered } = await register(result, completion);
     const okf = status.profile?.okf?.enabled === true;
     const activeId = registered?.id;

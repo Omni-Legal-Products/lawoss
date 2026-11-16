@@ -3,6 +3,7 @@
  * Dokončenie sa odvodzuje z profilu na serveri (W4), nie z localStorage.
  */
 import type { OnboardingProfile, OnboardingStep } from "./api";
+import { withoutLawossHome } from "../../home-workspace";
 
 type ProfilePatch = Omit<Partial<OnboardingProfile>, "foundRoot"> & { foundRoot?: string | null };
 type ProfileWriter = { updateOnboardingProfile(patch: ProfilePatch): Promise<OnboardingProfile> };
@@ -15,6 +16,15 @@ type ProfileWriter = { updateOnboardingProfile(patch: ProfilePatch): Promise<Onb
 export function onboardingIncomplete(profile: OnboardingProfile | null | undefined, hasCompletedOnboarding: boolean): boolean {
   if (!profile || profile.completedAt) return false;
   return !(hasCompletedOnboarding && Boolean(profile.officeRoot || profile.clientRoot));
+}
+
+/**
+ * #453: sprievodca opustený pred uložením profilu. Profil na serveri nie je (`null`, nie nenačítaný) a okrem
+ * interného domova nie je žiadny priečinok. Príznak z prefs sa nezohľadňuje: presmerovanie na /welcome ho
+ * potrebuje nepravdivý, a advokát bez profilu aj bez priečinka nastavenie nemá, nech hovorí príznak čokoľvek.
+ */
+export function onboardingNotStarted(profile: OnboardingProfile | null | undefined, workspaces: readonly { path?: string | null }[]): boolean {
+  return profile === null && withoutLawossHome(workspaces).length === 0;
 }
 
 /** Krok, ktorým sa otvorí sprievodca: výslovný krok, pri dokončenom nastavení prvý krok, inak posledný uložený. */

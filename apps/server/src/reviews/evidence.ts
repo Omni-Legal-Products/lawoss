@@ -110,6 +110,8 @@ export function structureOffsets(text: string, structure: PageStructure | undefi
 export async function prepareReviewEvidence(options: {
   workspace: string; path: string; preparation: DocumentPreparation; signal: AbortSignal; force: boolean;
   preparationJobId?: string;
+  /** 🟡 LAWOSS #465: len už pripravený dokument, bez vykreslenia strán (hľadanie na pozadí). */
+  cachedOnly?: boolean;
   onProgress: (value: { completedPages: number; pageCount: number }) => Promise<void>;
 }): Promise<ReviewEvidence> {
   const { source, bytes, hash } = await sourceHash(options.workspace, options.path);
@@ -120,7 +122,7 @@ export async function prepareReviewEvidence(options: {
     return { hash, pages, complete: pages.every(page => page.status === "complete") };
   }
   const job = options.preparationJobId ? await options.preparation.status(options.workspace, options.preparationJobId)
-    : await options.preparation.start(options.workspace, { files: [source.path], force: options.force });
+    : await options.preparation.start(options.workspace, { files: [source.path], force: options.force, ...(options.cachedOnly ? { cachedOnly: true } : {}) });
   const cancel = () => { void options.preparation.cancel(options.workspace, job.id).catch(() => undefined); };
   options.signal.addEventListener("abort", cancel, { once: true });
   try {

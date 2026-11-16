@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
 import type { LegalworkServerStatus } from "../../../../app/lib/legalwork-server";
+import { engineStatusText, useEngineHealth } from "@/lawoss/shell/engine-status"; // 🟡 LAWOSS #454
 
 const STATUS_BAR_BOOT_STARTED_AT = Date.now();
 const STATUS_BAR_INITIALIZING_MS = 15_000;
@@ -49,6 +50,8 @@ type StatusIndicatorProps = {
 };
 
 function StatusIndicator(props: StatusIndicatorProps) {
+  // 🟡 LAWOSS #454: spojenie so serverom nestačí; kým engine nebeží, riadok nehlási „pripravené“.
+  const engine = engineStatusText(useEngineHealth());
   if (props.loading || (props.legalworkServerStatus === "disconnected" && props.initializing)) {
     return (
       <div className="flex min-w-0 items-center gap-2.5">
@@ -59,6 +62,16 @@ function StatusIndicator(props: StatusIndicatorProps) {
         <span className="truncate text-muted-foreground text-xs">
           {t("session.loading_detail")}
         </span>
+      </div>
+    );
+  }
+
+  if (props.clientConnected && engine) {
+    return (
+      <div className="flex min-w-0 items-center gap-2.5" data-lawoss-engine-status={engine.failed ? "error" : "starting"}>
+        <StatusDot variant={engine.failed ? "disconnected" : "loading"} />
+        <span className="shrink-0 font-medium text-foreground text-xs">{t(engine.label)}</span>
+        <span className="truncate text-muted-foreground text-xs">{t(engine.hint)}</span>
       </div>
     );
   }
