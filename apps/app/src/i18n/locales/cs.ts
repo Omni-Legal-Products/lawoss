@@ -3143,7 +3143,7 @@ export default {
   "skills.assistant_workflow": "Asistenční workflow",
   "skills.title_invalid": "Používejte písmena, číslice a mezery.",
   "skills.columns_to_extract": "Sloupce k extrakci",
-  "skills.instructions_placeholder": "Pokyny krok za krokem, kterými se agent řídí.\\n\\n1. ...\\n2. ...",
+  "skills.instructions_placeholder": "Pokyny krok za krokem, kterými se agent řídí.\n\n1. ...\n2. ...",
   "skills.columns_placeholder": "Popište sloupce, které se mají z každého dokumentu extrahovat, každý na samostatný řádek.\\n\\nRozhodné právo\\nVýpovědní doba\\nLimit odpovědnosti",
   "skills.from_github": "Z GitHubu",
   "skills.select_all": "Vybrat vše",

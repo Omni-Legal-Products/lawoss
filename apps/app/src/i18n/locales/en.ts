@@ -6745,7 +6745,7 @@ export default {
   "skills.assistant_workflow": "Assistant workflow",
   "skills.title_invalid": "Use letters, numbers, and spaces.",
   "skills.columns_to_extract": "Columns to extract",
-  "skills.instructions_placeholder": "Step-by-step instructions the agent follows.\\n\\n1. ...\\n2. ...",
+  "skills.instructions_placeholder": "Step-by-step instructions the agent follows.\n\n1. ...\n2. ...",
   "skills.columns_placeholder":
     "Describe the columns to extract from each document, one per line.\\n\\nGoverning law\\nTermination notice period\\nLiability cap",
   "skills.from_github": "From GitHub",

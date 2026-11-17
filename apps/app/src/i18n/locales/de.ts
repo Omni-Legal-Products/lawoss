@@ -7070,7 +7070,7 @@ const de = {
   "skills.title_invalid": "Verwenden Sie nur Buchstaben, Ziffern und Leerzeichen.",
   "skills.columns_to_extract": "Zu extrahierende Spalten",
   "skills.instructions_placeholder":
-    "Schritt-für-Schritt-Anweisungen, denen der Agent folgt.\\n\\n1. ...\\n2. ...",
+    "Schritt-für-Schritt-Anweisungen, denen der Agent folgt.\n\n1. ...\n2. ...",
   "skills.columns_placeholder":
     "Beschreiben Sie die Spalten, die aus jedem Dokument extrahiert werden sollen, eine pro Zeile.\\n\\nAnwendbares Recht\\nKündigungsfrist\\nHaftungsobergrenze",
   "skills.from_github": "Von GitHub",
