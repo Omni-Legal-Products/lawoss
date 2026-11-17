@@ -1,0 +1,47 @@
+# DOČASNÉ (#530): zostaví linuxové archívy enginu hosťa pre release chráneného enginu.
+# Rovnaký spôsob ako pri http-policy.4: jeden krížový build z macOS ARM64 cez
+# `engine:prepare --target linux-arm64 --target linux-x64-baseline`. Pred mergom sa odstráni.
+name: TMP protected engine linux archives
+on:
+  push:
+    branches: [fix/engine-hranica-530]
+    paths:
+      - .github/workflows/tmp-protected-engine-linux.yml
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - name: Free disk before build
+        run: df -h "$GITHUB_WORKSPACE"
+      - name: Build linux-arm64 and linux-x64-baseline from the reviewed recipe
+        run: node packages/opencode-release/prepare.mjs --mode development --target linux-arm64 --target linux-x64-baseline
+      - name: Collect distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h "$GITHUB_WORKSPACE"
+          receipt=packages/opencode-release/generated/receipt.json
+          archives="$(node -p "require('./$receipt').archiveDirectory")"
+          manifest="$(node -p "require('./$receipt').manifestPath")"
+          out="$RUNNER_TEMP/protected-engine-linux"
+          mkdir "$out"
+          cp "$archives"/*-linux-arm64.tar.gz "$archives"/*-linux-x64-baseline.tar.gz "$out/"
+          cp "$manifest" "$out/derivative-release.json"
+          cp "$receipt" "$out/receipt.json"
+          (cd "$out" && shasum -a 256 *.tar.gz derivative-release.json > SHA256SUMS && cat SHA256SUMS)
+          echo "OUT=$out" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: protected-engine-linux
+          path: ${{ env.OUT }}/
+          if-no-files-found: error
+          retention-days: 7
