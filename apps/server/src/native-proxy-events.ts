@@ -3,9 +3,15 @@ import { isInternalSession } from "./native-shared-values.js";
 
 /** Native events contain project data. Stream only authorized locations while
  * preserving global catalog invalidations and the complete event payload. */
-export function scopedNativeEvents(client: OpenCodeClient, allowed: (directory: string) => Promise<boolean>, signal: AbortSignal, invalidate?: (close: () => void) => () => void) {
+// 🟡 LAWOSS #505: the desktop reads this stream through Node fetch, whose undici
+// body timeout (300 s) ends a stream that carries no bytes; a quiet engine sends none.
+const PING_MS = 25_000;
+
+export function scopedNativeEvents(client: OpenCodeClient, allowed: (directory: string) => Promise<boolean>, signal: AbortSignal, invalidate?: (close: () => void) => () => void, { pingMs = PING_MS }: { pingMs?: number } = {}) {
   const controller = new AbortController();
   let unsubscribe: (() => void) | undefined;
+  let ping: ReturnType<typeof setInterval> | undefined;
+  const stop = () => { clearInterval(ping); unsubscribe?.(); };
   const combined = AbortSignal.any([signal, controller.signal]);
   const sessions = new Map<string, boolean>();
   const locations = new Map<string, Promise<boolean>>();
@@ -42,7 +48,13 @@ export function scopedNativeEvents(client: OpenCodeClient, allowed: (directory: 
   const encoder = new TextEncoder();
   const iterator = client.event.subscribe({ signal: combined })[Symbol.asyncIterator]();
   return new Response(new ReadableStream<Uint8Array>({
-    start() { unsubscribe = invalidate?.(() => controller.abort()); },
+    start(stream) {
+      unsubscribe = invalidate?.(() => controller.abort());
+      ping = setInterval(() => {
+        try { stream.enqueue(encoder.encode(": ping\n\n")); } catch { clearInterval(ping); }
+      }, pingMs);
+      ping.unref?.();
+    },
     async pull(stream) {
       try {
         while (!combined.aborted) {
@@ -53,14 +65,14 @@ export function scopedNativeEvents(client: OpenCodeClient, allowed: (directory: 
             return;
           }
         }
-        unsubscribe?.();
+        stop();
         stream.close();
       } catch (error) {
-        unsubscribe?.();
+        stop();
         if (!combined.aborted) stream.error(error);
         else { try { stream.close(); } catch {} }
       }
     },
-    async cancel() { unsubscribe?.(); controller.abort(); await iterator.return?.(); },
+    async cancel() { stop(); controller.abort(); await iterator.return?.(); },
   }), { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" } });
 }
