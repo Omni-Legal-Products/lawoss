@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Natívny ISIR: stav prípravy pri vypršaní orákula a voľba „High“ (#384, #220) (2026-11-17)
+
+| Súbor | Zmena |
+|---|---|
+| `scripts/test-isir-native.mjs`, `lawoss/testing/isir/native/diagnostics.mjs` (`hostErrors()`), nový `lawoss/testing/isir/native/provisioning.mjs` (LAWOSS, + test `provisioning.test.mjs`) | #384/#220: orákulum prípravy (240 s od kliknutia na Generate) aj orákulum inferencie (90 s) sa nemenia, opakovanie sa nepridáva. Log jobu pri vypršaní ukazoval len `last=undefined` a nevedel odlíšiť neodoslaný POST od nezodpovedaného. `awaitProvisioningResponse` pri vypršaní okamžite, bez ďalšieho čakania, zapíše jeden uzavretý riadok `Native provisioning at oracle expiry` (`requestIssued`, `not-issued`/`pending`/`loading-failed`/`response`, čas) a zlyhá s pôvodnou chybou. Uzavretá projekcia chýb hostiteľa pri 5xx (`provisioningHostErrors`, doteraz len v 7-dňovom artefakte) ide aj do logu jobu ako `Native host error categories`. Klasifikácia odmietnutia (`classifyProvisioningRefusal`) je vyňatá bez zmeny zoznamu kódov. Voľba miery uvažovania sa hľadá bez ohľadu na veľkosť písmen: od `da3ef3b7c` (14. 11.) má možnosť text „High“ namiesto kľúča `high`; uložená hodnota `high` sa overuje ako doteraz. |
+
 ## Engine bez skillov `.claude`/`.agents` mimo profilu (#530) (2026-11-17)
 
 | Súbor | Zmena |
