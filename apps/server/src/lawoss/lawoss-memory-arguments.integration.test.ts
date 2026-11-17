@@ -12,6 +12,8 @@ import { scriptedCompletion, startScriptedEngine } from "./test-support/scripted
 /**
  * #481: lawoss_memory called by the model through the shipped engine 2.1.4 with an unknown argument (caseFolder instead
  * of matter) is refused with the actionable text; nothing is read, so the client's root is never reported as the case.
+ * #526: the model gets the schema without additionalProperties (as every other tool), yet the engine's dropping of the
+ * undeclared key does not turn the call into a read of the chat's folder.
  * Synthetic data only; the model is scripted.
  * Opt-in: pnpm --filter legalwork-server build
  *   LEGALWORK_TEST_OPENCODE_BIN=<engine> pnpm --filter legalwork-server exec bun test src/lawoss/lawoss-memory-arguments.integration.test.ts
@@ -19,7 +21,7 @@ import { scriptedCompletion, startScriptedEngine } from "./test-support/scripted
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 const requestSchema = z.object({
   messages: z.array(z.object({ role: z.string(), content: z.unknown() })),
-  tools: z.array(z.object({ function: z.object({ name: z.string() }) })).optional(),
+  tools: z.array(z.object({ function: z.object({ name: z.string(), parameters: z.record(z.string(), z.unknown()).optional() }) })).optional(),
 });
 
 test.skipIf(!binary)("a real engine: lawoss_memory with caseFolder is refused and reads nothing", async () => {
@@ -39,6 +41,7 @@ test.skipIf(!binary)("a real engine: lawoss_memory with caseFolder is refused an
   };
   const memoryRequests: unknown[] = [];
   const toolResults: string[] = [];
+  const offered: Record<string, unknown>[] = [];
   const fixture = Bun.serve({ port: 0, idleTimeout: 120, async fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === WIKI_AGENT_TICKET_PATH) return Response.json({ secret: "fixture" });
@@ -46,6 +49,7 @@ test.skipIf(!binary)("a real engine: lawoss_memory with caseFolder is refused an
     if (path === "/workspace/client/lawoss/memory/read") { const body: unknown = await request.json(); memoryRequests.push(body); return Response.json(await readMatterMemoryForChat(config, workspace, body)); }
     if (!path.endsWith("/chat/completions")) return Response.json({ code: "not_found" }, { status: 404 });
     const input = requestSchema.parse(await request.json());
+    for (const tool of input.tools ?? []) if (tool.function.name === "lawoss_memory" && tool.function.parameters) offered.push(tool.function.parameters);
     const last = input.messages.at(-1);
     if (last?.role !== "tool") return scriptedCompletion({ name: "lawoss_memory", args: { action: "read", caseFolder: "Spisy/M001" }, id: "call_case_folder" });
     toolResults.push(typeof last.content === "string" ? last.content : JSON.stringify(last.content));
@@ -64,6 +68,11 @@ test.skipIf(!binary)("a real engine: lawoss_memory with caseFolder is refused an
     expect(toolResults[0]).toContain("caseFolder");
     expect(toolResults[0]).not.toContain("SYN fakt 4721");
     expect(memoryRequests).toEqual([]);
+    expect(offered.length).toBeGreaterThan(0);
+    for (const parameters of offered) {
+      expect(parameters).not.toHaveProperty("additionalProperties");
+      expect(Object.keys(z.record(z.string(), z.unknown()).parse(parameters.properties)).sort()).toEqual(["action", "matter", "offset"]);
+    }
   } finally {
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
     fixture.stop(true);

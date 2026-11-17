@@ -5,6 +5,7 @@ import { z } from "zod";
 import { LAWOSS_MEMORY_TOOL } from "../lawoss/tool-permission-defaults.js";
 import MemoryTools from "./lawoss-memory-tools.js";
 import { lawossNativePlugin } from "./lawoss-native-test-support.js";
+import { nativeToolBefore } from "./native-plugin-test-support.js";
 
 test("lawoss_memory posts the case folder of this chat to its own client and never shows a card", async () => {
   const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = wikiAgentSecret();
@@ -50,7 +51,18 @@ test("lawoss_memory posts the case folder of this chat to its own client and nev
     expect(unknown).toMatchObject({ code: "memory_arguments" });
     expect(unknown.error).toContain("caseFolder");
     expect(unknown.error).toContain("matter");
-    expect(bodies).toHaveLength(4);
+    // #526: the model gets the exact schema without additionalProperties; the engine decodes a call with it and drops
+    // caseFolder, which execute.before saw in the raw call, so the decoded call is refused as well.
+    expect(tool.input).not.toHaveProperty("additionalProperties");
+    expect(wire.safeParse({ action: "read", caseFolder: "Spisy/M001" }).success).toBe(true);
+    await nativeToolBefore(plugin.runtime, LAWOSS_MEMORY_TOOL, { action: "read", caseFolder: "Spisy/M001" }, "ses_memory");
+    const dropped = JSON.parse(await tool.execute({ action: "read" }, context));
+    expect(dropped).toMatchObject({ code: "memory_arguments" });
+    expect(dropped.error).toContain("caseFolder");
+    // Only that call: the next one without an unknown argument reads as before.
+    await nativeToolBefore(plugin.runtime, LAWOSS_MEMORY_TOOL, { action: "preamble" }, "ses_memory");
+    expect(JSON.parse(await tool.execute({ action: "preamble" }, context))).toMatchObject({ text: "SYN pamäť" });
+    expect(bodies).toHaveLength(5);
     expect(asked).toBe(0);
     // Fixed text for the model: memory and folder listing without the shell.
     const output = { system: await plugin.system() };
