@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { OpenCode } from "@opencode/client";
 import { z } from "zod";
 import type { ApprovalService } from "../../approvals.js";
 import { brokerRequest, MAX_REQUEST_BYTES, prepareOutboundRequest, type OutboundRequest, type OutboundResponse } from "../../agent-sandbox/network.js";
@@ -29,6 +30,24 @@ const envelope = z.strictObject({
 const customProvider = /* Engine v2 provider block (v1: npm/options). */ z.object({package: z.literal("@opencode/ai/providers/openai-compatible"), settings: z.object({baseURL: z.url(), apiKey: z.string().optional()}), models: z.record(z.string(), z.unknown())});
 const measurementSchema = z.record(z.string(), z.string());
 
+/** #534: engine v2 keeps a provider key in its host-global credential store (`integration/:id/connect/key`),
+ * not in the provider definition. A saved `settings.apiKey` still wins (older rows, firm-written settings).
+ * Read host-scoped like voice (`server.ts`), never through a project client or its admission gates.
+ * Every snapshot reads anew, so a rotated or disconnected key changes the fingerprint (stale review).
+ * An unreadable or stalled store (5 s) fails closed: a keyless request must never be reviewed or sent instead. */
+async function providerAccountKey(config: ServerConfig, providerId: string, settingsKey: string | undefined): Promise<string> {
+  if (settingsKey) return settingsKey;
+  const baseUrl = config.opencodeBaseUrl?.trim();
+  if (!baseUrl) return "";
+  const username = config.opencodeUsername?.trim(), password = config.opencodePassword?.trim();
+  const client = OpenCode.make({baseUrl, ...(username && password ? {headers: {Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`}} : {})});
+  let credentials: Awaited<ReturnType<typeof client.credential.list>>;
+  try {credentials = await client.credential.list({signal: AbortSignal.timeout(5_000)});}
+  catch {throw new ApiError(503, "protected_ai_account_unavailable", "The model account could not be read from the agent engine.");}
+  const active = credentials.find(credential => credential.integrationID === providerId && credential.active);
+  return active?.value.type === "key" ? active.value.key : "";
+}
+
 /** Host-only identity for profile binding; credentials are intentionally omitted. */
 export async function protectedAiTarget(config: ServerConfig, providerId: string, modelId: string) {
   const {endpoint, fingerprint, policyHash} = await targetCredential(config, providerId, modelId);
@@ -46,14 +65,14 @@ async function targetCredential(config: ServerConfig, providerId: string, modelI
       throw new ApiError(403, "protected_ai_provider_unsupported", "The selected organization model is unsupported by the confined transport.");
     baseURL = organization.source.baseURL;
     if (organization.key.by === "firm") apiKey = await orgPolicySecret(config, organization.key.secretRef) ?? "";
-    else if (organization.key.by === "member" && custom.success) apiKey = custom.data.settings.apiKey ?? "";
+    else if (organization.key.by === "member") apiKey = await providerAccountKey(config, providerId, custom.success ? custom.data.settings.apiKey : undefined);
     else apiKey = "";
     if (!apiKey) throw new ApiError(403, "protected_ai_account_missing", "The current organization model account is unavailable.");
   } else {
     if ((await appliedOrgPolicy(config, "ai.chat.allowCustom"))?.value === false)
       throw new ApiError(403, "org_policy_denied", "The organization does not permit custom model connections.");
     if (!custom.success || !Object.hasOwn(custom.data.models, modelId)) throw new ApiError(409, "protected_ai_provider_unsupported", "Select a configured OpenAI-compatible provider and model.");
-    baseURL = custom.data.settings.baseURL; apiKey = custom.data.settings.apiKey ?? "";
+    baseURL = custom.data.settings.baseURL; apiKey = await providerAccountKey(config, providerId, custom.data.settings.apiKey);
   }
   const url = new URL(baseURL);
   const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
