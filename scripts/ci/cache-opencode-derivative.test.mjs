@@ -25,22 +25,32 @@ test('build cache keys are exact and exclude production engines', () => {
   assert.throws(() => developmentCacheKey({ ...identity, mode: 'production' }, {}), /Production/);
 });
 
-test('a cache miss reuses only an exact base producer with unchanged engine inputs', async () => {
+test('a cache miss reuses only a trusted base-branch producer with unchanged engine inputs', async () => {
   const bytes = { 'packages/opencode-release/build/recipe.json': 'reviewed recipe',
     'scripts/ci/build-opencode-derivative.mjs': 'reviewed producer' };
-  const artifact = { name: 'opencode-derivative-ci', expired: false,
+  const artifact = { name: 'opencode-derivative-ci', expired: false, created_at: '2026-11-17T10:00:00Z',
     workflow_run: { id: 123, head_sha: 'base-commit', head_branch: 'dev', repository_id: 1, head_repository_id: 1 } };
+  const sameInputs = () => (sha, name) => bytes[name];
   const options = { identity: { mode: 'development', files: { 'build/recipe.json': sha256(bytes['packages/opencode-release/build/recipe.json']),
     'derivative.mjs': sha256('changed verifier') } }, helpers: { 'build-opencode-derivative.mjs': sha256(bytes['scripts/ci/build-opencode-derivative.mjs']) },
-    baseSha: 'base-commit', baseRef: 'dev', readBaseFile: name => bytes[name], artifacts: [artifact] };
+    baseSha: 'base-commit', baseRef: 'dev', readFileAt: sameInputs(), artifacts: [artifact] };
   assert.equal(await reusableBaseProducer(options), 123);
-  assert.equal(await reusableBaseProducer({ ...options, readBaseFile: () => 'changed source or producer' }), undefined);
+  assert.equal(await reusableBaseProducer({ ...options, readFileAt: () => 'changed source or producer' }), undefined);
   // LAWOSS: a base commit before engine v2 has no selection.json; `git show` fails and nothing is reused.
-  assert.equal(await reusableBaseProducer({ ...options, readBaseFile: () => { throw new Error('missing in base'); } }), undefined);
-  for (const changed of [{ head_sha: 'other-commit' }, { head_branch: 'other-branch' }, { head_repository_id: 2 }]) {
+  assert.equal(await reusableBaseProducer({ ...options, readFileAt: () => { throw new Error('missing in base'); } }), undefined);
+  for (const changed of [{ head_branch: 'other-branch' }, { head_repository_id: 2 }]) {
     assert.equal(await reusableBaseProducer({ ...options, artifacts: [{ ...artifact, workflow_run: { ...artifact.workflow_run, ...changed } }] }), undefined);
   }
   assert.equal(await reusableBaseProducer({ ...options, artifacts: [{ ...artifact, expired: true }] }), undefined);
+  // LAWOSS: another dev commit (warm-cache build) is reused only when its engine inputs are identical.
+  const other = { ...artifact, created_at: '2026-11-17T12:00:00Z', workflow_run: { ...artifact.workflow_run, id: 456, head_sha: 'other-commit' } };
+  const changedAtOther = (sha, name) => sha === 'other-commit' ? 'changed recipe' : bytes[name];
+  assert.equal(await reusableBaseProducer({ ...options, artifacts: [other] }), 456);
+  assert.equal(await reusableBaseProducer({ ...options, artifacts: [other], readFileAt: changedAtOther }), undefined);
+  // The exact base wins over a newer dev producer; a manual dev run without a base takes the newest match.
+  assert.equal(await reusableBaseProducer({ ...options, artifacts: [other, artifact] }), 123);
+  assert.equal(await reusableBaseProducer({ ...options, baseSha: '', artifacts: [artifact, other] }), 456);
+  assert.equal(await reusableBaseProducer({ ...options, baseSha: '', artifacts: [artifact, other], readFileAt: changedAtOther }), 123);
   await assert.rejects(reusableBaseProducer({ ...options, identity: { ...options.identity, mode: 'production' } }), /Production/);
 });
 

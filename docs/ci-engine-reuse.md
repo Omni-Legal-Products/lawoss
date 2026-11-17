@@ -31,7 +31,10 @@ A small `runner` job on `ubuntu-latest` computes the development cache key for
 the pinned `darwin-arm64` builder and looks the cache up without downloading it.
 If the engine is already cached, available from the PR base producer or named
 through explicit reuse inputs, the `build` job runs on Ubuntu and only downloads
-and verifies the archives. Only a real compilation waits for a `macos-15` runner.
+and verifies the archives. Without a cache entry, the newest same-repository
+`dev` producer whose engine inputs are byte-identical is reused (the PR's exact
+base commit first); manual `dev` runs use the same lookup. Only a real
+compilation waits for a `macos-15` runner.
 The cache path is the workspace-relative `opencode-derivative-cache`, so macOS
 and Ubuntu share the same cache entry.
 
