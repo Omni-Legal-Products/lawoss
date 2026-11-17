@@ -17,6 +17,11 @@
 | Súbor | Zmena |
 |---|---|
 | `apps/app/src/react-app/domains/session/chat/session-page.tsx`, nový `apps/app/src/lawoss/shell/chat-tab-labels.ts` (LAWOSS okrem prvého, + test `tests/lawoss-nazov-karty-512.test.ts`) | #512: karta chatu zobrazuje uložený `tab.label`, ktorý upstream mení len pre práve otvorený chat (`syncRouteChatTab`). Premenovaný chat v neaktívnej karte si nechal starý názov aj po reštarte (panel kariet je perzistovaný). Teraz +1 import a +4 riadky (jeden `useEffect`): `chatTabLabelUpdates` pre každú kartu chatu v paneli priestoru porovná uložený názov s názvom chatu (ten istý zdroj ako pri otvorenom chate: `sessionInfo`, inak sidebar) a pri rozdiele ho prepíše. Prázdny alebo neznámy názov kartu neprepíše, chaty Asistenta a iné karty ostávajú bez zmeny. Pri syncu zachovať. |
+## Potvrdenie akcie ovládania appky nezmrazí appku (#511) (2026-11-17)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/shell/control/control-provider.tsx`, nový `apps/app/src/lawoss/shell/control-confirmation.tsx` (LAWOSS, + test `tests/lawoss-control-potvrdenie-511.test.tsx`) | #511: akcia s `requiresConfirmation` (napr. `session.delete`, `session.group.remove`) sa pýtala cez `window.confirm`, ktoré v Electrone zablokuje celý renderer (žiadne UI, dopytovanie ani odpoveď servera ovládania na `/snapshot`), a to ešte pred kontrolou argumentov. Teraz sa najprv skontrolujú deklarované povinné argumenty (`controlConfirmationArgsError`: chýbajúca hodnota → `<názov> is required`, povinný booleovský `confirmed` musí byť `true` → `control.needs_confirm`) a až potom sa ukáže existujúci `ConfirmModal` (`control.confirm_allow`, „Povoliť“ / „Zrušiť“ z existujúcich kľúčov). Zrušenie volajúcim (`execution.signal`, odpojenie HTTP alebo limit) dialóg zavrie a akcia sa nevykoná. Kým potvrdenie čaká, ďalšia nepozadová akcia dostane `Already acting` ako pri rozbehnutej akcii. V providerovi +1 import, +1 hook, ~8 zmenených riadkov, +1 riadok vykreslenia dialógu, všetko s `🟡 LAWOSS #511`; kontroly v `execute()` akcií ostávajú. |
 
 ## Nálezy po zlúčení #429 a #437 (#439–#444, #460) (2026-11-16)
 
