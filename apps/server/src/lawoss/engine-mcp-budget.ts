@@ -26,6 +26,11 @@ export type EngineMcpBudgetOptions = {
   limit: number;
   /** Po koľkých ms bez použitia sa nečinná inštancia uvoľní; 0 = nikdy. */
   idleMs: number;
+  /**
+   * Koľko ms počká otvorenie ďalšieho klienta, kým dobehnú prebiehajúce požiadavky do nečinného klienta nad limitom
+   * (bez bežiaceho chatu). 0 = nečaká: nový klient sa prijme nad limit a dve sady MCP bežia do kontroly (#367).
+   */
+  drainMs?: number;
   /** Beží v adresári chat? Neznáma odpoveď musí vrátiť true. */
   busy: (scope: EngineScope) => Promise<boolean>;
   /**
@@ -49,6 +54,10 @@ type Entry = {
   opened: number;
   inflight: number;
   ready: Promise<void>;
+  /** Uvoľňuje sa pre limit: nové požiadavky čakajú v poradí prijímania, aby ho neudržali pri živote. */
+  closing?: boolean;
+  /** Čakajúci na dobehnutie prebiehajúcich požiadaviek. */
+  drained?: Array<() => void>;
 };
 
 export type EngineMcpBudget = {
@@ -180,13 +189,14 @@ function positiveInteger(value: string | undefined, fallback: number): number {
 }
 
 /**
- * Predvolene 1 aktívny klient a 10 min nečinnosti. `LAWOSS_ENGINE_MCP_INSTANCES=0`
+ * Predvolene 1 aktívny klient, 10 min nečinnosti a najviac 5 s čakania na dobehnutie požiadaviek predošlého klienta. `LAWOSS_ENGINE_MCP_INSTANCES=0`
  * vypne limit (napr. pre stroj s dostatkom RAM alebo diagnostiku).
  */
 export function engineMcpBudgetSettings(env: Record<string, string | undefined> = process.env) {
   return {
     limit: positiveInteger(env.LAWOSS_ENGINE_MCP_INSTANCES, 1),
     idleMs: positiveInteger(env.LAWOSS_ENGINE_MCP_IDLE_MS, 10 * 60_000),
+    drainMs: positiveInteger(env.LAWOSS_ENGINE_MCP_DRAIN_MS, 5_000),
   };
 }
 
@@ -212,34 +222,56 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
       released = true;
       entry.inflight = Math.max(0, entry.inflight - 1);
       entry.lastUsed = now();
+      if (entry.inflight === 0) for (const done of entry.drained?.splice(0) ?? []) done();
     };
   };
 
-  const disposeEntry = async (key: string, entry: Entry, reason: string): Promise<boolean> => {
-    if (entry.inflight > 0) return false;
-    if (await options.busy(entry.scope).catch(() => true)) return false;
-    // Medzitým mohla prísť nová požiadavka.
-    if (entry.inflight > 0 || active.get(key) !== entry) return false;
-    active.delete(key);
+  // Počká najviac `ms`, kým v inštancii nedobehne žiadna požiadavka.
+  const drained = (entry: Entry, ms: number) => new Promise<boolean>((resolve) => {
+    if (entry.inflight === 0) return resolve(true);
+    const done = () => { clearTimeout(timer); resolve(true); };
+    const timer = setTimeout(() => {
+      entry.drained = entry.drained?.filter((waiting) => waiting !== done);
+      resolve(entry.inflight === 0);
+    }, ms);
+    (entry.drained ??= []).push(done);
+  });
+
+  const disposeEntry = async (key: string, entry: Entry, reason: string, drainMs = 0): Promise<boolean> => {
     try {
-      await options.dispose(entry.scope);
-      options.log?.("Engine instance released", { "engine.directory": entry.scope.directory, "engine.reason": reason });
-      return true;
-    } catch {
-      // Inštancia ostala; pri ďalšom kole sa skúsi znova.
-      if (!active.has(key)) active.set(key, entry);
-      return false;
+      if (entry.inflight > 0) {
+        // LAWOSS (#367): krátka požiadavka (napr. výpis rozhovorov bočného panela) nesmie pustiť druhú sadu MCP.
+        // Bežiaci chat sa nečaká ani neuvoľní.
+        if (!drainMs || await options.busy(entry.scope).catch(() => true)) return false;
+        entry.closing = true;
+        if (!(await drained(entry, drainMs))) return false;
+      }
+      if (await options.busy(entry.scope).catch(() => true)) return false;
+      // Medzitým mohla prísť nová požiadavka.
+      if (entry.inflight > 0 || active.get(key) !== entry) return false;
+      active.delete(key);
+      try {
+        await options.dispose(entry.scope);
+        options.log?.("Engine instance released", { "engine.directory": entry.scope.directory, "engine.reason": reason });
+        return true;
+      } catch {
+        // Inštancia ostala; pri ďalšom kole sa skúsi znova.
+        if (!active.has(key)) active.set(key, entry);
+        return false;
+      }
+    } finally {
+      entry.closing = false;
     }
   };
 
   // Uvoľňuje najdlhšie neotvorené, kým ostane najviac `keep` aktívnych. `sparing` nechá
   // najnovšie otvorených: práve otvorený klient ostáva, aj keď je starší nad limitom zaneprázdnený.
-  const makeRoom = async (keep: number, sparing = 0) => {
+  const makeRoom = async (keep: number, sparing = 0, drainMs = 0) => {
     if (options.limit === 0) return;
     const candidates = [...active.entries()].sort((a, b) => a[1].opened - b[1].opened).slice(0, sparing ? -sparing : undefined);
     for (const [key, entry] of candidates) {
       if (active.size <= keep) return;
-      await disposeEntry(key, entry, "limit");
+      await disposeEntry(key, entry, "limit", drainMs);
     }
   };
 
@@ -252,7 +284,8 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
       const key = scopeKey(scope);
       const awaitReady = admitOptions?.awaitReady !== false;
       const existing = active.get(key);
-      if (existing) {
+      // Uvoľňovaná inštancia: požiadavka počká v poradí prijímania (plugin počas aktivácie nie, inak by čakali navzájom).
+      if (existing && !(existing.closing && awaitReady)) {
         existing.inflight += 1;
         existing.lastUsed = now();
         existing.opened = ++openings;
@@ -267,7 +300,7 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
           current.opened = ++openings;
           return release(current);
         }
-        await makeRoom(options.limit - 1);
+        await makeRoom(options.limit - 1, 0, options.drainMs ?? 0);
         // Zastaraná inštancia (zmena konfigurácie, kým bol klient neotvorený) sa pred MCP postaví znova.
         if (stale.has(key) && !(await staleBusy(scope)) && stale.delete(key)) {
           await options.dispose(scope).catch(() => undefined);
@@ -289,7 +322,7 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
       return serialized(async () => {
         const current = active.get(key);
         if (current) { current.lastUsed = now(); current.opened = ++openings; return; }
-        await makeRoom(options.limit - 1);
+        await makeRoom(options.limit - 1, 0, options.drainMs ?? 0);
         active.set(key, { scope, lastUsed: now(), opened: ++openings, inflight: 0, ready: Promise.resolve() });
       });
     },

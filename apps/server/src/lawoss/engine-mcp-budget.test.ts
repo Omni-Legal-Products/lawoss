@@ -249,7 +249,54 @@ test("cesty, pri ktorých záleží na konfigurácii inštancie", () => {
 });
 
 test("nastavenia z prostredia", () => {
-  expect(engineMcpBudgetSettings({})).toEqual({ limit: 1, idleMs: 600_000 });
-  expect(engineMcpBudgetSettings({ LAWOSS_ENGINE_MCP_INSTANCES: "0", LAWOSS_ENGINE_MCP_IDLE_MS: "5000" })).toEqual({ limit: 0, idleMs: 5_000 });
-  expect(engineMcpBudgetSettings({ LAWOSS_ENGINE_MCP_INSTANCES: "-2" })).toEqual({ limit: 1, idleMs: 600_000 });
+  expect(engineMcpBudgetSettings({})).toEqual({ limit: 1, idleMs: 600_000, drainMs: 5_000 });
+  expect(engineMcpBudgetSettings({ LAWOSS_ENGINE_MCP_INSTANCES: "0", LAWOSS_ENGINE_MCP_IDLE_MS: "5000", LAWOSS_ENGINE_MCP_DRAIN_MS: "0" })).toEqual({ limit: 0, idleMs: 5_000, drainMs: 0 });
+  expect(engineMcpBudgetSettings({ LAWOSS_ENGINE_MCP_INSTANCES: "-2" })).toEqual({ limit: 1, idleMs: 600_000, drainMs: 5_000 });
+});
+
+test("#367: ďalší klient počká na dobehnutie krátkej požiadavky predošlého, limit sa neprekročí", async () => {
+  // Meranie alfa13: výpis rozhovorov predošlého klienta (GET /api/location) práve bežal, nový klient sa prijal nad
+  // limit a dve sady MCP bežali do kontroly (2,1–2,4 GB).
+  const events: string[] = [];
+  const budget = createEngineMcpBudget({
+    limit: 1, idleMs: 60_000, drainMs: 1_000, busy: async () => false,
+    dispose: async (s) => { events.push(`dispose ${s.directory}`); },
+    initialize: async (s) => { events.push(`init ${s.directory}`); },
+  });
+  (await budget.admit(scope("/a")))();
+  const readA = await budget.admit(scope("/a"));
+  const openB = budget.admit(scope("/b"));
+  await Bun.sleep(20);
+  // Kým beží požiadavka do A, B sa nestavia; ďalšia požiadavka do A ju nepredĺži, čaká v poradí.
+  expect(events).toEqual(["init /a"]);
+  const lateA = budget.admit(scope("/a"));
+  readA();
+  (await openB)();
+  expect(events).toEqual(["init /a", "dispose /a", "init /b"]);
+  // Neskorá požiadavka do A ho postaví znova až po B, opäť v limite.
+  (await lateA)();
+  expect(events).toEqual(["init /a", "dispose /a", "init /b", "dispose /b", "init /a"]);
+  expect(budget.activeDirectories()).toEqual(["/a"]);
+});
+
+test("#367: bežiaci chat sa nečaká a neuvoľní; príliš dlhá požiadavka po lehote pustí nového nad limit", async () => {
+  const busy = new Set<string>(["/a"]);
+  const disposed: string[] = [];
+  const budget = createEngineMcpBudget({
+    limit: 1, idleMs: 60_000, drainMs: 50, busy: async (s) => busy.has(s.directory),
+    dispose: async (s) => { disposed.push(s.directory); },
+  });
+  const runA = await budget.admit(scope("/a"));
+  const started = Date.now();
+  (await budget.admit(scope("/b")))();
+  expect(Date.now() - started).toBeLessThan(40);
+  expect(disposed).toEqual([]);
+  runA();
+  busy.clear();
+  const readB = await budget.admit(scope("/b"));
+  (await budget.admit(scope("/c")))();
+  // A nečinný sa uvoľní, B s požiadavkou dlhšou ako lehota ostane (pôvodné správanie), C sa prijme.
+  expect(disposed).toEqual(["/a"]);
+  expect(budget.activeDirectories().sort()).toEqual(["/b", "/c"]);
+  readB();
 });

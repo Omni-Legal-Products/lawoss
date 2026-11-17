@@ -112,6 +112,24 @@ export async function listFolderSessions(engine: FolderEngine, workspaceId: stri
   return { workspaceId, folder: comparable(folderAbs), items: own, subtree, complete: items.length < FOLDER_SESSION_LIMIT };
 }
 
+type Located = Awaited<ReturnType<FolderEngine["locate"]>>;
+const locatedFolders = new Map<string, Promise<Located>>();
+
+/**
+ * LAWOSS (RAM 2 GB, #367): tvar priečinka v engine sa za behu appky nemení, a `GET /api/location` engine v2 postaví
+ * lokáciu priečinka so všetkými MCP. Bočný panel výpisy po každej navigácii číta znova; bez pamäti by výpis
+ * predošlého klienta (alebo veci) vyhodil práve otvoreného klienta z rozpočtu MCP a spustil ďalšiu sadu procesov.
+ * Chyba sa nepamätá. Nový git projekt v priečinku sa prejaví po reštarte appky.
+ */
+export function locateOnce(key: string, run: () => Promise<Located>): Promise<Located> {
+  const known = locatedFolders.get(key);
+  if (known) return known;
+  const pending = run();
+  locatedFolders.set(key, pending);
+  pending.catch(() => { if (locatedFolders.get(key) === pending) locatedFolders.delete(key); });
+  return pending;
+}
+
 /** Engine priečinka cez proxy servera (ako `openSessionWithPrompt`); bez spojenia `null`. */
 export function folderEngine(connection: Pick<OkfConnection, "baseUrl" | "token">, workspace: RouteWorkspace): FolderEngine | null {
   const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token });
@@ -120,10 +138,10 @@ export function folderEngine(connection: Pick<OkfConnection, "baseUrl" | "token"
   return {
     // Engine v2 (ADR 0016): `location.get` vracia skutočný priečinok a koreň jeho projektu; zoznam konverzácií
     // filtruje `directory` a voči projektu `subpath` (namiesto `path` z 1.x).
-    locate: async (folder, signal) => {
+    locate: (folder, signal) => locateOnce(`${endpoint.opencodeBaseUrl}\n${folder}`, async () => {
       const where = await client(folder).location.get({ location: { directory: folder } }, { signal });
       return { directory: where.directory, worktree: where.project.directory, projectId: where.project.id ?? null };
-    },
+    }),
     list: async (folder, query, signal) => {
       const page = await client(folder).session.list({ directory: folder, ...(query.path === undefined ? {} : { subpath: query.path }), parentID: null, limit: query.limit }, { signal });
       return page.data.map((s): ListedSession => ({ id: s.id, title: s.title, directory: s.location.directory, time: s.time, metadata: s.metadata }));
