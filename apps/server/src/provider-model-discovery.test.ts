@@ -87,6 +87,14 @@ test("rejects HTTP errors, malformed inventories, and redirects without catalog 
   // 🟡 LAWOSS #502: a rejected key (401) is distinguishable from other failures; 403 (restricted key) is not a rejection.
   await expect(discoverProviderModels(modelServer(() => new Response("", { status: 401 })), "k")).rejects.toMatchObject({ code: "model_discovery_unauthorized" });
   await expect(discoverProviderModels(modelServer(() => new Response("", { status: 403 })), "k")).rejects.toMatchObject({ code: "model_discovery_failed" });
+  // 🟡 LAWOSS #524: 401 for a restricted key without the model-list scope is not a rejection; the body never leaves the worker.
+  const scopeBody = { error: { message: "You have insufficient permissions for this operation. Missing scopes: api.model.read. Check that you have the correct role in your organization (Reader, Writer, Owner) and project (Member, Owner), and if you're using a restricted API key, that it has the necessary scopes.", type: "invalid_request_error", param: null, code: null } };
+  const scopeError = await discoverProviderModels(modelServer(() => Response.json(scopeBody, { status: 401 })), "sk-proj-restricted").catch((error: unknown) => error);
+  expect(scopeError).toMatchObject({ code: "model_discovery_scope_missing", message: "Model endpoint returned HTTP 401." });
+  const invalidBody = { error: { message: "Incorrect API key provided: sk-test-****0000. You can find your API key at https://platform.openai.com/account/api-keys.", type: "invalid_request_error", param: null, code: "invalid_api_key" } };
+  const invalidError = await discoverProviderModels(modelServer(() => Response.json(invalidBody, { status: 401 })), "sk-test-invalid-0000").catch((error: unknown) => error);
+  expect(invalidError).toMatchObject({ code: "model_discovery_unauthorized", message: "Model endpoint returned HTTP 401." });
+  expect(JSON.stringify(invalidError)).not.toContain("sk-test");
   for (const baseURL of ["", "file:///tmp/models", "http://user:secret@localhost/v1", "http://localhost/v1?x=1"]) {
     await expect(discoverProviderModels(baseURL, "")).rejects.toThrow("Enter an HTTP or HTTPS base URL");
   }
