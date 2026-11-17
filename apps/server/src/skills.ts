@@ -15,6 +15,12 @@ import { BUNDLED_WORKFLOW_NAMES, originalBundledWorkflow } from "./bundled-workf
 
 export type SkippedSkill = { path: string; reason: string };
 
+// 🟡 LAWOSS #540: a skill folder the user cannot read (other owner on a NAS, chmod 000) is an unavailable
+// source, never a failure of the whole listing and of the engine start.
+const UNREADABLE_SOURCE_CODES = new Set(["EACCES", "EPERM", "ENOTDIR"]);
+const isUnreadableSkillSource = (error: unknown): error is NodeJS.ErrnoException =>
+  error instanceof Error && "code" in error && typeof error.code === "string" && UNREADABLE_SOURCE_CODES.has(error.code);
+
 async function findWorkspaceRoots(workspaceRoot: string): Promise<string[]> {
   const roots: string[] = [];
   let current = resolve(workspaceRoot);
@@ -128,13 +134,21 @@ export async function listSkillsInDir(dir: string, scope: "project" | "global", 
     } catch (error) {
       // LAWOSS: a missing client folder has no skills; it must not fail every client's engine settings.
       if (isMissingWorkspaceRoot(error)) return [];
-      if (!isOutsideWorkspacePath(error)) throw error;
+      if (!isOutsideWorkspacePath(error) && !isUnreadableSkillSource(error)) throw error;
       skipped?.push({ path: dir, reason: error.message });
       return [];
     }
   }
   if (!(await exists(readableDir))) return [];
-  const entries = (await readdir(readableDir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+  let entries: Dirent[];
+  try {
+    entries = (await readdir(readableDir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+  } catch (error) {
+    // 🟡 LAWOSS #540
+    if (!isUnreadableSkillSource(error)) throw error;
+    skipped?.push({ path: dir, reason: error.message });
+    return [];
+  }
   const items: SkillItem[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
