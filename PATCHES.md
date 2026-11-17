@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Chránený kanál AI berie kľúč z úložiska prihlásení enginu v2 (#534) (2026-11-17)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/lawoss/protected-ai/transport.ts` (LAWOSS, + testy `lawoss/protected-ai/transport.test.ts`, `lawoss/protected-ai/server.e2e.test.ts`) | #534: `targetCredential` bral kľúč poskytovateľa len zo `settings.apiKey` definície. Engine v2 (2.1.4) ho tam nemá, appka aj natívny ISIR (`bootstrap.mjs`) ho ukladajú cez `integration/:id/connect/key` do úložiska prihlásení enginu. Odtlačok `wire-scope` (`account: sha256(kľúč)`) sa preto počítal z prázdneho kľúča a chránený kanál by poskytovateľovi kľúč neposlal; natívny ISIR padal na `wire-scope-account-model-and-body-hash`. Nové `providerAccountKey`: uložený `settings.apiKey` má prednosť (spätná kompatibilita, kľúč firmy v nastaveniach), inak aktívny kľúč integrácie z `credential.list()` hostiteľského enginu (rovnako ako hlas v `server.ts`, nie cez klienta projektu a jeho brány); platí pre vlastného poskytovateľa aj pre poskytovateľa organizácie s kľúčom člena (vetva organizácie bez vlastného testu). Formát úložiska sa nemení, kľúč nejde do recenzie, odtlačku (len hash), chýb ani hosťa (ide len v hlavičke `Authorization` k poskytovateľovi ako doteraz). Nečitateľné úložisko (engine nedostupný, chyba, bez odpovede do 5 s) skončí `503 protected_ai_account_unavailable`, nikdy požiadavkou bez kľúča; bez adresy enginu ostáva prázdny kľúč ako doteraz. Každá kontrola (aj 50 ms dozor počas odpovede) číta úložisko nanovo, takže výmena alebo odpojenie kľúča počas recenzie dá `host_decision_stale` (cena: jedno volanie enginu na kontrolu). Chránené otvorenie, obnova a každá kontrola teda potrebujú dostupný hostiteľský engine (reštart enginu počas odpovede ju preruší). Poskytovateľ s kľúčom v enginu má nový odtlačok cieľa, profil schválený proti starému (prázdny kľúč) treba schváliť znova. E2E fixtúry s nedosiahnuteľným enginom (port 1) dostali uložený syntetický kľúč. Overí až CI: natívny ISIR prípad 1 (skutočný engine 2.1.4: `connect/key` vytvorí aktívny záznam `type: "key"` pod id integrácie, a natívne okno recenzie). |
+
 ## Natívny ISIR: stav prípravy pri vypršaní orákula a voľba „High“ (#384, #220) (2026-11-17)
 
 | Súbor | Zmena |
