@@ -98,6 +98,8 @@ export function useEngineHealthPolling(client: EngineHealthClient | null | undef
         } catch {
           if (stopped) return;
           healthy = false;
+          // #527: server nedostupný – riadok nesmie ďalej ukazovať posledný známy stav enginu ani „Skúsiť znova“.
+          reportEngineHealth(null);
         }
         delay = engineHealthPollDelay(healthy, delay);
       }

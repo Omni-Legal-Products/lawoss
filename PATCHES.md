@@ -2411,7 +2411,7 @@ Návrat priečinka bez obnovenia okna: karta `lawoss/domains/missing-folder.tsx`
 
 ### Chyby poskytovateľa AI v chate a kľúč OpenAI (2026-11-16, fix/502-chyby-poskytovatela, #502)
 
-Logika je v nových LAWOSS súboroch `apps/app/src/lawoss/chat/provider-error.tsx` (typ chyby enginu → preložená veta, karta s akciou a technickými podrobnosťami), `apps/app/src/lawoss/providers/method-labels.ts` a `openai-key-check.ts`; texty v `lawoss/i18n/shell.ts`; test `apps/app/tests/lawoss-chyby-poskytovatela.test.tsx`.
+Logika je v nových LAWOSS súboroch `apps/app/src/lawoss/chat/provider-error.tsx` (typ chyby enginu → preložená veta, karta s akciou a technickými podrobnosťami), `apps/app/src/lawoss/providers/method-labels.ts` a `openai-key-check.ts`; texty v `lawoss/i18n/shell.ts`; test `apps/app/tests/lawoss-chyby-poskytovatela.test.tsx`. #524: kód `model_discovery_scope_missing` (obmedzený kľúč bez rozsahu `api.model.read`) uloženie neblokuje; samostatné upozornenie v UI nie je, lebo modálne okno ani Nastavenia → AI návratový text uloženia nezobrazujú.
 
 | Súbor | Zmena |
 |---|---|
@@ -2421,7 +2421,7 @@ Logika je v nových LAWOSS súboroch `apps/app/src/lawoss/chat/provider-error.ts
 | `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `MessageList` dostane existujúce `openAiSettings` (Nastavenia → Poskytovatelia AI) (1 atribút). |
 | `apps/app/src/react-app/domains/connections/provider-auth/provider-auth-modal.tsx` | `methodLabel = providerMethodLabel` (známe metódy enginu `chatgpt-token-sharing`, `chatgpt-browser`, `chatgpt-headless` preložené podľa ID); hľadanie aj podľa prekladu; `methodDescription` číta pôvodný `method.label` (kontrola `headless`/`device`). |
 | `apps/app/src/react-app/domains/connections/provider-auth/store.ts` | `submitProviderApiKey`: pred uložením kľúča `openai` zoznam modelov cez existujúcu trasu `provider-models`; iba kód `model_discovery_unauthorized` (HTTP 401) kľúč neuloží s preloženou hláškou (+1 import, 5 riadkov). |
-| `apps/server/src/provider-model-discovery.ts` | HTTP 401 z koncového bodu modelov má kód `model_discovery_unauthorized`, ostatné ostávajú `model_discovery_failed` (stav 502 bez zmeny). Test v `provider-model-discovery.test.ts`. |
+| `apps/server/src/provider-model-discovery.ts` | HTTP 401 z koncového bodu modelov má kód `model_discovery_unauthorized`, ostatné ostávajú `model_discovery_failed` (stav 502 bez zmeny). #524: 401, ktorého telo hovorí o chýbajúcom oprávnení (`insufficient permissions`, `Missing scopes`, `api.model.read`; obmedzený projektový kľúč OpenAI, ktorý na chat funguje), má kód `model_discovery_scope_missing` a kľúč sa uloží; v tele sa hľadá len v prvých 16 384 znakoch, telo sa len klasifikuje a z workera neodchádza (+ funkcia `missingScope`, 3 riadky). Test v `provider-model-discovery.test.ts`. |
 | `apps/app/tests/eigenwelt-provider-error.test.ts` | Vlastný poskytovateľ s `provider.auth`: surový text sa overuje v `providerError.detail`, nie vo vete. |
 
 ## Prevzatie enginu v alfa buildoch (2026-11-13)

@@ -174,6 +174,16 @@ export default Plugin.define({
   id: "lawoss.memory-tools",
   async setup(ctx) {
     const context = await registerPrimaryContext(ctx, (event) => { event.system.push({ type: "text", text: SYSTEM }); });
+    // #526: the model gets the exact schema without additionalProperties, as every other tool (a loose one may be
+    // refused by Gemini or OpenAI's strict mode). The engine decodes a call with that schema and drops the keys it does
+    // not declare before execute (#481), so the unknown ones are taken from the raw call here, before the decoding.
+    const undeclared = new Map<string, Record<string, unknown>>();
+    const before = await ctx.tool.hook("execute.before", (event) => {
+      if (event.tool !== "lawoss_memory") return;
+      const extra = event.input && typeof event.input === "object" && !Array.isArray(event.input)
+        ? Object.entries(event.input).filter(([key]) => !Object.hasOwn(args.shape, key)) : [];
+      if (extra.length) undeclared.set(event.id, Object.fromEntries(extra)); else undeclared.delete(event.id);
+    });
     const tools = await ctx.tool.transform((editor) => {
       const read = nativeTool(ctx, {
         name: "lawoss_memory",
@@ -183,10 +193,14 @@ export default Plugin.define({
         // Its name is a permission too: the runtime config allows it, so it never shows a card; a firm's deny still applies.
         execute: (input, context) => readMemory(input, context),
       });
-      // The model sees the exact arguments; a call that misses them still gets the actionable text above. #481: the
-      // engine decodes a call with this schema and drops keys it does not declare, so it must admit them for
-      // readMemory to refuse caseFolder instead of reading this chat's folder.
-      editor.add(directTool({ ...read, input: z.toJSONSchema(args.loose(), { io: "input" }) }));
+      // The model sees the exact arguments; a call that misses them still gets the actionable text above. #481/#526:
+      // the keys the engine dropped come back from execute.before, so readMemory refuses caseFolder instead of
+      // reading this chat's folder.
+      editor.add(directTool({ ...read, input: z.toJSONSchema(args, { io: "input" }), execute: (raw, call) => {
+        const extra = undeclared.get(call.id);
+        undeclared.delete(call.id);
+        return read.execute(extra && raw && typeof raw === "object" ? { ...extra, ...raw } : raw, call);
+      } }));
       editor.add(directTool(nativeTool(ctx, {
         name: "lawoss_memory_write",
         description: "Write one case memory (OKF) record of this client: a new record or a change of an existing one (with if_revision from lawoss_memory read). Shows the user one approval card with the record's text and its file (no card when YOLO Mode is on); after approval the server writes it with the same code as okf-memory write --apply. A declined card writes nothing. Only layer L2 records of a case (a folder with matter.md) in this client's own folder, or with scope client a record for the whole client (client_note, subject or screening) in the client's own memory; the office memory, linked folders, L1/L3 records and deletions are refused.",
@@ -208,8 +222,10 @@ export default Plugin.define({
       editor.add(directTool(integrationsTool(ctx)));
     });
     const listing = await ctx.tool.hook("execute.after", (event) => {
+      // #526: a call that failed before execute (for example a missing action) leaves nothing behind.
+      undeclared.delete(event.id);
       if (event.status === "completed" && event.tool === EXTENSION_LISTING_TOOL) event.result = annotateExtensionListing(event.result);
     });
-    return async () => { await Promise.all([context.dispose(), tools.dispose(), listing.dispose()]); };
+    return async () => { undeclared.clear(); await Promise.all([context.dispose(), before.dispose(), tools.dispose(), listing.dispose()]); };
   },
 });

@@ -92,14 +92,14 @@ describe("#502 voľby pripojenia OpenAI", () => {
 });
 
 describe("#502 overenie kľúča OpenAI pri uložení", () => {
-  function fixture(modelsStatus: number) {
+  function fixture(modelsStatus: number, code = modelsStatus === 401 ? "model_discovery_unauthorized" : "model_discovery_failed") {
     const calls: string[] = [];
     const server = Bun.serve({ port: 0, async fetch(request) {
       const path = new URL(request.url).pathname;
       calls.push(path);
       if (path.endsWith("/provider-models")) {
         return modelsStatus === 200 ? Response.json({ models: ["gpt-5-mini"] })
-          : Response.json({ code: modelsStatus === 401 ? "model_discovery_unauthorized" : "model_discovery_failed", message: `Model endpoint returned HTTP ${modelsStatus}.` }, { status: 502 });
+          : Response.json({ code, message: `Model endpoint returned HTTP ${modelsStatus}.` }, { status: 502 });
       }
       return Response.json([]);
     } });
@@ -123,6 +123,16 @@ describe("#502 overenie kľúča OpenAI pri uložení", () => {
       await expect(store.submitProviderApiKey("openai", "sk-test-invalid-0000")).rejects.toThrow(t("lawoss.provider_error.key_rejected"));
       expect(calls.some((path) => path.endsWith("/provider-models"))).toBe(true);
       expect(saved(calls)).toBe(false);
+    } finally { stop(); }
+  });
+
+  test("#524: obmedzený kľúč bez rozsahu api.model.read (401 s chýbajúcim oprávnením) sa uloží", async () => {
+    setLocale("sk");
+    const { calls, store, stop } = fixture(401, "model_discovery_scope_missing");
+    try {
+      await store.submitProviderApiKey("openai", "sk-proj-restricted-0000").catch(() => {});
+      expect(calls.some((path) => path.endsWith("/provider-models"))).toBe(true);
+      expect(saved(calls)).toBe(true);
     } finally { stop(); }
   });
 
