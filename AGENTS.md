@@ -87,8 +87,8 @@ Rules:
 - Never use `any`, typecasts, or `as` unless necessary and justified.
 - Prefer functional patterns, short focused functions, DRY, KISS, and YAGNI.
 - Use pnpm. Never use npm or yarn.
-- Local-template API restrictions use safe server-derived flags when endpoints are redacted. Provider repairs change only the saved transport package; never clear activation denials or `provider.use` policies, re-enabling stays the user's choice.
 - Match verification runtimes to the active CI workflow and select exact executable paths when several versions are installed. Keep results from other local runtimes as supplemental evidence, not a substitute for the CI-matching gate.
+- Local-template API restrictions use safe server-derived flags when endpoints are redacted. Provider repairs change only the saved transport package; never clear activation denials or `provider.use` policies, re-enabling stays the user's choice.
 - Run filtered server Bun tests through `pnpm --filter legalwork-server exec bun test src/...` so the server bunfig/preload is loaded. Running server test paths from the repository root omits fixture-only upstream service opt-ins and can create unrelated authorization failures.
 - Pin Bun in `PATH` before running package build scripts; invoking a Bun binary by absolute path does not pin the shell commands inside `bun run`. Verify committed bundles by a second identical build.
 - Cross-platform Bun test commands use explicit test directories instead of shell-expanded globs. Windows workflow steps with multiple native commands need an explicit fail-fast shell so a later success cannot mask an earlier failure.
