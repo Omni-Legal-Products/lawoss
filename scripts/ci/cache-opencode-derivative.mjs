@@ -57,7 +57,11 @@ export async function verifyCachedEngine(directory) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   let output;
   if (['key', 'base-producer'].includes(process.argv[2])) {
-    const identity = await sourceBuildIdentity({ mode: 'development', targets: recipe.targets });
+    // 🟡 LAWOSS: kľúč vždy pre pinovaný builder (darwin-arm64), aby ho rovnako spočítal aj ubuntu
+    // job, ktorý pred kompiláciou zisťuje, či engine už je v cache a macOS runner netreba.
+    const builder = 'darwin-arm64';
+    const identity = { ...await sourceBuildIdentity({ mode: 'development', targets: recipe.targets }),
+      host: builder, compiler: recipe.toolchain.executables[builder] };
     const helpers = {};
     for (const name of ['build-opencode-derivative.mjs']) {
       helpers[name] = createHash('sha256').update(await readFile(new URL(name, import.meta.url))).digest('hex');
