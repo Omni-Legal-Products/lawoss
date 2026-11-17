@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Engine bez skillov `.claude`/`.agents` mimo profilu (#530) (2026-11-17)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/legalwork-runtime-config.ts`, `apps/server/src/lawoss/engine-network.ts`, nový `apps/server/src/lawoss/engine-foreign-skills.ts` (LAWOSS okrem prvého, + testy `legalwork-runtime-config.test.ts`, `lawoss/engine-network.test.ts`, `lawoss/engine-foreign-skills.released.test.ts`) | #530: OpenCode 2.1.4 (`packages/core/src/config/discovery.ts`) prechádza od lokácie všetky nadradené priečinky až po koreň disku a každé `.claude`/`.agents` dá vstavanému pluginu `opencode.config.compatibility`, ktorý pri každej zmene konfigurácie znova rekurzívne sleduje a **načíta** `<priečinok>/.claude/skills` a `.agents/skills`. Engine má vlastný domov (`OPENCODE_TEST_HOME`), takže skutočný domov používateľa nad priečinkom klienta je preň obyčajný nadradený priečinok: engine sledoval (tisíce `watcher subscribe`) a ponúkal skilly zo skutočných `~/.claude/skills` a `~/.agents/skills` (overené na binárke `2.1.4-legalwork.http-policy.4`), hoci server a desktop ich neponúkajú. Teraz povinná konfigurácia (`OPENCODE_CONFIG_CONTENT`) má popri `-opencode.config.command` aj `-opencode.config.compatibility` (1 riadok + import `🟡 LAWOSS #530`) a `lawossEngineEnv` dáva enginu `OPENCODE_DISABLE_CLAUDE_CODE=1` (`config.claude: false`, korene `.claude` ani nevstúpia do zdrojov). Skilly klienta (`.claude/skills`, `.opencode/skills`) prichádzajú ďalej výslovne cez `skills` (`listSkills`), engine už nenačíta `.agents/skills` ani vnútri priečinka klienta (server ich nikdy neponúkal). **Ostáva (vyžaduje zásah do enginu):** `.opencode` a `opencode.json(c)` nadradených priečinkov (napr. `~/.opencode`) sa stále načítajú ako konfigurácia projektu a sledujú (`.opencode` rekurzívne, `.opencode/skill(s)`, každý nadradený priečinok); prechod nemá hranicu. Na binárke overené pre skill z `<nadradený>/.opencode/skills` a agenta z `<nadradený>/.opencode/opencode.json` (engine bez strážnych pluginov LAWOSS); pluginy, príkazy a MCP z nich podľa zdrojového kódu tiež, na binárke neoverené. |
+
 ## Fronta prípravy obsahu pre hľadanie (#525) (2026-11-17)
 
 | Súbor | Zmena |

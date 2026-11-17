@@ -18,6 +18,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { LAWOSS_FOREIGN_SKILLS_ENGINE_ENV } from "./engine-foreign-skills.js";
 
 /** Prepíše cestu ku katalógu (testy, vlastný katalóg firmy). */
 export const LAWOSS_MODELS_CATALOG_ENV = "LAWOSS_MODELS_CATALOG";
@@ -65,6 +66,8 @@ export function lawossEngineEnv(
     OPENCODE_DISABLE_AUTOUPDATE: "1",
     // Upstream v0.2.12: FFF's background scan reads document contents; filename lookup can use ripgrep.
     OPENCODE_DISABLE_FFF: "true",
+    // #530: bez `.claude` skillov a ich sledovania mimo profilu (engine-foreign-skills.ts).
+    ...LAWOSS_FOREIGN_SKILLS_ENGINE_ENV,
     ...(catalog ? { OPENCODE_MODELS_PATH: catalog } : {}),
   };
 }
