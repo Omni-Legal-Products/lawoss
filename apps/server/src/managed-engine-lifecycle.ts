@@ -15,6 +15,8 @@ import { legacyMcpCredentialImportPending, migrateLegacyMcpCredentials } from ".
 import { importLegacyProviderCredentials } from "./legacy-provider-credentials.js";
 // 🟡 LAWOSS #454: engine, ktorý po štarte skončí, sa spustí znova (lawoss/engine-supervisor.ts).
 import { createEngineSupervisor } from "./lawoss/engine-supervisor.js";
+// 🟡 LAWOSS #530: prechod konfigurácie enginu končí na koreňoch klientov a praxe (lawoss/engine-project-stop.ts).
+import { engineProjectStopEnv } from "./lawoss/engine-project-stop.js";
 
 /** One engine at a time. Plain serve makes history readable while the global
  * native recovery sweep is held; only upstream service mode resumes old work. */
@@ -272,7 +274,7 @@ export async function createConfiguredManagedEngine(config: ServerConfig, option
   config.managedEngineStatus = "starting";
   config.waitForManagedEngineEndpoint = () => endpoint;
   try {
-    const engine = await createManagedOpencodeServer({ ...options, onAuthenticated(connection) {
+    const engine = await createManagedOpencodeServer({ ...options, env: { ...options.env, ...await engineProjectStopEnv(config, options.cwd) }, onAuthenticated(connection) {
       config.opencodeBaseUrl = connection.url; config.opencodeUsername = connection.username; config.opencodePassword = connection.password;
       for (const workspace of config.workspaces) { workspace.baseUrl = connection.url; workspace.opencodeUsername = connection.username; workspace.opencodePassword = connection.password; workspace.directory = workspace.path; }
       resolveEndpoint(); options.onAuthenticated?.(connection);
