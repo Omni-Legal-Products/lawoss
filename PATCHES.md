@@ -17,6 +17,7 @@
 | Súbor | Zmena |
 |---|---|
 | `apps/app/src/react-app/domains/session/chat/session-page.tsx`, nový `apps/app/src/lawoss/shell/chat-tab-labels.ts` (LAWOSS okrem prvého, + test `tests/lawoss-nazov-karty-512.test.ts`) | #512: karta chatu zobrazuje uložený `tab.label`, ktorý upstream mení len pre práve otvorený chat (`syncRouteChatTab`). Premenovaný chat v neaktívnej karte si nechal starý názov aj po reštarte (panel kariet je perzistovaný). Teraz +1 import a +4 riadky (jeden `useEffect`): `chatTabLabelUpdates` pre každú kartu chatu v paneli priestoru porovná uložený názov s názvom chatu (ten istý zdroj ako pri otvorenom chate: `sessionInfo`, inak sidebar) a pri rozdiele ho prepíše. Prázdny alebo neznámy názov kartu neprepíše, chaty Asistenta a iné karty ostávajú bez zmeny. Pri syncu zachovať. |
+
 ## Potvrdenie akcie ovládania appky nezmrazí appku (#511) (2026-11-17)
 
 | Súbor | Zmena |
