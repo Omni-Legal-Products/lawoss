@@ -890,9 +890,11 @@ export type DesktopCommandMap = {
   __getFileIcon: { args: [target: string, size?: "small" | "normal" | "large"]; result: string | null };
   __getApplicationsForFile: { args: [target: string]; result: { name: string; appPath: string; icon: string | null }[] };
   __openWithApp: { args: [target: string, appPath: string]; result: unknown };
-  __fetch: { args: [url: string, init?: DesktopFetchInit]; result: DesktopFetchResult };
+  /** `null`: the window cancelled the request or closed (LAWOSS #506). */
+  __fetch: { args: [url: string, init?: DesktopFetchInit]; result: DesktopFetchResult | null };
   __fetchCancel: { args: [id: string]; result: void };
-  __streamOpen: { args: [id: string, url: string, headers: Record<string, string>]; result: Omit<DesktopFetchResult, "body"> };
+  /** `null`: the window cancelled the stream or closed while it opened (LAWOSS #506). */
+  __streamOpen: { args: [id: string, url: string, headers: Record<string, string>]; result: Omit<DesktopFetchResult, "body"> | null };
   __streamRead: { args: [id: string]; result: Uint8Array | null };
   __streamCancel: { args: [id: string]; result: void };
   __homeDir: { args: []; result: string };
