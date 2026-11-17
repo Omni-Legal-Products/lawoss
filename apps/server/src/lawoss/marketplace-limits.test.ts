@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { resolveClaudePluginBundle } from "../claude-plugin-bundle.js";
-import { BUNDLED_MARKETPLACE_REF } from "./marketplace-bundled-ref.js";
+import { BUNDLED_MARKETPLACE_PLUGINS, BUNDLED_MARKETPLACE_REF } from "./marketplace-bundled-ref.js";
 import { downloadPluginResources, isTrustedMarketplaceSource, pluginResourceLimits, trustedReleaseRefs } from "./marketplace-limits.js";
 
 const MIB = 1024 * 1024;
@@ -111,6 +111,13 @@ describe("LAWOSS #420: limity prostriedkov Node doplnku podľa zdroja", () => {
   test("pribalený katalóg appky a serverová konštanta majú rovnaký commit", async () => {
     const snapshot: unknown = await Bun.file(new URL("../../../app/src/lawoss/domains/marketplace/marketplace-snapshot.json", import.meta.url)).json();
     expect(snapshot).toMatchObject({ ref: BUNDLED_MARKETPLACE_REF });
+  });
+
+  test("#510: serverový zoznam verzií zodpovedá pluginom pribaleného katalógu na jeho commite", async () => {
+    const snapshot: { ref: string; plugins: Array<{ name: string; version: string; path: string; ref: string | null }> } =
+      await Bun.file(new URL("../../../app/src/lawoss/domains/marketplace/marketplace-snapshot.json", import.meta.url)).json();
+    const pinned = snapshot.plugins.filter((plugin) => plugin.ref === snapshot.ref).map(({ name, version, path }) => ({ name, version, path }));
+    expect(BUNDLED_MARKETPLACE_PLUGINS).toEqual(pinned);
   });
 
   test("všeobecný import z GitHubu ostáva pri 1 MiB na súbor a 8 MiB spolu", async () => {

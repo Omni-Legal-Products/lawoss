@@ -11,6 +11,7 @@ import { ensureDir } from "./utils.js";
 import { globalOpencodeConfigDir, globalSkillsDir } from "./workspace-files.js";
 import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { connectorConfigVariables } from "./connector-config.js";
+import { legacyConnectorSetup } from "./lawoss/legacy-connector-setup.js"; // 🟡 LAWOSS
 import { isPathWithin } from "./lawoss/path-within.js";
 import { readContentHash, readProvenance, withContentHash, withProvenance, type PluginProvenance } from "./lawoss/plugin-provenance.js";
 import { pluginResourceNamespaces, pluginResourceRecordIds, prunePluginResourceNamespace, referencedResourceEntries } from "./lawoss/plugin-resource-cleanup.js";
@@ -473,6 +474,7 @@ export function mergeConnectorSetup(next: Record<string, unknown>, current: Reco
   const baseline = previous ? normalizePluginMcpConfig(previous) ?? next : next;
   const changedEndpoint = previous ? next.url !== previous.url : next.url !== current.url && !connectorConfigVariables(next.url).length;
   if (next.type !== baseline.type || changedEndpoint || next.type !== current.type) return { ...next, disabled: true };
+  if (!previous) return legacyConnectorSetup(next, current); // 🟡 LAWOSS revízia #486: záznam bez connectorDefaults
   const merge = (defaults: Record<string, unknown>, old: Record<string, unknown>, configured: Record<string, unknown>): Record<string, unknown> => {
     const result: Record<string, unknown> = {};
     for (const key of new Set([...Object.keys(defaults), ...Object.keys(old), ...Object.keys(configured)])) {
@@ -796,7 +798,8 @@ export async function installCloudPlugin(input: {
   const resourceRoot = resolveWorkspaceInstallPath(input.workspaceRoot, `.opencode/plugin-resources/${resourceNamespace}`, input.global);
   const cloudImports = await readInstalledCloudPlugins(input.serverConfig, input.workspaceId);
   const existing = cloudImports.plugins[input.resolved.plugin.id];
-  const previousMcp = input.preserveConnectorSetup ? (await readRuntimeOpencodeConfig(input.serverConfig, input.workspaceId)).mcp?.servers ?? {} : {};
+  // 🟡 LAWOSS #441: a global plugin's connections live in the shared row (`addMcp(…, "global")` below), not in its record's.
+  const previousMcp = input.preserveConnectorSetup ? (await readRuntimeOpencodeConfig(input.serverConfig, input.global ? GLOBAL_MCP_ID : input.workspaceId)).mcp?.servers ?? {} : {};
   const connectorDefaults: Record<string, Record<string, unknown>> = {};
   const files: CloudImportedPluginFile[] = [];
 

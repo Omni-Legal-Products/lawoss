@@ -18,6 +18,7 @@ import { t } from "@/i18n";
 import { subscriptionModelErrorKey } from "@/lawoss/providers/subscription-models";
 import { eigenweltUsageLimitFromError, isAnthropicUsageLimitError, providerUsageLimitErrorText } from "@/app/lib/provider-usage-limit";
 import { commentaryIsAnswer, commentaryTag, isModelCommentary } from "@/lawoss/chat/commentary";
+import { providerErrorKind, providerErrorTitle, type ProviderErrorNotice } from "@/lawoss/chat/provider-error";
 
 function recordValue(value: unknown, key: string) {
   if (!value || typeof value !== "object") return undefined;
@@ -74,15 +75,20 @@ function describeErrorText(text: string, provider: string | null = null) {
 }
 
 export function describeOpencodeSessionError(error: unknown, fallback = "Session failed", providerId?: string) {
+  return describeSessionFailure(error, fallback, providerId).text;
+}
+
+/** 🟡 LAWOSS #502: a provider error the user fixes in Settings carries a translated text and the raw detail. */
+export function describeSessionFailure(error: unknown, fallback = "Session failed", providerId?: string): { text: string; providerError?: ProviderErrorNotice } {
   const lawossKey = subscriptionModelErrorKey(error); // LAWOSS: model the ChatGPT subscription rejects
-  if (lawossKey) return t(lawossKey);
-  if (isSessionAbortError(error)) return t("chat.stopped");
+  if (lawossKey) return { text: t(lawossKey) };
+  if (isSessionAbortError(error)) return { text: t("chat.stopped") };
   const limit = providerId === "eigenwelt" ? eigenweltUsageLimitFromError(error) : null;
-  if (limit) return providerUsageLimitErrorText("eigenwelt", limit);
-  if (isAnthropicUsageLimitError(error)) return providerUsageLimitErrorText(providerId ?? "anthropic");
-  if (error instanceof Error) return describeErrorText(error.message || fallback, providerId ?? null);
-  if (typeof error === "string") return describeErrorText(error.trim() || fallback, providerId ?? null);
-  if (!error || typeof error !== "object") return fallback;
+  if (limit) return { text: providerUsageLimitErrorText("eigenwelt", limit) };
+  if (isAnthropicUsageLimitError(error)) return { text: providerUsageLimitErrorText(providerId ?? "anthropic") };
+  if (error instanceof Error) return { text: describeErrorText(error.message || fallback, providerId ?? null) };
+  if (typeof error === "string") return { text: describeErrorText(error.trim() || fallback, providerId ?? null) };
+  if (!error || typeof error !== "object") return { text: fallback };
 
   const data = recordValue(error, "data");
   const cause = recordValue(error, "cause");
@@ -97,21 +103,22 @@ export function describeOpencodeSessionError(error: unknown, fallback = "Session
   const responseBody = firstStringValue(records, ["responseBody", "body", "response"]);
 
   if (status === 413 || /request (?:entity|body) too large|request_too_large/i.test([message, responseBody].join(" "))) {
-    return t("chat.error_request_size");
+    return { text: t("chat.error_request_size") };
   }
 
   const recovery = eigenweltProviderRecoveryMessage({ status, provider, texts: [message, responseBody, code] });
-  if (recovery) return recovery;
+  if (recovery) return { text: recovery };
   const lines = [message ?? defaultErrorMessage(name, fallback)];
   if (status && !lines[0]?.includes(String(status))) lines.push(`Status: ${status}`);
   if (provider && !lines[0]?.includes(provider)) lines.push(`Provider: ${provider}`);
   if (code) lines.push(`Code: ${code}`);
   if (retries !== null) lines.push(`Retries: ${retries}`);
   if (responseBody && responseBody !== message) lines.push(`Response: ${responseBody}`);
-  if (lines.some((line) => line !== fallback)) return withAttachmentRecoveryHint(lines.join("\n"));
-
   const serialized = safeStringify(error);
-  return serialized && serialized !== "{}" ? serialized : fallback;
+  const detail = lines.some((line) => line !== fallback) ? withAttachmentRecoveryHint(lines.join("\n"))
+    : serialized && serialized !== "{}" ? serialized : fallback;
+  const kind = providerErrorKind(name); // 🟡 LAWOSS #502
+  return kind ? { text: providerErrorTitle(kind), providerError: { kind, detail } } : { text: detail };
 }
 
 function sessionErrorMessageId(turnKey: string) {
@@ -127,13 +134,13 @@ function sessionErrorMessageId(turnKey: string) {
  * message instead of duplicating — while a brand new error on a later turn
  * still produces its own message instead of overwriting the previous one.
  */
-export function createSessionErrorUIMessage(turnKey: string, text: string, options?: { created?: number; stopped?: boolean }): UIMessage {
+export function createSessionErrorUIMessage(turnKey: string, text: string, options?: { created?: number; stopped?: boolean; providerError?: ProviderErrorNotice }): UIMessage {
   const id = sessionErrorMessageId(turnKey);
   const created = options?.created;
   return {
     id,
     role: "assistant",
-    metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), stopped: options?.stopped ?? false } },
+    metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), stopped: options?.stopped ?? false, ...(options?.providerError ? { providerError: options.providerError } : {}) } },
     parts: [{
       type: "text",
       text,
@@ -319,8 +326,8 @@ export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMess
     if (!error && !recoveryStops.has(message.info.id)) return [uiMessage];
 
     const providerId = message.info.role === "assistant" ? message.info.providerID : undefined;
-    const text = recoveryStops.has(message.info.id) ? t("chat.stopped_invalid_tool_calls") : describeOpencodeSessionError(error, "Session failed", providerId);
-    const errorMessage = createSessionErrorUIMessage(message.info.id, text, { created, stopped: recoveryStops.has(message.info.id) || isSessionAbortError(error) });
+    const failure = recoveryStops.has(message.info.id) ? { text: t("chat.stopped_invalid_tool_calls") } : describeSessionFailure(error, "Session failed", providerId);
+    const errorMessage = createSessionErrorUIMessage(message.info.id, failure.text, { created, stopped: recoveryStops.has(message.info.id) || isSessionAbortError(error), providerError: failure.providerError });
     return uiMessage.parts.length > 0 ? [uiMessage, errorMessage] : [errorMessage];
   });
 }

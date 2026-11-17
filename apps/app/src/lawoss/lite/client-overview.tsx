@@ -32,6 +32,8 @@ import { useMinuteTick } from "./live";
 import { useUiMode, type UiMode } from "./ui-mode";
 import { ClientDashboardView } from "./client-dashboard";
 import { clientInitials } from "./client-cards";
+import { MissingFolder } from "../domains/missing-folder";
+import { unavailableWorkspaceIds } from "../okf/missing-folder";
 import "./pages/okf-glass.css";
 import "./pages/client-home.css";
 
@@ -99,7 +101,12 @@ export function ClientOverviewFrom({ nav, workspaceId, mode }: { nav: PublishedC
     const appTasks = appTodayTasks(rawAppTasks.filter((task) => task.projectId === workspaceId), appTaskClient(nav.connection?.workspaces ?? [], scope, data.clients ?? []));
     return { foreignFolders, own, ownInputs, kinds, statuses, events: agendaEvents(source, appTasks), todayModel: buildToday(source, todayIso, undefined, appTasks), inputs: inputCounts(ownInputs, own.matters.map((m) => m.path), ownClients), intakeFailed, folderMissing };
   }, [allowed, scope, data, model, nav.connection, nav.groups, workspaceId, todayIso, locale, rawAppTasks]);
-  if (!scope || !data || !derived) return null;
+  // #494: priečinok tohto klienta chýba: nad prehľadom (vstupy „nenačítané“) tá istá karta ako na ostatných stránkach
+  // („Nájsť presunutý priečinok“, N-A7-1); ostatní klienti ju nedostanú.
+  const unavailable = unavailableWorkspaceIds(data);
+  const missing = unavailable.has(workspaceId) ? nav.connection?.workspaces.find((w) => w.id === workspaceId) : undefined;
+  const missingCard = nav.connection && missing ? <MissingFolder connection={nav.connection} missing={missing} unavailable={unavailable} /> : null;
+  if (!scope || !data || !derived) return missingCard;
   const { own, ownInputs, kinds, statuses, events, todayModel, inputs, intakeFailed, folderMissing, foreignFolders } = derived;
   const clientRoot = nav.connection?.workspaces.find((w) => w.id === workspaceId)?.path ?? "";
   // Iní klienti: registrovaní klienti panela a priečinky klientov z prehľadu praxe (únik medzi klientmi).
@@ -110,8 +117,9 @@ export function ClientOverviewFrom({ nav, workspaceId, mode }: { nav: PublishedC
   const shared = { workspaceId, locale, todayIso, matters: own.matters, deadlines: [...own.overdue, ...own.upcomingDeadlines],
     partial: data.coverage.status !== "complete" || !appTasksComplete, deadlineEvidence: deadlineCoverage(ownInputs), readFailed: !canActOnSource(data, workspaceId),
     kinds, statuses, inputs, inputsFailed: intakeFailed || (inputs === null && folderMissing), events, today: todayModel, foreignFolders };
-  if (lite) return <ClientDashboardView {...shared} pending={appTasksLoading} chats={nav.chats?.[workspaceId]} folders={folders} chat={model.practiceRootId !== workspaceId} />;
+  if (lite) return <>{missingCard}<ClientDashboardView {...shared} pending={appTasksLoading} chats={nav.chats?.[workspaceId]} folders={folders} chat={model.practiceRootId !== workspaceId} /></>;
   return <div className="space-y-4">
+    {missingCard}
     <ClientOverviewView {...shared} soon={own.totals.deadlinesWithin7Days} />
     {folders}
   </div>;

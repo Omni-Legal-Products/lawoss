@@ -2127,6 +2127,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     >
                       <MessageList
                         showWelcome={!props.assistantDate}
+                        onOpenAiSettings={openAiSettings /* 🟡 LAWOSS #502 */}
                         eigenweltPlan={eigenweltPlan}
                         renderUsageLimit={(error, messageId) => {
                           // LAWOSS: ponuka plánov Eigenweltu pri limite (aj vlastného kľúča) sa neukazuje; ostane bežná chybová správa.

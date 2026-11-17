@@ -44,6 +44,7 @@ function ModelPicker({ text, model, busy, onSelect }: { text: WizardText; model:
       <span className="lw-wiz-label">{text("aiModelPick")}</span>
       <select
         className="lw-onb-select"
+        aria-label={text("aiModelPick")}
         value={current >= 0 ? String(current) : ""}
         disabled={busy}
         onChange={(event) => { const choice = choices[Number(event.target.value)]; if (choice) onSelect({ providerID: choice.providerID, modelID: choice.modelID }); }}

@@ -136,7 +136,9 @@ const humanizeModelLabel = (value: string) => {
     return FRIENDLY_PROVIDER_LABELS[normalized];
   }
 
-  const cleaned = value.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  // 🟡 LAWOSS #479: `anthropic/claude-haiku-4.5` (OpenRouter) is named after its last segment, not "Anthropic/claude …".
+  const slug = value.split("/").filter(Boolean).pop() ?? value;
+  const cleaned = slug.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
   if (!cleaned) return value;
 
   return cleaned
@@ -160,6 +162,11 @@ export function formatModelLabel(model: ModelRef, providers: ProviderListItem[] 
   const modelLabel = modelInfo?.name ?? resolveModelDisplayName(model.modelID);
 
   return `${providerLabel} · ${modelLabel}`;
+}
+
+/** 🟡 LAWOSS #479: one model name everywhere (default model, Fusion): the provider catalog's name first. */
+export function resolveModelLabel(model: ModelRef, providers: readonly ProviderListItem[] = []): string {
+  return providers.find((p) => p.id === model.providerID)?.models?.[model.modelID]?.name ?? resolveModelDisplayName(model.modelID);
 }
 
 export { isDesktopRuntime, isElectronRuntime, isOfficeAddinRuntime } from "../lib/runtime-env";

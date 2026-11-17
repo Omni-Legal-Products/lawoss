@@ -45,6 +45,11 @@ test("lawoss_memory posts the case folder of this chat to its own client and nev
     const refused = JSON.parse(await tool.execute({ action: "read", matter: "/synthetic/Cudzi" }, context));
     expect(refused.error).toContain("403");
     expect(JSON.parse(await tool.execute({ action: "write" }, context))).toMatchObject({ code: "memory_arguments" });
+    // #481: an unknown argument such as caseFolder is refused with the actionable text, never read from this chat's folder.
+    const unknown = JSON.parse(await tool.execute({ action: "read", caseFolder: "Spisy/M001" }, context));
+    expect(unknown).toMatchObject({ code: "memory_arguments" });
+    expect(unknown.error).toContain("caseFolder");
+    expect(unknown.error).toContain("matter");
     expect(bodies).toHaveLength(4);
     expect(asked).toBe(0);
     // Fixed text for the model: memory and folder listing without the shell.

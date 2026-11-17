@@ -682,7 +682,8 @@ export function LawossWelcomePage({
         // Krok, priečinok, voľby a pripojenie po prerušení (wizard-flow.ts); voľby z úložiska len k tomuto profilu.
         const resume = wizardResume({ initialStep, initialRoot, profile: status.profile, saved, foundRootMissing: status.foundRootMissing, hasCompletedOnboarding, sidebarFlow });
         setStep(resume.step);
-        if (resume.foundRoot) setFoundRoot(resume.foundRoot);
+        // Aj pri zmene `?root=` na už zobrazenej stránke (#478): počiatočný stav sa nastavil len pri prvom vykreslení.
+        setFoundRoot(resume.foundRoot ?? null);
         setSavedChoice(resume.found);
         setConnected(resume.connected);
         // Zmiznutý priečinok (aj v krokoch 4–6): krok Dokumenty s krátkou vetou (zmaže ju ďalšia akcia);
@@ -690,8 +691,8 @@ export function LawossWelcomePage({
         if (resume.missing) {
           setError(foundText(locale)("resumeFolderMissing", { name: folderName(resume.missing) }));
           if (!sidebarFlow) patchOnboardingProgress(storage(), { step: "folder", found: undefined, connected: undefined });
-          if (resume.profilePatch) void api.updateOnboardingProfile(resume.profilePatch).then(setProfile, (reason: unknown) => console.warn("[lawoss] onboarding resume folder", reason));
         }
+        if (resume.profilePatch) void api.updateOnboardingProfile(resume.profilePatch).then(setProfile, (reason: unknown) => console.warn("[lawoss] onboarding resume folder", reason));
       })
       .catch(() => {
         if (cancelled) return;

@@ -6,7 +6,8 @@ import type { ImportedPlugin } from "../../../app/lib/extension-imports";
 
 export type FileResolution = "keep" | "replace" | "backup";
 export type FileChange = { path: string; title: string; state: "modified" | "missing" };
-export type PluginUpdate = { pluginId: string; name: string; installed: string | null; available: string; path: string };
+/** #510: `source` „bundled“ = katalóg pribalený v appke je novší ako posledné vydanie; `ref` je commit aktualizácie. */
+export type PluginUpdate = { pluginId: string; name: string; installed: string | null; available: string; path: string; source?: "release" | "bundled"; ref?: string };
 export type MarketplaceCheck =
   | { status: "ok"; release: { tag: string; sha: string; publishedAt: string | null; source: "release" | "tag"; plugins: Array<{ name: string; version: string; path: string }> } }
   | { status: "no_release" }
@@ -25,7 +26,8 @@ export type MarketplaceView = {
 };
 
 export type NeedsDecision = { status: "needs_decision"; changes: FileChange[] };
-export type InstallOutcome = { status: "installed" | "already_installed"; item: ImportedPlugin };
+/** #510: `update`, keď už nainštalovaný doplnok má novšiu verziu; inštalácia ho nemení. */
+export type InstallOutcome = { status: "installed" | "already_installed"; item: ImportedPlugin; update?: PluginUpdate };
 export type UpdateOutcome = NeedsDecision | { status: "updated"; item: ImportedPlugin; backups: string[]; kept: string[] };
 export type RemoveOutcome = NeedsDecision | { status: "removed"; item: ImportedPlugin; backups: string[] };
 export type MoveOutcome = NeedsDecision | { status: "moved"; item: ImportedPlugin; backups: string[]; carried: string[] };

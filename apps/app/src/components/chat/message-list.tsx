@@ -59,6 +59,7 @@ import {
 import { eigenweltBillingUrl } from "@/react-app/domains/connections/eigenwelt-entitlements"
 import { eigenweltPremiumPlatformUrl } from "@/react-app/domains/recorder/model-tiers"
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types"
+import { OpenAiSettingsContext, ProviderErrorCard, providerErrorNoticeOf } from "@/lawoss/chat/provider-error"
 import { ApplyPatchTool } from "@/components/tools/apply-patch"
 import { BashTool } from "@/components/tools/bash"
 import { EditTool } from "@/components/tools/edit"
@@ -775,6 +776,8 @@ const MessageComponent = React.memo(
           "stopped" in metadata.opencode && metadata.opencode.stopped === true) {
         return <Message className="text-sm text-muted-foreground">{getMessagesText([message]) || t("chat.stopped")}</Message>;
       }
+      const providerError = providerErrorNoticeOf(message) // 🟡 LAWOSS #502: preložená chyba poskytovateľa s akciou
+      if (providerError) return <Message className="not-prose w-full"><ProviderErrorCard notice={providerError} /></Message>
       return <ErrorMessage error={getMessagesText([message]) || t("session.failed")} messageId={message.id} />
     }
 
@@ -1096,9 +1099,11 @@ interface MessageListProps {
   /** Active text generation, computed before complete-bubble buffering. */
   assistantTyping?: boolean
   retryStatus?: RetryStatus | null
+  /** 🟡 LAWOSS #502: akcia „Otvoriť nastavenia poskytovateľov AI“ v karte chyby poskytovateľa. */
+  onOpenAiSettings?: () => void
 }
 
-export function MessageList({ showWelcome = true, eigenweltPlan = null, messages: rawMessages, status, assistantTyping, retryStatus, renderUsageLimit }: MessageListProps) {
+export function MessageList({ showWelcome = true, eigenweltPlan = null, messages: rawMessages, status, assistantTyping, retryStatus, renderUsageLimit, onOpenAiSettings }: MessageListProps) {
   const { assistantChat, showThinking } = useMessageList();
   const messages = React.useMemo(() => assistantChat ? assistantChatMessages(rawMessages) : rawMessages, [assistantChat, rawMessages]);
   const reactions = React.useMemo(() => assistantChat ? assistantReactions(rawMessages) : new Map<string, string>(), [assistantChat, rawMessages]);
@@ -1119,6 +1124,7 @@ export function MessageList({ showWelcome = true, eigenweltPlan = null, messages
   }, [lastItem, showThinking]);
 
   return (
+    <OpenAiSettingsContext.Provider value={onOpenAiSettings ?? null}>
     <UsageLimitRendererContext.Provider value={renderUsageLimit ?? null}>
     <EigenweltBudgetPlanContext.Provider value={eigenweltPlan}>
     <ChatInlineViewBudget messages={messages}>
@@ -1163,5 +1169,6 @@ export function MessageList({ showWelcome = true, eigenweltPlan = null, messages
     </ChatInlineViewBudget>
     </EigenweltBudgetPlanContext.Provider>
     </UsageLimitRendererContext.Provider>
+    </OpenAiSettingsContext.Provider>
   )
 }

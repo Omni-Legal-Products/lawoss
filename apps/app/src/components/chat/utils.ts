@@ -12,7 +12,7 @@ import { isProjectListTool, suppressProjectCard } from "./project/project-tool";
 import { isSubagentTool } from "./subagent-tool";
 import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type FileUIPart, type ReasoningUIPart, type ToolUIPart, type UIMessage } from "ai"
 import type { ThreadStatus } from "@/lib/messages"
-import { t } from "@/i18n";
+import { currentLocale, t } from "@/i18n"; // 🟡 LAWOSS #479: currentLocale
 import { attachmentFilename } from "@/app/lib/attachment-filename";
 
 interface MessageGroup {
@@ -77,14 +77,16 @@ export function getMessageCreated(message: UIMessage): number | null {
 export function formatMessageTimestamp(timestampMs: number): string {
   const date = new Date(timestampMs)
   const now = new Date()
-  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+  // 🟡 LAWOSS #479: jazyk rozhrania (24 h v sk/cs/de), nie jazyk systému.
+  const locale = currentLocale()
+  const time = date.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" })
 
   if (date.toDateString() === now.toDateString()) {
     return time
   }
 
   const sameYear = date.getFullYear() === now.getFullYear()
-  const day = date.toLocaleDateString(undefined, {
+  const day = date.toLocaleDateString(locale, {
     month: "short",
     day: "numeric",
     ...(sameYear ? {} : { year: "numeric" }),

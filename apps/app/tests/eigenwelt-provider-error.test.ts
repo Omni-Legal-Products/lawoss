@@ -19,7 +19,7 @@ import {
   isEigenweltModelDisabledError,
   isEigenweltSignInExpiredError,
 } from "../src/react-app/domains/session/sync/eigenwelt-provider-error";
-import { describeOpencodeSessionError } from "../src/react-app/domains/session/sync/usechat-adapter";
+import { describeOpencodeSessionError, describeSessionFailure } from "../src/react-app/domains/session/sync/usechat-adapter";
 
 const LITELLM_MODEL_OFF_BODY =
   '{"error":{"message":"team not allowed to access model. This team can only access models=[\'Eigenwelt Europe\']. Tried to access Eigenwelt US","type":"team_model_access_denied","param":"model","code":"403"}}';
@@ -228,8 +228,9 @@ test("unknown and custom providers never receive Eigenwelt account recovery advi
   for (const provider of [undefined, "tensorx-custom"]) {
     expect(isEigenweltSignInExpiredError({ status: 401, provider: provider ?? null, texts: [LITELLM_DEAD_KEY_BODY] })).toBe(false);
     for (const message of [LITELLM_DEAD_KEY_BODY, LITELLM_MODEL_OFF_BODY]) {
-      const text = describeOpencodeSessionError({ type: "provider.auth", status: 401, message }, "Session failed", provider);
-      expect(text).toContain(message);
+      // 🟡 LAWOSS #502: provider.auth shows the generic translated sign-in text; the raw body stays as the detail.
+      const { text, providerError } = describeSessionFailure({ type: "provider.auth", status: 401, message }, "Session failed", provider);
+      expect(providerError?.detail).toContain(message);
       expect(text).not.toContain(eigenweltSignInExpiredMessage());
       expect(text).not.toContain(t("session_route.model_unavailable"));
     }

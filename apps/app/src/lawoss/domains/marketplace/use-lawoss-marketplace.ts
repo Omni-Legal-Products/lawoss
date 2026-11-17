@@ -41,8 +41,11 @@ export async function installGlobalEntries(api: LawossMarketplaceApi, entries: r
     // Po výpadku zdroja by každý ďalší doplnok čakal na sieť znova; zvyšok balíka dostane tú istú radu hneď.
     if (unreachable) { result.failed.push({ id: entry.id, message: unreachable }); continue; }
     try {
-      await api.install(catalogPluginUrl(entry));
-      result.installed.push(entry.id);
+      const outcome = await api.install(catalogPluginUrl(entry));
+      // #510: „Nainštalované“ len pre skutočnú inštaláciu; staršia verzia sa nahlási s ponukou aktualizácie.
+      if (outcome.update) (result.outdated ??= []).push({ id: entry.id, installed: outcome.update.installed, available: outcome.update.available });
+      else if (outcome.status === "already_installed") (result.already ??= []).push(entry.id);
+      else result.installed.push(entry.id);
     } catch (error) {
       const message = installFailureMessage(error);
       if (isSourceUnreachable(error)) unreachable = message;

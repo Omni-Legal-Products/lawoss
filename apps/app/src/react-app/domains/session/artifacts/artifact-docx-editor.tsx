@@ -1,4 +1,5 @@
 import { docxTemplateSchema, documentNavigationTargetSchema, type DocumentNavigationTarget } from "@legalwork/types/office-editor";
+import { UnreadableFileNotice } from "@/lawoss/domains/artifacts/unreadable-file-notice"; // 🟡 LAWOSS #492
 import { executeWordBatch } from "./docx-agent-batch";
 import { readWordDocument } from "./docx-agent-read";
 import { useDocumentVisibility } from "./document-runtime";
@@ -94,6 +95,8 @@ type ArtifactDocxEditorProps = {
   onRestore?: (baseUpdatedAt: number | null) => void;
   autosave?: boolean;
   onAutosaveError?: (error: string | null) => void;
+  /** 🟡 LAWOSS #492: dokument sa nedal načítať; panel vypne uloženie a ukáže hlášku. */
+  onLoadFailed?: () => void;
 };
 
 let documentInstance = 0;
@@ -218,7 +221,7 @@ export function ArtifactDocxEditor(props: ArtifactDocxEditorProps) {
   return <LiveDocxEditor {...props} content={restored?.buffer ?? props.content} recovered={!!restored} />;
 }
 
-function LiveDocxEditor({ name, content, author, readOnly = false, interactionLocked = false, onSave, onDirtyChange, apiRef, recoveryKey, baseUpdatedAt = null, recovered, autosave = false, onAutosaveError }: ArtifactDocxEditorProps & { recovered: boolean }) {
+function LiveDocxEditor({ name, content, author, readOnly = false, interactionLocked = false, onSave, onDirtyChange, apiRef, recoveryKey, baseUpdatedAt = null, recovered, autosave = false, onAutosaveError, onLoadFailed }: ArtifactDocxEditorProps & { recovered: boolean }) {
   const visible = useDocumentVisibility();
   const visibleRef = useRef(visible); visibleRef.current = visible;
   const colorMode = useThemeColorMode();
@@ -231,6 +234,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
   const metadataRef = useRef(wordMetadata);
   const [metadataReady, setMetadataReady] = useState(false);
   const [metadataError, setMetadataError] = useState("");
+  const loadFailed = useRef(onLoadFailed); loadFailed.current = onLoadFailed; // 🟡 LAWOSS #492
   useEffect(() => {
     let active = true;
     void readWordMetadata(documentBuffer).then((metadata) => {
@@ -239,7 +243,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
       setWordMetadata(metadata);
       if (metadata.protection.mode === "trackedChanges") setMode("suggesting");
       setMetadataReady(true);
-    }).catch((error) => { if (active) setMetadataError(String(error)); });
+    }).catch((error) => { if (active) { setMetadataError(String(error)); loadFailed.current?.(); } }); // 🟡 LAWOSS #492
     return () => { active = false; };
   }, [documentBuffer]);
   const [protectionPlugin] = useState(() => createWordProtectionPlugin(() => metadataRef.current.protection, () => toast.error(t("docx.word.edit_blocked"))));
@@ -787,7 +791,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
         </>}
       </div>}
       <div className="min-h-0 min-w-0 flex-1">
-        {!metadataReady ? <p role="status" className="p-4">{metadataError || t("docx.word.working")}</p> : <DocxEditor
+        {metadataError ? <UnreadableFileNotice /> : !metadataReady ? <p role="status" className="p-4">{t("docx.word.working")}</p> : <DocxEditor
           ref={editorRef}
           documentBuffer={documentBuffer}
           documentName={name}

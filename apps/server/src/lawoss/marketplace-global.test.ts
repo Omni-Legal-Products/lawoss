@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:f
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installCloudPlugin, readInstalledCloudPlugins, writeInstalledCloudPlugins } from "../cloud-plugins.js";
+import { installCloudPlugin, mergeConnectorSetup, readInstalledCloudPlugins, writeInstalledCloudPlugins } from "../cloud-plugins.js";
 import { resolveClaudePluginBundle } from "../claude-plugin-bundle.js";
 import { addMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled } from "../mcp.js";
 import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
@@ -11,6 +11,7 @@ import type { ServerConfig } from "../types.js";
 import { availableUpdates, installGlobalPlugin, missingMcp, moveWorkspacePlugin, pluginFileChanges, removeGlobalPlugin, updateGlobalPlugin, workspaceTarget } from "./marketplace-global.js";
 import { marketplaceStatePath, readUpdateState, runMarketplaceCheck, updateUpdateState } from "./marketplace-updates.js";
 import { globalPluginTarget } from "./plugin-install-target.js";
+import { BUNDLED_MARKETPLACE_REF } from "./marketplace-bundled-ref.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
 
 const SHA1 = "1".repeat(40);
@@ -185,6 +186,102 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     expect(await readFile(join(root, "config", "opencode", "skills", "dvojica-plugin", "dvojica", "SKILL.md"), "utf8")).toContain("Verzia 1.0.0.");
   });
 
+  test("#441: aktualizácia ponechá nastavenie pripojení advokáta aj vypnuté pripojenie", async () => {
+    const SHA3 = "3".repeat(40), SHA4 = "4".repeat(40);
+    const twoMcp = (version: string, body: string) => ({
+      ...pluginFiles(version, body),
+      "plugins/demo/.mcp.json": JSON.stringify({ mcpServers: { demo: { command: "node", args: ["scripts/run.mjs", "mcp"] }, druhy: { command: "node", args: ["scripts/run.mjs", "druhy"] } } }),
+    });
+    repo[SHA3] = twoMcp("1.0.0", "Verzia jedna.");
+    repo[SHA4] = twoMcp("1.1.0", "Verzia dva.");
+    const config = serverConfig(root);
+    await installGlobalPlugin(config, url(SHA3));
+    const [first, second] = Object.keys(await runtimeMcpMapForWorkspace(config, "ws_a")).sort() as [string, string];
+    // The lawyer saves their own setup on both connections and turns the second one off.
+    const shared = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers ?? {};
+    await addMcp(config, "ws_a", first, { ...shared[first], environment: { DEMO_TOKEN: "prve" } }, "global");
+    await addMcp(config, "ws_a", second, { ...shared[second], environment: { DEMO_TOKEN: "druhe" } }, "global");
+    await setMcpEnabled(config, "ws_a", second, false);
+
+    const state = { lastCheckedAt: Date.now(), lastCheck: { status: "ok", release: { tag: "v0.4.0", sha: SHA4, publishedAt: null, source: "release", plugins: [{ name: "demo", version: "1.1.0", path: "plugins/demo" }] } } } as unknown as Parameters<typeof updateGlobalPlugin>[2];
+    const updated = await updateGlobalPlugin(config, PLUGIN_ID, state, {});
+    expect(updated.status).toBe("updated");
+    expect(await readFile(skillPath(), "utf8")).toContain("Verzia dva.");
+    const after = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers ?? {};
+    expect(after[first]).toMatchObject({ environment: { DEMO_TOKEN: "prve" } });
+    expect(after[first]?.disabled).not.toBe(true);
+    expect(after[second]).toMatchObject({ disabled: true, environment: { DEMO_TOKEN: "druhe" } });
+  });
+
+  test("revízia #486: záznam bez connectorDefaults (starší kód) pri aktualizácii posunie runtime a ponechá nastavenie advokáta", async () => {
+    const SHA3 = "3".repeat(40), SHA4 = "4".repeat(40), SHA5 = "5".repeat(40);
+    const twoMcp = (version: string) => ({
+      ...pluginFiles(version, `Verzia ${version}.`),
+      "plugins/demo/.mcp.json": JSON.stringify({ mcpServers: {
+        demo: { command: "node", args: ["scripts/run.mjs", "mcp"], env: { DEMO_MODE: "z-katalogu" } },
+        druhy: { command: "node", args: ["scripts/run.mjs", "druhy"] },
+      } }),
+    });
+    repo[SHA3] = twoMcp("1.0.0");
+    repo[SHA4] = twoMcp("1.1.0");
+    repo[SHA5] = twoMcp("1.2.0");
+    const config = serverConfig(root);
+    const shared = async () => (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers ?? {};
+    const runtimeOf = async (connection: unknown) => {
+      const command = (connection as { command?: string[] } | undefined)?.command ?? [];
+      const script = command.find((part) => part.endsWith("run.mjs"));
+      if (!script) throw new Error("Missing runtime path");
+      return { script, content: await readFile(script, "utf8") };
+    };
+    const update = async (sha: string, version: string) => {
+      const state = { lastCheckedAt: Date.now(), lastCheck: { status: "ok", release: { tag: `v${version}`, sha, publishedAt: null, source: "release", plugins: [{ name: "demo", version, path: "plugins/demo" }] } } } as unknown as Parameters<typeof updateGlobalPlugin>[2];
+      expect((await updateGlobalPlugin(config, PLUGIN_ID, state, {})).status).toBe("updated");
+    };
+
+    await installGlobalPlugin(config, url(SHA3));
+    const installed = await shared();
+    const [first, second] = Object.keys(installed).sort() as [string, string];
+    await addMcp(config, "ws_a", first, { ...installed[first], environment: { ...(installed[first] as { environment?: Record<string, string> }).environment, DEMO_TOKEN: "prve" } }, "global");
+    await addMcp(config, "ws_a", second, { ...installed[second], environment: { DEMO_TOKEN: "druhe" } }, "global");
+    await setMcpEnabled(config, "ws_a", second, false);
+    // Simulate a record written by older code: no stored connector defaults.
+    await writeInstalledCloudPlugins(config, globalPluginTarget().recordId, (current) => {
+      const { connectorDefaults: _dropped, ...legacy } = current.plugins[PLUGIN_ID]!;
+      return { ...current, plugins: { ...current.plugins, [PLUGIN_ID]: legacy } };
+    });
+    expect((await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID]?.connectorDefaults).toBeUndefined();
+    const old = await runtimeOf((await shared())[first]);
+    expect(old.content).toContain("runtime 1.0.0");
+
+    await update(SHA4, "1.1.0");
+    let after = await shared();
+    const v11 = await runtimeOf(after[first]);
+    expect(v11.content).toContain("runtime 1.1.0");
+    expect(v11.script).not.toBe(old.script);
+    expect((await runtimeOf(after[second])).content).toContain("runtime 1.1.0");
+    expect(after[first]).toMatchObject({ environment: { DEMO_MODE: "z-katalogu", DEMO_TOKEN: "prve" } });
+    expect(after[first]?.disabled).not.toBe(true);
+    expect(after[second]).toMatchObject({ disabled: true, environment: { DEMO_TOKEN: "druhe" } });
+    expect((await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID]?.connectorDefaults?.[first]).toBeDefined();
+
+    await update(SHA5, "1.2.0");
+    after = await shared();
+    const v12 = await runtimeOf(after[first]);
+    expect(v12.content).toContain("runtime 1.2.0");
+    expect(v12.script).not.toBe(v11.script);
+    expect((await runtimeOf(after[second])).content).toContain("runtime 1.2.0");
+    expect(after[first]).toMatchObject({ environment: { DEMO_MODE: "z-katalogu", DEMO_TOKEN: "prve" } });
+    expect(after[first]?.disabled).not.toBe(true);
+    expect(after[second]).toMatchObject({ disabled: true, environment: { DEMO_TOKEN: "druhe" } });
+  });
+
+  test("revízia #486: bez connectorDefaults hodnota s cestou novej verzie do plugin-resources nie je nastavenie advokáta", () => {
+    const at = (digest: string) => `/cfg/opencode/plugin-resources/demo-plugin/${digest}`;
+    const next = { type: "local", command: ["node", `${at("new")}/scripts/run.mjs`], disabled: false, environment: { DATA_DIR: `${at("new")}/data`, MODE: "default" } };
+    const current = { type: "local", command: ["node", `${at("old")}/scripts/run.mjs`], disabled: true, environment: { DATA_DIR: `${at("old")}/data`, MODE: "default", TOKEN: "advokat" } };
+    expect(mergeConnectorSetup(next, current)).toEqual({ ...next, disabled: true, environment: { DATA_DIR: `${at("new")}/data`, MODE: "default", TOKEN: "advokat" } });
+  });
+
   // #420, #421: katalóg dodáva runtime registra ako jeden zbalený súbor (slovlex 6,25 MB + 2,08 MB).
   test("pribalený runtime nad 1 MiB sa nainštaluje aj aktualizuje celý a nie je uložený v zázname inštalácie", async () => {
     const MIB = 1024 * 1024;
@@ -290,7 +387,7 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     const state = await runMarketplaceCheck(statePath, "manual");
     expect(state.lastCheck).toMatchObject({ status: "ok", release: { tag: "v0.2.0", sha: SHA2 } });
     const installed = Object.values((await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins);
-    expect(availableUpdates(installed, state)).toEqual([{ pluginId: PLUGIN_ID, name: "demo", installed: "1.0.0", available: "1.1.0", path: "plugins/demo" }]);
+    expect(availableUpdates(installed, state)).toEqual([{ pluginId: PLUGIN_ID, name: "demo", installed: "1.0.0", available: "1.1.0", path: "plugins/demo", source: "release", ref: SHA2 }]);
 
     await setMcpEnabled(config, "ws_a", "demo", false);
     const mine = "---\nname: demo\ndescription: Moja úprava\n---\nMoja vlastná úprava.\n";
@@ -505,5 +602,74 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     if (removed.status !== "removed") throw new Error("expected removal");
     expect(await readFile(removed.backups[0]!, "utf8")).toBe("Moja úprava.\n");
     expect((await runtimeMcpMapForWorkspace(config, "ws_a")).demo).toBeUndefined();
+  });
+  // #510: the app bundles a catalog pinned to a commit newer than the last marketplace release.
+  const bundledCatalog = (version: string) => ({ ref: BUNDLED_MARKETPLACE_REF, plugins: [{ name: "demo", version, path: "plugins/demo" }] });
+  const installedList = async (config: ServerConfig) => Object.values((await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins);
+
+  test("#510: pribalený katalóg novší ako vydanie: aktualizácia z pribaleného commitu, vypnuté pripojenie ostane vypnuté", async () => {
+    repo[BUNDLED_MARKETPLACE_REF] = pluginFiles("1.2.0", "Verzia z appky.");
+    const config = serverConfig(root);
+    await installGlobalPlugin(config, url(SHA1));
+    const state = await runMarketplaceCheck(marketplaceStatePath(config), "manual");
+    expect(state.lastCheck).toMatchObject({ status: "ok", release: { sha: SHA2 } });
+    const bundled = bundledCatalog("1.2.0");
+    expect(availableUpdates(await installedList(config), state, bundled)).toEqual([
+      { pluginId: PLUGIN_ID, name: "demo", installed: "1.0.0", available: "1.2.0", path: "plugins/demo", source: "bundled", ref: BUNDLED_MARKETPLACE_REF },
+    ]);
+    await setMcpEnabled(config, "ws_a", "demo", false);
+
+    const updated = await updateGlobalPlugin(config, PLUGIN_ID, state, {}, new Date(), bundled);
+    if (updated.status !== "updated") throw new Error("expected update");
+    expect(await readFile(skillPath(), "utf8")).toContain("Verzia z appky.");
+    expect(updated.item.lawossProvenance).toEqual({ source: { owner: "Omni-Legal-Products", repo: "lawoss-marketplace", ref: BUNDLED_MARKETPLACE_REF, dir: "plugins/demo" }, version: "1.2.0", trustedRef: true });
+    expect((await runtimeMcpMapForWorkspace(config, "ws_b")).demo?.disabled).toBe(true);
+    // Vydanie 1.1.0 je staršie ako nainštalovaná 1.2.0: nič ďalšie sa neponúkne.
+    expect(availableUpdates([updated.item], state, bundled)).toEqual([]);
+  });
+
+  test("#510: novšie vydanie (aj pri rovnakej verzii) má prednosť pred pribaleným katalógom", async () => {
+    const config = serverConfig(root);
+    await installGlobalPlugin(config, url(SHA1));
+    const state = await runMarketplaceCheck(marketplaceStatePath(config), "manual");
+    const installed = await installedList(config);
+    const fromRelease = [{ pluginId: PLUGIN_ID, name: "demo", installed: "1.0.0", available: "1.1.0", path: "plugins/demo", source: "release" as const, ref: SHA2 }];
+    expect(availableUpdates(installed, state, bundledCatalog("1.0.5"))).toEqual(fromRelease);
+    expect(availableUpdates(installed, state, bundledCatalog("1.1.0"))).toEqual(fromRelease);
+    // Nečíselná verzia v pribalenom katalógu vydanie neprebije.
+    expect(availableUpdates(installed, state, bundledCatalog("1.2.0-beta"))).toEqual(fromRelease);
+    const updated = await updateGlobalPlugin(config, PLUGIN_ID, state, {}, new Date(), bundledCatalog("1.0.5"));
+    if (updated.status !== "updated") throw new Error("expected update");
+    expect(updated.item.lawossProvenance?.source.ref).toBe(SHA2);
+    expect(await readFile(skillPath(), "utf8")).toContain("Verzia dva.");
+  });
+
+  test("#510: rovnaká alebo staršia verzia v pribalenom katalógu nič neponúkne", async () => {
+    const config = serverConfig(root);
+    await installGlobalPlugin(config, url(SHA1));
+    const installed = await installedList(config);
+    const unchecked = await readUpdateState(marketplaceStatePath(config));
+    expect(availableUpdates(installed, unchecked, bundledCatalog("1.0.0"))).toEqual([]);
+    expect(availableUpdates(installed, unchecked, bundledCatalog("0.9.0"))).toEqual([]);
+    await expect(updateGlobalPlugin(config, PLUGIN_ID, unchecked, {}, new Date(), bundledCatalog("1.0.0"))).rejects.toMatchObject({ code: "no_update" });
+    const installedAgain = await installGlobalPlugin(config, url(SHA1), bundledCatalog("1.0.0"));
+    expect(installedAgain.status).toBe("already_installed");
+    expect(installedAgain.update).toBeUndefined();
+  });
+
+  test("#510: bez úspešnej kontroly vydaní (offline) sa aktualizuje z pribaleného katalógu; inštalácia povie, že je novšia verzia", async () => {
+    repo[BUNDLED_MARKETPLACE_REF] = pluginFiles("1.2.0", "Verzia z appky.");
+    const config = serverConfig(root);
+    await installGlobalPlugin(config, url(SHA1));
+    await updateUpdateState(marketplaceStatePath(config), (state) => ({ ...state, lastCheck: { status: "error", message: "offline" } }));
+    const state = await readUpdateState(marketplaceStatePath(config));
+    const bundled = bundledCatalog("1.2.0");
+    const again = await installGlobalPlugin(config, url(SHA1), bundled);
+    expect(again).toMatchObject({ status: "already_installed", update: { installed: "1.0.0", available: "1.2.0", source: "bundled" } });
+    // Inštalácia nainštalovanú verziu nemení; to robí len aktualizácia.
+    expect(await readFile(skillPath(), "utf8")).toContain("Verzia jedna.");
+    const updated = await updateGlobalPlugin(config, PLUGIN_ID, state, {}, new Date(), bundled);
+    expect(updated.status).toBe("updated");
+    expect(await readFile(skillPath(), "utf8")).toContain("Verzia z appky.");
   });
 });

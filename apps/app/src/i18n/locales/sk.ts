@@ -1,5 +1,6 @@
 import { projectTemplateStrings } from "@legalwork/types/workspace";
 import { diagnosticsSk } from "../../lawoss/i18n/diagnostics";
+import { filePreviewSk } from "../../lawoss/i18n/file-preview";
 import { deadlinesSk } from "../../lawoss/i18n/deadlines";
 import { setupSk } from "../../lawoss/i18n/setup";
 import { initialSk } from "../../lawoss/i18n/initial";
@@ -7,6 +8,7 @@ import { mattersSk } from "../../lawoss/i18n/matters";
 import { integrationsSk } from "../../lawoss/i18n/integrations";
 import { shellSk } from "../../lawoss/i18n/shell";
 import { ocrSk } from "../../lawoss/i18n/ocr";
+import { csvEditorSk } from "../../lawoss/i18n/csv-editor";
 /**
  * LAWOSS slovenská lokalizácia — celé rozhranie. Právne názvoslovie podľa slovenského práva (SAK, CSP, ZKR);
  * nikdy neprekladať české pojmy do slovenčiny zámenou písmen (AGENTS.md). Chýbajúce kľúče padajú v t() na angličtinu.
@@ -15,12 +17,14 @@ import { ocrSk } from "../../lawoss/i18n/ocr";
 export default {
   ...projectTemplateStrings.sk,
   ...diagnosticsSk,
+  ...filePreviewSk,
   ...setupSk,
   ...initialSk,
   ...mattersSk,
   ...integrationsSk,
   ...shellSk,
   ...ocrSk,
+  ...csvEditorSk,
   "office_addins.tab_label": "Doplnky Office",
   "office_addins.tab_description": "LegalWork v aplikáciách Word, Excel a PowerPoint",
   "office_addins.about_title": "LegalWork v Microsoft Office",
@@ -3239,6 +3243,13 @@ export default {
   "model_picker.no_match": "Hľadaniu nezodpovedajú žiadne modely.",
   "model_picker.disable_provider": "Zakázať tohto poskytovateľa",
   "model_picker.enable_provider": "Povoliť tohto poskytovateľa",
+  "model_picker.title": "Modely",
+  "model_picker.done": "Hotovo",
+  "model_picker.badge_new": "Nové",
+  "model_picker.badge_current": "Aktuálny",
+  "model_picker.provider_enable": "Povoliť",
+  "model_picker.provider_enabled": "Povolený",
+  "model_picker.recommended_section": "Odporúčané",
   "workspace.remove_confirm": "Odstrániť tento pracovný priestor z bočného panela?",
   "ext.composer_computer_use": "Pomocou Computer Use ",
   "ext.composer_google_workspace": "Pomocou Google Workspace ",
@@ -3860,6 +3871,7 @@ export default {
   "content_search.files_skipped": "Niektoré súbory klienta {project} sa nepodarilo prehľadať.",
   "content_search.searching": "Hľadanie…",
   "content_search.no_results": "Neboli nájdené výsledky. Skúste iné slová.",
+  "content_search.no_results_preparing": "Zatiaľ sa nič nenašlo. Ešte sa pripravujú súbory: {count}.",
   "content_search.start": "Prehľadajte svojich klientov a obsah ich priečinkov.",
   "content_search.refine": "Zobrazujú sa najlepšie výsledky. Spresnite vyhľadávanie a nájdite ďalšie.",
   "content_search.results": "Počet výsledkov: {count}",

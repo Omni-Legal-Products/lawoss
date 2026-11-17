@@ -24,6 +24,8 @@ export async function startManagedEngineLifecycle(options: {
   legacyMcpAuthPath?: string;
   service: ManagedOpencodeServiceOptions;
   create: (mode: "service" | "recovery", beforeSpawn?: () => Promise<void>) => Promise<ManagedOpencodeServer>;
+  /** 🟡 LAWOSS #476: an engine published after startup (supervisor restart, recovery → service); its agent ticket needs settling. */
+  onEnginePublished?: (engine: ManagedOpencodeServer) => void;
 }) {
   const { config } = options;
   const legacyMcpSource = options.legacyMcpAuthPath;
@@ -34,7 +36,7 @@ export async function startManagedEngineLifecycle(options: {
   let mode: "service" | "recovery" | "promoting" = "recovery";
   let failure: { code: string; message: string } | undefined;
   let admissions = 0, closed = false, serviceStartupFailed = false;
-  let endpointLive = false, legacyPoliciesPrepared = false;
+  let endpointLive = false, legacyPoliciesPrepared = false, startedUp = false;
   const attempts = new Map<string, { kind: "oauth" | "command"; integrationID: string; attemptID: string; directory: string }>();
   let checking: Promise<void> | undefined;
   let catalogReload: Promise<boolean> | undefined;
@@ -125,6 +127,7 @@ export async function startManagedEngineLifecycle(options: {
       workspace.directory = workspace.path;
     }
     endpointLive = true;
+    if (startedUp) options.onEnginePublished?.(engine);
     // Session get/update is passive in the released API. Restore original chat
     // policies before service promotion can resume any interrupted agent work.
     try { await prepareLegacyPolicies(); } catch (error) { remember(error); }
@@ -217,9 +220,11 @@ export async function startManagedEngineLifecycle(options: {
   try { await preflight(); attemptedService = true; engine = await createStopped("service", preflight); mode = "service"; }
   catch (error) { remember(error); serviceStartupFailed = attemptedService; engine = await createStopped("recovery"); }
   await publish();
+  startedUp = true;
   config.managedImageAffinity = imageAffinity.resolve;
   config.managedEngineRecoveryState = () => ({ mode, heldSessions: mode === "service" ? [] : held, ...(failure ? { error: failure } : {}) });
   config.retryManagedEngineRecovery = refresh;
+  config.retryManagedEngineRestart = supervisor.retryNow; // 🟡 LAWOSS #477
   config.reloadManagedEngineCatalog = reloadCatalog;
   config.withManagedEngineAdmission = async (sessionID, action) => {
     if (mode === "promoting" || catalogReloading) throw new ApiError(503, "engine_recovery_transition", catalogReloading
@@ -251,7 +256,7 @@ export async function startManagedEngineLifecycle(options: {
     async close() {
       closed = true; supervisor.close(); endpointLive = false; imageAffinity.disconnect(); delete config.managedImageAffinity; events?.abort(); if (retryTimer) clearTimeout(retryTimer);
       await checking; await engine.close();
-      delete config.managedEngineRecoveryState; delete config.retryManagedEngineRecovery; delete config.reloadManagedEngineCatalog; delete config.withManagedEngineAdmission; delete config.observeManagedEngineResponse;
+      delete config.managedEngineRecoveryState; delete config.retryManagedEngineRecovery; delete config.retryManagedEngineRestart; delete config.reloadManagedEngineCatalog; delete config.withManagedEngineAdmission; delete config.observeManagedEngineResponse;
     },
   };
 }

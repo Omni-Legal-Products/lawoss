@@ -33,6 +33,7 @@ import { normalizeDirectoryPath } from "@/app/utils";
 import { effectiveSessionDirectory, isWithinClientFolder } from "@/lawoss/shell/session-directory";
 import { initialWorkspaceRouteState, rememberWorkspaceRoute, settledSessions, storedSettingsKey, withoutRemountRetrying, workspaceConnectionKey, workspaceRouteForRemount } from "@/lawoss/shell/route-snapshot"; // 🟡 LAWOSS #418
 import { t } from "@/i18n";
+import { workspaceErrorMessage } from "@/lawoss/shell/workspace-folder"; // 🟡 LAWOSS #494
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { avoidLawossHomeId, conversationWorkspaceId, defaultWorkspaceId, withoutLawossHome } from "../../lawoss/home-workspace";
 import { useBootState } from "./boot-state";
@@ -329,7 +330,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
           }
         } catch (error) {
           if (!isCurrentRequest()) return;
-          const message = error instanceof Error ? error.message : t("app.unknown_error");
+          const message = workspaceErrorMessage(error); // 🟡 LAWOSS #494: chýbajúci priečinok nesie kód na preklad
           // The first cold call to OpenCode's /session endpoint often hits
           // the 12s server timeout while the daemon finishes warming up
           // its index. Retry silently with backoff until we get a response

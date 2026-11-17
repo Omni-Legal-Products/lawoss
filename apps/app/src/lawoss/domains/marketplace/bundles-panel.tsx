@@ -112,6 +112,8 @@ export function RecommendedBundlesPanel(props: BundlesPanelProps) {
       {!props.permitted ? <p className="text-xs text-dls-secondary">{t("lawoss.marketplace.unavailable", locale)}</p> : null}
     </div>}
     {result?.installed.length ? <p role="status" className="text-sm text-dls-secondary">{t("lawoss.integrations.base.installed_list", locale, { names: result.installed.map(nameOf).join(", ") })}</p> : null}
+    {result?.already?.length ? <p role="status" className="text-sm text-dls-secondary">{t("lawoss.integrations.base.already_list", locale, { names: result.already.map(nameOf).join(", ") })}</p> : null}
+    {result?.outdated?.length ? <p role="status" data-lawoss-outdated="" className="text-sm text-dls-secondary">{t("lawoss.integrations.base.outdated_list", locale, { names: result.outdated.map((item) => `${nameOf(item.id)} (${item.installed ?? "?"} → ${item.available})`).join(", ") })}</p> : null}
     {result?.failed.length ? <p role="alert" className="text-sm text-red-11">{t("lawoss.integrations.base.failed_list", locale, { names: result.failed.map((item) => `${nameOf(item.id)} (${item.message})`).join("; ") })}</p> : null}
     {error ? <p role="alert" className="text-sm text-red-11">{error}</p> : null}
   </article>;

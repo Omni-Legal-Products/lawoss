@@ -54,6 +54,18 @@ describe("LAWOSS: OCR len po výslovnom zapnutí", () => {
     expect(kept).toContain("kým je OCR vypnuté, nepoužíva sa");
   });
 
+  test("zapnuté bez stiahnutého modelu: stav nehlási, že skeny sa čítajú (#496)", () => {
+    const missing = render(view(true));
+    expect(missing).not.toContain("Naskenované strany číta lokálny model");
+    expect(missing).toContain("model ešte nie je stiahnutý, skeny sa zatiaľ nečítajú");
+    expect(missing).toContain("Stiahnuť model (asi 162 MB)");
+    const failed = render(view(true, { installation: { engineId: "local-fast", stage: "failed" } }));
+    expect(failed).toContain("model ešte nie je stiahnutý, skeny sa zatiaľ nečítajú");
+    expect(render(view(true, { installation: { engineId: "local-fast", stage: "models" } }))).toContain("Model sa sťahuje, skeny sa začnú čítať po stiahnutí");
+    expect(render(view(true, ready("ready")))).toContain("Zapnuté. Naskenované strany číta lokálny model");
+    expect(render(view(true), "en")).toContain("the model is not downloaded yet");
+  });
+
   test("stav modelu: sťahovanie, zlyhanie, čiastočne stiahnutý", () => {
     expect(ocrModelState(view(true, { installation: { engineId: "local-fast", stage: "models" } }))).toBe("downloading");
     expect(ocrModelState(view(true, { installation: { engineId: "local-fast", stage: "failed" } }))).toBe("failed");
