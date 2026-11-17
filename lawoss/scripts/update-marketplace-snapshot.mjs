@@ -21,6 +21,8 @@
  * #420: skript zapíše `ref` aj do `apps/server/src/lawoss/marketplace-bundled-ref.ts`. Server sa
  * kompiluje s `rootDir: src`, JSON appky importovať nemôže; vyšší limit prostriedkov dostane len
  * tento commit (a SHA vydania z vlastnej kontroly). `--check` overí, že sa oba súbory zhodujú.
+ * #510: zapíše aj verzie a cesty pluginov pripnutých na `ref`, aby server ponúkol aktualizáciu
+ * z pribaleného katalógu, keď je novší ako posledné vydanie (aj bez siete).
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -92,12 +94,20 @@ export async function buildSnapshot({ from, ref, metadataRef = ref, pending = []
   };
 }
 
-/** Obsah serverového súboru s commitom pribaleného katalógu. */
-export function serverRefSource(ref) {
+/** Obsah serverového súboru s commitom pribaleného katalógu a verziami pluginov na ňom (#510). */
+export function serverRefSource(snapshot) {
+  const plugins = (snapshot.plugins ?? [])
+    .filter((plugin) => plugin.ref === snapshot.ref)
+    .map((plugin) => `  { name: ${JSON.stringify(plugin.name)}, version: ${JSON.stringify(plugin.version)}, path: ${JSON.stringify(plugin.path)} },`);
   return [
     "// Generované skriptom lawoss/scripts/update-marketplace-snapshot.mjs, needitovať ručne.",
     "// Commit pribaleného katalógu LAWOSS Marketplace (pole `ref` v apps/app/src/lawoss/domains/marketplace/marketplace-snapshot.json).",
-    `export const BUNDLED_MARKETPLACE_REF = ${JSON.stringify(ref)};`,
+    `export const BUNDLED_MARKETPLACE_REF = ${JSON.stringify(snapshot.ref)};`,
+    "",
+    "// #510: pluginy pripnuté na tento commit (verzia a cesta), na ponuku aktualizácie z pribaleného katalógu.",
+    "export const BUNDLED_MARKETPLACE_PLUGINS: ReadonlyArray<{ name: string; version: string; path: string }> = [",
+    ...plugins,
+    "];",
     "",
   ].join("\n");
 }
@@ -111,8 +121,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   if (process.argv.includes("--check")) {
     const snapshot = JSON.parse(await readFile(SNAPSHOT_PATH, "utf8"));
     const problems = validateSnapshot(snapshot);
-    if ((await readFile(SERVER_REF_PATH, "utf8").catch(() => "")) !== serverRefSource(snapshot.ref)) {
-      problems.push(`${SERVER_REF_PATH} nezodpovedá ref katalógu (spusti skript s --from a --ref)`);
+    if ((await readFile(SERVER_REF_PATH, "utf8").catch(() => "")) !== serverRefSource(snapshot)) {
+      problems.push(`${SERVER_REF_PATH} nezodpovedá ref alebo verziám katalógu (spusti skript s --from a --ref)`);
     }
     if (problems.length) {
       console.error(`Katalóg LAWOSS Marketplace: ${problems.join("; ")}`);
@@ -135,7 +145,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       process.exit(1);
     }
     await writeFile(SNAPSHOT_PATH, `${JSON.stringify(snapshot, null, 2)}\n`);
-    await writeFile(SERVER_REF_PATH, serverRefSource(ref));
+    await writeFile(SERVER_REF_PATH, serverRefSource(snapshot));
     console.log(`Zapísané: ${snapshot.plugins.length} pluginov, ${snapshot.bundles.length} balíky, ref ${ref}${pending.length ? `, čaká: ${pending.join(", ")}` : ""}.`);
   }
 }

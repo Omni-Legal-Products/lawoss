@@ -11,7 +11,7 @@ import type { Jurisdiction } from "../onboarding/api";
 import { RecommendedBundlesPanel } from "./bundles-panel";
 import { getMarketplaceCatalog, MARKETPLACE_SNAPSHOT, marketplaceCategories, type MarketplaceEntry } from "./catalog";
 import { catalogUpdateState, installedProvenance } from "./installed-plugin";
-import type { LawossMarketplaceApi, MarketplaceView } from "./marketplace-api";
+import type { InstallOutcome, LawossMarketplaceApi, MarketplaceView } from "./marketplace-api";
 import { catalogPluginId, catalogPluginUrl, installCatalogEntry, type CatalogActions, type InstallResult } from "./native-actions";
 import { globalInstalledIds, installGlobalEntries, useLawossMarketplace } from "./use-lawoss-marketplace";
 import { MarketplaceIntro } from "./marketplace-offer";
@@ -150,7 +150,7 @@ function CatalogCard({ entry, context, installed, installedGlobal }: { entry: Ma
       if (global && context.api) {
         const outcome = await context.api.install(catalogPluginUrl(entry));
         await context.refreshAll();
-        setStatus({ ok: true, message: outcome.status === "installed" ? t("lawoss.marketplace.status.installed_global", locale) : t("lawoss.marketplace.status.already_global", locale) });
+        setStatus({ ok: true, message: installMessage(outcome, locale) });
       } else {
         setStatus(await installCatalogEntry(entry, context));
       }
@@ -238,6 +238,15 @@ export function GlobalRemoveAction({ name, locale, disabled, confirming, onReque
   </>;
 }
 
+/** #510: inštalácia už nainštalovaného doplnku verziu nemení; novšiu verziu povie a pošle do Aktualizácií. */
+export function installMessage(outcome: InstallOutcome, locale: Language): string {
+  const update = outcome.update;
+  const base = outcome.status === "installed"
+    ? t("lawoss.marketplace.status.installed_global", locale)
+    : update ? t("lawoss.marketplace.status.already_global_version", locale, { installed: update.installed ?? "?" }) : t("lawoss.marketplace.status.already_global", locale);
+  return update ? `${base} ${t("lawoss.marketplace.status.update_available", locale, { available: update.available })}` : base;
+}
+
 /** Verzia v katalógu a nainštalovaná verzia (bez siete). */
 function VersionLine({ entry, context }: { entry: MarketplaceEntry; context: CardContext }) {
   const locale = useLocale();
@@ -245,9 +254,12 @@ function VersionLine({ entry, context }: { entry: MarketplaceEntry; context: Car
   const plugin = context.view?.global.find((item) => item.pluginId === catalogPluginId(entry)) ?? installedPlugin(context, entry);
   const installed = plugin ? installedProvenance(plugin) : null;
   const state = plugin ? catalogUpdateState(entry, plugin) : null;
+  // #510: the server offers the update (release or bundled catalog); the card points to it.
+  const updatable = Boolean(plugin && context.view?.updates.some((update) => update.pluginId === plugin.pluginId));
   return <p data-lawoss-version={state ?? "available"} className="text-[11px] text-dls-secondary">
     {state === "newer" && installed?.version
       ? t("lawoss.integrations.catalog.version_newer", locale, { installed: installed.version, version: entry.version })
       : t("lawoss.integrations.catalog.version", locale, { version: entry.version })}
+    {updatable ? <span data-lawoss-update-hint="" className="ml-1">{t("lawoss.integrations.catalog.version_update_hint", locale)}</span> : null}
   </p>;
 }

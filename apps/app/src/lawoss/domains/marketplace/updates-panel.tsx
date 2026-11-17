@@ -86,7 +86,8 @@ export function formatChecked(at: number, locale: Language): string {
 function checkMessage(view: MarketplaceView, locale: Language): string | null {
   const check = view.check;
   if (!check) return null;
-  if (check.status === "no_release") return t("lawoss.marketplace.updates.no_release", locale);
+  // #510: aktualizácie z pribaleného katalógu sa ponúknu aj bez vydania; hlásenie „bez vydania“ by im protirečilo.
+  if (check.status === "no_release") return view.updates.length ? null : t("lawoss.marketplace.updates.no_release", locale);
   if (check.status === "error") return t("lawoss.marketplace.updates.error", locale, { detail: check.message });
   return view.updates.length ? null : t("lawoss.marketplace.updates.none", locale, { tag: check.release.tag });
 }
@@ -156,14 +157,16 @@ export function MarketplaceUpdatesPanel({ api, view, checking, error, onCheck, o
     {message ? <p role="status" data-lawoss-check={view?.check?.status} className="text-sm text-dls-secondary">{message}</p> : null}
     {updates.length ? <div className="space-y-2" data-lawoss-update-list="">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-medium text-dls-text">{t("lawoss.marketplace.updates.available", locale, { count: String(updates.length), tag: view?.check?.status === "ok" ? view.check.release.tag : "" })}</p>
+        <p className="text-sm font-medium text-dls-text">{view?.check?.status === "ok" && updates.every((update) => update.source !== "bundled")
+          ? t("lawoss.marketplace.updates.available", locale, { count: String(updates.length), tag: view.check.release.tag })
+          : t("lawoss.marketplace.updates.available_count", locale, { count: String(updates.length) })}</p>
         {updates.length > 1 ? <Button size="sm" disabled={working !== null} onClick={() => void guarded("all", async () => {
           for (const update of updates) await runUpdate(update.pluginId, update.name);
         })}>{working === "all" ? t("lawoss.marketplace.working", locale) : t("lawoss.marketplace.updates.update_all", locale)}</Button> : null}
       </div>
       <ul className="space-y-2">
         {updates.map((update) => <li key={update.pluginId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dls-border px-3 py-2">
-          <span className="text-sm text-dls-text">{t("lawoss.marketplace.updates.item", locale, { name: update.name, installed: update.installed ?? "?", available: update.available })}</span>
+          <span className="text-sm text-dls-text">{t(update.source === "bundled" ? "lawoss.marketplace.updates.item_bundled" : "lawoss.marketplace.updates.item", locale, { name: update.name, installed: update.installed ?? "?", available: update.available })}</span>
           <Button size="sm" variant="outline" disabled={working !== null} onClick={() => void guarded(update.pluginId, () => runUpdate(update.pluginId, update.name))}>
             {working === update.pluginId ? t("lawoss.marketplace.working", locale) : t("lawoss.marketplace.updates.update", locale)}
           </Button>
