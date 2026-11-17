@@ -35,6 +35,7 @@
     "./file-storage": "./src/file-storage.ts",
     "./model-limits": "./src/model-limits.ts",
     "./native-model-display": "./src/native-model-display.ts",
+    "./local-runtime-endpoints": "./src/local-runtime-endpoints.ts",
     "./usage-control": "./src/usage-control.ts",
     "./provider-usage-limit": "./src/provider-usage-limit.ts",
     "./eigenwelt-checkout": "./src/eigenwelt-checkout.ts",

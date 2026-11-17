@@ -7,12 +7,13 @@ import type { EngineProjectStatus } from "@legalwork/types/engine-project";
 import { orgChatEngineIds } from "./org-policy-ai.js";
 import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
+import { isLocalRuntimeEndpoint } from "./native-shared-values.js";
 
 type Definitions = NativeConfig["providers"];
-export type ProviderDisplayMetadata = Record<string, { hasCustomEndpoint: boolean; editable: boolean }>;
+export type ProviderDisplayMetadata = Record<string, { hasCustomEndpoint: boolean; editable: boolean; chatCompletionsOnly?: boolean }>;
 const hasEndpoint = (value: unknown) => typeof value === "string" && value.length > 0;
 
-/** These flags describe ownership and presence only. Managed settings belong
+/** These flags describe safe endpoint capabilities and ownership. Managed settings belong
  * to LegalWork; native-project sources require resolved document provenance. */
 export async function nativeProviderDisplay(config: ServerConfig, workspace: WorkspaceInfo, definitions: {
   authored: Definitions; owned: Definitions; combined: Definitions;
@@ -20,6 +21,7 @@ export async function nativeProviderDisplay(config: ServerConfig, workspace: Wor
   const firm = new Set(await orgChatEngineIds(config));
   const display = Object.fromEntries(Object.entries(definitions.combined ?? {}).map(([id, provider]) => [id, {
     hasCustomEndpoint: hasEndpoint(provider.settings?.baseURL),
+    ...(isLocalRuntimeEndpoint(provider.settings?.baseURL) ? { chatCompletionsOnly: true } : {}),
     editable: !firm.has(id) && Object.hasOwn(definitions.owned ?? {}, id) && !Object.hasOwn(definitions.authored ?? {}, id),
   }]));
   if (config.engineConfigurationMode === "managed" || !resolveWorkspaceOpencodeConnection(config, workspace).baseUrl) return display;
@@ -33,6 +35,7 @@ export async function nativeProviderDisplay(config: ServerConfig, workspace: Wor
   for (const entry of entries) if (entry.type === "document") {
     for (const [id, provider] of Object.entries(entry.info.providers ?? {})) display[id] = {
       hasCustomEndpoint: provider.settings?.baseURL === undefined ? display[id]?.hasCustomEndpoint === true : hasEndpoint(provider.settings.baseURL),
+      ...((provider.settings?.baseURL === undefined ? display[id]?.chatCompletionsOnly === true : isLocalRuntimeEndpoint(provider.settings.baseURL)) ? { chatCompletionsOnly: true } : {}),
       editable: !firm.has(id) && Object.hasOwn(definitions.owned ?? {}, id) && entry.path !== undefined && entry.path === project.projection.path,
     };
   }

@@ -1,5 +1,6 @@
 import type { CustomProviderApiType } from "./store";
 import { t } from "@/i18n";
+import { isLocalRuntimeEndpoint, LOCAL_RUNTIME_BASE_URLS } from "@legalwork/types/local-runtime-endpoints";
 
 /**
  * A one-click starting point for a local model server. Picking a template
@@ -37,8 +38,8 @@ export const localRuntimeTemplates = (): LocalRuntimeTemplate[] => [
     id: "llamacpp",
     label: "llama.cpp",
     name: "llama.cpp",
-    baseURL: "http://localhost:8080/v1",
-    placeholder: "http://localhost:8080/v1",
+    baseURL: LOCAL_RUNTIME_BASE_URLS.llamacpp,
+    placeholder: LOCAL_RUNTIME_BASE_URLS.llamacpp,
     apiType: "chat",
     note: t("local_templates.llamacpp_hint"),
   },
@@ -46,8 +47,8 @@ export const localRuntimeTemplates = (): LocalRuntimeTemplate[] => [
     id: "vllm",
     label: "vLLM",
     name: "vLLM",
-    baseURL: "http://localhost:8000/v1",
-    placeholder: "http://localhost:8000/v1",
+    baseURL: LOCAL_RUNTIME_BASE_URLS.vllm,
+    placeholder: LOCAL_RUNTIME_BASE_URLS.vllm,
     apiType: "chat",
     note: t("local_templates.vllm_note"),
   },
@@ -55,8 +56,8 @@ export const localRuntimeTemplates = (): LocalRuntimeTemplate[] => [
     id: "localai",
     label: "LocalAI",
     name: "LocalAI",
-    baseURL: "http://localhost:8080/v1",
-    placeholder: "http://localhost:8080/v1",
+    baseURL: LOCAL_RUNTIME_BASE_URLS.localai,
+    placeholder: LOCAL_RUNTIME_BASE_URLS.localai,
     apiType: "chat",
     note: t("local_templates.localai_note"),
   },
@@ -64,8 +65,8 @@ export const localRuntimeTemplates = (): LocalRuntimeTemplate[] => [
     id: "ollama",
     label: "Ollama",
     name: "Ollama",
-    baseURL: "http://localhost:11434/v1",
-    placeholder: "http://localhost:11434/v1",
+    baseURL: LOCAL_RUNTIME_BASE_URLS.ollama,
+    placeholder: LOCAL_RUNTIME_BASE_URLS.ollama,
     apiType: "chat",
     autoDetected: true,
     note: t("local_templates.ollama_note"),
@@ -74,12 +75,18 @@ export const localRuntimeTemplates = (): LocalRuntimeTemplate[] => [
     id: "lmstudio",
     label: "LM Studio",
     name: "LM Studio",
-    baseURL: "http://localhost:1234/v1",
-    placeholder: "http://localhost:1234/v1",
+    baseURL: LOCAL_RUNTIME_BASE_URLS.lmstudio,
+    placeholder: LOCAL_RUNTIME_BASE_URLS.lmstudio,
     apiType: "chat",
     note: t("local_templates.lmstudio_note"),
   },
 ];
+
+/** Local templates speak Chat Completions, including when editing a redacted saved endpoint. */
+export function localRuntimeRequiresChat(baseURL: string, templateId?: string | null): boolean {
+  return localRuntimeTemplates().some((template) => template.id === templateId || slugifyProviderId(template.name) === templateId)
+    || isLocalRuntimeEndpoint(baseURL);
+}
 
 /** Turn a free-text provider name into a stable lowercase provider id. */
 export function slugifyProviderId(name: string): string {

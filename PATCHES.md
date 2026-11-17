@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Lokálne modely Ollama cez Chat Completions (#410) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/connections/provider-auth/{local-templates,provider-auth-modal,store}.ts(x)`, `apps/app/src/app/lib/legalwork-server.ts`, `packages/types/src/native-model-display.ts`, nový `packages/types/src/local-runtime-endpoints.ts` (+ export v `packages/types/package.json`), `apps/server/src/native-provider-display.ts`, `apps/server/src/native-shared-values.ts` (+1 riadok re-exportu, aby zabalený server nesiahal na `@legalwork/types` za behu) (+ testy) | Lokálne šablóny ponúkajú iba Chat Completions a odoslaný formulár vynúti `chat`. Bezpečný príznak `chatCompletionsOnly` zachová túto ochranu aj pri redigovanej adrese a vlastnom mene poskytovateľa; adresy ani kľúče sa klientovi nesprístupnia. Vzdialené vlastné Responses API ostáva voliteľné. Adresy šablón (porty 8080, 8000, 1234, 11434, cesta `/v1`) sú v jednom zozname `LOCAL_RUNTIME_BASE_URLS`, ktorý číta appka aj server. |
+| `apps/server/src/runtime-provider-repair.ts`, nový `apps/server/src/lawoss/ollama-provider-repair.ts` (LAWOSS), `apps/server/src/lawoss/runtime-config-keys.ts` (+ testy) | Pri štarte sa uložený Responses balík na loopback porte 11434 s cestou `/v1` opraví na `openai-compatible` bez zmeny modelov, adresy, limitov a kľúčov. Mení sa len `providers`: vypnutie poskytovateľa (`providerActivation`) ani pravidlá `provider.use` sa nemenia, zapnutie ostáva na používateľovi (review #410). Oprava nečíta natívne súbory, takže nečitateľný priečinok jedného klienta nezablokuje ostatných ani globálny riadok. `ollamaChatRepairIDs` ostáva v `LAWOSS_APPLICATION_KEYS` len preto, aby riadok zo skoršej verzie tejto vetvy zostal čitateľný. |
+| `scripts/ci/run-engine-tests.mjs`, `apps/server/src/lawoss/ollama-provider.released.test.ts` (nový), `apps/app/tests/fixtures/local-provider-api.tsx` (nový), `apps/desktop/scripts/local-provider-api-regression.mjs` (nový), `apps/desktop/package.json` (`test:local-provider-api`) | Výber testov so skutočným enginom obsahuje dostupnosť opraveného modelu a generovanie cez `/v1/chat/completions` pred aj po reštarte. Samostatná regresia skutočného dialógu Electronu overuje lokálne šablóny, redigovaný endpoint, odoslaný typ API, vzdialený Responses control a mobilnú šírku bez používateľského profilu. |
+
 ## Chránený kanál AI berie kľúč z úložiska prihlásení enginu v2 (#534) (2026-11-17)
 
 | Súbor | Zmena |

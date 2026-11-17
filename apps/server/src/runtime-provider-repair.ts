@@ -6,6 +6,7 @@ import { ConfigProvider } from "@opencode/schema/config/provider";
 import { Schema } from "effect";
 import { GLOBAL_PROVIDERS_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
+import { repairOllamaProvider } from "./lawoss/ollama-provider-repair.js";
 
 /** Provider ids LegalWork once injected and has since retired. */
 export const RETIRED_PROVIDER_IDS: ReadonlySet<string> = new Set(["eigenwelt-free"]);
@@ -29,18 +30,24 @@ function providerDisplayName(id: string, block: unknown): string {
 /** Validate native definitions and remove only the retired app-owned provider. */
 export function repairRuntimeProviders(
   providers: Record<string, unknown>,
-): { providers: Record<string, typeof ConfigProvider.Info.Type>; removed: ProviderRepairNotice[] } {
+): { providers: Record<string, typeof ConfigProvider.Info.Type>; removed: ProviderRepairNotice[]; repaired: string[] } {
   const kept: Record<string, typeof ConfigProvider.Info.Type> = {};
   const removed: ProviderRepairNotice[] = [];
+  const repaired: string[] = [];
   for (const [id, block] of Object.entries(providers)) {
     if (RETIRED_PROVIDER_IDS.has(id)) {
       removed.push({ providerId: id, name: providerDisplayName(id, block), reason: "retired" });
     } else {
       try { kept[id] = Schema.decodeUnknownSync(ConfigProvider.Info)(block, { onExcessProperty: "error" }); }
       catch { throw new Error(`Saved provider "${id}" has invalid native settings. Correct or restore it; LegalWork has not removed the connection.`); }
+      const corrected = repairOllamaProvider(kept[id]);
+      if (corrected !== kept[id]) {
+        kept[id] = corrected;
+        repaired.push(id);
+      }
     }
   }
-  return { providers: kept, removed };
+  return { providers: kept, removed, repaired };
 }
 
 const noticesByWorkspace = new Map<string, ProviderRepairNotice[]>();
@@ -55,22 +62,22 @@ export function resetProviderRepairNoticesForTests(): void {
 }
 
 /**
- * Drop the retired provider from one workspace's native runtime-DB
- * row. Writes only when something was removed and records a notice for the
- * app. Safe to run before the engine config file is first built.
+ * Drop retired providers and repair the local Ollama transport before the engine
+ * config is built. Only `providers` changes: activation and policies stay the
+ * user's choice. Safe to run before the engine config file is first built.
  */
 export async function repairWorkspaceRuntimeProviders(
   config: ServerConfig,
   workspaceId: string,
 ): Promise<ProviderRepairNotice[]> {
   const current = await readRuntimeOpencodeConfig(config, workspaceId);
-  const { removed } = repairRuntimeProviders(current.providers ?? {});
-  if (!removed.length) return [];
+  const { removed, repaired } = repairRuntimeProviders(current.providers ?? {});
+  if (!removed.length && !repaired.length) return [];
   await writeRuntimeOpencodeConfig(config, workspaceId, (latest) => ({
     ...latest,
     providers: repairRuntimeProviders(latest.providers ?? {}).providers,
   }));
-  noticesByWorkspace.set(workspaceId, [...providerRepairNotices(workspaceId), ...removed]);
+  if (removed.length) noticesByWorkspace.set(workspaceId, [...providerRepairNotices(workspaceId), ...removed]);
   return removed;
 }
 

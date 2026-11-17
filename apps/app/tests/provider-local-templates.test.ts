@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   localRuntimeTemplates,
+  localRuntimeRequiresChat,
   resolveTemplateName,
   slugifyProviderId,
 } from "../src/react-app/domains/connections/provider-auth/local-templates";
@@ -47,6 +48,30 @@ describe("slugifyProviderId", () => {
     ["***", "custom-provider"],
   ])("slugifies %p -> %p", (input, expected) => {
     expect(slugifyProviderId(input)).toBe(expected);
+  });
+});
+
+describe("local runtime API lock", () => {
+  test("locks all templates and redacted saved template endpoints to chat", () => {
+    for (const template of localRuntimeTemplates()) {
+      expect(localRuntimeRequiresChat("", template.id)).toBe(true);
+      expect(localRuntimeRequiresChat("", slugifyProviderId(template.name))).toBe(true);
+      for (const host of ["localhost", "127.0.0.1", "[::1]"]) {
+        const url = new URL(template.baseURL);
+        url.hostname = host;
+        expect(localRuntimeRequiresChat(`${url.href}/`)).toBe(true);
+      }
+    }
+    expect(localRuntimeRequiresChat("http://127.0.0.1:9999/v1", "ollama")).toBe(true);
+  });
+
+  test.each([
+    "", "not a URL", "https://api.openai.com/v1", "https://example.invalid:11434/v1",
+    "http://localhost.evil.invalid:11434/v1", "http://localhost:11435/v1", "http://localhost:11434/other",
+    "http://localhost:11434/v1?other=true", "http://localhost:11434/v1#other", "ftp://localhost:11434/v1",
+    "http://user:password@localhost:11434/v1",
+  ])("keeps generic or invalid endpoints outside the template lock: %s", (url) => {
+    expect(localRuntimeRequiresChat(url)).toBe(false);
   });
 });
 
