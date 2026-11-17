@@ -1,5 +1,12 @@
 # LAWOSS downstream patches
 
+## Priečinok klienta z dvoch inštalácií (#509) (2026-11-17)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/engine-project.ts`, nový `apps/server/src/lawoss/foreign-projection.ts` (LAWOSS okrem prvého, + test `engine-project.test.ts`) | #509: keď ten istý priečinok klienta otvorí iná inštalácia (iný počítač nad NAS/cloudom, iný profil, reinštalácia), prepíše `.opencode/opencode.json` odkazmi do svojej súkromnej knižnice a prvá inštalácia hlásila 409 „changed outside LegalWork“. `isForeignProjectionText` rozpozná cudziu projekciu (hlavička a presný formát generátora, každý reťazec len odkazy `{file:…}`/`{env:…}`, všetky odkazy do jednej cudzej `…/native-config-strings/<sha256>.txt`); odkazy sa len porovnajú regulárnym výrazom, nič sa podľa nich nečíta. `unreceiptedProjection` (#439) ju vráti s príznakom `foreign`; `writeProjectProjection` ju pri publikácii (štart, zmena nastavení, „Obnoviť“) prevezme aj pri existujúcom potvrdení s iným odtlačkom, ak `sameShape` sedí s tým, čo generuje teraz (pri potvrdení aj súbor generátora s rovnakou cestou knižnice, napr. rovnaký používateľ na inom počítači); pôvodné bajty uloží len do súkromného `native-project-projection-archive/<workspace>/<sha256>.foreign.jsonc` (nie `.bak-` v priečinku klienta, inak by sa pri striedaní inštalácií kópie hromadili). Do prevzatia `projectionStatus` hlási konflikt s vetou o inej inštalácii: je to jediná stráž, aby engine nenačítal cudzie odkazy `{file:<iný profil>}` (register projektov `generated` v produkcii nevypĺňa). Mení #439: projekcia z inej knižnice sa bez potvrdenia už prevezme (predtým konflikt a druhá inštalácia zapísala `opencode.jsonc` vedľa nej). Iný tvar, iné netextové hodnoty, chýbajúca hlavička, doslovný reťazec, iné formátovanie, zmes knižníc ostávajú konfliktom. |
+| `apps/app/src/react-app/domains/workspace/engine-project-approval.tsx`, nový `apps/app/src/lawoss/i18n/engine-project-diagnostic.tsx`, `apps/app/src/lawoss/i18n/diagnostics.ts` (LAWOSS okrem prvého, + test `tests/lawoss-engine-project-diagnostic-509.test.tsx`) | #509: banner konfliktu projekcie ukazoval anglickú vetu servera. +1 import, 1 riadok: `EngineProjectDiagnostic` preloží známe vety servera (bez kódu, presná zhoda; test ich overuje proti `engine-project.ts`) do sk/cs/en/de a pôvodný text dá do „Technické podrobnosti“; neznámy text ostane. |
+
 ## Nálezy po zlúčení #429 a #437 (#439–#444, #460) (2026-11-16)
 
 Nálezy z revízie kódu a testu Docker zostavy po zlúčení PR #429 a #437.
