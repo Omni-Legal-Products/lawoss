@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "status": "project-stop-source-validated",
+  "sourceValidationPassed": true,
+  "candidateBuildReady": true,
+  "buildReadyScope": "Bounded project config walk (Config.Options.projectStop, OPENCODE_CONFIG_PROJECT_STOP) source regression, full core suite against an unchanged-baseline control and core/server/cli typechecks. Native artifact and application acceptance are separate gates.",
+  "proposedCandidateVersion": "2.1.4-legalwork.lawoss-project-stop.1",
+  "versionNote": "LAWOSS-owned identity: upstream LegalWork already uses 2.1.4-legalwork.http-policy.5 (project relocation) and .6 (history file references) for different patches, so http-policy.5 would collide after an upstream sync.",
+  "verifiedAt": "2026-11-17T10:21:50Z",
+  "upstream": {
+    "repository": "https://github.com/anomalyco/opencode.git",
+    "tag": "v2.1.4",
+    "commit": "68bc26b7da1990ce10ffecfbc1e09eb13aa5d824"
+  },
+  "patch": {
+    "path": "docs/patches/opencode-2.1.4-lawoss-project-stop.patch",
+    "sha256": "84e5275c56b4eb6a111f62353dbf79815fd360347d598d57e80b44df26099e7e"
+  },
+  "priorPatch": {
+    "path": "docs/patches/opencode-2.1.4-mcp-http-policy-v3.patch",
+    "sha256": "422bbc772dffc711254b7f518b5f4ce4498af2cb0f6220e9bd4a11bc3414c92c",
+    "unchangedFileSections": true,
+    "reproducedBy": "git diff 68bc26b HEAD over a checkout with the prior patch applied reproduces the prior patch byte for byte"
+  },
+  "priorReceipt": {
+    "path": "docs/patches/opencode-2.1.4-migration-times.receipt.json",
+    "sha256": "62831d34304930800094afa27c8a6a6bbdabbcaa3b84234abf706e5c727b2dfe"
+  },
+  "changedFilesSincePriorPatch": [
+    "packages/cli/src/server-process.ts",
+    "packages/core/src/config.ts",
+    "packages/core/src/config/discovery.ts",
+    "packages/core/test/config/config.test.ts",
+    "packages/server/src/options.ts",
+    "packages/server/src/routes.ts"
+  ],
+  "patchApplyCheck": "git apply --check --index on a fresh shallow clone of v2.1.4 passed",
+  "runtime": {
+    "bun": "1.4.4",
+    "sha256": "0a2237cdcfa0d16ef501d9acca9f0026309ef348bea7393a64e8d1e3609565cc"
+  },
+  "dependencies": {
+    "lockfileSha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2",
+    "rootPackageSha256": "1767628e91b25f3b730c39edf67069a4575ff2d5509b0e494fa95ec6b693e246",
+    "unchanged": true,
+    "installArguments": [
+      "--no-env-file",
+      "install",
+      "--frozen-lockfile",
+      "--ignore-scripts"
+    ]
+  },
+  "tests": [
+    {
+      "cwd": "packages/core",
+      "command": "bun run script/test.ts test/config/config.test.ts",
+      "beforeFix": {
+        "passed": 50,
+        "failed": 1,
+        "condition": "discovery ignores projectStop (walk unbounded)"
+      },
+      "afterFix": {
+        "passed": 51,
+        "failed": 0
+      }
+    },
+    {
+      "cwd": "packages/core",
+      "command": "bun run script/test.ts test/config/config.test.ts test/skill-discovery.test.ts test/instruction-discovery.test.ts",
+      "passed": 71,
+      "skipped": 1,
+      "failed": 0,
+      "assertions": 252
+    },
+    {
+      "cwd": "packages/core",
+      "command": "bun run script/test.ts",
+      "total": 6820,
+      "files": 273,
+      "passed": 6747,
+      "skipped": 43,
+      "failed": 30,
+      "assertions": 107101,
+      "failuresExactlyMatchBaseline": true,
+      "baseline": {
+        "source": "prior patch (http-policy.4) on the same checkout and dependency install",
+        "command": "bun run script/test.ts test/tool-shell.test.ts test/ripgrep.test.ts test/tool-search.test.ts test/shell-scan/compound-parity.test.ts",
+        "failed": 30,
+        "identicalFailureNames": true
+      },
+      "baselineFailureFamilies": [
+        "ShellTool conditional process substitution / compound syntax (macOS bash 3.2)",
+        "Ripgrep and search tools (no ripgrep binary with --ignore-scripts install)",
+        "real-shell compound syntax"
+      ]
+    },
+    {
+      "cwd": "packages/core",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "files": 1637
+    },
+    {
+      "cwd": "packages/server",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "files": 1273
+    },
+    {
+      "cwd": "packages/cli",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "files": 1835
+    },
+    {
+      "cwd": "packages/client",
+      "command": "bun run generate",
+      "exitCode": 0,
+      "generatedChanges": false
+    }
+  ],
+  "contract": "Config.Options.projectStop (OPENCODE_CONFIG_PROJECT_STOP: JSON array of absolute roots) ends the upward project config walk at the longest root that lexically contains the location (the root itself is still searched); a location outside every root searches only itself; when only the resolved location is inside a root the walk starts there. Unset or empty keeps upstream behavior. Load, watch, skills, plugins, commands and MCP all follow ConfigDiscovery.discover, so they are bounded together. The AGENTS.md instruction walk is unchanged (already bounded by the project root or home)."
+}
