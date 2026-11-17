@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { ApprovalService } from "../../approvals.js";
 import { brokerRequest, prepareOutboundRequest } from "../../agent-sandbox/network.js";
@@ -226,4 +227,57 @@ test("a buffered provider response waits for its outstanding inspection and cann
   const readCurrentBinding = async () => {const binding = await f.options.readCurrentBinding(); return {...binding, launcherSha256: ""};};
   await expect(new ProtectedAiTransport({...f.options, readCurrentBinding, syntheticPilot: {endpoint: f.endpoint}}).dispatch(outbound(), AbortSignal.timeout(3000))).rejects.toMatchObject({code: "protected_ai_measurement_missing"});
   expect(f.reviewed).toHaveLength(0); expect(f.received).toHaveLength(0);
+}));
+
+// #534: engine v2 saves the provider key through `integration/:id/connect/key` (ISIR bootstrap.mjs), so the
+// v2 provider definition has no `settings.apiKey`. The wire-scope account must be that engine credential.
+const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
+async function engineCredentials(f: Awaited<ReturnType<typeof makeFixture>>, initial: string | null) {
+  let key = initial, failing = false;
+  const engine = Bun.serve({hostname: "127.0.0.1", port: 0, fetch(request) {
+    if (new URL(request.url).pathname !== "/api/credential") return new Response(null, {status: 404});
+    if (failing) return new Response(null, {status: 500});
+    return Response.json({data: key === null ? [] : [
+      {id: "cred_other", integrationID: "other", label: "Other", active: true, value: {type: "key", key: "OTHER-ACCOUNT"}},
+      {id: "cred_old", integrationID: "fixture", label: "Old", active: false, value: {type: "key", key: "INACTIVE-ACCOUNT"}},
+      {id: "cred_native", integrationID: "fixture", label: "API key", active: true, value: {type: "key", key}},
+    ]});
+  }});
+  f.config.opencodeBaseUrl = engine.url.toString();
+  await writeRuntimeOpencodeConfig(f.config, GLOBAL_PROVIDERS_ID, () => nativeRow({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: f.receiver.url.origin + "/v1"}, models: {fixture: {}}}}}));
+  return {engine, rotate: (value: string | null) => {key = value;}, fail: () => {failing = true;}};
+}
+
+test("engine v2 key from the credential store binds the wire-scope account and reaches only the provider (#534)", async () => fixture(async f => {
+  const native = await engineCredentials(f, "synthetic-local-only");
+  try {
+    const target = await protectedAiTarget(f.config, "fixture", "fixture");
+    // Same formula as the native ISIR review oracle (lawoss/testing/isir/native/protected-approvals.mjs).
+    expect(target.fingerprint).toBe(sha256(JSON.stringify({endpoint: f.endpoint, providerId: "fixture", modelId: "fixture", account: sha256("synthetic-local-only")})));
+    expect(target.fingerprint).not.toBe(sha256(JSON.stringify({endpoint: f.endpoint, providerId: "fixture", modelId: "fixture", account: sha256("")})));
+    const response = await new ProtectedAiTransport({...f.options, syntheticPilot: {endpoint: f.endpoint}}).dispatch(outbound(), AbortSignal.timeout(3000));
+    expect(response.status).toBe(200);
+    expect(f.received).toEqual([{body, authorization: "Bearer synthetic-local-only"}]);
+    expect(JSON.parse(f.reviewed[0]!.slice(f.reviewed[0]!.indexOf("\n") + 1, f.reviewed[0]!.indexOf("\n\nComplete serialized")))).toMatchObject({target: target.fingerprint});
+    expect(f.reviewed[0]).not.toContain("synthetic-local-only");
+    // A saved v1/firm `settings.apiKey` keeps precedence over the engine store.
+    await writeRuntimeOpencodeConfig(f.config, GLOBAL_PROVIDERS_ID, () => nativeRow({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: f.receiver.url.origin + "/v1", apiKey: "HOST-SECRET"}, models: {fixture: {}}}}}));
+    expect((await protectedAiTarget(f.config, "fixture", "fixture")).fingerprint).toBe(sha256(JSON.stringify({endpoint: f.endpoint, providerId: "fixture", modelId: "fixture", account: sha256("HOST-SECRET")})));
+  } finally {native.engine.stop(true);}
+}));
+
+test("rotating or disconnecting the engine credential during native review emits nothing; an unreadable store fails closed (#534)", async () => fixture(async f => {
+  const native = await engineCredentials(f, "FIRST-ACCOUNT");
+  try {
+    const transport = () => new ProtectedAiTransport({...f.options, syntheticPilot: {endpoint: f.endpoint}});
+    f.review(async () => {native.rotate("ROTATED-ACCOUNT");});
+    await expect(transport().dispatch(outbound(), AbortSignal.timeout(3000))).rejects.toMatchObject({code: "host_decision_stale"});
+    f.review(async () => {native.rotate(null);});
+    await expect(transport().dispatch(outbound(), AbortSignal.timeout(3000))).rejects.toMatchObject({code: "host_decision_stale"});
+    native.rotate("FIRST-ACCOUNT"); native.fail(); f.review(async () => {});
+    const failure = await transport().dispatch(outbound(), AbortSignal.timeout(3000)).catch(error => error);
+    expect(failure).toMatchObject({code: "protected_ai_account_unavailable"});
+    expect(String(failure?.message)).not.toContain("FIRST-ACCOUNT");
+    expect(f.received).toHaveLength(0); expect(f.reviewed).toHaveLength(2);
+  } finally {native.engine.stop(true);}
 }));
