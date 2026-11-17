@@ -1,0 +1,79 @@
+{
+  "skill": "oz-2027-prechod",
+  "status": "draft-runtime-eval",
+  "source": "Koordinačný spec 0021; iba syntetické fakty, bez klientskych údajov",
+  "cases": [
+    {
+      "id": "old-contract-breach",
+      "prompt": "Slovenská spotrebiteľská zmluva bola uzavretá 15. júna 2027 a porušená 15. augusta 2027. Ktorý kódex je rozhodný pre práva z porušenia?",
+      "must": ["§ 1893 ods. 3", "doterajšie predpisy", "historické znenie"],
+      "must_not": ["automaticky nový OZ"]
+    },
+    {
+      "id": "mixed-property-security",
+      "prompt": "Zmluva a záložné právo vznikli 1. júna 2027 a trvajú v auguste 2027. Urči režim zmluvného záväzku, vecného práva a zabezpečenia osobitne.",
+      "must": ["§ 1893 ods. 2", "§ 1893 ods. 3", "§ 1909", "oddelené otázky"],
+      "must_not": ["jeden režim pre celú vec"]
+    },
+    {
+      "id": "written-election",
+      "prompt": "Strany zmluvy z júna 2027 sa 1. septembra 2027 písomne dohodli na novom OZ. Ako posúdiť ich práva vzniknuté v auguste a októbri?",
+      "must": ["§ 1893 ods. 4", "práva pred dohodou zostávajú", "rozsah dohody"],
+      "must_not": ["spätná zmena všetkých práv"]
+    },
+    {
+      "id": "deadline-before-transition",
+      "prompt": "Lehota zo slovenskej zmluvy začala plynúť 20. júna 2027 a uplynie podľa zmluvy až v auguste 2027. Ktoré právo určuje jej režim? Presný dátum nepočítaj.",
+      "must": ["§ 1896 prvá veta", "doterajšie predpisy", "do uplynutia"],
+      "must_not": ["nový OZ iba podľa dátumu skončenia"]
+    },
+    {
+      "id": "deadline-after-transition",
+      "prompt": "Zmluva vznikla v máji 2027. Lehota na reklamáciu z nej začala plynúť 5. júla 2027. Ktoré právo upravuje lehotu? Dátum skončenia nevypočítavaj.",
+      "must": ["§ 1896 druhá veta", "právo vzťahu", "§ 1893 ods. 3"],
+      "must_not": ["nový OZ iba podľa začiatku lehoty"]
+    },
+    {
+      "id": "special-lease",
+      "prompt": "Nájom nebytového priestoru bol uzavretý v roku 2026 a trvá v auguste 2027. Ktoré pramene treba preveriť? O neplatnosti skončenia sa nekoná.",
+      "must": ["116/1990 Zb.", "§ 1893 ods. 3", "§ 1919"],
+      "must_not": ["§ 1912 ako všeobecné pravidlo nájmu"]
+    },
+    {
+      "id": "accounts-exception",
+      "prompt": "K 1. júlu 2027 existuje bežný účet zo starej zmluvy, nárok na poplatok z roku 2026 a vkladná knižka vydaná v roku 2026. Posúď režim každého zvlášť.",
+      "must": ["§ 1914 ods. 1 až 4", "nový režim účtu", "starý nárok podľa doterajších predpisov", "starý režim knižky"],
+      "must_not": ["rovnaký režim pre oba"]
+    },
+    {
+      "id": "offer-acceptance",
+      "prompt": "Ponuka slovenskej zmluvy bola odoslaná 29. júna 2027, prijatie doručené 3. júla 2027. Bez textu ponuky a pravidiel o jej účinkoch urči prechodový režim zmluvy.",
+      "must": ["účinky ponuky a prijatia", "vznik záväzku", "podmienený záver"],
+      "must_not": ["automaticky starý OZ", "automaticky nový OZ"]
+    },
+    {
+      "id": "business-uncertainty",
+      "prompt": "Podnikatelia uzavreli rámcovú zmluvu v roku 2026 a zadali objednávku v auguste 2027. Nevieš, či objednávka založila novú zmluvu, ani nemáš overenú novelu Obchodného zákonníka. Daj režim.",
+      "must": ["neurčený", "513/1991 Zb.", "účinky objednávky"],
+      "must_not": ["automaticky starý OZ", "automaticky nový OZ"]
+    },
+    {
+      "id": "imprecise-date",
+      "prompt": "Klient uvádza, že slovenská zmluva vznikla na prelome júna a júla 2027; presný dátum nevie. Rozhodni prechodový režim.",
+      "must": ["podmienené vetvy", "presný dátum", "§ 1893"],
+      "must_not": ["jednoznačný režim"]
+    },
+    {
+      "id": "connector-status-conflict",
+      "prompt": "Konektor vracia pri 40/1964 Zb. status effective k 1. júlu 2027. Pripravuje sa nová slovenská zmluva z augusta 2027. Môžeš použiť starý OZ ako účinný predpis?",
+      "must": ["§ 1919", "hranica znenia", "§ 1893 ods. 1"],
+      "must_not": ["status effective ako jediný dôkaz"]
+    },
+    {
+      "id": "no-trigger-czech",
+      "prompt": "Porovnaj úpravu nájmu podľa českého občianskeho zákonníka k 1. januáru 2028.",
+      "must": ["nepoužiť slovenský OZ 2027 skill"],
+      "must_not": ["260/2026 Z. z. ako české právo"]
+    }
+  ]
+}

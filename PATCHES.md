@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## OZ 2027 — zručnosť rozhodného práva (2026-11-17)
+
+| Súbor | Zmena |
+|---|---|
+| `scripts/gen-core-skills.mjs`, generovaný `apps/server/src/core-skills.ts`; zdroj `apps/server/resources/core-opencode/skills/oz-2027-prechod/SKILL.md` | Slovenský skill `oz-2027-prechod` sa pri štarte pridá do globálnej upraviteľnej knižnice Skills cez existujúci inštalátor. Bez nového procesu alebo konektora. Prípadovo overuje prechod medzi 40/1964 Zb. a 260/2026 Z. z. a cielené porovnanie; text skillu je zdroj pravdy, generovaný súbor sa neupravuje ručne. Návrh a zdroje: koordinačný spec 0021 (stav: návrh na tímové posúdenie). |
+
 ## Hranica prechodu konfigurácie enginu (#530) (2026-11-17)
 
 | Súbor | Zmena |
