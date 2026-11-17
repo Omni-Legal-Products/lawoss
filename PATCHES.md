@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Revízia integrácie alfy (2026-11-17)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/cloud-plugins.ts`, nový `apps/server/src/lawoss/legacy-connector-setup.ts` (LAWOSS okrem prvého, + test `lawoss/marketplace-global.test.ts`) | Revízia #486: záznam globálnej inštalácie zo staršieho kódu nemá `connectorDefaults`, takže upstream `mergeConnectorSetup` bez `previous` bral každú odlišnú hodnotu (aj `command` s cestou do starého `plugin-resources/<digest>`) ako nastavenie advokáta a MCP natrvalo spúšťalo starý runtime. V `cloud-plugins.ts` +1 import a +1 riadok `🟡 LAWOSS`: bez `previous` rozhodne `legacyConnectorSetup`, ktorý z doterajšieho pripojenia prevezme len `environment`, `headers`, `oauth`, adresu doplnenú za premenné a vypnutie (kľúč, kde nová verzia dosadila cestu do `plugin-resources`, berie z novej verzie); príkaz, argumenty, `cwd` a `timeout` sú z novej verzie. `connectorDefaults` sa pri aktualizácii uložia ako doteraz, ďalšie aktualizácie idú cez trojcestné zlúčenie. Platí aj pre cestu z pribaleného katalógu (#510) a pre import pluginov (`plugin-import-install.ts`, `plugin-import-checks.ts`) so starším záznamom. |
+
 ## Priečinok klienta z dvoch inštalácií (#509) (2026-11-17)
 
 | Súbor | Zmena |

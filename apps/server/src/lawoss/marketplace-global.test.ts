@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:f
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installCloudPlugin, readInstalledCloudPlugins, writeInstalledCloudPlugins } from "../cloud-plugins.js";
+import { installCloudPlugin, mergeConnectorSetup, readInstalledCloudPlugins, writeInstalledCloudPlugins } from "../cloud-plugins.js";
 import { resolveClaudePluginBundle } from "../claude-plugin-bundle.js";
 import { addMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled } from "../mcp.js";
 import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
@@ -211,6 +211,75 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     expect(after[first]).toMatchObject({ environment: { DEMO_TOKEN: "prve" } });
     expect(after[first]?.disabled).not.toBe(true);
     expect(after[second]).toMatchObject({ disabled: true, environment: { DEMO_TOKEN: "druhe" } });
+  });
+
+  test("revízia #486: záznam bez connectorDefaults (starší kód) pri aktualizácii posunie runtime a ponechá nastavenie advokáta", async () => {
+    const SHA3 = "3".repeat(40), SHA4 = "4".repeat(40), SHA5 = "5".repeat(40);
+    const twoMcp = (version: string) => ({
+      ...pluginFiles(version, `Verzia ${version}.`),
+      "plugins/demo/.mcp.json": JSON.stringify({ mcpServers: {
+        demo: { command: "node", args: ["scripts/run.mjs", "mcp"], env: { DEMO_MODE: "z-katalogu" } },
+        druhy: { command: "node", args: ["scripts/run.mjs", "druhy"] },
+      } }),
+    });
+    repo[SHA3] = twoMcp("1.0.0");
+    repo[SHA4] = twoMcp("1.1.0");
+    repo[SHA5] = twoMcp("1.2.0");
+    const config = serverConfig(root);
+    const shared = async () => (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers ?? {};
+    const runtimeOf = async (connection: unknown) => {
+      const command = (connection as { command?: string[] } | undefined)?.command ?? [];
+      const script = command.find((part) => part.endsWith("run.mjs"));
+      if (!script) throw new Error("Missing runtime path");
+      return { script, content: await readFile(script, "utf8") };
+    };
+    const update = async (sha: string, version: string) => {
+      const state = { lastCheckedAt: Date.now(), lastCheck: { status: "ok", release: { tag: `v${version}`, sha, publishedAt: null, source: "release", plugins: [{ name: "demo", version, path: "plugins/demo" }] } } } as unknown as Parameters<typeof updateGlobalPlugin>[2];
+      expect((await updateGlobalPlugin(config, PLUGIN_ID, state, {})).status).toBe("updated");
+    };
+
+    await installGlobalPlugin(config, url(SHA3));
+    const installed = await shared();
+    const [first, second] = Object.keys(installed).sort() as [string, string];
+    await addMcp(config, "ws_a", first, { ...installed[first], environment: { ...(installed[first] as { environment?: Record<string, string> }).environment, DEMO_TOKEN: "prve" } }, "global");
+    await addMcp(config, "ws_a", second, { ...installed[second], environment: { DEMO_TOKEN: "druhe" } }, "global");
+    await setMcpEnabled(config, "ws_a", second, false);
+    // Simulate a record written by older code: no stored connector defaults.
+    await writeInstalledCloudPlugins(config, globalPluginTarget().recordId, (current) => {
+      const { connectorDefaults: _dropped, ...legacy } = current.plugins[PLUGIN_ID]!;
+      return { ...current, plugins: { ...current.plugins, [PLUGIN_ID]: legacy } };
+    });
+    expect((await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID]?.connectorDefaults).toBeUndefined();
+    const old = await runtimeOf((await shared())[first]);
+    expect(old.content).toContain("runtime 1.0.0");
+
+    await update(SHA4, "1.1.0");
+    let after = await shared();
+    const v11 = await runtimeOf(after[first]);
+    expect(v11.content).toContain("runtime 1.1.0");
+    expect(v11.script).not.toBe(old.script);
+    expect((await runtimeOf(after[second])).content).toContain("runtime 1.1.0");
+    expect(after[first]).toMatchObject({ environment: { DEMO_MODE: "z-katalogu", DEMO_TOKEN: "prve" } });
+    expect(after[first]?.disabled).not.toBe(true);
+    expect(after[second]).toMatchObject({ disabled: true, environment: { DEMO_TOKEN: "druhe" } });
+    expect((await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID]?.connectorDefaults?.[first]).toBeDefined();
+
+    await update(SHA5, "1.2.0");
+    after = await shared();
+    const v12 = await runtimeOf(after[first]);
+    expect(v12.content).toContain("runtime 1.2.0");
+    expect(v12.script).not.toBe(v11.script);
+    expect((await runtimeOf(after[second])).content).toContain("runtime 1.2.0");
+    expect(after[first]).toMatchObject({ environment: { DEMO_MODE: "z-katalogu", DEMO_TOKEN: "prve" } });
+    expect(after[first]?.disabled).not.toBe(true);
+    expect(after[second]).toMatchObject({ disabled: true, environment: { DEMO_TOKEN: "druhe" } });
+  });
+
+  test("revízia #486: bez connectorDefaults hodnota s cestou novej verzie do plugin-resources nie je nastavenie advokáta", () => {
+    const at = (digest: string) => `/cfg/opencode/plugin-resources/demo-plugin/${digest}`;
+    const next = { type: "local", command: ["node", `${at("new")}/scripts/run.mjs`], disabled: false, environment: { DATA_DIR: `${at("new")}/data`, MODE: "default" } };
+    const current = { type: "local", command: ["node", `${at("old")}/scripts/run.mjs`], disabled: true, environment: { DATA_DIR: `${at("old")}/data`, MODE: "default", TOKEN: "advokat" } };
+    expect(mergeConnectorSetup(next, current)).toEqual({ ...next, disabled: true, environment: { DATA_DIR: `${at("new")}/data`, MODE: "default", TOKEN: "advokat" } });
   });
 
   // #420, #421: katalóg dodáva runtime registra ako jeden zbalený súbor (slovlex 6,25 MB + 2,08 MB).
