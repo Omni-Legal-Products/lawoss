@@ -306,8 +306,9 @@ export const integrationsEn = {
   "lawoss.integrations.providerOverwrite.removeDescription": "Provider {provider} has its own different settings in these clients. If you disconnect it, they will lose it too:",
   "lawoss.integrations.providerOverwrite.removeConfirm": "Disconnect for all",
   "lawoss.integrations.providerOverwrite.removeCancelled": "Nothing was disconnected. The other clients keep their own provider settings.",
-  "lawoss.skills.field_name": "Name",
+  "lawoss.skills.field_name": "Bezeichnung",
   "lawoss.skills.create": "Create skill",
+  "lawoss.skills.creating": "Creating…",
 };
 export const integrationsCs = {
   "lawoss.integrations.remove_pending": "Odebrání připojení trvá déle než obvykle a možná ještě probíhá. Seznam se obnovil; pokud tam připojení zůstalo, zkuste to za chvíli znovu.",
@@ -618,6 +619,7 @@ export const integrationsCs = {
   "lawoss.integrations.providerOverwrite.removeCancelled": "Nic se neodpojilo. Ostatní klienti si ponechali vlastní nastavení poskytovatele.",
   "lawoss.skills.field_name": "Název",
   "lawoss.skills.create": "Vytvořit skill",
+  "lawoss.skills.creating": "Vytváří se…",
 } satisfies Record<keyof typeof integrationsEn, string>;
 export const integrationsSk = {
   "lawoss.integrations.remove_pending": "Odstránenie pripojenia trvá dlhšie než zvyčajne a možno ešte prebieha. Zoznam sa obnovil; ak tam pripojenie ostalo, skúste to o chvíľu znova.",
@@ -928,6 +930,7 @@ export const integrationsSk = {
   "lawoss.integrations.providerOverwrite.removeCancelled": "Nič sa neodpojilo. Ostatní klienti si ponechali vlastné nastavenie poskytovateľa.",
   "lawoss.skills.field_name": "Názov",
   "lawoss.skills.create": "Vytvoriť skill",
+  "lawoss.skills.creating": "Vytvára sa…",
 } satisfies Record<keyof typeof integrationsEn, string>;
 export const integrationsDe = {
   "lawoss.integrations.remove_pending": "Das Entfernen der Verbindung dauert länger als üblich und läuft möglicherweise noch. Die Liste wurde aktualisiert; ist die Verbindung noch da, versuchen Sie es gleich noch einmal.",
@@ -1236,6 +1239,7 @@ export const integrationsDe = {
   "lawoss.integrations.providerOverwrite.removeDescription": "Der Anbieter {provider} hat bei diesen Mandanten eigene abweichende Einstellungen. Wenn Sie ihn trennen, verlieren auch sie ihn:",
   "lawoss.integrations.providerOverwrite.removeConfirm": "Für alle trennen",
   "lawoss.integrations.providerOverwrite.removeCancelled": "Es wurde nichts getrennt. Die anderen Mandanten behalten ihre eigenen Anbietereinstellungen.",
-  "lawoss.skills.field_name": "Skill-Name",
+  "lawoss.skills.field_name": "Bezeichnung",
   "lawoss.skills.create": "Skill erstellen",
+  "lawoss.skills.creating": "Wird erstellt…",
 } satisfies Record<keyof typeof integrationsEn, string>;

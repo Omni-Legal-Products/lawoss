@@ -1277,7 +1277,7 @@ function SkillCreatorButton(props: {
               {saving ? (
                 <>
                   <Loader2 size={14} className="animate-spin" />
-                  Creating...
+                  {t("lawoss.skills.creating")}{/* 🟡 LAWOSS #515 */}
                 </>
               ) : (
                 t("lawoss.skills.create")
@@ -1531,7 +1531,7 @@ function WorkflowCreatorButton(props: {
                 {saving ? (
                   <>
                     <Loader2 size={14} className="animate-spin" />
-                    Creating...
+                    {t("lawoss.skills.creating")}{/* 🟡 LAWOSS #515 */}
                   </>
                 ) : (
                   "Create workflow"
