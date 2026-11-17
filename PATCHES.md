@@ -2447,3 +2447,10 @@ Logika je v nových LAWOSS súboroch `apps/app/src/lawoss/chat/provider-error.ts
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
 | `.github/workflows/alpha-macos-aarch64.yml`, `alpha-windows-x64.yml` | Voliteľné vstupy `engine_reuse_run_id` a `engine_reuse_manifest_sha256` (ako v `ci-tests.yml`) idú do `reuse-run-id` a `reuse-manifest-sha256` v `ci-opencode-derivative.yml`. Krok `opencode-engine / build` potom beží na ubuntu: stiahne artefakt `opencode-derivative-ci` z uvedeného behu a overí ho proti aktuálnemu receptu a nezávislému SHA256 manifestu. Bez vstupov sa engine stavia ako doteraz. Dôvod: Windows alpha.12 (beh 43233686530) 13-krát zrušil GitHub, lebo nedostal macOS arm64 runner pre engine, hoci macOS beh toho istého commitu engine postavil. |
+
+## Menej čakania na macOS runnery (2026-11-17, ci/menej-macos)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `.github/workflows/ci-opencode-derivative.yml`, `scripts/ci/cache-opencode-derivative.mjs` (+ test `engine-reuse-workflow.test.mjs`) | Nový job `runner` na ubuntu zistí (`lookup-only`), či engine už je v cache, v artefakte základného commitu PR alebo vo výslovne prevzatom behu; vtedy `build` beží na ubuntu, inak na pinovanom `macos-15`. Cache má relatívnu cestu `opencode-derivative-cache` a kľúč sa vždy počíta pre builder `darwin-arm64`, aby ho macOS aj ubuntu spočítali rovnako (na macOS sa kľúč nemení). Ak cache chýba, prevezme sa artefakt `opencode-derivative-ci` najprv z presného základného commitu PR, inak z najnovšieho behu vetvy `dev` toho istého repa s bajtovo zhodnými vstupmi enginu (napr. warm-cache); manuálny beh na `dev` hľadá rovnako. Kompilácia a všetky overenia ostávajú bez zmeny. Dôvod: 17. 11. 2026 GitHub opakovane zrušil `opencode-engine / build` („not acquired by Runner“) v alfe macOS aj Windows, hoci engine nebolo treba kompilovať. |
+| `.github/workflows/ci-tests.yml` (`unit-tests`), `ci-okf.yml`, `ci-okf-pamat.yml` | Pri PR len ubuntu; macOS beží po zlúčení do `dev`. Nepovinné kontroly; povinné kontroly rulesetu (`legalwork-tests (macos-15)` a ďalšie) sa nemenia. |
