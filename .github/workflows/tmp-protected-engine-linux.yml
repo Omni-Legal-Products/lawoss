@@ -1,6 +1,6 @@
-# DOČASNÉ (#530): zostaví linuxové archívy enginu hosťa pre release chráneného enginu.
-# Rovnaký spôsob ako pri http-policy.4: jeden krížový build z macOS ARM64 cez
-# `engine:prepare --target linux-arm64 --target linux-x64-baseline`. Pred mergom sa odstráni.
+# DOČASNÉ (#530): zostaví linuxové archívy enginu hosťa pre release chráneného enginu
+# podľa receptu (`prepare.mjs --mode development --target …`), natívne na linuxových
+# builderoch, ktoré recept pripúšťa (linux-x64, linux-arm64). Pred koncom sa odstráni.
 name: TMP protected engine linux archives
 on:
   push:
@@ -11,37 +11,50 @@ permissions:
   contents: read
 jobs:
   build:
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: linux-x64-baseline
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     steps:
+      - name: Free disk before build
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          df -h /
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - uses: actions/setup-node@v6
         with:
           node-version: 24.22.1
-      - name: Free disk before build
-        run: df -h "$GITHUB_WORKSPACE"
-      - name: Build linux-arm64 and linux-x64-baseline from the reviewed recipe
-        run: node packages/opencode-release/prepare.mjs --mode development --target linux-arm64 --target linux-x64-baseline
+      - name: Build ${{ matrix.target }} from the reviewed recipe
+        run: node packages/opencode-release/prepare.mjs --mode development --target ${{ matrix.target }}
       - name: Collect distribution
         shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          df -h "$GITHUB_WORKSPACE"
+          df -h /
           receipt=packages/opencode-release/generated/receipt.json
           archives="$(node -p "require('./$receipt').archiveDirectory")"
           manifest="$(node -p "require('./$receipt').manifestPath")"
-          out="$RUNNER_TEMP/protected-engine-linux"
+          out="$RUNNER_TEMP/protected-engine-$TARGET"
           mkdir "$out"
-          cp "$archives"/*-linux-arm64.tar.gz "$archives"/*-linux-x64-baseline.tar.gz "$out/"
-          cp "$manifest" "$out/derivative-release.json"
-          cp "$receipt" "$out/receipt.json"
-          (cd "$out" && shasum -a 256 *.tar.gz derivative-release.json > SHA256SUMS && cat SHA256SUMS)
+          cp "$archives"/*-"$TARGET".tar.gz "$out/"
+          cp "$manifest" "$out/derivative-release-$TARGET.json"
+          cp "$receipt" "$out/receipt-$TARGET.json"
+          (cd "$out" && sha256sum * > "SHA256SUMS-$TARGET" && cat "SHA256SUMS-$TARGET")
           echo "OUT=$out" >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@v4
         with:
-          name: protected-engine-linux
+          name: protected-engine-${{ matrix.target }}
           path: ${{ env.OUT }}/
           if-no-files-found: error
           retention-days: 7
