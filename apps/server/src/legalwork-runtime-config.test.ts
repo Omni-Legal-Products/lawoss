@@ -25,6 +25,7 @@ import {
 import { managedSettingsFileSchema, readManagedEngineSettings, type ManagedEngineSettings } from "./managed-engine-settings.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import type { NativeConfig } from "./native-opencode-config.js";
+import { readNativeWorkspaceConfig } from "./native-workspace-config.js";
 import {
   GLOBAL_MCP_ID,
   GLOBAL_PERSONALIZATION_ID,
@@ -119,6 +120,20 @@ test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("an unwrit
   } finally { await chmod(blocked, 0o700); }
   await writeLegalworkRuntimeConfigFile(config, "ws_1");
   expect((await engineProjectStatus(config, config.workspaces[0]!)).state).toBe("ready");
+});
+
+test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("an unreadable .opencode above the client does not prevent the engine configuration (#540)", async () => {
+  const { root, config } = await setup();
+  const office = dirname(root);
+  const blocked = join(office, ".opencode");
+  await mkdir(blocked);
+  await writeFile(join(blocked, "opencode.jsonc"), "{}");
+  await chmod(blocked, 0o000);
+  try {
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    expect((await engineProjectStatus(config, config.workspaces[0]!)).state).toBe("ready");
+    expect((await readNativeWorkspaceConfig(config, config.workspaces[0]!, {})).authoredConfig.paths).not.toContain(join(blocked, "opencode.jsonc"));
+  } finally { await chmod(blocked, 0o700); }
 });
 
 async function readConfigurationFile(path: string) {
