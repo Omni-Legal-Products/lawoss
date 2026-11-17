@@ -36,6 +36,8 @@ describe("LAWOSS: engine bez Eigenweltu", () => {
     expect(env.OPENCODE_DISABLE_MODELS_FETCH).toBe("1");
     expect(env.OPENCODE_DISABLE_SHARE).toBe("1");
     expect(env.OPENCODE_DISABLE_AUTOUPDATE).toBe("1");
+    // #530: žiadne korene `.claude` (ani skutočné `~/.claude` pri prechode nadradených priečinkov).
+    expect(env.OPENCODE_DISABLE_CLAUDE_CODE).toBe("1");
     // Žiadna sieťová adresa: engine dostane len prepínače a lokálnu cestu.
     expect(Object.values(env).filter((value) => /^[a-z]+:\/\//i.test(value))).toEqual([]);
   });
