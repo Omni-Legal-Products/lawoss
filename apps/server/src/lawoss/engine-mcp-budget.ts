@@ -189,14 +189,14 @@ function positiveInteger(value: string | undefined, fallback: number): number {
 }
 
 /**
- * Predvolene 1 aktívny klient, 10 min nečinnosti a najviac 5 s čakania na dobehnutie požiadaviek predošlého klienta. `LAWOSS_ENGINE_MCP_INSTANCES=0`
+ * Predvolene 1 aktívny klient, 10 min nečinnosti a najviac 2 s čakania na dobehnutie požiadaviek predošlého klienta. `LAWOSS_ENGINE_MCP_INSTANCES=0`
  * vypne limit (napr. pre stroj s dostatkom RAM alebo diagnostiku).
  */
 export function engineMcpBudgetSettings(env: Record<string, string | undefined> = process.env) {
   return {
     limit: positiveInteger(env.LAWOSS_ENGINE_MCP_INSTANCES, 1),
     idleMs: positiveInteger(env.LAWOSS_ENGINE_MCP_IDLE_MS, 10 * 60_000),
-    drainMs: positiveInteger(env.LAWOSS_ENGINE_MCP_DRAIN_MS, 5_000),
+    drainMs: positiveInteger(env.LAWOSS_ENGINE_MCP_DRAIN_MS, 2_000),
   };
 }
 

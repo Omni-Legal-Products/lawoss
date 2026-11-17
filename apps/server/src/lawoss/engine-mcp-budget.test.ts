@@ -249,9 +249,9 @@ test("cesty, pri ktorých záleží na konfigurácii inštancie", () => {
 });
 
 test("nastavenia z prostredia", () => {
-  expect(engineMcpBudgetSettings({})).toEqual({ limit: 1, idleMs: 600_000, drainMs: 5_000 });
+  expect(engineMcpBudgetSettings({})).toEqual({ limit: 1, idleMs: 600_000, drainMs: 2_000 });
   expect(engineMcpBudgetSettings({ LAWOSS_ENGINE_MCP_INSTANCES: "0", LAWOSS_ENGINE_MCP_IDLE_MS: "5000", LAWOSS_ENGINE_MCP_DRAIN_MS: "0" })).toEqual({ limit: 0, idleMs: 5_000, drainMs: 0 });
-  expect(engineMcpBudgetSettings({ LAWOSS_ENGINE_MCP_INSTANCES: "-2" })).toEqual({ limit: 1, idleMs: 600_000, drainMs: 5_000 });
+  expect(engineMcpBudgetSettings({ LAWOSS_ENGINE_MCP_INSTANCES: "-2" })).toEqual({ limit: 1, idleMs: 600_000, drainMs: 2_000 });
 });
 
 test("#367: ďalší klient počká na dobehnutie krátkej požiadavky predošlého, limit sa neprekročí", async () => {

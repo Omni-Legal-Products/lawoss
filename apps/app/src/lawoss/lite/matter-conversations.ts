@@ -130,6 +130,17 @@ export function locateOnce(key: string, run: () => Promise<Located>): Promise<Lo
   return pending;
 }
 
+/** Spoločná požiadavka nepreberá signál prvého výpisu: zrušený výpis (navigácia) nezruší ostatným. */
+export function abortable<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => reject(signal.reason);
+    signal.addEventListener("abort", stop, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", stop));
+  });
+}
+
 /** Engine priečinka cez proxy servera (ako `openSessionWithPrompt`); bez spojenia `null`. */
 export function folderEngine(connection: Pick<OkfConnection, "baseUrl" | "token">, workspace: RouteWorkspace): FolderEngine | null {
   const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token });
@@ -138,10 +149,10 @@ export function folderEngine(connection: Pick<OkfConnection, "baseUrl" | "token"
   return {
     // Engine v2 (ADR 0016): `location.get` vracia skutočný priečinok a koreň jeho projektu; zoznam konverzácií
     // filtruje `directory` a voči projektu `subpath` (namiesto `path` z 1.x).
-    locate: (folder, signal) => locateOnce(`${endpoint.opencodeBaseUrl}\n${folder}`, async () => {
-      const where = await client(folder).location.get({ location: { directory: folder } }, { signal });
+    locate: (folder, signal) => abortable(locateOnce(`${endpoint.opencodeBaseUrl}\n${folder}`, async () => {
+      const where = await client(folder).location.get({ location: { directory: folder } }, { signal: AbortSignal.timeout(60_000) });
       return { directory: where.directory, worktree: where.project.directory, projectId: where.project.id ?? null };
-    }),
+    }), signal),
     list: async (folder, query, signal) => {
       const page = await client(folder).session.list({ directory: folder, ...(query.path === undefined ? {} : { subpath: query.path }), parentID: null, limit: query.limit }, { signal });
       return page.data.map((s): ListedSession => ({ id: s.id, title: s.title, directory: s.location.directory, time: s.time, metadata: s.metadata }));
