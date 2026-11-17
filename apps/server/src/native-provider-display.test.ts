@@ -3,14 +3,15 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ConfigEntry } from "@opencode/client";
-import { localProviderChatCompletionsOnly, nativeProviderDisplay } from "./native-provider-display.js";
+import { isLocalRuntimeEndpoint } from "@legalwork/types/local-runtime-endpoints";
+import { nativeProviderDisplay } from "./native-provider-display.js";
 import { withRuntimeDb } from "./runtime-db-lifecycle.js";
 import type { ServerConfig } from "./types.js";
 
 test("local-template classification accepts only the supported loopback endpoint boundaries", () => {
   for (const protocol of ["http", "https"]) for (const host of ["localhost", "127.0.0.1", "[::1]"]) {
     for (const port of [8080, 8000, 1234, 11434]) for (const suffix of ["", "/", "///"]) {
-      expect(localProviderChatCompletionsOnly(` ${protocol}://${host}:${port}/v1${suffix} `)).toBe(true);
+      expect(isLocalRuntimeEndpoint(` ${protocol}://${host}:${port}/v1${suffix} `)).toBe(true);
     }
   }
 });
@@ -24,7 +25,7 @@ test.each([
   "http://user@localhost:11434/v1", "http://user:password@localhost:11434/v1",
   "ftp://localhost:11434/v1",
 ])("local-template classification does not infer chat-only support from %p", endpoint => {
-  expect(localProviderChatCompletionsOnly(endpoint)).toBe(false);
+  expect(isLocalRuntimeEndpoint(endpoint)).toBe(false);
 });
 
 test("provider display uses authoritative endpoints across partial and remote native overrides without revealing URLs", async () => {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GLOBAL_PROVIDERS_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig, closeRuntimeOpencodeConfig, type RuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
@@ -84,72 +84,74 @@ describe("one-time local Ollama repair", () => {
     expect(repairRuntimeProviders({ ollama: nativeProvider }).repaired).toEqual([]);
   });
 
-  test("repairs shared provider and only its exact workspace denials, once", async () => {
+  // Review #410: the repair changes only the transport package. Whether Ollama is on stays the user's choice.
+  test("repairs the shared package but keeps every workspace denial and policy", async () => {
     const config = serverConfig();
-    const policies = ["ollama", "openai", "opencode", "eigenwelt", "*"].map(resource => ({ action: "provider.use", resource, effect: "deny" } satisfies NonNullable<RuntimeOpencodeConfig["policies"]>[number]));
+    const policies = ["ollama", "openai", "*"].map(resource => ({ action: "provider.use", resource, effect: "deny" } satisfies NonNullable<RuntimeOpencodeConfig["policies"]>[number]));
     const permissions = [{ action: "read", resource: "*", effect: "deny" }] satisfies NonNullable<RuntimeOpencodeConfig["permissions"]>;
     await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({ providers: { ollama: brokenOllama } }));
     await writeRuntimeOpencodeConfig(config, "matter", () => ({ policies, permissions, providerActivation: { ollama: "deny", openai: "deny" }, providerModelSelection: { ollama: ["model"] } }));
+    const before = await readRuntimeOpencodeConfig(config, "matter");
     await repairAllWorkspaceRuntimeProviders(config);
     expect((await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID)).providers?.ollama).toEqual({ ...brokenOllama, package: nativeProvider.package });
-    const stored = await readRuntimeOpencodeConfig(config, "matter");
-    expect(stored.providerActivation).toEqual({ openai: "deny" });
-    expect(stored.policies).toEqual(policies.filter(rule => rule.resource !== "ollama"));
-    expect(stored.permissions).toEqual(permissions);
-    expect(stored.providerModelSelection).toEqual({ ollama: ["model"] });
+    expect(await readRuntimeOpencodeConfig(config, "matter")).toEqual(before);
     expect(providerRepairNotices("matter")).toEqual([]);
-    await writeRuntimeOpencodeConfig(config, "matter", current => ({ ...current, policies, providerActivation: { ollama: "deny", openai: "deny" } }));
-    await repairAllWorkspaceRuntimeProviders(config);
-    const later = await readRuntimeOpencodeConfig(config, "matter");
-    expect(later.providerActivation).toEqual({ ollama: "deny", openai: "deny" });
-    expect(later.policies).toEqual(policies);
   });
 
-  test("repairs a workspace-local provider, but never reactivates an overriding remote provider", async () => {
+  test("repairs a workspace-local package without touching its activation", async () => {
     const config = serverConfig();
-    await writeRuntimeOpencodeConfig(config, "matter", () => ({ providers: { local: brokenOllama }, providerActivation: { local: "deny", openai: "deny" } }));
+    const policies = [{ action: "provider.use", resource: "local", effect: "deny" }] satisfies NonNullable<RuntimeOpencodeConfig["policies"]>;
+    await writeRuntimeOpencodeConfig(config, "matter", () => ({ providers: { local: brokenOllama }, providerActivation: { local: "deny", openai: "deny" }, policies }));
     await repairAllWorkspaceRuntimeProviders(config);
-    expect((await readRuntimeOpencodeConfig(config, "matter")).providerActivation).toEqual({ openai: "deny" });
-    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({ providers: { ollama: brokenOllama } }));
+    const stored = await readRuntimeOpencodeConfig(config, "matter");
+    expect(stored.providers?.local).toEqual({ ...brokenOllama, package: nativeProvider.package });
+    expect(stored.providerActivation).toEqual({ local: "deny", openai: "deny" });
+    expect(stored.policies).toEqual(policies);
+    expect(Object.hasOwn(stored, "ollamaChatRepairIDs")).toBe(false);
+  });
+
+  test("an overriding remote workspace provider is left as it is", async () => {
+    const config = serverConfig();
     const remote = { ...brokenOllama, settings: { baseURL: "https://example.invalid/v1" } };
-    await writeRuntimeOpencodeConfig(config, "matter", () => ({ providers: { ollama: remote }, providerActivation: { ollama: "deny" }, policies: [{ action: "provider.use", resource: "ollama", effect: "deny" }] }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({ providers: { ollama: brokenOllama } }));
+    await writeRuntimeOpencodeConfig(config, "matter", () => ({ providers: { ollama: remote }, providerActivation: { ollama: "deny" } }));
     await repairAllWorkspaceRuntimeProviders(config);
     const stored = await readRuntimeOpencodeConfig(config, "matter");
     expect(stored.providers?.ollama).toEqual(remote);
     expect(stored.providerActivation).toEqual({ ollama: "deny" });
-    expect(stored.policies).toEqual([{ action: "provider.use", resource: "ollama", effect: "deny" }]);
   });
 
-  test("partial startup never replays cleanup over a later manual disconnect", async () => {
+  test("an unreadable native config above one client blocks neither that client nor the others", async () => {
     const config = serverConfig();
-    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({ providers: { ollama: brokenOllama } }));
-    await writeRuntimeOpencodeConfig(config, "matter", () => ({ providerActivation: { ollama: "deny" } }));
-    // Simulate interruption before the global definition is committed.
-    await repairWorkspaceRuntimeProviders(config, "matter", ["ollama"]);
-    expect((await readRuntimeOpencodeConfig(config, "matter")).ollamaChatRepairIDs).toEqual(["ollama"]);
-    // A settings replacement must retain the private completion receipt too.
-    await writeRuntimeOpencodeConfig(config, "matter", () => ({ providerActivation: { ollama: "deny" } }));
-    await repairAllWorkspaceRuntimeProviders(config);
-    expect((await readRuntimeOpencodeConfig(config, "matter")).providerActivation).toEqual({ ollama: "deny" });
+    const other = join(root, "other");
+    await mkdir(other);
+    config.workspaces.push({ id: "other", name: "Other", path: other, preset: "starter", workspaceType: "local" });
+    await mkdir(join(root, ".opencode"));
+    await writeFile(join(root, ".opencode", "opencode.jsonc"), "{}");
+    await chmod(join(root, ".opencode"), 0o000);
+    try {
+      await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({ providers: { ollama: brokenOllama } }));
+      await writeRuntimeOpencodeConfig(config, "matter", () => ({ providers: { local: brokenOllama } }));
+      await writeRuntimeOpencodeConfig(config, "other", () => ({ providers: { local: brokenOllama } }));
+      await repairAllWorkspaceRuntimeProviders(config);
+      expect((await readRuntimeOpencodeConfig(config, "matter")).providers?.local?.package).toBe(nativeProvider.package);
+      expect((await readRuntimeOpencodeConfig(config, "other")).providers?.local?.package).toBe(nativeProvider.package);
+      expect((await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID)).providers?.ollama?.package).toBe(nativeProvider.package);
+    } finally {
+      await chmod(join(root, ".opencode"), 0o755);
+    }
   });
 
-  test("authored native overrides retain activation denials while the saved package is repaired", async () => {
+  test("retired provider cleanup alone runs no native file checks", async () => {
     const config = serverConfig();
     await mkdir(join(root, ".opencode"));
-    await writeFile(join(root, ".opencode", "opencode.jsonc"), JSON.stringify({ providers: { ollama: { settings: { baseURL: "https://example.invalid/v1" } } } }));
-    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({ providers: { ollama: brokenOllama } }));
-    await writeRuntimeOpencodeConfig(config, "matter", () => ({ providerActivation: { ollama: "deny" } }));
-    await repairAllWorkspaceRuntimeProviders(config);
-    expect((await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID)).providers?.ollama?.package).toBe(nativeProvider.package);
-    expect((await readRuntimeOpencodeConfig(config, "matter")).providerActivation).toEqual({ ollama: "deny" });
-  });
-
-  test("empty JSONC placeholders do not block the known local repair", async () => {
-    const config = serverConfig();
-    await mkdir(join(root, ".opencode"));
-    await writeFile(join(root, ".opencode", "opencode.jsonc"), "// empty native placeholder\n{}");
-    await writeRuntimeOpencodeConfig(config, "matter", () => ({ providers: { ollama: brokenOllama }, providerActivation: { ollama: "deny" } }));
-    await repairAllWorkspaceRuntimeProviders(config);
-    expect((await readRuntimeOpencodeConfig(config, "matter")).providerActivation ?? {}).toEqual({});
+    await chmod(join(root, ".opencode"), 0o000);
+    try {
+      await writeRuntimeOpencodeConfig(config, "matter", () => ({ providers: { "eigenwelt-free": retiredProvider, local: nativeProvider } }));
+      await repairAllWorkspaceRuntimeProviders(config);
+      expect((await readRuntimeOpencodeConfig(config, "matter")).providers).toEqual({ local: nativeProvider });
+    } finally {
+      await chmod(join(root, ".opencode"), 0o755);
+    }
   });
 });

@@ -1,5 +1,5 @@
 ## Codebase Patterns
-- Provider migrations retain per-workspace completion receipts so partial startup cannot replay activation cleanup over a later disconnect. Redacted endpoints need safe server-derived capability flags, not provider-ID guesses.
+- Provider migrations change only the saved package; activation and policies stay untouched, so no receipts or native-file provenance checks are needed. Redacted endpoints need safe server-derived capability flags, not provider-ID guesses.
 - PDF text availability and visual review are independent gates. Host-attested decorative paths preserve native/OCR evidence, bind exact source/revision/pages, and never clear unreviewed portfolio descendants.
 - MIME corpus reads retain body text and incomplete attachment coverage; only document preparation requests decoded binary buffers and feeds the existing tree-wide recursion.
 - Every non-test helper emitted into opencode-plugins is shipped outside node_modules; explicitly bundle bare dependencies and verify actual detached built files, even if the configured plugin already inlines the helper.
@@ -891,3 +891,9 @@ Review found first attempt cached all metadata too broadly and omitted host owne
 - Updated provider dialog/template helper, safe server display metadata, native runtime repair/store and application keys; added server/app regressions, an isolated Electron fixture and a released-engine transport test selected in CI. PATCHES.md records upstream hooks; AGENTS.md and CLAUDE.md remain identical.
 - Verification uses Bun 1.4.4, pnpm 11.4.0 and Node 24.22.2. Initial native run lacked the generated selector; reused the existing independent manifest 6063b42fca82bffc9669b31ed0cf5259ceb0be840fd75616bb9b2e1fac1a76fb through the normal preparation verifier, no compiler/pin changes. The native test must initialize model.list before provider.list (matching production catalogue readiness); startup-only enumeration was not proof of a missing provider.
 - Final targeted checks: server 62 pass/0 fail, app 44 pass/0 fail, real engine transport/restart 1 pass/0 fail, Electron mounted dialog 14 scenarios pass including 390px mobile, both typechecks pass. Generated plugin prerequisites were built before rerunning native-provider-edit tests. No Windows/native packaged acceptance claim. Synthetic UI screenshots accompany the change.
+
+## 2026-11-18 - Review #410: oprava bez zapnutia
+
+- Review: oprava potichu mazala `deny` a pravidlá `provider.use`, a `lstat` s EACCES/EPERM v kontrole priečinkov zablokoval opravu všetkých klientov. Teraz sa mení len balík; `canRestoreOllamaActivation`, potvrdenky `ollamaChatRepairIDs`, parameter `inheritedRepairs` a príznak `workspacesRepaired` sú preč.
+- Porty lokálnych šablón sú v jednom zozname `packages/types/src/local-runtime-endpoints.ts`.
+- Testy (najprv červené 3/5): server 62 pass/0 fail, app 44 pass/0 fail, typecheck servera aj appky pass.
