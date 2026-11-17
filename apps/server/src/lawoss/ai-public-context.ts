@@ -13,6 +13,7 @@ import { serve, type ServeResult } from "../serve-node.js";
 import type { ServerConfig } from "../types.js";
 import { createHostDecisionPort } from "./host-decision.js";
 import pins from "./protected-ai/engine-pins.json" with {type: "json"};
+import { opencodeEngineSelection } from "@legalwork/opencode-release/selection";
 
 export const PublicAiInputSchema = z.strictObject({providerId: z.string().min(1).max(128), modelId: z.string().min(1).max(200), text: z.string().trim().min(1).max(16000)});
 export type PublicAiInput = z.infer<typeof PublicAiInputSchema>;
@@ -133,8 +134,9 @@ export async function runPublicAiPrompt(config: ServerConfig, approvals: Approva
     const health = await fetch(engine.url + "/api/info", {headers, signal: active}).then(response => response.json());
     // The reviewed LegalWork derivative of the configured upstream version (ADR 0016) reports
     // its own exact version; it is the same host-owned pin as the confined guest engine.
-    const derivative = pins.engineVersion.startsWith(`${expectedEngineVersion}-`) ? pins.engineVersion : undefined;
-    if (health.version !== expectedEngineVersion && health.version !== derivative) throw new ApiError(409, "public_ai_engine_version", "The public scratch engine does not match the pinned version.");
+    // #530: the desktop derivative (selection) may be ahead of the guest pins until their release exists; both are reviewed pins.
+    const derivatives = [pins.engineVersion, opencodeEngineSelection.version].filter(version => version.startsWith(`${expectedEngineVersion}-`));
+    if (health.version !== expectedEngineVersion && !derivatives.includes(health.version)) throw new ApiError(409, "public_ai_engine_version", "The public scratch engine does not match the pinned version.");
     const location = `location%5Bdirectory%5D=${encodeURIComponent(directory)}`;
     // `GET /api/model` waits for the location's plugin activation before the session exists.
     await fetch(`${engine.url}/api/model?${location}`, {headers, signal: active}).then(response => response.body?.cancel());

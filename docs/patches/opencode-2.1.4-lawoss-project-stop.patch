@@ -1103,7 +1103,7 @@ index 0000000..ecf7d58
 +  }),
 +)
 diff --git a/packages/core/test/config/config.test.ts b/packages/core/test/config/config.test.ts
-index 61b6d5a..de01aaa 100644
+index 61b6d5a..6b999b7 100644
 --- a/packages/core/test/config/config.test.ts
 +++ b/packages/core/test/config/config.test.ts
 @@ -180,6 +180,116 @@ describe("Config", () => {
@@ -1111,26 +1111,26 @@ index 61b6d5a..de01aaa 100644
    )
  
 +  test("projectStop picks the longest containing root and otherwise stays at the location", () => {
-+    const roots = ["/office", "/office/client", "relative/client"]
-+    expect(ConfigDiscovery.projectStop(roots, "/office/client/matter", "/office/client/matter")).toEqual({
-+      start: "/office/client/matter",
-+      stop: path.resolve("/office/client"),
-+    })
-+    expect(ConfigDiscovery.projectStop(roots, "/office/other", "/office/other")).toEqual({
-+      start: "/office/other",
-+      stop: path.resolve("/office"),
++    // Host-native absolute paths, so the lexical containment check runs as it does on this platform.
++    const at = (...parts: string[]) => path.resolve(path.sep, ...parts)
++    const roots = [at("office"), at("office", "client"), "relative/client"]
++    const matter = at("office", "client", "matter")
++    expect(ConfigDiscovery.projectStop(roots, matter, matter)).toEqual({ start: matter, stop: at("office", "client") })
++    expect(ConfigDiscovery.projectStop(roots, at("office", "other"), at("office", "other"))).toEqual({
++      start: at("office", "other"),
++      stop: at("office"),
 +    })
 +    // A sibling sharing the prefix is not inside the root.
-+    expect(ConfigDiscovery.projectStop(roots, "/office/client-two", "/office/client-two").stop).toBe(path.resolve("/office"))
++    expect(ConfigDiscovery.projectStop(roots, at("office", "client-two"), at("office", "client-two")).stop).toBe(at("office"))
 +    // Only the resolved form is inside a root: the walk starts there so the lexical stop is reachable.
-+    expect(ConfigDiscovery.projectStop(roots, "/link/matter", "/office/client/matter")).toEqual({
-+      start: "/office/client/matter",
-+      stop: path.resolve("/office/client"),
++    expect(ConfigDiscovery.projectStop(roots, at("link", "matter"), matter)).toEqual({ start: matter, stop: at("office", "client") })
++    expect(ConfigDiscovery.projectStop(roots, at("elsewhere"), at("elsewhere"))).toEqual({
++      start: at("elsewhere"),
++      stop: at("elsewhere"),
 +    })
-+    expect(ConfigDiscovery.projectStop(roots, "/elsewhere", "/elsewhere")).toEqual({ start: "/elsewhere", stop: "/elsewhere" })
-+    expect(ConfigDiscovery.projectStop([], "/office/client", "/office/client")).toEqual({
-+      start: "/office/client",
-+      stop: "/office/client",
++    expect(ConfigDiscovery.projectStop([], at("office", "client"), at("office", "client"))).toEqual({
++      start: at("office", "client"),
++      stop: at("office", "client"),
 +    })
 +  })
 +

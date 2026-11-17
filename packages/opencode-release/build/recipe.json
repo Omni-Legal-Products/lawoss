@@ -73,7 +73,7 @@
   "inputs": {
     "patch": {
       "path": "docs/patches/opencode-2.1.4-lawoss-project-stop.patch",
-      "sha256": "84e5275c56b4eb6a111f62353dbf79815fd360347d598d57e80b44df26099e7e"
+      "sha256": "a394496277c837357f04b1b6bc61171ac79953c4a50c3a63d3d9d0a273daf2ef"
     },
     "lockfile": {
       "upstreamPath": "bun.lock",
@@ -85,14 +85,14 @@
     },
     "testReceipt": {
       "path": "docs/patches/opencode-2.1.4-lawoss-project-stop.receipt.json",
-      "sha256": "e2684fbc143243e370a0eb14a6f4a343ae36e79f7f7b7768f8d6208cb2e257af"
+      "sha256": "bd4c4ef0f16148fb0545d46b47d765b6a5d9553d0396ed39525d8638a79749a3"
     }
   },
   "buildStatus": "tested-source-lock",
   "testEvidence": {
-    "receiptSha256": "e2684fbc143243e370a0eb14a6f4a343ae36e79f7f7b7768f8d6208cb2e257af",
+    "receiptSha256": "bd4c4ef0f16148fb0545d46b47d765b6a5d9553d0396ed39525d8638a79749a3",
     "lockfileSha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2",
-    "patchSha256": "84e5275c56b4eb6a111f62353dbf79815fd360347d598d57e80b44df26099e7e",
+    "patchSha256": "a394496277c837357f04b1b6bc61171ac79953c4a50c3a63d3d9d0a273daf2ef",
     "bun": "1.4.4",
     "projectStopTestsPassed": 51,
     "projectStopTestsFailed": 0,

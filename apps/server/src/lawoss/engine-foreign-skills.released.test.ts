@@ -80,13 +80,14 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("#530: engine nenačíta a
 
 const agent = (name: string) => `---\ndescription: Fixture agent ${name}.\nmode: subagent\n---\nFixture.\n`;
 
-/** Watcher lines whose subscribed path is exactly one of `paths` (the client lies below the parent, so no prefix match). */
-async function exactSubscriptions(dataHome: string, paths: readonly string[]) {
+/** Watcher lines for `parent` itself (exact: the client lies below it) or anything under `parent/.opencode`. */
+async function parentSubscriptions(dataHome: string, parent: string) {
   const directory = join(dataHome, "opencode", "log");
   const files = await readdir(directory).catch(() => []);
   const text = (await Promise.all(files.map((file) => readFile(join(directory, file), "utf8")))).join("\n");
   const lines = text.split("\n").filter((line) => line.includes("watcher subscribe"));
-  return { logged: lines.length > 0, lines: lines.filter((line) => paths.some((path) => new RegExp(`${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w./-])`).test(line))) };
+  const exact = new RegExp(`${parent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w./-])`);
+  return { logged: lines.length > 0, lines: lines.filter((line) => exact.test(line) || line.includes(join(parent, ".opencode"))) };
 }
 
 /**
@@ -143,7 +144,7 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("#530: engine nenačíta a
     expect(upstream.atClient.skills).toContain("parent-opencode");
     expect(upstream.atClient.agents).toContain("parent-agent");
     expect(upstream.atClient.agents).toContain("client-agent");
-    expect((await exactSubscriptions(upstream.log, [upstream.parent, join(upstream.parent, ".opencode")])).lines.length).toBeGreaterThan(0);
+    expect((await parentSubscriptions(upstream.log, upstream.parent)).lines.length).toBeGreaterThan(0);
 
     const lawoss = await probeProjectConfig(root, true);
     for (const seen of [lawoss.atClient, lawoss.atMatter]) {
@@ -152,7 +153,7 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("#530: engine nenačíta a
       // The client's own `.opencode` still loads, also for a matter inside the client.
       expect(seen.agents).toContain("client-agent");
     }
-    const watches = await exactSubscriptions(lawoss.log, [lawoss.parent, join(lawoss.parent, ".opencode")]);
+    const watches = await parentSubscriptions(lawoss.log, lawoss.parent);
     expect(watches.logged).toBe(true);
     expect(watches.lines).toEqual([]);
   } finally {

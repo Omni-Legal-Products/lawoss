@@ -6,7 +6,7 @@
   "buildReadyScope": "Bounded project config walk (Config.Options.projectStop, OPENCODE_CONFIG_PROJECT_STOP) source regression, full core suite against an unchanged-baseline control and core/server/cli typechecks. Native artifact and application acceptance are separate gates.",
   "proposedCandidateVersion": "2.1.4-legalwork.lawoss-project-stop.1",
   "versionNote": "LAWOSS-owned identity: upstream LegalWork already uses 2.1.4-legalwork.http-policy.5 (project relocation) and .6 (history file references) for different patches, so http-policy.5 would collide after an upstream sync.",
-  "verifiedAt": "2026-11-17T10:21:50Z",
+  "verifiedAt": "2026-11-17T11:05:00Z",
   "upstream": {
     "repository": "https://github.com/anomalyco/opencode.git",
     "tag": "v2.1.4",
@@ -14,7 +14,7 @@
   },
   "patch": {
     "path": "docs/patches/opencode-2.1.4-lawoss-project-stop.patch",
-    "sha256": "84e5275c56b4eb6a111f62353dbf79815fd360347d598d57e80b44df26099e7e"
+    "sha256": "a394496277c837357f04b1b6bc61171ac79953c4a50c3a63d3d9d0a273daf2ef"
   },
   "priorPatch": {
     "path": "docs/patches/opencode-2.1.4-mcp-http-policy-v3.patch",
@@ -66,6 +66,13 @@
     },
     {
       "cwd": "packages/core",
+      "command": "bun run script/test.ts test/config/config.test.ts",
+      "note": "projectStop unit expectations use host-native absolute paths (path.resolve(path.sep, ...))",
+      "passed": 51,
+      "failed": 0
+    },
+    {
+      "cwd": "packages/core",
       "command": "bun run script/test.ts test/config/config.test.ts test/skill-discovery.test.ts test/instruction-discovery.test.ts",
       "passed": 71,
       "skipped": 1,
@@ -80,7 +87,7 @@
       "passed": 6747,
       "skipped": 43,
       "failed": 30,
-      "assertions": 107101,
+      "assertions": 107512,
       "failuresExactlyMatchBaseline": true,
       "baseline": {
         "source": "prior patch (http-policy.4) on the same checkout and dependency install",
