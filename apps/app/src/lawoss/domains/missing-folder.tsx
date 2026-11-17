@@ -15,7 +15,7 @@ import { ADD_FOLDER_PATH } from "../lite/links";
 import type { OkfConnection } from "../okf/connection";
 import { activateLocalWorkspace } from "../okf/matter-session";
 import { missingFolderAlternatives, switchToWorkspace } from "../okf/missing-folder";
-import { FOLDER_RETURN_PROBE_MS, recoverFolder } from "../shell/workspace-folder";
+import { recoverFolder, watchFolderReturn } from "../shell/workspace-folder";
 import { lastSegment, previewMovedFolder, reconnectMovedFolder, withReconnectedPaths, type MovedFolderPreview } from "../okf/moved-folder";
 
 type Choice = { id: string; name: string };
@@ -97,20 +97,19 @@ export function MissingFolder({ connection, missing, unavailable }: { connection
   const queries = useQueryClient();
   const probe = client ? () => client.listWorkspaceDirectory(missing.id, "") : undefined;
   const latestProbe = useRef(probe); latestProbe.current = probe;
+  // Revízia #500: po návrate priečinka sa overovanie zastaví a dopyty sa obnovia len raz.
+  const stopWatch = useRef<() => void>(() => {});
   useEffect(() => {
     if (!client) return;
-    let stopped = false;
-    const timer = setInterval(() => {
-      const current = latestProbe.current;
-      if (stopped || !current || (typeof document !== "undefined" && document.visibilityState === "hidden")) return;
-      void recoverFolder(current, queries);
-    }, FOLDER_RETURN_PROBE_MS);
-    return () => { stopped = true; clearInterval(timer); };
+    const stop = watchFolderReturn(() => latestProbe.current, queries, { hidden: () => typeof document !== "undefined" && document.visibilityState === "hidden" });
+    stopWatch.current = stop;
+    return stop;
   }, [client, missing.id, queries]);
   const onRetry = probe ? async () => {
     setBusy(true); setNotice(null);
     const back = await recoverFolder(probe, queries);
-    if (!back) setNotice(t("lawoss.lite.folder_missing_still", locale));
+    if (back) stopWatch.current();
+    else setNotice(t("lawoss.lite.folder_missing_still", locale));
     setBusy(false);
   } : undefined;
   const onFind = client ? async () => {

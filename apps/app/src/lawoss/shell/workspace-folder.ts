@@ -47,9 +47,32 @@ export const FOLDER_RETURN_PROBE_MS = 5_000;
  * dopyty (aj prehľad praxe, ktorý by klienta inak znova prečítal až o 5–15 min) a ohlási obnovený priečinok, takže
  * stav trasy zruší chybu priestoru a obnoví synchronizáciu chatov – bez obnovenia okna.
  */
-export async function recoverFolder(probe: () => Promise<unknown>, queries: { invalidateQueries: () => Promise<unknown> }, events: EventTarget = window): Promise<boolean> {
+export async function recoverFolder(probe: () => Promise<unknown>, queries: FolderQueries, events: EventTarget = window): Promise<boolean> {
   try { await probe(); } catch { return false; }
+  // Revízia #500: invalidácia beží raz (`watchFolderReturn` sa potom zastaví). Predvolené `cancelRefetch` ostáva zámerne:
+  // čítanie začaté ešte bez priečinka by inak dobehlo s „chýba“ a karta by ostala bez ďalšej kontroly.
   await queries.invalidateQueries();
   events.dispatchEvent(new Event(PROJECT_FOLDER_RECONNECTED_EVENT));
   return true;
+}
+
+type FolderQueries = { invalidateQueries: () => Promise<unknown> };
+
+/**
+ * Overovanie karty chýbajúceho priečinka každých `intervalMs`. Revízia #500: po prvom úspešnom návrate sa zastaví,
+ * takže dopyty sa obnovia (a bežiace čítanie zruší) raz, nie každých 5 s, kým karta nezmizne; ďalšie overenie
+ * nezačne, kým beží predošlé.
+ * Vráti funkciu na zastavenie (odchod z karty alebo úspešné „Skúsiť znova“).
+ */
+export function watchFolderReturn(probe: () => (() => Promise<unknown>) | undefined, queries: FolderQueries,
+  options: { intervalMs?: number; hidden?: () => boolean; events?: EventTarget } = {}): () => void {
+  let stopped = false, running = false;
+  const stop = () => { stopped = true; clearInterval(timer); };
+  const timer = setInterval(() => {
+    const current = probe();
+    if (stopped || running || !current || options.hidden?.()) return;
+    running = true;
+    void recoverFolder(current, queries, options.events).then((back) => { if (back) stop(); }, () => {}).finally(() => { running = false; });
+  }, options.intervalMs ?? FOLDER_RETURN_PROBE_MS);
+  return stop;
 }
