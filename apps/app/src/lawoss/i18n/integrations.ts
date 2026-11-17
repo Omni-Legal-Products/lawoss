@@ -306,7 +306,7 @@ export const integrationsEn = {
   "lawoss.integrations.providerOverwrite.removeDescription": "Provider {provider} has its own different settings in these clients. If you disconnect it, they will lose it too:",
   "lawoss.integrations.providerOverwrite.removeConfirm": "Disconnect for all",
   "lawoss.integrations.providerOverwrite.removeCancelled": "Nothing was disconnected. The other clients keep their own provider settings.",
-  "lawoss.skills.field_name": "Bezeichnung",
+  "lawoss.skills.field_name": "Name",
   "lawoss.skills.create": "Create skill",
   "lawoss.skills.creating": "Creating…",
 };
