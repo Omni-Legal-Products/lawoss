@@ -142,7 +142,13 @@ type FileEntry = {
   touched: number;
   retryRequested?: boolean;
 };
-const caches = new WeakMap<DocumentPreparation, Map<string, FileEntry>>();
+// 🟡 LAWOSS #474: files a search could not start yet wait here and are prepared after the response,
+// two at a time, so preparation no longer advances only while the palette keeps polling.
+type QueuedFile = { root: string; path: string; revision: string; retry: boolean };
+type PreparationState = { cache: Map<string, FileEntry>; queue: Map<string, QueuedFile>; idle: Array<() => void> };
+const states = new WeakMap<DocumentPreparation, PreparationState>();
+const CONCURRENCY = 2;
+const QUEUE_LIMIT = 2000;
 const SKIP_DIRECTORIES = new Set([
   "node_modules",
   "vendor",
@@ -151,6 +157,24 @@ const SKIP_DIRECTORIES = new Set([
   "coverage",
   "__pycache__",
 ]);
+function preparationState(preparation: DocumentPreparation) {
+  let state = states.get(preparation);
+  if (!state) {
+    state = { cache: new Map(), queue: new Map(), idle: [] };
+    states.set(preparation, state);
+  }
+  return state;
+}
+const running = (state: PreparationState) =>
+  [...state.cache.values()].filter((entry) => entry.pending).length;
+
+/** Resolves once no file of this server is being prepared or waiting (#474). */
+export function whenPreparationIdle(preparation: DocumentPreparation): Promise<void> {
+  const state = preparationState(preparation);
+  if (!state.queue.size && !running(state)) return Promise.resolve();
+  return new Promise((resolve) => state.idle.push(resolve));
+}
+
 function documentEntry(
   preparation: DocumentPreparation,
   root: string,
@@ -158,20 +182,27 @@ function documentEntry(
   revision: string,
   retry: boolean,
 ) {
-  let cache = caches.get(preparation);
-  if (!cache) {
-    cache = new Map();
-    caches.set(preparation, cache);
-  }
+  const state = preparationState(preparation);
   const key = join(root, path);
-  const prior = cache.get(key);
+  const prior = state.cache.get(key);
   if (prior?.revision === revision) {
     prior.touched = Date.now();
     if (retry && !prior.pending && (prior.error || !prior.value?.complete))
       prior.retryRequested = true;
     if (prior.pending || !prior.retryRequested) return prior;
   }
-  if ([...cache.values()].filter((entry) => entry.pending).length >= 2) return;
+  const again = retry || (prior?.revision === revision && prior.retryRequested === true);
+  if (running(state) >= CONCURRENCY) {
+    if (state.queue.has(key) || state.queue.size < QUEUE_LIMIT)
+      state.queue.set(key, { root, path, revision, retry: again });
+    return;
+  }
+  state.queue.delete(key);
+  return prepare(preparation, state, { root, path, revision, retry: again });
+}
+
+function prepare(preparation: DocumentPreparation, state: PreparationState, file: QueuedFile) {
+  const { cache } = state;
   let characters = [...cache.values()].reduce(
     (total, entry) => total + (entry.value?.text.length ?? 0),
     0,
@@ -184,19 +215,17 @@ function documentEntry(
     cache.delete(id);
     characters -= entry.value?.text.length ?? 0;
   }
-  const entry: FileEntry = { revision, pending: true, touched: Date.now() };
-  cache.set(key, entry);
+  const entry: FileEntry = { revision: file.revision, pending: true, touched: Date.now() };
+  cache.set(join(file.root, file.path), entry);
   void extractCorpusText(
-    root,
-    path,
+    file.root,
+    file.path,
     preparation,
     AbortSignal.timeout(5 * 60_000),
     {
-      retry:
-        retry ||
-        (prior?.revision === revision && prior.retryRequested === true),
+      retry: file.retry,
       // 🟡 LAWOSS #465: bez výslovného zopakovania hľadanie skeny nevykresľuje (corpus/extract.ts).
-      scans: retry || (prior?.revision === revision && prior.retryRequested === true) ? "prepare" : "native-only",
+      scans: file.retry ? "prepare" : "native-only",
     },
   )
     .then(
@@ -210,8 +239,20 @@ function documentEntry(
     )
     .finally(() => {
       entry.pending = false;
+      drain(preparation, state);
     });
   return entry;
+}
+
+function drain(preparation: DocumentPreparation, state: PreparationState) {
+  for (const [key, file] of state.queue) {
+    if (running(state) >= CONCURRENCY) return;
+    state.queue.delete(key);
+    const current = state.cache.get(key);
+    if (current?.revision === file.revision && (current.pending || !file.retry)) continue;
+    prepare(preparation, state, file);
+  }
+  if (!state.queue.size && !running(state)) for (const resolve of state.idle.splice(0)) resolve();
 }
 
 export async function searchFileContents(

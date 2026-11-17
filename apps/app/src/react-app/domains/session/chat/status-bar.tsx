@@ -7,8 +7,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
-import type { LegalworkServerStatus } from "../../../../app/lib/legalwork-server";
-import { engineStatusText, useEngineHealth } from "@/lawoss/shell/engine-status"; // 🟡 LAWOSS #454
+import type { LegalworkServerClient, LegalworkServerStatus } from "../../../../app/lib/legalwork-server";
+import { engineStatusText, retryEngine, useEngineHealth, useEngineHealthPolling, useEngineRetryAvailable } from "@/lawoss/shell/engine-status"; // 🟡 LAWOSS #454, #477
 
 const STATUS_BAR_BOOT_STARTED_AT = Date.now();
 const STATUS_BAR_INITIALIZING_MS = 15_000;
@@ -47,11 +47,30 @@ type StatusIndicatorProps = {
   mcpConnectedCount: number;
   loading?: boolean;
   initializing: boolean;
+  folderUnavailable?: string; // 🟡 LAWOSS #494
 };
 
 function StatusIndicator(props: StatusIndicatorProps) {
   // 🟡 LAWOSS #454: spojenie so serverom nestačí; kým engine nebeží, riadok nehlási „pripravené“.
-  const engine = engineStatusText(useEngineHealth());
+  const canRetryEngine = useEngineRetryAvailable(); // 🟡 LAWOSS #477
+  const engine = engineStatusText(useEngineHealth(), canRetryEngine);
+  // 🟡 LAWOSS #477: /health hlási stav enginu, teda server beží; „Odpojené“ (zlyhaná kontrola schopností, ktorá
+  // potrebuje engine) ani „Pripravujem“ po štarte nesmú skryť nedostupného agenta a jeho „Skúsiť znova“.
+  if (!props.loading && engine) {
+    return (
+      <div className="flex min-w-0 items-center gap-2.5" data-lawoss-engine-status={engine.failed ? "error" : "starting"}>
+        <StatusDot variant={engine.failed ? "disconnected" : "loading"} />
+        <span className="shrink-0 font-medium text-foreground text-xs">{t(engine.label)}</span>
+        <span className="truncate text-muted-foreground text-xs">{t(engine.hint)}</span>
+        {engine.failed && canRetryEngine ? (
+          <Button className="h-5 shrink-0 px-2 text-xs" variant="outline" size="xs" onClick={() => { void retryEngine().catch(() => undefined); }}>
+            {t("lawoss.engine.retry")}
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+
   if (props.loading || (props.legalworkServerStatus === "disconnected" && props.initializing)) {
     return (
       <div className="flex min-w-0 items-center gap-2.5">
@@ -62,16 +81,6 @@ function StatusIndicator(props: StatusIndicatorProps) {
         <span className="truncate text-muted-foreground text-xs">
           {t("session.loading_detail")}
         </span>
-      </div>
-    );
-  }
-
-  if (props.clientConnected && engine) {
-    return (
-      <div className="flex min-w-0 items-center gap-2.5" data-lawoss-engine-status={engine.failed ? "error" : "starting"}>
-        <StatusDot variant={engine.failed ? "disconnected" : "loading"} />
-        <span className="shrink-0 font-medium text-foreground text-xs">{t(engine.label)}</span>
-        <span className="truncate text-muted-foreground text-xs">{t(engine.hint)}</span>
       </div>
     );
   }
@@ -95,6 +104,17 @@ function StatusIndicator(props: StatusIndicatorProps) {
             {t("status.developer_mode")}
           </span>
         ) : null}
+      </div>
+    );
+  }
+
+  // 🟡 LAWOSS #494: server beží, chýba len priečinok vybraného klienta; nie „Odpojené · v nastaveniach“ pre celú appku.
+  if (props.folderUnavailable && props.legalworkServerStatus !== "disconnected") {
+    return (
+      <div className="flex min-w-0 items-center gap-2.5" data-lawoss-folder-unavailable="">
+        <StatusDot variant="partial" />
+        <span className="shrink-0 font-medium text-foreground text-xs">{t("lawoss.status.folder_unavailable")}</span>
+        <span className="truncate text-muted-foreground text-xs">{t("lawoss.status.folder_unavailable_hint", { name: props.folderUnavailable })}</span>
       </div>
     );
   }
@@ -139,10 +159,15 @@ export type StatusBarProps = {
   loading?: boolean;
   showSettingsButton?: boolean;
   initializing?: boolean;
+  /** 🟡 LAWOSS #477: klient servera, cez ktorý si riadok sám pýta zdravie enginu. */
+  legalworkServerClient?: LegalworkServerClient | null;
+  /** 🟡 LAWOSS #494: meno klienta, ktorého priečinok chýba (vybraný priestor), inak nič. */
+  folderUnavailable?: string;
 };
 
 export function StatusBar(props: StatusBarProps) {
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  useEngineHealthPolling(props.legalworkServerClient); // 🟡 LAWOSS #477
   const [initializing, setInitializing] = useState(
     () => Date.now() - STATUS_BAR_BOOT_STARTED_AT < STATUS_BAR_INITIALIZING_MS,
   );
@@ -178,6 +203,7 @@ export function StatusBar(props: StatusBarProps) {
           mcpConnectedCount={props.mcpConnectedCount}
           loading={props.loading}
           initializing={initializing}
+          folderUnavailable={props.folderUnavailable}
         />
 
         <div className="flex items-center gap-1">

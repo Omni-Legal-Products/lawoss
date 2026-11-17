@@ -18,6 +18,7 @@ import { freeTextPrompt, quickActionPrompt } from "../quick-actions";
 import { POSTPROCESS_RESOURCE_NAME, postprocessSource, VYSTUP_SKILL_NAME, vystupSkillBody } from "../../okf/skill-bundle";
 import { clientOf } from "../today-model";
 import { LITE_CLIENTS_PATH } from "../links";
+import { MissingMatterView, missingMatter } from "../missing-matter";
 import { openMatterConversation, type MatterConversation } from "../matter-conversations";
 import { isTreeFailure, useMatterConversations } from "../client-tree-data";
 import { saveDocumentsToMatter } from "../matter-intake";
@@ -65,7 +66,8 @@ export function matterFromParams(matters: readonly MatterOverview[], params: URL
   return path === null ? null : matters.find((m) => m.path === path) ?? null;
 }
 
-function LiteMatterBody({ data, meta, scope, navigate }: { data: OkfReadResult; meta: OkfPageMeta; scope: OkfScope | null; navigate: (to: string) => void }) {
+/** Export pre testy správania (#495). */
+export function LiteMatterBody({ data, meta, scope, navigate }: { data: OkfReadResult; meta: OkfPageMeta; scope: OkfScope | null; navigate: (to: string) => void }) {
   const locale = useLocale();
   const [params] = useSearchParams();
   const { connection } = useOkfConnection();
@@ -87,8 +89,13 @@ function LiteMatterBody({ data, meta, scope, navigate }: { data: OkfReadResult; 
   const conversations = useMatterConversations(connection, scope, data, matter);
   // Bez modelu sa rýchla akcia ani nespustí; detail to povie vopred a ukáže cestu k pripojeniu.
   const modelGap = useMatterModelGap(connection);
-  // Chybějící nebo neznámá cesta (smazaná nebo přejmenovaná věc) → zpět na seznam, nikdy jiná věc.
-  if (!matter) return <p className="lw-empty"><Link to={LITE_CLIENTS_PATH}>{t("lawoss.lite.clients_title", locale)}</Link></p>;
+  // Chybějící nebo neznámá cesta (smazaná nebo přejmenovaná věc): nikdy jiná věc. #495: karta povie, že sa priečinok
+  // prípadu nenašiel, a ponúkne prípad s rovnakým číslom a prípady klienta.
+  if (!matter) {
+    const path = params.get("vec");
+    return path ? <MissingMatterView notice={missingMatter(path, data.matters, data.clients)} locale={locale} />
+      : <p className="lw-empty"><Link to={LITE_CLIENTS_PATH}>{t("lawoss.lite.clients_title", locale)}</Link></p>;
+  }
   const cockpit = buildCockpit(data, matter.path, today());
   const input = data.inputs.find((entry) => entry.path === matter.path);
 

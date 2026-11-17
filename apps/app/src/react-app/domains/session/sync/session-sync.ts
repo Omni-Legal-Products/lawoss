@@ -76,7 +76,7 @@ import {
 } from "@/app/lib/eigenwelt-budget";
 import {
   createSessionErrorUIMessage,
-  describeOpencodeSessionError,
+  describeSessionFailure,
   isSessionAbortError,
   snapshotToUIMessages,
 } from "./usechat-adapter";
@@ -1472,11 +1472,9 @@ function applyEvent(
         event.type === "session.execution.failed"
           ? event.data.error
           : undefined;
-      const text =
-        usageLimitStop ??
-        (stopped
-          ? t("chat.stopped")
-          : describeOpencodeSessionError(error, "Session failed", provider));
+      // 🟡 LAWOSS #502: provider errors keep their notice (translated text + raw detail) for the chat card.
+      const failure = usageLimitStop || stopped ? undefined : describeSessionFailure(error, "Session failed", provider);
+      const text = failure?.text ?? usageLimitStop ?? t("chat.stopped");
       useComposerStateStore.getState().setQueuePaused(sessionId, true);
       if (stopped)
         useSessionActivityStore.getState().clearError(workspaceId, sessionId);
@@ -1493,7 +1491,7 @@ function applyEvent(
               createSessionErrorUIMessage(
                 latestAssistantMessageId(current) ?? sessionId,
                 text,
-                { stopped },
+                { stopped, providerError: failure?.providerError },
               ),
             ),
         );

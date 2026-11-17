@@ -88,6 +88,19 @@ export function createEngineSupervisor<Engine extends object>(options: EngineSup
       });
       return engine;
     },
+    /**
+     * #477: „Skúsiť znova“ v stavovom riadku. Čakajúci pokus sa spustí hneď namiesto po odstupe; pri bežiacom
+     * engine alebo počas pokusu nerobí nič (`false`), takže opakované kliknutie nezaradí ďalší pokus.
+     */
+    retryNow(): boolean {
+      if (closed || running || !currentDead()) return false;
+      if (timer) clearTimer(timer);
+      timer = undefined;
+      options.status("starting");
+      log("[managed-opencode] engine restart requested by the user");
+      void run();
+      return true;
+    },
     /** Aktuálny engine skončil (pre kontrolu mimo udalosti, napr. po zlyhanom publikovaní). */
     isDead: (engine: Engine) => dead.has(engine),
     close() {

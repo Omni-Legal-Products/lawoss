@@ -156,13 +156,17 @@ export function mergeRouteWorkspaces(
     // For local workspaces, prefer the server's view (which knows things like
     // `path` and per-workspace runtime fields) and only fall back to the
     // desktop's display name when the server doesn't provide one.
+    // 🟡 LAWOSS #494: klient zaregistrovaný v desktope len pod menom priečinka (sprievodca) nezakryje meno servera.
+    // Inak ho bez karty klienta (napr. chýbajúci priečinok) celé rozhranie ukáže ako slug priečinka.
+    const folder = folderNameFromPath(workspace.path ?? match?.path ?? "");
+    const desktopName = (value: string | null | undefined) => value?.trim() && !(workspace.name?.trim() && value.trim() === folder) ? value : undefined;
     const merged = match
       ? {
           ...workspace,
           displayName: workspace.displayName?.trim()
             ? workspace.displayName
-            : match.displayName,
-          name: match.name?.trim() ? match.name : workspace.name,
+            : desktopName(match.displayName),
+          name: desktopName(match.name) ?? workspace.name,
         }
       : workspace;
     return {

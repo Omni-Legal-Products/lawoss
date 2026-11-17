@@ -188,6 +188,8 @@ export interface ServerConfig {
   /** Host-only coordinator state; never accepted from project/client config. */
   managedEngineRecoveryState?: () => { mode: "service" | "recovery" | "promoting"; heldSessions: Array<{ id: string; directory: string }>; error?: { code: string; message: string } };
   retryManagedEngineRecovery?: () => Promise<void>;
+  /** 🟡 LAWOSS #477: immediate restart attempt of a stopped managed engine; false when the engine runs or an attempt is under way. */
+  retryManagedEngineRestart?: () => boolean;
   /** Host-owned catalog lifecycle. False defers while work or sign-in is active. */
   reloadManagedEngineCatalog?: () => Promise<boolean>;
   withManagedEngineAdmission?: (sessionID: string, action: () => Promise<Response>) => Promise<Response>;

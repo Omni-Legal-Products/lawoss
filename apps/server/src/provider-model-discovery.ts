@@ -27,7 +27,9 @@ export async function discoverProviderModels(baseURL: unknown, apiKey: unknown):
     throw new ApiError(502, "model_discovery_failed", "Could not reach the model endpoint from this worker. Check the URL and that the model server is running.");
   }
   if (!response.ok) {
-    throw new ApiError(502, "model_discovery_failed", `Model endpoint returned HTTP ${response.status}.`);
+    // 🟡 LAWOSS #502: a rejected key gets its own code so the app can refuse to save it.
+    const code = response.status === 401 ? "model_discovery_unauthorized" : "model_discovery_failed";
+    throw new ApiError(502, code, `Model endpoint returned HTTP ${response.status}.`);
   }
   let payload: unknown;
   try {

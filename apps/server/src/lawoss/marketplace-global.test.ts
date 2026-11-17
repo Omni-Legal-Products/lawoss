@@ -185,6 +185,33 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     expect(await readFile(join(root, "config", "opencode", "skills", "dvojica-plugin", "dvojica", "SKILL.md"), "utf8")).toContain("Verzia 1.0.0.");
   });
 
+  test("#441: aktualizácia ponechá nastavenie pripojení advokáta aj vypnuté pripojenie", async () => {
+    const SHA3 = "3".repeat(40), SHA4 = "4".repeat(40);
+    const twoMcp = (version: string, body: string) => ({
+      ...pluginFiles(version, body),
+      "plugins/demo/.mcp.json": JSON.stringify({ mcpServers: { demo: { command: "node", args: ["scripts/run.mjs", "mcp"] }, druhy: { command: "node", args: ["scripts/run.mjs", "druhy"] } } }),
+    });
+    repo[SHA3] = twoMcp("1.0.0", "Verzia jedna.");
+    repo[SHA4] = twoMcp("1.1.0", "Verzia dva.");
+    const config = serverConfig(root);
+    await installGlobalPlugin(config, url(SHA3));
+    const [first, second] = Object.keys(await runtimeMcpMapForWorkspace(config, "ws_a")).sort() as [string, string];
+    // The lawyer saves their own setup on both connections and turns the second one off.
+    const shared = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers ?? {};
+    await addMcp(config, "ws_a", first, { ...shared[first], environment: { DEMO_TOKEN: "prve" } }, "global");
+    await addMcp(config, "ws_a", second, { ...shared[second], environment: { DEMO_TOKEN: "druhe" } }, "global");
+    await setMcpEnabled(config, "ws_a", second, false);
+
+    const state = { lastCheckedAt: Date.now(), lastCheck: { status: "ok", release: { tag: "v0.4.0", sha: SHA4, publishedAt: null, source: "release", plugins: [{ name: "demo", version: "1.1.0", path: "plugins/demo" }] } } } as unknown as Parameters<typeof updateGlobalPlugin>[2];
+    const updated = await updateGlobalPlugin(config, PLUGIN_ID, state, {});
+    expect(updated.status).toBe("updated");
+    expect(await readFile(skillPath(), "utf8")).toContain("Verzia dva.");
+    const after = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers ?? {};
+    expect(after[first]).toMatchObject({ environment: { DEMO_TOKEN: "prve" } });
+    expect(after[first]?.disabled).not.toBe(true);
+    expect(after[second]).toMatchObject({ disabled: true, environment: { DEMO_TOKEN: "druhe" } });
+  });
+
   // #420, #421: katalóg dodáva runtime registra ako jeden zbalený súbor (slovlex 6,25 MB + 2,08 MB).
   test("pribalený runtime nad 1 MiB sa nainštaluje aj aktualizuje celý a nie je uložený v zázname inštalácie", async () => {
     const MIB = 1024 * 1024;

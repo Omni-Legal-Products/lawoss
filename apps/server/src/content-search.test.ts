@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { PDFDocument } from "pdf-lib";
-import { searchFileContents } from "./content-search.js";
+import { searchFileContents, whenPreparationIdle } from "./content-search.js";
 import { DocumentPreparation } from "./document-preparation/service.js";
 import { OcrManager } from "./ocr/manager.js";
 import { OcrService } from "./ocr/service.js";
@@ -128,4 +128,14 @@ test("retry recovers every unreadable file across the background concurrency lim
   expect(recovered.items).toHaveLength(3);
   expect(recovered.incomplete).toBe(0);
   expect(recovered.retryable).toBe(false);
+});
+
+test("preparation continues in the background after a single search, without polling (#474)", async () => {
+  const f = await fixture(true);
+  for (let index = 0; index < 12; index++) await writeFile(join(f.root, `note-${index}.txt`), `Escrow clause number ${index}.`);
+  const first = await searchFileContents(f.workspace, "escrow", signal(), f.preparation, "owner");
+  expect(first.preparing).toBeGreaterThan(2);
+  await whenPreparationIdle(f.preparation);
+  const second = await searchFileContents(f.workspace, "escrow", signal(), f.preparation, "owner");
+  expect([second.preparing, second.items.length]).toEqual([0, 12]);
 });

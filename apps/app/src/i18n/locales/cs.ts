@@ -1,5 +1,6 @@
 import { projectTemplateStrings } from "@legalwork/types/workspace";
 import { diagnosticsCs } from "../../lawoss/i18n/diagnostics";
+import { filePreviewCs } from "../../lawoss/i18n/file-preview";
 import { deadlinesCs } from "../../lawoss/i18n/deadlines";
 import { setupCs } from "../../lawoss/i18n/setup";
 import { initialCs } from "../../lawoss/i18n/initial";
@@ -7,6 +8,7 @@ import { mattersCs } from "../../lawoss/i18n/matters";
 import { integrationsCs } from "../../lawoss/i18n/integrations";
 import { shellCs } from "../../lawoss/i18n/shell";
 import { ocrCs } from "../../lawoss/i18n/ocr";
+import { csvEditorCs } from "../../lawoss/i18n/csv-editor";
 /**
  * LAWOSS česká lokalizace — celé rozhraní. Právní názvosloví podle českého práva (ČAK, o. s. ř., IZ);
  * nikdy nepřekládat slovenské pojmy do češtiny záměnou písmen (AGENTS.md). Chybějící klíče padají v t() na angličtinu.
@@ -15,12 +17,14 @@ import { ocrCs } from "../../lawoss/i18n/ocr";
 export default {
   ...projectTemplateStrings.cs,
   ...diagnosticsCs,
+  ...filePreviewCs,
   ...setupCs,
   ...initialCs,
   ...mattersCs,
   ...integrationsCs,
   ...shellCs,
   ...ocrCs,
+  ...csvEditorCs,
   "office_addins.tab_label": "Doplňky Office",
   "office_addins.tab_description": "LegalWork v aplikacích Word, Excel a PowerPoint",
   "office_addins.about_title": "LegalWork v Microsoft Office",
@@ -3239,6 +3243,13 @@ export default {
   "model_picker.no_match": "Hledání neodpovídají žádné modely.",
   "model_picker.disable_provider": "Zakázat tohoto poskytovatele",
   "model_picker.enable_provider": "Povolit tohoto poskytovatele",
+  "model_picker.title": "Modely",
+  "model_picker.done": "Hotovo",
+  "model_picker.badge_new": "Nové",
+  "model_picker.badge_current": "Aktuální",
+  "model_picker.provider_enable": "Povolit",
+  "model_picker.provider_enabled": "Povolený",
+  "model_picker.recommended_section": "Doporučené",
   "workspace.remove_confirm": "Odebrat tento pracovní prostor z postranního panelu?",
   "ext.composer_computer_use": "Pomocí Computer Use ",
   "ext.composer_google_workspace": "Pomocí Google Workspace ",
@@ -3859,6 +3870,7 @@ export default {
   "content_search.files_skipped": "Některé soubory v {project} nelze prohledat.",
   "content_search.searching": "Vyhledávání…",
   "content_search.no_results": "Žádné výsledky. Zkuste jiná slova.",
+  "content_search.no_results_preparing": "Zatím nic nenalezeno. Ještě se připravují soubory: {count}.",
   "content_search.start": "Prohledávejte své klienty a obsah jejich složek.",
   "content_search.refine": "Zobrazují se nejlepší výsledky. Pro více výsledků vyhledávání upřesněte.",
   "content_search.results": "Výsledky {count}",

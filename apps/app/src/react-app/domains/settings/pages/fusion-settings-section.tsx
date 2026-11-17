@@ -3,12 +3,14 @@ import { Blend, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
-import type { ModelRef } from "@/app/types";
-import { resolveModelDisplayName } from "@/app/utils";
+import type { ModelRef, ProviderListItem } from "@/app/types";
+import { resolveModelLabel } from "@/app/utils";
 import { ProviderIcon } from "../../../design-system/provider-icon";
 
 export type FusionSettingsSectionProps = {
   fusionModels: ModelRef[];
+  /** 🟡 LAWOSS #479: catalog names, so a slot reads like the default model ("Claude Haiku 4.5 (latest)"). */
+  providers: readonly ProviderListItem[];
   /** Opens the model picker for default candidate slot 0-2. */
   onPickModel: (slot: number) => void;
   onClearModel: (slot: number) => void;
@@ -17,6 +19,7 @@ export type FusionSettingsSectionProps = {
 function ModelSlotRow(props: {
   label: string;
   model: ModelRef | null;
+  providers: readonly ProviderListItem[];
   onPick: () => void;
   onClear: () => void;
 }) {
@@ -30,7 +33,7 @@ function ModelSlotRow(props: {
         )}
         <div className="min-w-0">
           <div className="truncate text-base font-medium text-ink">
-            {props.model ? resolveModelDisplayName(props.model.modelID) : t("fusion.settings_no_model")}
+            {props.model ? resolveModelLabel(props.model, props.providers) : t("fusion.settings_no_model")}
           </div>
           <div className="truncate font-mono text-xs text-muted-foreground">
             {props.model ? `${props.model.providerID}/${props.model.modelID}` : props.label}
@@ -65,6 +68,7 @@ export function FusionSettingsSection(props: FusionSettingsSectionProps) {
             key={slot}
             label={t("fusion.settings_model_slot", { index: slot + 1 })}
             model={props.fusionModels[slot] ?? null}
+            providers={props.providers}
             onPick={() => props.onPickModel(slot)}
             onClear={() => props.onClearModel(slot)}
           />
