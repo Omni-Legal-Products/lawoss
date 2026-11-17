@@ -31,6 +31,7 @@ import { isFolderUnavailableMessage, workspaceErrorText } from "@/lawoss/shell/w
 /** @jsxImportSource react */
 import { LanguageSwitcher } from "@/lawoss/shell/language-switcher";
 import { isProjectViewHidden, isWikiHidden } from "@/lawoss/feature-flags";
+import { chatTabLabelUpdates } from "@/lawoss/shell/chat-tab-labels"; // 🟡 LAWOSS #512
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -874,6 +875,10 @@ export function SessionPage(props: SessionPageProps) {
       if (tab.type === "chat" && isAssistantChat(tab.sessionId)) usePanelTabStore.getState().updateTabLabel(workspaceScope, tab.id, props.sidebar.assistantProfile?.name ?? t("assistant.title"));
     }
   }, [assistantWorkspace, workspaceScope, workspacePanel.tabs, isAssistantChat, props.sidebar.assistantProfile?.name]);
+  useEffect(() => { // 🟡 LAWOSS #512
+    const updates = chatTabLabelUpdates(workspacePanel.tabs, id => isAssistantChat(id) ? undefined : sessionInfo(id)?.title ?? sessionTitleForId(props.sidebar.workspaceSessionGroups, id));
+    for (const update of updates) usePanelTabStore.getState().updateTabLabel(workspaceScope, update.tabId, update.label);
+  }, [workspaceScope, workspacePanel.tabs, isAssistantChat, sessionInfo, props.sidebar.workspaceSessionGroups]);
   useEffect(() => {
     // Closing the tab updates the store before navigation updates the route props.
     // Do not adopt that still-selected route again during this intermediate render.
