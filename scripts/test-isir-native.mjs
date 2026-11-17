@@ -392,7 +392,8 @@ try {
       await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.includes('ISIR synthetic')&&!e.textContent.includes('protocol'));if(!e)return false;e.click();return true})()`),'choose actual connected model');
       await cdp.evaluate("window.__legalworkControl.execute('route.session')");
       await until(()=>cdp.evaluate(`(()=>{const e=document.querySelector('button[aria-label="Behavior"]');if(!e||e.disabled)return false;e.click();return true})()`),'native selected model behavior control');
-      const high = await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('[role="option"]')].find(e=>e.textContent.trim()==='high');if(!e)return false;const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`),'actual synthetic provider high reasoning choice');
+      // 🟡 LAWOSS #384: since da3ef3b7c the option shows a localized label (English fixture: "High"); the persisted value stays `high`.
+      const high = await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('[role="option"]')].find(e=>e.textContent.trim().toLowerCase()==='high');if(!e)return false;const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`),'actual synthetic provider high reasoning choice');
       await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...high});
       await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...high});
       await until(()=>cdp.evaluate(`JSON.parse(localStorage.getItem('legalwork.preferences')??'{}').modelVariant==='high'`),'persisted native high variant selection');
