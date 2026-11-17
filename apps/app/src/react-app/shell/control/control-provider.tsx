@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { controlConfirmationArgsError, useControlConfirmation } from "@/lawoss/shell/control-confirmation"; // 🟡 LAWOSS #511
 
 export type LegalworkControlSideEffect = "none" | "navigation" | "mutation" | "external";
 
@@ -326,6 +327,7 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
   }, []);
 
   const [operations] = useState(createControlOperations);
+  const confirmation = useControlConfirmation(); // 🟡 LAWOSS #511
   const executeAction = useCallback(async (actionId: string, args?: unknown, callerSessionId?: string, operation?: ControlOperation): Promise<LegalworkControlResult> => operations.run(operation, async execution => {
     const registered = actionsRef.current.get(actionId);
     const action = registered?.ref.current;
@@ -338,10 +340,15 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
         return error ? { ok: false, actionId, error } : { ok: true, actionId, result };
       } catch (error) { return { ok: false, actionId, error: describeError(error) }; }
     }
-    if (busyActionIdRef.current) return { ok: false, actionId, error: `Already acting: ${busyActionIdRef.current}` };
+    const busy = busyActionIdRef.current ?? confirmation.pendingActionId(); // 🟡 LAWOSS #511: čakajúce potvrdenie je ako rozbehnutá akcia
+    if (busy) return { ok: false, actionId, error: `Already acting: ${busy}` };
 
     if (action.requiresConfirmation && isBrowser()) {
-      const confirmed = window.confirm(t("control.confirm_allow", { label: action.label }));
+      // 🟡 LAWOSS #511: dialóg appky namiesto window.confirm (blokuje renderer) a až po kontrole argumentov.
+      const argsError = controlConfirmationArgsError(action, args === undefined ? action.previewArgs : args);
+      if (argsError) return { ok: false, actionId, error: argsError };
+      const confirmed = await confirmation.confirm(action, execution.signal);
+      if (execution.signal?.aborted) return { ok: false, actionId, error: describeError(execution.signal.reason) };
       if (!confirmed) return { ok: false, actionId, error: t("control.user_cancelled") };
     }
 
@@ -383,7 +390,7 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
       if (busyActionIdRef.current === action.id) busyActionIdRef.current = null;
       setBusyActionId(null);
     }
-  }), [operations, playTargetChoreography, setEnabled]);
+  }), [confirmation.confirm, confirmation.pendingActionId, operations, playTargetChoreography, setEnabled]);
 
   const value = useMemo<LegalworkControlContextValue>(() => ({
     enabled,
@@ -447,6 +454,7 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
     <LegalworkControlContext.Provider value={value}>
       {children}
       <ControlModeSpotlight spotlight={spotlight} />
+      {confirmation.dialog /* 🟡 LAWOSS #511 */}
     </LegalworkControlContext.Provider>
   );
 }

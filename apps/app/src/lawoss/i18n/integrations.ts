@@ -220,7 +220,7 @@ export const integrationsEn = {
   "lawoss.integrations.sources.legalwork_on": "On. The connectors appear below, LegalQuants under Workflows. Nothing connects until you confirm it yourself.",
   "lawoss.integrations.sources.custom_title": "Your own",
   "lawoss.integrations.sources.custom_description": "Add MCP, import from GitHub and skills import work as before.",
-  "lawoss.marketplace.catalog.description": "Packages from LAWOSS Marketplace by Omni Legal Products. By default they are installed once for all your clients. Connection status of connectors is in the Connectors section of the Plugins tab.",
+  "lawoss.marketplace.catalog.description": "Packages from LAWOSS Marketplace by Omni Legal Products. By default they are installed once for all your clients. Click a package in the Installed list to see whether its connectors are connected.",
   "lawoss.marketplace.bundles.description": "The bundle for your office's jurisdiction is preselected. You can uncheck items or add a bundle from another jurisdiction. Checked packages are installed once for all your clients, only after you click the button. They are downloaded from GitHub, from the public repository of Omni Legal Products (Omni-Legal-Products/lawoss-marketplace). DOCX Redline, PDF Tools and the OKF skills are part of the app and always on.",
   "lawoss.marketplace.bundles.install": "Install for all clients",
   "lawoss.marketplace.bundles.installing": "Downloading from GitHub and installing…",
@@ -306,6 +306,9 @@ export const integrationsEn = {
   "lawoss.integrations.providerOverwrite.removeDescription": "Provider {provider} has its own different settings in these clients. If you disconnect it, they will lose it too:",
   "lawoss.integrations.providerOverwrite.removeConfirm": "Disconnect for all",
   "lawoss.integrations.providerOverwrite.removeCancelled": "Nothing was disconnected. The other clients keep their own provider settings.",
+  "lawoss.skills.field_name": "Name",
+  "lawoss.skills.create": "Create skill",
+  "lawoss.skills.creating": "Creating…",
 };
 export const integrationsCs = {
   "lawoss.integrations.remove_pending": "Odebrání připojení trvá déle než obvykle a možná ještě probíhá. Seznam se obnovil; pokud tam připojení zůstalo, zkuste to za chvíli znovu.",
@@ -528,7 +531,7 @@ export const integrationsCs = {
   "lawoss.integrations.sources.legalwork_on": "Zapnuto. Konektory jsou v seznamu níže, LegalQuants ve Workflows. Nic se nepřipojí, dokud to sami nepotvrdíte.",
   "lawoss.integrations.sources.custom_title": "Vlastní",
   "lawoss.integrations.sources.custom_description": "Přidat MCP, import z GitHubu a import skillů fungují jako dosud.",
-  "lawoss.marketplace.catalog.description": "Balíčky z LAWOSS Marketplace od Omni Legal Products. Ve výchozím stavu se instalují jednou pro všechny vaše klienty. Stav připojení konektorů je na záložce Plugins v části Konektory.",
+  "lawoss.marketplace.catalog.description": "Balíčky z LAWOSS Marketplace od Omni Legal Products. Ve výchozím stavu se instalují jednou pro všechny vaše klienty. Zda jsou konektory balíčku připojené, uvidíte po kliknutí na balíček v seznamu Nainstalováno.",
   "lawoss.marketplace.bundles.description": "Balíček jurisdikce vaší kanceláře je předvyplněný. Položky můžete odškrtnout nebo přidat balíček jiné jurisdikce. Zaškrtnuté balíčky se nainstalují jednou pro všechny vaše klienty, až když kliknete na tlačítko. Stáhnou se z GitHubu, z veřejného repozitáře Omni Legal Products (Omni-Legal-Products/lawoss-marketplace). DOCX Redline, PDF Tools a skilly OKF jsou součástí aplikace a jsou zapnuté vždy.",
   "lawoss.marketplace.bundles.install": "Instalovat pro všechny klienty",
   "lawoss.marketplace.bundles.installing": "Stahuji z GitHubu a instaluji…",
@@ -614,6 +617,9 @@ export const integrationsCs = {
   "lawoss.integrations.providerOverwrite.removeDescription": "Poskytovatel {provider} má u těchto klientů vlastní odlišné nastavení. Po odpojení o něj přijdou i oni:",
   "lawoss.integrations.providerOverwrite.removeConfirm": "Odpojit pro všechny",
   "lawoss.integrations.providerOverwrite.removeCancelled": "Nic se neodpojilo. Ostatní klienti si ponechali vlastní nastavení poskytovatele.",
+  "lawoss.skills.field_name": "Název",
+  "lawoss.skills.create": "Vytvořit skill",
+  "lawoss.skills.creating": "Vytváří se…",
 } satisfies Record<keyof typeof integrationsEn, string>;
 export const integrationsSk = {
   "lawoss.integrations.remove_pending": "Odstránenie pripojenia trvá dlhšie než zvyčajne a možno ešte prebieha. Zoznam sa obnovil; ak tam pripojenie ostalo, skúste to o chvíľu znova.",
@@ -836,7 +842,7 @@ export const integrationsSk = {
   "lawoss.integrations.sources.legalwork_on": "Zapnuté. Konektory sú v zozname nižšie, LegalQuants vo Workflows. Nič sa nepripojí, kým to sami nepotvrdíte.",
   "lawoss.integrations.sources.custom_title": "Vlastné",
   "lawoss.integrations.sources.custom_description": "Pridať MCP, import z GitHubu a import skills fungujú ako doteraz.",
-  "lawoss.marketplace.catalog.description": "Balíky z LAWOSS Marketplace od Omni Legal Products. Predvolene sa inštalujú raz pre všetkých vašich klientov. Stav pripojenia konektorov je na záložke Plugins v časti Konektory.",
+  "lawoss.marketplace.catalog.description": "Balíky z LAWOSS Marketplace od Omni Legal Products. Predvolene sa inštalujú raz pre všetkých vašich klientov. Či sú konektory balíka pripojené, uvidíte po kliknutí na balík v zozname Nainštalované.",
   "lawoss.marketplace.bundles.description": "Balík jurisdikcie vašej kancelárie je predvyplnený. Položky môžete odškrtnúť alebo pridať balík inej jurisdikcie. Zaškrtnuté balíky sa nainštalujú raz pre všetkých vašich klientov, až keď kliknete na tlačidlo. Stiahnu sa z GitHubu, z verejného repozitára Omni Legal Products (Omni-Legal-Products/lawoss-marketplace). DOCX Redline, PDF Tools a skilly OKF sú súčasťou aplikácie a sú zapnuté vždy.",
   "lawoss.marketplace.bundles.install": "Inštalovať pre všetkých klientov",
   "lawoss.marketplace.bundles.installing": "Sťahujem z GitHubu a inštalujem…",
@@ -922,6 +928,9 @@ export const integrationsSk = {
   "lawoss.integrations.providerOverwrite.removeDescription": "Poskytovateľ {provider} má u týchto klientov vlastné odlišné nastavenie. Po odpojení oň prídu aj oni:",
   "lawoss.integrations.providerOverwrite.removeConfirm": "Odpojiť pre všetkých",
   "lawoss.integrations.providerOverwrite.removeCancelled": "Nič sa neodpojilo. Ostatní klienti si ponechali vlastné nastavenie poskytovateľa.",
+  "lawoss.skills.field_name": "Názov",
+  "lawoss.skills.create": "Vytvoriť skill",
+  "lawoss.skills.creating": "Vytvára sa…",
 } satisfies Record<keyof typeof integrationsEn, string>;
 export const integrationsDe = {
   "lawoss.integrations.remove_pending": "Das Entfernen der Verbindung dauert länger als üblich und läuft möglicherweise noch. Die Liste wurde aktualisiert; ist die Verbindung noch da, versuchen Sie es gleich noch einmal.",
@@ -1144,7 +1153,7 @@ export const integrationsDe = {
   "lawoss.integrations.sources.legalwork_on": "An. Die Konnektoren erscheinen unten, LegalQuants unter Workflows. Es wird nichts verbunden, bevor Sie es selbst bestätigen.",
   "lawoss.integrations.sources.custom_title": "Eigene",
   "lawoss.integrations.sources.custom_description": "MCP hinzufügen, Import von GitHub und Skill-Import funktionieren wie bisher.",
-  "lawoss.marketplace.catalog.description": "Pakete aus dem LAWOSS Marketplace von Omni Legal Products. Standardmäßig werden sie einmal für alle Ihre Mandanten installiert. Den Verbindungsstatus der Konnektoren finden Sie im Tab Plugins im Abschnitt Konnektoren.",
+  "lawoss.marketplace.catalog.description": "Pakete aus dem LAWOSS Marketplace von Omni Legal Products. Standardmäßig werden sie einmal für alle Ihre Mandanten installiert. Ob die Konnektoren eines Pakets verbunden sind, sehen Sie, wenn Sie es in der Liste Installiert anklicken.",
   "lawoss.marketplace.bundles.description": "Das Paket der Rechtsordnung Ihrer Kanzlei ist vorausgewählt. Sie können Einträge abwählen oder ein Paket einer anderen Rechtsordnung hinzufügen. Markierte Pakete werden einmal für alle Ihre Mandanten installiert, erst wenn Sie auf die Schaltfläche klicken. Sie werden von GitHub geladen, aus dem öffentlichen Repository von Omni Legal Products (Omni-Legal-Products/lawoss-marketplace). DOCX Redline, PDF Tools und die OKF-Skills sind Teil der App und immer aktiv.",
   "lawoss.marketplace.bundles.install": "Für alle Mandanten installieren",
   "lawoss.marketplace.bundles.installing": "Wird von GitHub geladen und installiert…",
@@ -1230,4 +1239,7 @@ export const integrationsDe = {
   "lawoss.integrations.providerOverwrite.removeDescription": "Der Anbieter {provider} hat bei diesen Mandanten eigene abweichende Einstellungen. Wenn Sie ihn trennen, verlieren auch sie ihn:",
   "lawoss.integrations.providerOverwrite.removeConfirm": "Für alle trennen",
   "lawoss.integrations.providerOverwrite.removeCancelled": "Es wurde nichts getrennt. Die anderen Mandanten behalten ihre eigenen Anbietereinstellungen.",
+  "lawoss.skills.field_name": "Bezeichnung",
+  "lawoss.skills.create": "Skill erstellen",
+  "lawoss.skills.creating": "Wird erstellt…",
 } satisfies Record<keyof typeof integrationsEn, string>;

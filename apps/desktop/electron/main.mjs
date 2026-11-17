@@ -413,7 +413,7 @@ async function collectSupportLogsAndReveal(technical = false, days = 7) {
   const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
   const options = {
     // 🟡 LAWOSS: localized title for the support bundle; technical diagnostics follow upstream.
-    title: technical ? "Export Technical Diagnostics" : nativeCopy(uiLocales.forWindow(mainWindow)).support,
+    title: technical ? nativeCopy(uiLocales.forWindow(mainWindow)).technicalExport /* 🟡 LAWOSS #515 */ : nativeCopy(uiLocales.forWindow(mainWindow)).support,
     defaultPath: path.join(defaultDir, technical ? defaultSupportBundleFileName().replace("support-", "diagnostics-").replace(/\.txt$/, ".json") : defaultSupportBundleFileName()),
     filters: technical ? [{ name: "JSON", extensions: ["json"] }] : [{ name: "Text", extensions: ["txt"] }],
   };
