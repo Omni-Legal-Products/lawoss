@@ -50,6 +50,7 @@ const methodPillToneClass = (type: ProviderAuthMethod["type"]) => {
 import type { FormInfo } from "@opencode/client";
 import { NativeFormPanel } from "../../session/modals/native-form-panel";
 import { t } from "@/i18n";
+import { providerMethodLabel } from "@/lawoss/providers/method-labels";
 import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import type {
   CustomProviderApiType,
@@ -533,7 +534,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     if (!query) return entries;
     return entries.filter((entry) => {
       const methodText = entry.methods
-        .map((method) => method.label || (method.type === "oauth" ? "OAuth" : t("providers.api_key_label")))
+        .map((method) => `${method.label} ${providerMethodLabel(method)}`) // 🟡 LAWOSS #502: hľadanie aj podľa prekladu
         .join(" ");
       return `${entry.name} ${entry.id} ${methodText}`.toLowerCase().includes(query);
     });
@@ -564,10 +565,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     return oauthInstructions;
   }, [oauthInstructions]);
 
-  // `method.label` is upstream OpenCode catalog text and stays as the provider
-  // publishes it; only our fallback is translated.
-  const methodLabel = (method: ProviderAuthMethod) =>
-    method.label || (method.type === "oauth" ? "OAuth" : t("providers.api_key_label"));
+  // 🟡 LAWOSS #502: známe metódy enginu (ChatGPT, Codex) sa zobrazia preložené; `method.label` ostáva pre kontroly nižšie.
+  const methodLabel = providerMethodLabel;
 
   const actionDisabled = props.loading || props.submitting;
 
@@ -1319,7 +1318,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   };
 
   const methodDescription = (entry: ProviderAuthEntry, method: ProviderAuthMethod) => {
-    const label = methodLabel(method).toLowerCase();
+    const label = method.label.toLowerCase(); // 🟡 LAWOSS #502: engine label, nie preklad
     if (isOpenAiProvider(entry.id, entry.name) && (label.includes("headless") || label.includes("device"))) {
       return t("providers.browser_continue_hint");
     }

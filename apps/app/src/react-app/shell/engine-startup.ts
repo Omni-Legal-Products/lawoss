@@ -86,3 +86,24 @@ export function useEngineStartup(): EngineStartupState {
   }, []);
   return state;
 }
+
+// 🟡 LAWOSS #477: „Skúsiť znova“ na štartovacej obrazovke. Samotný reload pri engine v stave `error` ukáže tú
+// istú obrazovku (dozor skúša ďalej až o 5 min); najprv preto požiada server o okamžitý nový pokus.
+type EngineRestart = () => Promise<{ restarting: boolean; engine: { status: string } }>;
+
+export async function retryStartupWithEngineRestart(options: { restart: EngineRestart | undefined; reload: () => void }): Promise<void> {
+  try { await options.restart?.(); } catch { /* Server alebo engine neodpovedá: reload aspoň zopakuje štart. */ }
+  options.reload();
+}
+
+/** Klient servera pre okamžitý reštart enginu; bez známeho servera a tokenu `undefined`. */
+export async function resolveEngineRestart(): Promise<EngineRestart | undefined> {
+  const connection = await resolveLegalworkConnection();
+  if (!connection.normalizedBaseUrl || !connection.resolvedToken) return undefined;
+  const client = createLegalworkServerClient({
+    baseUrl: connection.normalizedBaseUrl,
+    token: connection.resolvedToken,
+    hostToken: connection.resolvedHostToken || undefined,
+  });
+  return () => client.restartEngine();
+}

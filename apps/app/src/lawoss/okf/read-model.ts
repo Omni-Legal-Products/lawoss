@@ -30,6 +30,7 @@ import { keptOkfConnection, loadOkfConnection, type OkfConnection } from "./conn
 import type { OfficeMemoryRead } from "./office-memory";
 import { isHostAccessDenied } from "../lite/connection-problem";
 import { fileContentCacheFor } from "./file-content-cache";
+import { listenOkfFocus, okfIdleRefreshInterval } from "./overview-refresh";
 
 export type OkfReadClient = Pick<LegalworkServerClient, "listWorkspaceDirectory" | "readWorkspaceFile"> & Partial<Pick<LegalworkServerClient, "lawossDeadlineRequest">>;
 /** `folderUnavailable`: id pracovného priestoru, ktorého priečinok na disku chýba (presunutý, premenovaný, odpojený disk). */
@@ -876,17 +877,16 @@ export function officeOf(workspaces: readonly RouteWorkspace[], active: RouteWor
   return ancestors.sort((a, b) => normalizeDirectoryPath(a.path).length - normalizeDirectoryPath(b.path).length)[0] ?? active;
 }
 
-/** Ako často sa pohľady z OKF ticho obnovujú, kým je okno aktívne. */
+/** Ako často sa koreň praxe a spojenie OKF ticho obnovujú, kým je okno aktívne (prehľad: `overview-refresh.ts`). */
 export const OKF_REFRESH_MS = 15_000;
-/** Strop pre veľkú kanceláriu: obnova nesmie bežať dlhšie, než trvá samotné čítanie. */
-const OKF_REFRESH_MAX_MS = 120_000;
 /** Posledná dĺžka čítania podľa rozsahu; dlhé čítanie predĺži interval. */
 const readDurations = new Map<string, number>();
 
-/** 15 s, alebo desaťnásobok posledného čítania, najviac 2 minúty. */
-export function okfRefreshInterval(lastReadMs: number | undefined): number {
-  return Math.min(OKF_REFRESH_MAX_MS, Math.max(OKF_REFRESH_MS, Math.round((lastReadMs ?? 0) * 10)));
-}
+/**
+ * #460: tichá obnova prehľadu pri nečinnosti. Čítanie prejde strom všetkých klientov, preto nie každých 15 s, ale po
+ * zápise agenta, pri návrate do okna, pri otvorení stránky a inak najviac raz za 5 minút (`overview-refresh.ts`).
+ */
+export const okfRefreshInterval = okfIdleRefreshInterval;
 
 /** Kľúč rozsahu: členovia a koreň praxe; nový klient v praxi = nové čítanie. */
 const scopeKey = (scope: OkfScope | null): string => scope ? okfScopeKey(scope) : "";
@@ -917,6 +917,7 @@ export function useOkfOverview(connection: OkfConnection | null, scope: OkfScope
   const queries = useQueryClient();
   const [day, setDay] = useState(today);
   useEffect(() => { const timer = setInterval(() => setDay(today()), 1000); return () => clearInterval(timer); }, []);
+  useEffect(() => listenOkfFocus(queries), [queries]);
   return useQuery(okfOverviewQueryOptions(connection,scope,day,queries));
 }
 

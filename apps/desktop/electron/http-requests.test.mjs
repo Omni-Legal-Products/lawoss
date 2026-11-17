@@ -9,7 +9,7 @@ class Owner extends EventEmitter { isDestroyed() { return false; } }
 test("request cancellation is isolated to its window, including body reads", async () => {
   const connections = [];
   const server = createServer((request, response) => {
-    if (request.url === "/body") { response.writeHead(200); response.write("partial"); connections.push(response); }
+    if (request.url.startsWith("/body")) { response.writeHead(200); response.write("partial"); connections.push(response); }
     else response.end("ready");
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", () => resolve(undefined)));
@@ -20,13 +20,13 @@ test("request cancellation is isolated to its window, including body reads", asy
   try {
     const first = bridge.fetch(a, `${url}/body`, { requestId: "same" });
     const second = bridge.fetch(b, `${url}/body`, { requestId: "same" });
-    const rejected = assert.rejects(first);
     while (connections.length < 2) await new Promise(resolve => setTimeout(resolve, 1));
-    bridge.cancel(a, "same"); await rejected;
+    // LAWOSS #506: the window settled a cancelled request itself; main resolves instead of logging an IPC error.
+    bridge.cancel(a, "same"); assert.equal(await first, null);
     connections[1].end(" complete");
     assert.equal((await second).body, "partial complete");
     assert.equal((await bridge.fetch(a, url)).body, "ready");
-    await assert.rejects(bridge.fetch(a, `${url}/body`, { timeoutMs: 25 }));
+    await assert.rejects(bridge.fetch(a, `${url}/body?token=secret`, { timeoutMs: 25 }), /timed out after 25 ms: GET \/body$/);
   } finally {
     a.emit("destroyed"); b.emit("destroyed"); server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
@@ -39,7 +39,7 @@ test("window destruction aborts outstanding headers and completed IDs can be reu
   }));
   const owner = new Owner();
   const pending = bridge.fetch(owner, "https://example.test", { requestId: "pending" });
-  owner.emit("destroyed"); await assert.rejects(pending);
+  owner.emit("destroyed"); assert.equal(await pending, null);
   const fast = createHttpRequests(async () => new Response("done"));
   for (let i = 0; i < 2; i++) assert.equal((await fast.fetch(owner, "https://example.test", { requestId: "reused" })).body, "done");
   await assert.rejects(fast.fetch(owner, "file:///tmp/private"), /HTTP URL/);

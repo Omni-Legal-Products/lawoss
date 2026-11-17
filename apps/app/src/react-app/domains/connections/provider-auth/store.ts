@@ -12,6 +12,7 @@ import { ensureNativeCatalogReady } from "@/app/lib/opencode-catalog-ready";
 import { readConfig, disabledProvidersFromConfig } from "@/app/lib/opencode-config";
 
 import { t } from "../../../../i18n";
+import { openAiKeyRejected } from "@/lawoss/providers/openai-key-check";
 import { waitForHealthy } from "../../../../app/lib/opencode";
 import type {
   Client,
@@ -645,6 +646,13 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const trimmed = apiKey.trim();
     if (!trimmed) {
       throw new Error(t("providers.api_key_required"));
+    }
+
+    // 🟡 LAWOSS #502: OpenAI kľúč odmietnutý zoznamom modelov (401) sa neuloží; iné zlyhanie overenia uloženie neblokuje.
+    if (await openAiKeyRejected(providerId, trimmed, fetchCustomProviderModels)) {
+      const message = t("lawoss.provider_error.key_rejected");
+      setStateField("providerAuthError", message);
+      throw new Error(message);
     }
 
     try {

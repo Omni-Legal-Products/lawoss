@@ -2471,6 +2471,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       }),
     getEngineProjectStatus: (workspaceId: string) =>
       requestJson<EngineProjectStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/engine-project`, { token, hostToken }),
+    // 🟡 LAWOSS #477: okamžitý nový pokus o spustenie spravovaného enginu („Skúsiť znova“ v stavovom riadku).
+    restartEngine: () =>
+      requestJson<{ restarting: boolean; engine: { status: "starting" | "migrating" | "ready" | "error" } }>(baseUrl, "/engine/restart", {
+        token, hostToken, method: "POST",
+      }),
     retryEngineRecovery: (workspaceId: string) =>
       requestJson<EngineProjectStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/engine-project/retry-recovery`, {
         token, hostToken, method: "POST",

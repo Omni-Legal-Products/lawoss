@@ -174,6 +174,7 @@ import { seedSubmittedMessage, snapshotKey } from "@/react-app/domains/session/s
 import { chatEngine } from "@/lawoss/shell/session-directory";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
+import { useOkfRevalidateOnFinishedChats } from "@/lawoss/okf/overview-refresh";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
 import { buildLegalworkEnvSystemContext } from "@/react-app/domains/session/sync/env-context";
 import {
@@ -838,6 +839,8 @@ export function SessionRoute() {
         }),
     [sessionsByWorkspaceId],
   );
+  // 🟡 LAWOSS #460: a chat of any client that stops running may have written files; the OKF overview reads again.
+  useOkfRevalidateOnFinishedChats(useMemo(() => activeReloadBlockingSessions.map(session => session.id), [activeReloadBlockingSessions]));
   const activeSelectedWorkspaceSessionIds = useMemo(
     () =>
       (sessionsByWorkspaceId[selectedWorkspaceId] ?? []).flatMap((session) => {

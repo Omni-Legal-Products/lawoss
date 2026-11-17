@@ -24,6 +24,8 @@ import { parseCsv } from "../apps/server/dist/lawoss/documents/validation.js";
 import { sha256 } from "../lawoss/testing/isir/corpus.mjs";
 import { prepareNativeEngineFiles, probeNativeEngineVersion, selectedNativeEngine, verifyNativeEngineRuntime } from "../lawoss/testing/isir/native/engine-identity.mjs";
 import { createNativeEngineClient } from "../lawoss/testing/isir/native/engine-client.mjs";
+// 🟡 LAWOSS #384: pozorovanie POST prípravy po vypršaní orákula a uzavretá klasifikácia odmietnutia.
+import { awaitProvisioningResponse, classifyProvisioningRefusal } from "../lawoss/testing/isir/native/provisioning.mjs";
 import { nativeRendererLaunch } from "../lawoss/testing/isir/native/renderer.mjs";
 import { nativeEngineFetchRecords } from "../lawoss/testing/isir/native/engine-fetch.mjs";
 import { startNativeEngineTraceReceiver } from "../lawoss/testing/isir/native/engine-traces.mjs";
@@ -392,7 +394,8 @@ try {
       await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.includes('ISIR synthetic')&&!e.textContent.includes('protocol'));if(!e)return false;e.click();return true})()`),'choose actual connected model');
       await cdp.evaluate("window.__legalworkControl.execute('route.session')");
       await until(()=>cdp.evaluate(`(()=>{const e=document.querySelector('button[aria-label="Behavior"]');if(!e||e.disabled)return false;e.click();return true})()`),'native selected model behavior control');
-      const high = await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('[role="option"]')].find(e=>e.textContent.trim()==='high');if(!e)return false;const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`),'actual synthetic provider high reasoning choice');
+      // 🟡 LAWOSS #384: since da3ef3b7c the option shows a localized label (English fixture: "High"); the persisted value stays `high`.
+      const high = await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('[role="option"]')].find(e=>e.textContent.trim().toLowerCase()==='high');if(!e)return false;const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`),'actual synthetic provider high reasoning choice');
       await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...high});
       await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...high});
       await until(()=>cdp.evaluate(`JSON.parse(localStorage.getItem('legalwork.preferences')??'{}').modelVariant==='high'`),'persisted native high variant selection');
@@ -425,18 +428,14 @@ try {
     await click('Generate through chat');
     // Cold VM provisioning and the initial complete-source native review precede
     // inference. Preserve the separate existing 90-second generation oracle.
-    const provisionResponse = await until(()=>{
-      const events=cdp.events.slice(eventStart);
-      const request=events.find(event=>event.method==='Network.requestWillBeSent'&&event.params.request.method==='POST'&&new URL(event.params.request.url).pathname===`/workspace/${workspace.id}/lawoss/documents/generation`);
-      return request&&events.find(event=>event.method==='Network.responseReceived'&&event.params.requestId===request.params.requestId);
-    },'actual confined VM ready response before inference',240000);
+    // 🟡 LAWOSS #384: unchanged 240 s oracle; at expiry one closed line on the same POST (issued/pending), then the original failure.
+    const provisionResponse = await awaitProvisioningResponse({until,events:()=>cdp.events.slice(eventStart),workspaceId:workspace.id,startedAtMs:provisionStartedAtMs,log:(label,value)=>console.log(label,JSON.stringify(value))});
     console.log('Native provisioning response',JSON.stringify({status:provisionResponse.params.response.status,elapsedMs:Date.now()-provisionStartedAtMs}));
     if(provisionResponse.params.response.status!==200){
       let code='unclassified';
       try {
-        const raw=(await cdp.send('Network.getResponseBody',{requestId:provisionResponse.params.requestId})).body,value=JSON.parse(raw);
-        const known=['protected_runtime_capacity','protected_checkpoint_busy','protected_checkpoint_failed','protected_checkpoint_invalid','protected_runtime_unavailable','protected_session_busy','host_decision_stale','protected_directory_denied','protected_source_scope','protected_source_denied','protected_prompt_invalid','protected_ai_denied','protected_ai_profile_missing','protected_runtime_closed'];
-        if(known.includes(value?.code))code=value.code;
+        const raw=(await cdp.send('Network.getResponseBody',{requestId:provisionResponse.params.requestId})).body;
+        code=classifyProvisioningRefusal(raw);
         if(corpus.mode==='synthetic')await writeFile(path.join(root,'protected-provision-refusal.private.json'),raw,{mode:0o600});
       } catch { /* Preserve the real status failure even if supplemental evidence is unavailable. */ }
       console.log('Native provisioning refusal',JSON.stringify({status:provisionResponse.params.response.status,code}));
@@ -810,6 +809,8 @@ try {
   const failure = diagnostics.failure(error);
   try { diagnostics.captureGenerationHostErrors(children); } catch { /* Diagnostics cannot replace the primary failure. */ }
   console.error('Primary native failure before cleanup', JSON.stringify(failure));
+  // 🟡 LAWOSS #220: closed host-error categories of a 5xx provisioning/generation POST also in the 90-day job log, not only the 7-day artifact.
+  try { const hostErrors=diagnostics.hostErrors(); if(hostErrors)console.error('Native host error categories',JSON.stringify(hostErrors)); } catch { /* Diagnostics cannot replace the primary failure. */ }
   if(failure.phase==='generation'&&cdp){
     let timer;
     try {

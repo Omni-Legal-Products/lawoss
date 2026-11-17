@@ -29,6 +29,8 @@ export async function fetchDesktopStream(bridge: StreamBridge, input: RequestInf
   try {
     const metadata = await Promise.race([opening, cancelled]);
     request.signal.throwIfAborted();
+    // Main resolves null for a stream the window cancelled or closed while it opened (#506).
+    if (!metadata) throw new DOMException("Event stream cancelled", "AbortError");
     if ([204, 205, 304].includes(metadata.status)) {
       cleanup();
       cancel();

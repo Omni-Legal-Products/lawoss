@@ -5,6 +5,7 @@ import { z } from "zod";
 import { LAWOSS_MEMORY_TOOL } from "../lawoss/tool-permission-defaults.js";
 import MemoryTools from "./lawoss-memory-tools.js";
 import { lawossNativePlugin } from "./lawoss-native-test-support.js";
+import { nativeToolBefore } from "./native-plugin-test-support.js";
 
 test("lawoss_memory posts the case folder of this chat to its own client and never shows a card", async () => {
   const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = wikiAgentSecret();
@@ -45,7 +46,23 @@ test("lawoss_memory posts the case folder of this chat to its own client and nev
     const refused = JSON.parse(await tool.execute({ action: "read", matter: "/synthetic/Cudzi" }, context));
     expect(refused.error).toContain("403");
     expect(JSON.parse(await tool.execute({ action: "write" }, context))).toMatchObject({ code: "memory_arguments" });
-    expect(bodies).toHaveLength(4);
+    // #481: an unknown argument such as caseFolder is refused with the actionable text, never read from this chat's folder.
+    const unknown = JSON.parse(await tool.execute({ action: "read", caseFolder: "Spisy/M001" }, context));
+    expect(unknown).toMatchObject({ code: "memory_arguments" });
+    expect(unknown.error).toContain("caseFolder");
+    expect(unknown.error).toContain("matter");
+    // #526: the model gets the exact schema without additionalProperties; the engine decodes a call with it and drops
+    // caseFolder, which execute.before saw in the raw call, so the decoded call is refused as well.
+    expect(tool.input).not.toHaveProperty("additionalProperties");
+    expect(wire.safeParse({ action: "read", caseFolder: "Spisy/M001" }).success).toBe(true);
+    await nativeToolBefore(plugin.runtime, LAWOSS_MEMORY_TOOL, { action: "read", caseFolder: "Spisy/M001" }, "ses_memory");
+    const dropped = JSON.parse(await tool.execute({ action: "read" }, context));
+    expect(dropped).toMatchObject({ code: "memory_arguments" });
+    expect(dropped.error).toContain("caseFolder");
+    // Only that call: the next one without an unknown argument reads as before.
+    await nativeToolBefore(plugin.runtime, LAWOSS_MEMORY_TOOL, { action: "preamble" }, "ses_memory");
+    expect(JSON.parse(await tool.execute({ action: "preamble" }, context))).toMatchObject({ text: "SYN pamäť" });
+    expect(bodies).toHaveLength(5);
     expect(asked).toBe(0);
     // Fixed text for the model: memory and folder listing without the shell.
     const output = { system: await plugin.system() };
@@ -182,6 +199,8 @@ test("lawoss_memory_write of a new task: one card with the case and both files, 
       const input = tool === "lawoss_memory_write" ? { record: "x", reason: "y", matter: "Spisy/M001", instruction: " \n " } : { date: "2026-11-25", what: "Odpoveď", matter: "Spisy/M001", instruction: "   " };
       await expect(plugin.tool[tool].execute(input, context)).rejects.toThrow("instruction is empty");
       expect(z.fromJSONSchema(JSON.parse(JSON.stringify(plugin.tool[tool].input))).safeParse(input).success).toBe(false);
+      // #444: only `|` or control characters is no sentence either (the register cell would be empty).
+      for (const instruction of ["|", " | \u0001 "]) await expect(plugin.tool[tool].execute({ ...input, instruction }, context)).rejects.toThrow("instruction is empty");
     }
     expect(bodies).toHaveLength(sent);
   } finally {

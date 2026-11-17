@@ -63,7 +63,7 @@ function useSpreadsheet({ name, content, onSave }: UseSpreadsheetProps) {
 
   const { mutate: save, mutateAsync: saveAsync, isPending: isSaving } = useMutation({
     mutationFn: async () => {
-      const serialized = await serializeSpreadsheet(name, rows);
+      const serialized = await serializeSpreadsheet(name, rows, content); // 🟡 LAWOSS #493 pôvodný oddeľovač a znenie buniek
 
       await onSave(serialized);
     },
@@ -97,14 +97,14 @@ export function ArtifactSpreadsheetEditor(props: ArtifactSpreadsheetEditorProps)
   useEffect(() => { props.onDirtyChange?.(isDirty); }, [isDirty, props.onDirtyChange]);
   useEffect(() => {
     if (!props.apiRef) return;
-    props.apiRef.current = { revision: () => JSON.stringify(rows), getContent: () => serializeSpreadsheet(props.name, rows), discard, save: async () => {
+    props.apiRef.current = { revision: () => JSON.stringify(rows), getContent: () => serializeSpreadsheet(props.name, rows, props.content), discard, save: async () => {
       if (props.readOnly || isLoading || saving) return false;
       if (isDirty) await saveAsync();
       props.onDirtyChange?.(false);
       return true;
     } };
     return () => { if (props.apiRef) props.apiRef.current = null; };
-  }, [props.apiRef, props.readOnly, props.onDirtyChange, isLoading, saving, isDirty, saveAsync, rows, props.name, discard]);
+  }, [props.apiRef, props.readOnly, props.onDirtyChange, isLoading, saving, isDirty, saveAsync, rows, props.name, props.content, discard]);
 
   if (isLoading) {
     return (
@@ -125,11 +125,11 @@ export function ArtifactSpreadsheetEditor(props: ArtifactSpreadsheetEditorProps)
   return (
     <div className={cn("flex h-full min-h-0 flex-col", props.className)}>
       {!props.readOnly && <div className="flex shrink-0 items-center gap-2 px-3 py-2 border-b border-border">
-        <Button variant="ghost" size="xs" onClick={addRow} disabled={saving}><Plus className="size-3" /> Row</Button>
-        <Button variant="ghost" size="xs" onClick={addColumn} disabled={saving}><Plus className="size-3" /> Column</Button>
+        <Button variant="ghost" size="xs" onClick={addRow} disabled={saving}><Plus className="size-3" /> {t("lawoss.csv_editor.row")}</Button>{/* 🟡 LAWOSS #493 texty cez i18n */}
+        <Button variant="ghost" size="xs" onClick={addColumn} disabled={saving}><Plus className="size-3" /> {t("lawoss.csv_editor.column")}</Button>
         <div className="min-w-0 flex-1" />
-        <Button variant="ghost" size="xs" onClick={discard} disabled={!isDirty || saving}>Discard</Button>
-        {!props.hideSave && <Button variant="default" size="xs" onClick={() => save()} disabled={!isDirty || saving}>{saving ? "Saving" : "Save"}</Button>}
+        <Button variant="ghost" size="xs" onClick={discard} disabled={!isDirty || saving}>{t("lawoss.csv_editor.discard")}</Button>
+        {!props.hideSave && <Button variant="default" size="xs" onClick={() => save()} disabled={!isDirty || saving}>{saving ? t("common.saving") : t("common.save")}</Button>}
       </div>}
       <div className="min-h-0 flex-1 overflow-auto">
         <table className="w-full border-collapse text-xs">

@@ -2,6 +2,8 @@
 import { parseOnboardingRequest, planOnboarding, applyOnboarding, recoverOnboarding } from "./src/onboarding/onboarding.ts";
 export { inspectCardLevel, inspectOnboardingRoot } from "./src/onboarding/classify.ts";
 export { suggestOnboardingLevel } from "./src/onboarding/suggest.ts";
+// Priečinok nového klienta podľa zvyklosti kancelárie (#433): formulár aj `lawoss_new_client`.
+export { newClientFolder } from "./src/onboarding/entities.ts";
 export const previewOnboarding = (input) => planOnboarding(parseOnboardingRequest(input));
 export const executeOnboarding = (preview, options) => applyOnboarding(preview, options);
 export const recoverOnboardingOperation = (preview, options, action) => recoverOnboarding(preview, options, action);

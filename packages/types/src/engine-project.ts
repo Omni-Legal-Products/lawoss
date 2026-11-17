@@ -6,7 +6,7 @@ export const EngineProjectStatusSchema = z.object({
   directory: z.string(),
   approvedAt: z.number().optional(),
   approvalScope: z.array(z.object({ directory: z.string(), configPaths: z.array(z.string()) })),
-  projection: z.object({ path: z.string().optional(), diagnostic: z.string().optional() }),
+  projection: z.object({ path: z.string().optional(), diagnostic: z.string().optional(), code: z.string().optional() }), // 🟡 LAWOSS #494: `code` pre preklad v appke
   plugins: z.array(z.object({ target: z.string(), sources: z.array(z.string()), approved: z.boolean() })),
   recovery: z.object({
     mode: z.enum(["service", "recovery", "promoting"]),

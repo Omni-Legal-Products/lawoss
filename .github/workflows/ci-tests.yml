@@ -282,7 +282,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-15]
+        # 🟡 LAWOSS: macOS len po zlúčení do dev, PR nečaká na preťažené macOS runnery.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-15"]') }}
 
     steps:
       - name: Checkout
@@ -540,7 +541,7 @@ jobs:
           export LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)"
           # Bez enginu by sa testy potichu preskočili a krok by bol zelený.
           test -x "$LEGALWORK_TEST_OPENCODE_BIN"
-          bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts --timeout 180000 apps/server/src/lawoss/linked-folders-documents.integration.test.ts apps/server/src/lawoss/linked-folders-engine.integration.test.ts apps/server/src/lawoss/matter-chat-engine.integration.test.ts apps/server/src/lawoss/approval-cards.integration.test.ts apps/server/src/lawoss/okf-triedenie-flow.integration.test.ts apps/server/src/lawoss/okf-pamat-citanie.integration.test.ts apps/server/src/lawoss/engine-catalog.integration.test.ts apps/server/src/lawoss/engine-agent-ticket.integration.test.ts
+          bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts --timeout 180000 apps/server/src/lawoss/linked-folders-documents.integration.test.ts apps/server/src/lawoss/linked-folders-engine.integration.test.ts apps/server/src/lawoss/matter-chat-engine.integration.test.ts apps/server/src/lawoss/approval-cards.integration.test.ts apps/server/src/lawoss/okf-triedenie-flow.integration.test.ts apps/server/src/lawoss/okf-pamat-citanie.integration.test.ts apps/server/src/lawoss/engine-catalog.integration.test.ts apps/server/src/lawoss/engine-agent-ticket.integration.test.ts apps/server/src/lawoss/engine-restart.integration.test.ts apps/server/src/lawoss/plugin-tools-direct.integration.test.ts apps/server/src/lawoss/lawoss-memory-arguments.integration.test.ts
           cd apps/app && bun test --timeout 180000 tests/lawoss-matter-chat-engine.test.ts
 
       - name: Verify Node development-server history and restart

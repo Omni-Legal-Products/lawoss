@@ -229,9 +229,13 @@ test("protected engine configuration retains installed skill discovery", async (
   await writeFile(join(visible, "SKILL.md"), "---\nname: wiki-setup\ndescription: Set up this wiki\n---\nRead this wiki's guidance.\n");
   await mkdir(folder, { recursive: true });
   await writeFile(join(folder, "SKILL.md"), "---\nname: protected-helper\ndescription: An installed helper\n---\nUse the protected shell.\n");
+  // 🟡 LAWOSS #530: `.claude/skills` klienta dostane engine len takto (kompatibilný plugin enginu je vypnutý).
+  const claude = join(root, ".claude", "skills", "claude-helper");
+  await mkdir(claude, { recursive: true });
+  await writeFile(join(claude, "SKILL.md"), "---\nname: claude-helper\ndescription: A client Claude skill\n---\nHelp.\n");
   await writeLegalworkRuntimeConfigFile(config, "ws_1");
   const settings = await readSettings(config);
-  expect(settings.configuration.skills).toEqual(expect.arrayContaining([folder, visible]));
+  expect(settings.configuration.skills).toEqual(expect.arrayContaining([folder, visible, claude]));
   expect(await readFile(join(folder, "SKILL.md"), "utf8")).toContain("Use the protected shell.");
   expect(await readFile(join(visible, "SKILL.md"), "utf8")).toContain("Read this wiki's guidance.");
 });
@@ -344,6 +348,8 @@ describe("legalwork runtime config files", () => {
     expect(sources.some(plugin => plugin.source.includes('id: "anthropic-auth"'))).toBe(false);
     const mandatory = await readConfigurationFile(mandatoryRuntimeConfigFilePath(config));
     expect(pluginTargets(mandatory.plugins)).toContain("-opencode.config.command");
+    // 🟡 LAWOSS #530: engine nesleduje ani nečíta `.claude/skills` a `.agents/skills` mimo profilu.
+    expect(pluginTargets(mandatory.plugins)).toContain("-opencode.config.compatibility");
     const guards = await bundledSources(mandatory.plugins?.filter(plugin => typeof plugin !== "string" || !plugin.startsWith("-")));
     await expectBundle(guards, "legalwork-commands");
     await expectBundle(guards, "legalwork-project-admission");

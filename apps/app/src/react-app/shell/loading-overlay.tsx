@@ -7,7 +7,7 @@ import { useUpdateCheckRequestStore } from "../domains/settings/state/update-che
 import { supportBundleCollect } from "../../app/lib/desktop";
 import { isDesktopRuntime } from "../../app/utils";
 import { useBootState, useBootOverlayVisible } from "./boot-state";
-import type { EngineStartupState } from "./engine-startup";
+import { resolveEngineRestart, retryStartupWithEngineRestart, type EngineStartupState } from "./engine-startup"; // 🟡 LAWOSS #477
 import { OwDotTicker } from "./dot-ticker";
 import { SettingsSurface } from "./settings-route";
 import { t } from "@/i18n";
@@ -115,7 +115,8 @@ export function LoadingOverlay({ startup = { status: "ready" } }: { startup?: En
                   {t("ai_plans.check_updates")}
                 </Button>
                 {/* Reload len vyčistí renderer. Opakovaný štart prejde, lebo hlavný proces zlyhaný bootstrap nezapamätá. */}
-                <Button size="sm" onClick={() => window.location.reload()}>
+                {/* 🟡 LAWOSS #477: najprv okamžitý nový pokus o engine (ak beží server), potom reload. */}
+                <Button size="sm" onClick={() => { void resolveEngineRestart().catch(() => undefined).then((restart) => retryStartupWithEngineRestart({ restart, reload: () => window.location.reload() })); }}>
                   {t("boot.retry")}
                 </Button>
                 <CollectLogsButton />

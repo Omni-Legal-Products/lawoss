@@ -13,6 +13,10 @@ import type { ServerConfig } from "./types.js";
 import { engineStorageDir } from "./engine-storage.js";
 import { legacyMcpCredentialImportPending, migrateLegacyMcpCredentials } from "./legacy-mcp-credentials.js";
 import { importLegacyProviderCredentials } from "./legacy-provider-credentials.js";
+// 🟡 LAWOSS #454: engine, ktorý po štarte skončí, sa spustí znova (lawoss/engine-supervisor.ts).
+import { createEngineSupervisor } from "./lawoss/engine-supervisor.js";
+// 🟡 LAWOSS #530: prechod konfigurácie enginu končí na koreňoch klientov a praxe (lawoss/engine-project-stop.ts).
+import { engineProjectStopEnv } from "./lawoss/engine-project-stop.js";
 
 /** One engine at a time. Plain serve makes history readable while the global
  * native recovery sweep is held; only upstream service mode resumes old work. */
@@ -22,6 +26,8 @@ export async function startManagedEngineLifecycle(options: {
   legacyMcpAuthPath?: string;
   service: ManagedOpencodeServiceOptions;
   create: (mode: "service" | "recovery", beforeSpawn?: () => Promise<void>) => Promise<ManagedOpencodeServer>;
+  /** 🟡 LAWOSS #476: an engine published after startup (supervisor restart, recovery → service); its agent ticket needs settling. */
+  onEnginePublished?: (engine: ManagedOpencodeServer) => void;
 }) {
   const { config } = options;
   const legacyMcpSource = options.legacyMcpAuthPath;
@@ -32,7 +38,7 @@ export async function startManagedEngineLifecycle(options: {
   let mode: "service" | "recovery" | "promoting" = "recovery";
   let failure: { code: string; message: string } | undefined;
   let admissions = 0, closed = false, serviceStartupFailed = false;
-  let endpointLive = false, legacyPoliciesPrepared = false;
+  let endpointLive = false, legacyPoliciesPrepared = false, startedUp = false;
   const attempts = new Map<string, { kind: "oauth" | "command"; integrationID: string; attemptID: string; directory: string }>();
   let checking: Promise<void> | undefined;
   let catalogReload: Promise<boolean> | undefined;
@@ -45,10 +51,45 @@ export async function startManagedEngineLifecycle(options: {
     const workspace = config.workspaces[0];
     if (migrated.changed && workspace) await writeLegalworkRuntimeConfigFile(config, workspace.id);
   };
+  // 🟡 LAWOSS #454: náhrada spadnutého enginu (lawoss/engine-supervisor.ts). Režim služby s rovnakým
+  // preflight → obnova ako pri štarte; beží ako `checking`, aby ho refresh/reloadCatalog neprekrížili.
+  const supervisor = createEngineSupervisor<ManagedOpencodeServer>({
+    current: () => engine,
+    status: (status) => { config.managedEngineStatus = status; },
+    restart: async () => {
+      while (checking) await checking;
+      const exited = engine;
+      if (closed || !supervisor.isDead(exited)) return;
+      const attempt = (async () => {
+        events?.abort(); events = undefined;
+        imageAffinity.disconnect();
+        endpointLive = false;
+        await exited.close();
+        await stopManagedOpencodeService(options.service);
+        let target: "service" | "recovery" = "recovery", attemptedService = false;
+        try {
+          if (mode === "service") {
+            await preflight(); attemptedService = true;
+            engine = await createStopped("service", preflight); target = "service";
+          } else engine = await createStopped("recovery");
+        } catch (error) {
+          if (mode !== "service") throw error;
+          remember(error); serviceStartupFailed = attemptedService;
+          engine = await createStopped("recovery");
+        }
+        try { await publish(); }
+        catch (error) { engine = exited; throw error; }
+        mode = target;
+        if (mode === "recovery") monitor();
+      })();
+      checking = attempt.catch(() => {}).finally(() => { checking = undefined; });
+      await attempt;
+    },
+  });
   const createStopped = (target: "service" | "recovery", check?: () => Promise<void>) => options.create(target, async () => {
     await prepareStoppedApprovals();
     await check?.();
-  });
+  }).then(supervisor.watch);
   await stopManagedOpencodeService(options.service);
   await prepareStoppedApprovals();
   const held = (await inspectNativeEngineRecovery(options.database)).sessions;
@@ -88,6 +129,7 @@ export async function startManagedEngineLifecycle(options: {
       workspace.directory = workspace.path;
     }
     endpointLive = true;
+    if (startedUp) options.onEnginePublished?.(engine);
     // Session get/update is passive in the released API. Restore original chat
     // policies before service promotion can resume any interrupted agent work.
     try { await prepareLegacyPolicies(); } catch (error) { remember(error); }
@@ -180,9 +222,11 @@ export async function startManagedEngineLifecycle(options: {
   try { await preflight(); attemptedService = true; engine = await createStopped("service", preflight); mode = "service"; }
   catch (error) { remember(error); serviceStartupFailed = attemptedService; engine = await createStopped("recovery"); }
   await publish();
+  startedUp = true;
   config.managedImageAffinity = imageAffinity.resolve;
   config.managedEngineRecoveryState = () => ({ mode, heldSessions: mode === "service" ? [] : held, ...(failure ? { error: failure } : {}) });
   config.retryManagedEngineRecovery = refresh;
+  config.retryManagedEngineRestart = supervisor.retryNow; // 🟡 LAWOSS #477
   config.reloadManagedEngineCatalog = reloadCatalog;
   config.withManagedEngineAdmission = async (sessionID, action) => {
     if (mode === "promoting" || catalogReloading) throw new ApiError(503, "engine_recovery_transition", catalogReloading
@@ -212,9 +256,9 @@ export async function startManagedEngineLifecycle(options: {
     refresh,
     reloadCatalog,
     async close() {
-      closed = true; endpointLive = false; imageAffinity.disconnect(); delete config.managedImageAffinity; events?.abort(); if (retryTimer) clearTimeout(retryTimer);
+      closed = true; supervisor.close(); endpointLive = false; imageAffinity.disconnect(); delete config.managedImageAffinity; events?.abort(); if (retryTimer) clearTimeout(retryTimer);
       await checking; await engine.close();
-      delete config.managedEngineRecoveryState; delete config.retryManagedEngineRecovery; delete config.reloadManagedEngineCatalog; delete config.withManagedEngineAdmission; delete config.observeManagedEngineResponse;
+      delete config.managedEngineRecoveryState; delete config.retryManagedEngineRecovery; delete config.retryManagedEngineRestart; delete config.reloadManagedEngineCatalog; delete config.withManagedEngineAdmission; delete config.observeManagedEngineResponse;
     },
   };
 }
@@ -230,7 +274,7 @@ export async function createConfiguredManagedEngine(config: ServerConfig, option
   config.managedEngineStatus = "starting";
   config.waitForManagedEngineEndpoint = () => endpoint;
   try {
-    const engine = await createManagedOpencodeServer({ ...options, onAuthenticated(connection) {
+    const engine = await createManagedOpencodeServer({ ...options, env: { ...options.env, ...await engineProjectStopEnv(config, options.cwd) }, onAuthenticated(connection) {
       config.opencodeBaseUrl = connection.url; config.opencodeUsername = connection.username; config.opencodePassword = connection.password;
       for (const workspace of config.workspaces) { workspace.baseUrl = connection.url; workspace.opencodeUsername = connection.username; workspace.opencodePassword = connection.password; workspace.directory = workspace.path; }
       resolveEndpoint(); options.onAuthenticated?.(connection);

@@ -44,7 +44,13 @@ export async function installCatalogEntry(entry: MarketplaceEntry, actions: Cata
   return installWithRefresh(() => url ? actions.installPlugin(url) : actions.installOkf(), actions.refresh);
 }
 
-export type BasePackResult = { installed: string[]; failed: Array<{ id: string; message: string }> };
+/** #510: `already` sa nezmenilo; `outdated` je nainštalované v staršej verzii, novšia ide cez aktualizácie. */
+export type BasePackResult = {
+  installed: string[];
+  failed: Array<{ id: string; message: string }>;
+  already?: string[];
+  outdated?: Array<{ id: string; installed: string | null; available: string }>;
+};
 
 /**
  * Základný balík: výslovná akcia advokáta (tlačidlo „Inštalovať“), každá položka cez ten istý

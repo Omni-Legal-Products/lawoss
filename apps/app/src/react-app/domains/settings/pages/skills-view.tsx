@@ -86,6 +86,7 @@ import { importedSkillPlugin, pluginImportName, pluginImportSkillName } from "./
 import { SkillDetailsDialog } from "./skill-details-dialog";
 import { FirmSkillDialog } from "./firm-skill-dialog";
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
+import { useExtensionHiddenVersion, visibleSettingsSkills } from "../extension-state"; // 🟡 LAWOSS #514
 
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
@@ -358,13 +359,14 @@ export function SkillsView(props: SkillsViewProps) {
     }
   }, [extensions, isWorkflowsView, templateRun?.status]);
   const allSkills = extensions.skills();
+  const hiddenVersion = useExtensionHiddenVersion(); // 🟡 LAWOSS #514: skryté skilly ako v katalógu integrácií
   // Each view shows only its own kind; both live in the same skill store.
   const skills = useMemo(
-    () => allSkills.filter((skill) => isWorkflowCard(skill) === isWorkflowsView
+    () => visibleSettingsSkills(allSkills).filter((skill) => isWorkflowCard(skill) === isWorkflowsView
       && (source === "all" || (source === "team" ? Boolean(skill.firm) : !skill.firm))
       // The embedded team catalogue includes installed and offered items together.
       && !(libraryLayout && !isWorkflowsView && props.firmDownloadView && skill.firm)),
-    [allSkills, isWorkflowsView, source, libraryLayout, props.firmDownloadView],
+    [allSkills, isWorkflowsView, source, libraryLayout, props.firmDownloadView, hiddenVersion],
   );
   const hubSkills = extensions.hubSkills();
   const hubRepo = extensions.hubRepo();
@@ -1223,7 +1225,7 @@ function SkillCreatorButton(props: {
             ) : null}
 
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-dls-text">Name</span>
+              <span className="text-xs font-medium text-dls-text">{t("lawoss.skills.field_name")}</span>{/* 🟡 LAWOSS #515 */}
               <input
                 value={name}
                 onChange={(event) => setName(event.currentTarget.value)}
@@ -1255,12 +1257,12 @@ function SkillCreatorButton(props: {
             </label>
 
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-dls-text">Instructions</span>
+              <span className="text-xs font-medium text-dls-text">{t("workflows.instructions")}</span>{/* 🟡 LAWOSS #515 */}
               <textarea
                 value={body}
                 onChange={(event) => setBody(event.currentTarget.value)}
                 rows={12}
-                placeholder={"Step-by-step instructions the agent follows when this skill is active.\n\n1. ...\n2. ..."}
+                placeholder={t("skills.instructions_placeholder")}
                 spellCheck={false}
                 className={`${inputClass} min-h-[240px] font-mono text-xs`}
               />
@@ -1275,10 +1277,10 @@ function SkillCreatorButton(props: {
               {saving ? (
                 <>
                   <Loader2 size={14} className="animate-spin" />
-                  Creating...
+                  {t("lawoss.skills.creating")}{/* 🟡 LAWOSS #515 */}
                 </>
               ) : (
-                "Create skill"
+                t("lawoss.skills.create")
               )}
             </Button>
           </DialogFooter>
@@ -1475,7 +1477,7 @@ function WorkflowCreatorButton(props: {
             ) : null}
 
                 <label className="block space-y-1.5">
-                  <span className="text-xs font-medium text-dls-text">Name</span>
+                  <span className="text-xs font-medium text-dls-text">{t("lawoss.skills.field_name")}</span>{/* 🟡 LAWOSS #515 */}
                   <input
                     value={name}
                     onChange={(event) => setName(event.currentTarget.value)}
@@ -1529,7 +1531,7 @@ function WorkflowCreatorButton(props: {
                 {saving ? (
                   <>
                     <Loader2 size={14} className="animate-spin" />
-                    Creating...
+                    {t("lawoss.skills.creating")}{/* 🟡 LAWOSS #515 */}
                   </>
                 ) : (
                   "Create workflow"

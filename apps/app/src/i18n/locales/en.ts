@@ -1,4 +1,5 @@
 import { diagnosticsEn } from "../../lawoss/i18n/diagnostics";
+import { filePreviewEn } from "../../lawoss/i18n/file-preview";
 import { deadlinesEn } from "../../lawoss/i18n/deadlines";
 import { setupEn } from "../../lawoss/i18n/setup";
 import { initialEn } from "../../lawoss/i18n/initial";
@@ -6,6 +7,7 @@ import { mattersEn } from "../../lawoss/i18n/matters";
 import { integrationsEn } from "../../lawoss/i18n/integrations";
 import { shellEn } from "../../lawoss/i18n/shell";
 import { ocrEn } from "../../lawoss/i18n/ocr";
+import { csvEditorEn } from "../../lawoss/i18n/csv-editor";
 import { projectTemplateStrings } from "@legalwork/types/workspace";
 /**
  * English translations
@@ -14,12 +16,14 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
 
 export default {
   ...diagnosticsEn,
+  ...filePreviewEn,
   ...setupEn,
   ...initialEn,
   ...mattersEn,
   ...integrationsEn,
   ...shellEn,
   ...ocrEn,
+  ...csvEditorEn,
   "shutdown.restart_title": "Save changes before restarting?",
   "shutdown.close_title": "Save changes before closing?",
   "shutdown.description": "These files have unsaved changes. Save them to keep your work, or discard the changes to continue.",
@@ -1424,6 +1428,7 @@ export default {
   "content_search.files_skipped": "Some files in {project} could not be searched.",
   "content_search.searching": "Searching…",
   "content_search.no_results": "No matches. Try different words.",
+  "content_search.no_results_preparing": "No matches yet. Still preparing files: {count}.",
   "content_search.start": "Search your projects and their contents.",
   "content_search.refine": "Showing top matches. Narrow your search for more.",
   "content_search.results": "{count} results",
@@ -6740,7 +6745,7 @@ export default {
   "skills.assistant_workflow": "Assistant workflow",
   "skills.title_invalid": "Use letters, numbers, and spaces.",
   "skills.columns_to_extract": "Columns to extract",
-  "skills.instructions_placeholder": "Step-by-step instructions the agent follows.\\n\\n1. ...\\n2. ...",
+  "skills.instructions_placeholder": "Step-by-step instructions the agent follows.\n\n1. ...\n2. ...",
   "skills.columns_placeholder":
     "Describe the columns to extract from each document, one per line.\\n\\nGoverning law\\nTermination notice period\\nLiability cap",
   "skills.from_github": "From GitHub",
@@ -6856,6 +6861,13 @@ export default {
   "model_picker.no_match": "No models match your search.",
   "model_picker.disable_provider": "Disable this provider",
   "model_picker.enable_provider": "Enable this provider",
+  "model_picker.title": "Models",
+  "model_picker.done": "Done",
+  "model_picker.badge_new": "New",
+  "model_picker.badge_current": "Current",
+  "model_picker.provider_enable": "Enable",
+  "model_picker.provider_enabled": "Enabled",
+  "model_picker.recommended_section": "Recommended",
   "workspace.remove_failed": "Could not remove this project.",
   "workspace.remove_confirm": "Remove this project from the sidebar?",
   "ext.composer_computer_use": "Use Computer Use to ",

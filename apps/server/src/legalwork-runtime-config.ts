@@ -109,6 +109,7 @@ import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
 import { LAWOSS_MEMORY_TOOL, browserLoginRules, fileChangeRules, newClientRules } from "./lawoss/tool-permission-defaults.js";
 import { lawossToolDenialRules, LAWOSS_LOAD_WIKI_TOOLS } from "./lawoss/hidden-upstream-tools.js";
 import { yoloModeActive, yoloNativeAgentRules } from "./lawoss/yolo-mode.js";
+import { LAWOSS_DISABLED_ENGINE_PLUGINS } from "./lawoss/engine-foreign-skills.js";
 import { nativeHostExecutionActions } from "./agent-sandbox/engine-policy.js";
 import { REVIEW_AGENT, reviewAgentConfig } from "./reviews/agent.js";
 
@@ -604,7 +605,8 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     // The final process-owned directives restore mandatory guards even when a
     // trusted authored document removes plugins. Only the unsafe native command
     // expansion loader is replaced; native MCP discovery and execution remain.
-    await writeGeneratedConfigFile(mandatoryRuntimeConfigFilePath(config), JSON.stringify({ plugins: [...mandatoryPlugins, "-opencode.config.command"] }));
+    // 🟡 LAWOSS #530: ani kompatibilný plugin skillov `.claude`/`.agents` (lawoss/engine-foreign-skills.ts).
+    await writeGeneratedConfigFile(mandatoryRuntimeConfigFilePath(config), JSON.stringify({ plugins: [...mandatoryPlugins, "-opencode.config.command", ...LAWOSS_DISABLED_ENGINE_PLUGINS] }));
     await writeOrgPolicyEngineLayer(config, await buildOrgPolicyEngineLayerFor(config, workspaceId));
     // The shared document lives outside the native configuration directory.
     // Signal the completed publication inside its recursive watch as well: an

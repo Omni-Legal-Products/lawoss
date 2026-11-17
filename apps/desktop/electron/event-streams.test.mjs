@@ -47,7 +47,7 @@ test("closing a window aborts a connection still waiting for headers", async () 
   }));
   const opening = bridge.open(owner, "pending", "http://localhost/events", {});
   owner.emit("destroyed");
-  await assert.rejects(opening);
+  assert.equal(await opening, null);
   await assert.rejects(bridge.read(owner, "pending"), /closed/);
 });
 
@@ -59,4 +59,21 @@ test("completed streams are released and unsupported protocols are rejected", as
   assert.equal(new TextDecoder().decode(await bridge.read(owner, "complete")), "done");
   assert.equal(await bridge.read(owner, "complete"), null);
   await assert.rejects(bridge.read(owner, "complete"), /closed/);
+});
+
+test("a stream the window cancels while it opens resolves without an IPC error (#506)", async () => {
+  const owner = new Owner();
+  const bridge = createEventStreams((_url, { signal }) => new Promise((_resolve, reject) => {
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  }));
+  const opening = bridge.open(owner, "cancelled", "http://localhost/events", {});
+  bridge.cancel(owner, "cancelled");
+  assert.equal(await opening, null);
+  await assert.rejects(bridge.read(owner, "cancelled"), /closed/);
+});
+
+test("a failed open that nobody cancelled still rejects (#506)", async () => {
+  const owner = new Owner();
+  const bridge = createEventStreams(async () => { throw new TypeError("fetch failed"); });
+  await assert.rejects(bridge.open(owner, "down", "http://localhost/events", {}), /fetch failed/);
 });

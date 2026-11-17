@@ -14,6 +14,14 @@ describe("desktop event streams", () => {
     await expect(opening).rejects.toThrow("Changed server");
     expect(cancelled).toBe(true);
   });
+  test("a stream main reports as cancelled while opening rejects as an abort (#506)", async () => {
+    const opening = fetchDesktopStream({
+      async __streamOpen() { return null; },
+      __streamRead: async () => null,
+      __streamCancel: async () => {},
+    }, "http://localhost/events");
+    await expect(opening).rejects.toMatchObject({ name: "AbortError" });
+  });
   test("preserves split UTF-8 chunks and request authorization without buffering the entire stream", async () => {
     const bytes = new TextEncoder().encode("data: geändert\n\n");
     const chunks = [bytes.slice(0, 8), bytes.slice(8)];

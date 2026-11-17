@@ -1,4 +1,5 @@
 import { diagnosticsDe } from "../../lawoss/i18n/diagnostics";
+import { filePreviewDe } from "../../lawoss/i18n/file-preview";
 import { deadlinesDe } from "../../lawoss/i18n/deadlines";
 import { setupDe } from "../../lawoss/i18n/setup";
 import { initialDe } from "../../lawoss/i18n/initial";
@@ -6,6 +7,7 @@ import { mattersDe } from "../../lawoss/i18n/matters";
 import { integrationsDe } from "../../lawoss/i18n/integrations";
 import { shellDe } from "../../lawoss/i18n/shell";
 import { ocrDe } from "../../lawoss/i18n/ocr";
+import { csvEditorDe } from "../../lawoss/i18n/csv-editor";
 import { projectTemplateStrings } from "@legalwork/types/workspace";
 /**
  * German translations (Deutsch)
@@ -24,12 +26,14 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
 
 const de = {
   ...diagnosticsDe,
+  ...filePreviewDe,
   ...setupDe,
   ...initialDe,
   ...mattersDe,
   ...integrationsDe,
   ...shellDe,
   ...ocrDe,
+  ...csvEditorDe,
   "shutdown.restart_title": "Änderungen vor dem Neustart speichern?",
   "shutdown.close_title": "Änderungen vor dem Schließen speichern?",
   "shutdown.description": "Diese Dateien enthalten ungespeicherte Änderungen. Speichern Sie Ihre Arbeit oder verwerfen Sie die Änderungen, um fortzufahren.",
@@ -1428,6 +1432,7 @@ const de = {
   "content_search.files_skipped": "Einige Dateien in {project} konnten nicht durchsucht werden.",
   "content_search.searching": "Suche läuft…",
   "content_search.no_results": "Keine Treffer. Versuchen Sie andere Wörter.",
+  "content_search.no_results_preparing": "Noch keine Treffer. Dateien werden noch vorbereitet: {count}.",
   "content_search.start": "Durchsuchen Sie Ihre Projekte und deren Inhalte.",
   "content_search.refine": "Die besten Treffer werden angezeigt. Grenze die Suche weiter ein.",
   "content_search.results": "{count} Treffer",
@@ -7065,7 +7070,7 @@ const de = {
   "skills.title_invalid": "Verwenden Sie nur Buchstaben, Ziffern und Leerzeichen.",
   "skills.columns_to_extract": "Zu extrahierende Spalten",
   "skills.instructions_placeholder":
-    "Schritt-für-Schritt-Anweisungen, denen der Agent folgt.\\n\\n1. ...\\n2. ...",
+    "Schritt-für-Schritt-Anweisungen, denen der Agent folgt.\n\n1. ...\n2. ...",
   "skills.columns_placeholder":
     "Beschreiben Sie die Spalten, die aus jedem Dokument extrahiert werden sollen, eine pro Zeile.\\n\\nAnwendbares Recht\\nKündigungsfrist\\nHaftungsobergrenze",
   "skills.from_github": "Von GitHub",
@@ -7194,6 +7199,13 @@ const de = {
   "model_picker.no_match": "Keine Modelle entsprechen Ihrer Suche.",
   "model_picker.disable_provider": "Diesen Anbieter deaktivieren",
   "model_picker.enable_provider": "Diesen Anbieter aktivieren",
+  "model_picker.title": "Modelle",
+  "model_picker.done": "Fertig",
+  "model_picker.badge_new": "Neu",
+  "model_picker.badge_current": "Aktuell",
+  "model_picker.provider_enable": "Aktivieren",
+  "model_picker.provider_enabled": "Aktiviert",
+  "model_picker.recommended_section": "Empfohlen",
   "workspace.remove_failed": "Dieses Projekt konnte nicht entfernt werden.",
   "workspace.remove_confirm": "Dieses Projekt aus der Seitenleiste entfernen?",
   "ext.composer_computer_use": "Computer Use verwenden, um ",

@@ -23,3 +23,8 @@ test("already cancelled requests never start and empty responses remain valid", 
   await expect(fetchDesktopText(bridge, "https://example.test", { signal: controller.signal })).rejects.toThrow(); expect(calls).toBe(0);
   const response = await fetchDesktopText(bridge, "https://example.test"); expect(response.status).toBe(204); expect(response.body).toBeNull();
 });
+
+test("a request main reports as cancelled rejects as an abort, never as an empty response (#506)", async () => {
+  const bridge = { __fetch: async () => null, __fetchCancel: async () => {} };
+  await expect(fetchDesktopText(bridge, "https://example.test")).rejects.toMatchObject({ name: "AbortError" });
+});

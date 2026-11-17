@@ -4,7 +4,8 @@
  * Prepnutie ide cez ten istý `activateLocalWorkspace` ako rozsah kancelárie (lite/office-scope).
  * „Nájsť presunutý priečinok“ (N-A7-1) prepojí existujúcich klientov na nové miesto namiesto ich nového pridania.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { t, type Language } from "@/i18n";
@@ -14,6 +15,7 @@ import { ADD_FOLDER_PATH } from "../lite/links";
 import type { OkfConnection } from "../okf/connection";
 import { activateLocalWorkspace } from "../okf/matter-session";
 import { missingFolderAlternatives, switchToWorkspace } from "../okf/missing-folder";
+import { recoverFolder, watchFolderReturn } from "../shell/workspace-folder";
 import { lastSegment, previewMovedFolder, reconnectMovedFolder, withReconnectedPaths, type MovedFolderPreview } from "../okf/moved-folder";
 
 type Choice = { id: string; name: string };
@@ -30,9 +32,11 @@ type ViewProps = {
   locale: Language; name: string; alternatives: readonly Choice[]; busy: boolean; failed?: boolean; onSwitch: (id: string) => void;
   /** Bez `onFind` (napr. bez spojenia so serverom) sa ponuka hľadania neukáže. */
   onFind?: () => void; review?: MovedFolderReview | null; notice?: string | null; onConfirm?: () => void; onCancel?: () => void;
+  /** #494: priečinok je možno späť – overí ho a klienta obnoví bez obnovenia okna. */
+  onRetry?: () => void;
 };
 
-export function MissingFolderView({ locale, name, alternatives, busy, failed = false, onSwitch, onFind, review, notice, onConfirm, onCancel }: ViewProps) {
+export function MissingFolderView({ locale, name, alternatives, busy, failed = false, onSwitch, onFind, review, notice, onConfirm, onCancel, onRetry }: ViewProps) {
   return (
     <div className="lw-status warn grid gap-2" role="alert" data-lawoss-missing-folder>
       <p>{t("lawoss.lite.folder_missing", locale, { name })}</p>
@@ -49,6 +53,7 @@ export function MissingFolderView({ locale, name, alternatives, busy, failed = f
       ) : (
         <div className="flex flex-wrap gap-2">
           {onFind ? <button type="button" className="lw-btn gold" disabled={busy} onClick={onFind}>{t("lawoss.lite.folder_missing_find", locale)}</button> : null}
+          {onRetry ? <button type="button" className="lw-btn" disabled={busy} onClick={onRetry}>{t("lawoss.lite.folder_missing_retry", locale)}</button> : null}
           <Link className={onFind ? "lw-btn" : "lw-btn gold"} to={ADD_FOLDER_PATH}>{t("lawoss.lite.folder_missing_choose", locale)}</Link>
           {alternatives.map(choice => (
             <button key={choice.id} type="button" className="lw-btn" disabled={busy} onClick={() => onSwitch(choice.id)}>{t("lawoss.lite.folder_missing_switch", locale, { name: choice.name })}</button>
@@ -88,6 +93,25 @@ export function MissingFolder({ connection, missing, unavailable }: { connection
     setBusy(false);
   };
   const client = connection.client;
+  // #494: kým je karta na obrazovke, priečinok sa overuje každých 5 s; keď je späť, klient sa obnoví sám.
+  const queries = useQueryClient();
+  const probe = client ? () => client.listWorkspaceDirectory(missing.id, "") : undefined;
+  const latestProbe = useRef(probe); latestProbe.current = probe;
+  // Revízia #500: po návrate priečinka sa overovanie zastaví a dopyty sa obnovia len raz.
+  const stopWatch = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (!client) return;
+    const stop = watchFolderReturn(() => latestProbe.current, queries, { hidden: () => typeof document !== "undefined" && document.visibilityState === "hidden" });
+    stopWatch.current = stop;
+    return stop;
+  }, [client, missing.id, queries]);
+  const onRetry = probe ? async () => {
+    setBusy(true); setNotice(null);
+    const back = await recoverFolder(probe, queries);
+    if (back) stopWatch.current();
+    else setNotice(t("lawoss.lite.folder_missing_still", locale));
+    setBusy(false);
+  } : undefined;
   const onFind = client ? async () => {
     setBusy(true); setFailed(false); setNotice(null);
     try {
@@ -119,5 +143,5 @@ export function MissingFolder({ connection, missing, unavailable }: { connection
   };
   const review = preview ? { folder: lastSegment(preview.folderPath), names: preview.matches.map(item => item.name), notFound: preview.notFound.map(item => item.name), nameOnly: preview.matches.filter(item => item.evidence === "name").map(item => item.name) } : null;
   return <MissingFolderView locale={locale} name={nameOf(missing)} alternatives={alternatives.map(workspace => ({ id: workspace.id, name: nameOf(workspace) }))} busy={busy} failed={failed} onSwitch={(id) => void onSwitch(id)}
-    onFind={onFind ? () => void onFind() : undefined} review={review} notice={notice} onConfirm={() => void onConfirm()} onCancel={() => setPreview(null)} />;
+    onFind={onFind ? () => void onFind() : undefined} onRetry={onRetry ? () => void onRetry() : undefined} review={review} notice={notice} onConfirm={() => void onConfirm()} onCancel={() => setPreview(null)} />;
 }

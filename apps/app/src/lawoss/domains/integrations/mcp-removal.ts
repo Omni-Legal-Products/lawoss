@@ -12,3 +12,16 @@ export const MCP_REMOVE_TIMEOUT_MS = 180_000;
 export function removalMayBeRunning(error: unknown): boolean {
   return error instanceof Error && error.message === t("app.request_timed_out");
 }
+
+/**
+ * #442: a removal started from a dialog that closes at once (directory detail of a connection). The store throws
+ * `remove_pending` past the deadline and returns `false` on other failures; neither may become an unhandled rejection
+ * the lawyer never sees. The message goes to `report` (a toast), which outlives the dialog.
+ */
+export async function settleMcpRemoval(removal: void | Promise<void | false>, report: (message: string) => void): Promise<void> {
+  try {
+    if (await removal === false) report(t("mcp.remove_failed"));
+  } catch (error) {
+    report(error instanceof Error && error.message ? error.message : t("mcp.remove_failed"));
+  }
+}

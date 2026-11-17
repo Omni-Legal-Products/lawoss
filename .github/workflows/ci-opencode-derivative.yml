@@ -31,8 +31,54 @@ permissions:
   contents: read
   actions: read
 jobs:
+  # 🟡 LAWOSS: výber runnera na ubuntu. macOS arm64 runnery GitHubu bývajú preťažené a beh
+  # potom zruší job „not acquired by Runner“, hoci engine netreba kompilovať. Engine, ktorý už
+  # je v cache, v artefakte základného commitu PR alebo vo výslovne prevzatom behu, sa stiahne
+  # a overí na ubuntu (overenie nezávisí od hostiteľa). Kompilácia ostáva na pinovanom macos-15.
+  runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      os: ${{ steps.select.outputs.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - name: Identify the exact development build inputs
+        if: inputs.build-mode == 'development' && inputs.reuse-run-id == ''
+        id: cache-key
+        run: node scripts/ci/cache-opencode-derivative.mjs key
+      - name: Look up the exact development engine build
+        if: steps.cache-key.outputs.key != ''
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: opencode-derivative-cache
+          key: ${{ steps.cache-key.outputs.key }}
+          lookup-only: true
+      - name: Find an existing engine from the unchanged PR base
+        if: steps.cache-key.outputs.key != '' && steps.cache.outputs.cache-hit != 'true'
+        id: base-producer
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/cache-opencode-derivative.mjs base-producer
+      - name: Select the runner
+        id: select
+        env:
+          PREBUILT: ${{ inputs.reuse-run-id != '' || steps.cache.outputs.cache-hit == 'true' || steps.base-producer.outputs.run-id != '' }}
+        run: |
+          if [ "$PREBUILT" = true ]; then os=ubuntu-latest; else os=macos-15; fi
+          echo "os=$os" >> "$GITHUB_OUTPUT"
+          echo "Engine build runner: $os"
   build:
-    runs-on: ${{ inputs.reuse-run-id != '' && 'ubuntu-latest' || 'macos-15' }}
+    needs: runner
+    runs-on: ${{ needs.runner.outputs.os }}
     timeout-minutes: 90
     outputs:
       manifest-sha256: ${{ steps.verified.outputs.manifest-sha256 || steps.engine.outputs.manifest-sha256 || steps.reuse.outputs.manifest-sha256 }}
@@ -121,8 +167,15 @@ jobs:
         id: cache
         uses: actions/cache/restore@v4
         with:
-          path: ${{ runner.temp }}/opencode-derivative/distribution
+          # 🟡 LAWOSS: relatívna cesta, aby cache zdieľal macOS builder aj ubuntu (runner.temp sa líši).
+          path: opencode-derivative-cache
           key: ${{ steps.cache-key.outputs.key }}
+      - name: Move the restored development engine into place
+        if: steps.cache.outputs.cache-hit == 'true'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/opencode-derivative"
+          mv opencode-derivative-cache "$RUNNER_TEMP/opencode-derivative/distribution"
       - name: Find an existing engine from the unchanged PR base
         if: inputs.build-mode == 'development' && steps.mode.outputs.reuse != 'true' && steps.cache.outputs.cache-hit != 'true'
         id: base-producer
@@ -154,11 +207,15 @@ jobs:
         if: inputs.build-mode == 'development' && steps.mode.outputs.reuse != 'true'
         id: verified
         run: node scripts/ci/cache-opencode-derivative.mjs verify "$RUNNER_TEMP/opencode-derivative/distribution"
+      - name: Stage the verified development build for the shared cache
+        if: inputs.build-mode == 'development' && steps.mode.outputs.reuse != 'true' && steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: cp -R "$RUNNER_TEMP/opencode-derivative/distribution" opencode-derivative-cache
       - name: Save the verified development build
         if: inputs.build-mode == 'development' && steps.mode.outputs.reuse != 'true' && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: ${{ runner.temp }}/opencode-derivative/distribution
+          path: opencode-derivative-cache
           key: ${{ steps.cache-key.outputs.key }}
       - name: Remove owned production signing material
         if: always() && inputs.build-mode == 'production'

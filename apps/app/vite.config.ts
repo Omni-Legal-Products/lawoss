@@ -77,6 +77,8 @@ export default defineConfig({
     ...(process.env.LEGALWORK_VISUAL_PREVIEW === "1" ? { hmr: false } : {}),
     port: devPort,
     strictPort: true,
+    // 🟡 LAWOSS #455: výstup buildu Word add-inu (zapisuje ho `pnpm dev`) nesmie vynútiť full-reload okna.
+    watch: { ignored: ["**/dist-word-addin/**"] },
     ...(allowedHosts.size > 0 ? { allowedHosts: Array.from(allowedHosts) } : {}),
   },
   build: {

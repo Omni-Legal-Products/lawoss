@@ -19,6 +19,13 @@ export const diagnosticsEn = {
   "lawoss.diagnostics.intake_unregistered": "The original was saved to {path}, but its entry in the intake register could not be saved. Do not import it again before checking the register.",
   "lawoss.diagnostics.inbox_missing": "The working profile {path} has no inbox role.",
   "lawoss.diagnostics.file_too_large": "The file {path} is too large to import.",
+  // LAWOSS #509: diagnostics of the client's generated OpenCode settings (engine-project-diagnostic.tsx).
+  "lawoss.diagnostics.project_folder_unavailable": "This client folder is unavailable. Reconnect its existing folder before the agent can work in it.",
+  "lawoss.diagnostics.project_access_denied": "LAWOSS cannot read or update this client's settings in its .opencode folder. Reconnect the client folder and allow access to it, then click Refresh. Other clients remain available.",
+  "lawoss.diagnostics.project_files_authored": "Both OpenCode settings files in the client's .opencode folder were written by someone else. LAWOSS keeps them intact and needs .opencode/opencode.json or .opencode/opencode.jsonc for its own settings.",
+  "lawoss.diagnostics.project_projection_edited": "The settings file that LAWOSS generates in the client's .opencode folder was changed outside LAWOSS. Move your changes into another OpenCode settings file, remove .opencode/opencode.json and click Refresh.",
+  "lawoss.diagnostics.project_projection_unreceipted": "LAWOSS generated the settings file in the client's .opencode folder, but its private record is missing (app data were reset). LAWOSS takes the file over the next time it publishes settings if it still matches them. Click Refresh. If you edited the file, move your changes into another OpenCode settings file and remove .opencode/opencode.json.",
+  "lawoss.diagnostics.project_projection_foreign": "Another LAWOSS installation (another computer or user profile) that opened this client folder replaced the settings file in its .opencode folder. Click Refresh: LAWOSS takes the file over if its structure matches these settings. Otherwise move any changes into another OpenCode settings file and remove .opencode/opencode.json.",
 };
 
 export const diagnosticsCs = {
@@ -42,6 +49,13 @@ export const diagnosticsCs = {
   "lawoss.diagnostics.intake_unregistered": "Originál byl uložen do {path}, ale zápis do registru vstupů se nezdařil. Před dalším importem zkontrolujte registr.",
   "lawoss.diagnostics.inbox_missing": "Pracovní profil {path} nemá roli inbox.",
   "lawoss.diagnostics.file_too_large": "Soubor {path} je pro import příliš velký.",
+  // LAWOSS #509: diagnostics of the client's generated OpenCode settings (engine-project-diagnostic.tsx).
+  "lawoss.diagnostics.project_folder_unavailable": "Složka klienta není dostupná. Před prací agenta znovu připojte její existující složku.",
+  "lawoss.diagnostics.project_access_denied": "LAWOSS nemůže číst ani měnit nastavení klienta ve složce .opencode. Znovu připojte složku klienta, povolte k ní přístup a klikněte na Obnovit. Ostatní klienti zůstávají dostupní.",
+  "lawoss.diagnostics.project_files_authored": "Oba soubory nastavení OpenCode ve složce .opencode klienta napsal někdo jiný. LAWOSS je ponechá beze změny a pro svá nastavení potřebuje .opencode/opencode.json nebo .opencode/opencode.jsonc.",
+  "lawoss.diagnostics.project_projection_edited": "Soubor nastavení, který LAWOSS generuje ve složce .opencode klienta, byl změněn mimo LAWOSS. Přesuňte své změny do jiného souboru nastavení OpenCode, odstraňte .opencode/opencode.json a klikněte na Obnovit.",
+  "lawoss.diagnostics.project_projection_unreceipted": "Soubor nastavení ve složce .opencode klienta vygeneroval LAWOSS, ale chybí jeho soukromý záznam (data aplikace byla obnovena). LAWOSS soubor převezme při příštím zveřejnění nastavení, pokud jim stále odpovídá. Klikněte na Obnovit. Pokud jste soubor upravili, přesuňte změny do jiného souboru nastavení OpenCode a odstraňte .opencode/opencode.json.",
+  "lawoss.diagnostics.project_projection_foreign": "Jiná instalace LAWOSS (jiný počítač nebo uživatelský profil), která otevřela tuto složku klienta, nahradila soubor nastavení ve složce .opencode. Klikněte na Obnovit: LAWOSS soubor převezme, pokud jeho struktura odpovídá těmto nastavením. Jinak přesuňte případné změny do jiného souboru nastavení OpenCode a odstraňte .opencode/opencode.json.",
 } satisfies Record<keyof typeof diagnosticsEn, string>;
 
 export const diagnosticsSk = {
@@ -65,6 +79,13 @@ export const diagnosticsSk = {
   "lawoss.diagnostics.intake_unregistered": "Originál bol uložený do {path}, ale zápis do registra vstupov sa nepodaril. Pred ďalším importom skontrolujte register.",
   "lawoss.diagnostics.inbox_missing": "Pracovný profil {path} nemá rolu inbox.",
   "lawoss.diagnostics.file_too_large": "Súbor {path} je na import príliš veľký.",
+  // LAWOSS #509: diagnostics of the client's generated OpenCode settings (engine-project-diagnostic.tsx).
+  "lawoss.diagnostics.project_folder_unavailable": "Priečinok klienta nie je dostupný. Pred prácou agenta znova pripojte jeho existujúci priečinok.",
+  "lawoss.diagnostics.project_access_denied": "LAWOSS nemôže čítať ani meniť nastavenia klienta v priečinku .opencode. Znova pripojte priečinok klienta, povoľte k nemu prístup a kliknite na Obnoviť. Ostatní klienti ostávajú dostupní.",
+  "lawoss.diagnostics.project_files_authored": "Oba súbory nastavení OpenCode v priečinku .opencode klienta napísal niekto iný. LAWOSS ich ponechá bez zmeny a pre svoje nastavenia potrebuje .opencode/opencode.json alebo .opencode/opencode.jsonc.",
+  "lawoss.diagnostics.project_projection_edited": "Súbor nastavení, ktorý LAWOSS generuje v priečinku .opencode klienta, bol zmenený mimo LAWOSS. Presuňte svoje zmeny do iného súboru nastavení OpenCode, odstráňte .opencode/opencode.json a kliknite na Obnoviť.",
+  "lawoss.diagnostics.project_projection_unreceipted": "Súbor nastavení v priečinku .opencode klienta vygeneroval LAWOSS, ale chýba jeho súkromný záznam (dáta appky boli obnovené). LAWOSS súbor prevezme pri ďalšom zverejnení nastavení, ak im stále zodpovedá. Kliknite na Obnoviť. Ak ste súbor upravili, presuňte zmeny do iného súboru nastavení OpenCode a odstráňte .opencode/opencode.json.",
+  "lawoss.diagnostics.project_projection_foreign": "Iná inštalácia LAWOSS (iný počítač alebo používateľský profil), ktorá otvorila tento priečinok klienta, nahradila súbor nastavení v priečinku .opencode. Kliknite na Obnoviť: LAWOSS súbor prevezme, ak jeho štruktúra zodpovedá týmto nastaveniam. Inak presuňte prípadné zmeny do iného súboru nastavení OpenCode a odstráňte .opencode/opencode.json.",
 } satisfies Record<keyof typeof diagnosticsEn, string>;
 
 export const diagnosticsDe = {
@@ -88,4 +109,11 @@ export const diagnosticsDe = {
   "lawoss.diagnostics.intake_unregistered": "Das Original wurde unter {path} gespeichert, aber der Eintrag im Eingangsregister konnte nicht gespeichert werden. Prüfen Sie das Register vor einem erneuten Import.",
   "lawoss.diagnostics.inbox_missing": "Das Arbeitsprofil {path} hat keine Inbox-Rolle.",
   "lawoss.diagnostics.file_too_large": "Die Datei {path} ist für den Import zu groß.",
+  // LAWOSS #509: diagnostics of the client's generated OpenCode settings (engine-project-diagnostic.tsx).
+  "lawoss.diagnostics.project_folder_unavailable": "Der Mandantenordner ist nicht verfügbar. Verbinden Sie den vorhandenen Ordner erneut, bevor der Agent darin arbeiten kann.",
+  "lawoss.diagnostics.project_access_denied": "LAWOSS kann die Einstellungen des Mandanten im Ordner .opencode weder lesen noch ändern. Verbinden Sie den Mandantenordner erneut, erlauben Sie den Zugriff und klicken Sie auf Aktualisieren. Andere Mandanten bleiben verfügbar.",
+  "lawoss.diagnostics.project_files_authored": "Beide OpenCode-Einstellungsdateien im Ordner .opencode des Mandanten wurden von jemand anderem geschrieben. LAWOSS lässt sie unverändert und benötigt .opencode/opencode.json oder .opencode/opencode.jsonc für seine eigenen Einstellungen.",
+  "lawoss.diagnostics.project_projection_edited": "Die Einstellungsdatei, die LAWOSS im Ordner .opencode des Mandanten erzeugt, wurde außerhalb von LAWOSS geändert. Übertragen Sie Ihre Änderungen in eine andere OpenCode-Einstellungsdatei, entfernen Sie .opencode/opencode.json und klicken Sie auf Aktualisieren.",
+  "lawoss.diagnostics.project_projection_unreceipted": "LAWOSS hat die Einstellungsdatei im Ordner .opencode des Mandanten erzeugt, aber ihr privater Nachweis fehlt (die App-Daten wurden zurückgesetzt). LAWOSS übernimmt die Datei bei der nächsten Veröffentlichung der Einstellungen, wenn sie ihnen noch entspricht. Klicken Sie auf Aktualisieren. Wenn Sie die Datei bearbeitet haben, übertragen Sie die Änderungen in eine andere OpenCode-Einstellungsdatei und entfernen Sie .opencode/opencode.json.",
+  "lawoss.diagnostics.project_projection_foreign": "Eine andere LAWOSS-Installation (anderer Computer oder anderes Benutzerprofil), die diesen Mandantenordner geöffnet hat, hat die Einstellungsdatei im Ordner .opencode ersetzt. Klicken Sie auf Aktualisieren: LAWOSS übernimmt die Datei, wenn ihre Struktur diesen Einstellungen entspricht. Andernfalls übertragen Sie etwaige Änderungen in eine andere OpenCode-Einstellungsdatei und entfernen Sie .opencode/opencode.json.",
 } satisfies Record<keyof typeof diagnosticsEn, string>;

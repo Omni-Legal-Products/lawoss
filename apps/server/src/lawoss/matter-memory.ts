@@ -286,7 +286,7 @@ export async function writeMatterMemoryForChat(config: ServerConfig, workspace: 
   // instruction like a deadline: its row in the case's input register. Without it (a task derived from a document,
   // which cites the document itself) or with `deadlines` (those go through `lawoss_memory_deadline`) there is no row.
   // The card quotes exactly what the register row will hold: a table cell has no `|` or control characters (`cellText`).
-  const said = instruction?.replace(/[\u0000-\u001f|]/g, " ").replace(/\s+/g, " ").trim();
+  const said = instruction === undefined ? undefined : lawyerSentence(instruction);
   const instructed = said !== undefined && !client && plan.kind === "create" && plan.type === "task" && !plan.fields.some((field) => field.startsWith("deadlines:"));
   const task = instructed ? await taskRegister(target, own) : null;
   // Bound to the file, the preview and the exact bytes of the record that will be written (and the register as shown).
@@ -310,6 +310,19 @@ export async function writeMatterMemoryForChat(config: ServerConfig, workspace: 
   const result = write(target, record, { ...options, apply: true });
   if (result.code !== 0) throw refused(result.out);
   return { status: "written", target: shown, id: plan.id, text: result.out };
+}
+
+/**
+ * #444: the lawyer's sentence as the register's table cell will hold it (no `|` or control characters, whitespace
+ * collapsed). Nothing of a sentence is left without a letter or digit (only `|`, control or invisible characters): such
+ * an instruction is refused, never written as an empty quote in `VSTUPY.md`.
+ */
+function lawyerSentence(instruction: string): string {
+  const said = instruction.replace(/[\u0000-\u001f|]/g, " ").replace(/\s+/g, " ").trim();
+  if (!/[\p{L}\p{N}]/u.test(said)) {
+    throw new ApiError(400, "memory_instruction_empty", "The instruction has no words of the lawyer's sentence (only separators or control characters). Nothing was written. Quote the lawyer's sentence as written, or omit instruction for a task derived from a document.");
+  }
+  return said;
 }
 
 /** The case's input register for a new task's row: its path, its bytes now and the next free input ID. */
@@ -366,6 +379,7 @@ async function writeInstructionDeadline(config: ServerConfig, workspace: Workspa
   if (!parsed.success) throw new ApiError(400, "memory_arguments", "Send the case folder, the date the lawyer stated (YYYY-MM-DD), what the deadline is for and the lawyer's sentence.");
   const { matter, date, what, instruction, apply = false, approved } = parsed.data;
   if (!isAbsolute(matter) || matter.includes("\0")) throw new ApiError(400, "memory_arguments", "Use the absolute path of this client's case folder.");
+  lawyerSentence(instruction); // #444: the same sentence check as a task's instruction, before anything is read.
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     throw new ApiError(422, "memory_deadline_date", "A deadline needs the explicit calendar date the lawyer stated (YYYY-MM-DD). Never derive or compute it. Nothing was written. Ask the lawyer for the exact date.");
   }

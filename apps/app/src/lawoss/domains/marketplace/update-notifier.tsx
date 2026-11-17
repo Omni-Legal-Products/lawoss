@@ -85,8 +85,9 @@ export function MarketplaceUpdateNotifier({ api: injected }: { api?: LawossMarke
       api ??= await loadMarketplaceApi().catch(() => null);
       if (!api || cancelled) return;
       const view = await api.view().catch(() => null);
-      if (!view || cancelled || view.check?.status !== "ok" || !view.updates.length) return;
-      const signature = updatesSignature(view.check.release.tag, view.updates);
+      // #510: aktualizácie z pribaleného katalógu sú aj bez úspešnej kontroly vydaní.
+      if (!view || cancelled || !view.updates.length) return;
+      const signature = updatesSignature(view.check?.status === "ok" ? view.check.release.tag : "bundled", view.updates);
       if (alreadyNotified(signature)) return;
       markNotified(signature);
       const catalog = getMarketplaceCatalog(currentLocale());

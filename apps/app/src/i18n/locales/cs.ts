@@ -1,5 +1,6 @@
 import { projectTemplateStrings } from "@legalwork/types/workspace";
 import { diagnosticsCs } from "../../lawoss/i18n/diagnostics";
+import { filePreviewCs } from "../../lawoss/i18n/file-preview";
 import { deadlinesCs } from "../../lawoss/i18n/deadlines";
 import { setupCs } from "../../lawoss/i18n/setup";
 import { initialCs } from "../../lawoss/i18n/initial";
@@ -7,6 +8,7 @@ import { mattersCs } from "../../lawoss/i18n/matters";
 import { integrationsCs } from "../../lawoss/i18n/integrations";
 import { shellCs } from "../../lawoss/i18n/shell";
 import { ocrCs } from "../../lawoss/i18n/ocr";
+import { csvEditorCs } from "../../lawoss/i18n/csv-editor";
 /**
  * LAWOSS česká lokalizace — celé rozhraní. Právní názvosloví podle českého práva (ČAK, o. s. ř., IZ);
  * nikdy nepřekládat slovenské pojmy do češtiny záměnou písmen (AGENTS.md). Chybějící klíče padají v t() na angličtinu.
@@ -15,12 +17,14 @@ import { ocrCs } from "../../lawoss/i18n/ocr";
 export default {
   ...projectTemplateStrings.cs,
   ...diagnosticsCs,
+  ...filePreviewCs,
   ...setupCs,
   ...initialCs,
   ...mattersCs,
   ...integrationsCs,
   ...shellCs,
   ...ocrCs,
+  ...csvEditorCs,
   "office_addins.tab_label": "Doplňky Office",
   "office_addins.tab_description": "LegalWork v aplikacích Word, Excel a PowerPoint",
   "office_addins.about_title": "LegalWork v Microsoft Office",
@@ -1712,7 +1716,7 @@ export default {
   "skills.uninstall": "Odinstalovat",
   "skills.uninstall_failed": "Skill se nepodařilo odinstalovat.",
   "skills.uninstall_title": "Odinstalovat skill?",
-  "skills.uninstall_warning": "Skill `{name}` bude trvale odstraněn z vašeho pracovního prostoru.",
+  "skills.uninstall_warning": "Skill `{name}` a jeho soubory se trvale odstraní z vaší knihovny skillů, tedy u všech klientů.",
   "skills.uninstalled": "Skill odebrán.",
   "skills.unknown_error": "Neznámá chyba",
   "skills.worker_profile_desc": "Skills jsou základní schopnosti tohoto workeru. Objevujte je v Hubu, spravujte nainstalované a vytvářejte nové přímo v chatu.",
@@ -2610,7 +2614,7 @@ export default {
   "context_panel.add_folder": "Přidat složku",
   "google_workspace.oauth_setup_hint": "Použijte desktopového OAuth klienta Google Cloud. LegalWork již obsahuje ID desktopového klienta; sem vložte odpovídající client secret.",
   "google_workspace.secret_saved_locally": "Secret se ukládá místně v nastavení prostředí LegalWork a použije se po restartu místního serveru.",
-  "skills.new_skill_desc": "Popište, kdy má agent tento skill použít a co má udělat. Uloží se do vašeho pracovního prostoru jako SKILL.md.",
+  "skills.new_skill_desc": "Popište, kdy má agent tento skill použít a co má udělat. Uloží se do vaší knihovny skillů a bude k dispozici u všech klientů.",
   "skills.add_workflow": "Přidat workflow",
   "skills.tabular_desc": "Zkontrolujte/extrahujte definovanou sadu sloupců napříč mnoha dokumenty pomocí skillu tabular-review.",
   "skills.assistant_desc": "Běžný skill, postupné instrukce pro právní úkol.",
@@ -3139,7 +3143,7 @@ export default {
   "skills.assistant_workflow": "Asistenční workflow",
   "skills.title_invalid": "Používejte písmena, číslice a mezery.",
   "skills.columns_to_extract": "Sloupce k extrakci",
-  "skills.instructions_placeholder": "Pokyny krok za krokem, kterými se agent řídí.\\n\\n1. ...\\n2. ...",
+  "skills.instructions_placeholder": "Pokyny krok za krokem, kterými se agent řídí.\n\n1. ...\n2. ...",
   "skills.columns_placeholder": "Popište sloupce, které se mají z každého dokumentu extrahovat, každý na samostatný řádek.\\n\\nRozhodné právo\\nVýpovědní doba\\nLimit odpovědnosti",
   "skills.from_github": "Z GitHubu",
   "skills.select_all": "Vybrat vše",
@@ -3239,6 +3243,13 @@ export default {
   "model_picker.no_match": "Hledání neodpovídají žádné modely.",
   "model_picker.disable_provider": "Zakázat tohoto poskytovatele",
   "model_picker.enable_provider": "Povolit tohoto poskytovatele",
+  "model_picker.title": "Modely",
+  "model_picker.done": "Hotovo",
+  "model_picker.badge_new": "Nové",
+  "model_picker.badge_current": "Aktuální",
+  "model_picker.provider_enable": "Povolit",
+  "model_picker.provider_enabled": "Povolený",
+  "model_picker.recommended_section": "Doporučené",
   "workspace.remove_confirm": "Odebrat tento pracovní prostor z postranního panelu?",
   "ext.composer_computer_use": "Pomocí Computer Use ",
   "ext.composer_google_workspace": "Pomocí Google Workspace ",
@@ -3859,6 +3870,7 @@ export default {
   "content_search.files_skipped": "Některé soubory v {project} nelze prohledat.",
   "content_search.searching": "Vyhledávání…",
   "content_search.no_results": "Žádné výsledky. Zkuste jiná slova.",
+  "content_search.no_results_preparing": "Zatím nic nenalezeno. Ještě se připravují soubory: {count}.",
   "content_search.start": "Prohledávejte své klienty a obsah jejich složek.",
   "content_search.refine": "Zobrazují se nejlepší výsledky. Pro více výsledků vyhledávání upřesněte.",
   "content_search.results": "Výsledky {count}",
