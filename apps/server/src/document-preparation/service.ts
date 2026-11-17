@@ -32,6 +32,8 @@ export const prepareInput = z.strictObject({
   ocr: ReviewOcrSchema.default("always"),
   /** LAWOSS: page layout runs only when the request asks for it for these documents (lawoss/layout-on-demand.ts). */
   layout: z.boolean().default(false),
+  /** 🟡 LAWOSS #465: len už pripravený dokument z vyrovnávacej pamäte; nič nevykresľuje ani nečíta OCR (hľadanie na pozadí). */
+  cachedOnly: z.boolean().default(false),
 });
 /** Own text that carries the page, not just a page number, stamp or header. */
 const hasOwnText = (text: string) => (text.match(/[\p{L}\p{N}]/gu)?.length ?? 0) >= 100;
@@ -113,7 +115,7 @@ export class DocumentPreparation {
   private async run(job: Job, root: string, sources: Awaited<ReturnType<typeof documentPath>>[], input: z.infer<typeof prepareInput>, selected: Snapshot, engine: OcrEngineInfo) {
     if (job.controller.signal.aborted) return;
     job.status = "running";
-    try { await selected.download?.wait(job.controller.signal); } catch (error) {
+    try { if (!input.cachedOnly) await selected.download?.wait(job.controller.signal); } catch (error) {
       // LAWOSS: the first-use model download failed or was cancelled; nothing was read.
       for (const entry of job.documents) Object.assign(entry, { status: "error", error: job.controller.signal.aborted ? "Preparation was cancelled. Retry to resume completed pages." : firstUseFailure(error) });
       job.status = job.controller.signal.aborted ? "cancelled" : "needs-review"; job.notice = job.noticeCode = undefined; return;
@@ -139,6 +141,7 @@ export class DocumentPreparation {
         if (prior && prior.pages.length === prior.pageCount && prior.pages.every(page => pagePrepared(page, input.layout))) { // LAWOSS: lawoss/layout-on-demand.ts
           entry.completedPages = prior.pageCount; entry.pageCount = prior.pageCount; entry.status = prior.status; continue;
         }
+        if (input.cachedOnly) { entry.status = "error"; entry.error = "The document has not been prepared yet."; entry.preparationPath = undefined; continue; } // 🟡 LAWOSS #465
         let rendered: RenderedDocument | undefined;
         try {
           rendered = await (this.options.open ?? openDocument)(bytes, source.kind);

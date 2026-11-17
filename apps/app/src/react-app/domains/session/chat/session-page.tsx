@@ -22,14 +22,16 @@ import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { ProjectReviews } from "../../reviews/project-reviews";
 import { ProjectsPage } from "../../workspace/projects-page";
 import { ProjectHome } from "../../workspace/project-home";
-import { ClientOverview } from "@/lawoss/lite/client-overview";
+import { ClientInitials, ClientOverview } from "@/lawoss/lite/client-overview";
 import { useClientDisplayName } from "@/lawoss/lite/client-row-view";
 import { clientDeadlinesLink } from "@/lawoss/lite/links";
 import { ProjectPersonalisationProvider } from "../../workspace/project-personalisation-modal";
 import { EngineProjectRecovery } from "../../workspace/engine-project-approval";
+import { isFolderUnavailableMessage, workspaceErrorText } from "@/lawoss/shell/workspace-folder"; // 🟡 LAWOSS #494
 /** @jsxImportSource react */
 import { LanguageSwitcher } from "@/lawoss/shell/language-switcher";
 import { isProjectViewHidden, isWikiHidden } from "@/lawoss/feature-flags";
+import { chatTabLabelUpdates } from "@/lawoss/shell/chat-tab-labels"; // 🟡 LAWOSS #512
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -873,6 +875,10 @@ export function SessionPage(props: SessionPageProps) {
       if (tab.type === "chat" && isAssistantChat(tab.sessionId)) usePanelTabStore.getState().updateTabLabel(workspaceScope, tab.id, props.sidebar.assistantProfile?.name ?? t("assistant.title"));
     }
   }, [assistantWorkspace, workspaceScope, workspacePanel.tabs, isAssistantChat, props.sidebar.assistantProfile?.name]);
+  useEffect(() => { // 🟡 LAWOSS #512
+    const updates = chatTabLabelUpdates(workspacePanel.tabs, id => isAssistantChat(id) ? undefined : sessionInfo(id)?.title ?? sessionTitleForId(props.sidebar.workspaceSessionGroups, id));
+    for (const update of updates) usePanelTabStore.getState().updateTabLabel(workspaceScope, update.tabId, update.label);
+  }, [workspaceScope, workspacePanel.tabs, isAssistantChat, sessionInfo, props.sidebar.workspaceSessionGroups]);
   useEffect(() => {
     // Closing the tab updates the store before navigation updates the route props.
     // Do not adopt that still-selected route again during this intermediate render.
@@ -946,12 +952,15 @@ export function SessionPage(props: SessionPageProps) {
     selectedWorkspaceGroupError ||
     "";
   const showSelectedWorkspaceError = Boolean(selectedWorkspaceErrorMessage);
+  // 🟡 LAWOSS #494: chýbajúci priečinok klienta preložene s jeho menom (kód zo `workspaceErrorMessage`), nie anglická veta servera.
+  const selectedWorkspaceErrorText = workspaceErrorText(selectedWorkspaceErrorMessage, projectName);
+  const folderUnavailable = isFolderUnavailableMessage(selectedWorkspaceErrorMessage) ? projectName : undefined;
   const workspaceErrorNotice = showSelectedWorkspaceError ? (
     <div role="alert" className="mx-6 mt-4 shrink-0 rounded-xl border border-red-7/35 bg-red-1/40 p-4 text-sm text-red-11">
-      <p className="whitespace-pre-wrap wrap-anywhere">{selectedWorkspaceErrorMessage}</p>
+      <p className="whitespace-pre-wrap wrap-anywhere">{selectedWorkspaceErrorText}</p>
     </div>
   ) : null;
-  const selectedWorkspaceErrorTitle = "OpenCode unavailable";
+  const selectedWorkspaceErrorTitle = t("lawoss.engine.unavailable"); // 🟡 LAWOSS #494: bez „OpenCode“
 
   const reactSessionBaseUrl = props.opencodeBaseUrl?.trim() ?? "";
   const reactSessionToken =
@@ -1151,6 +1160,7 @@ export function SessionPage(props: SessionPageProps) {
       onViewAllDeadlines={inWorkspace || isProjectViewHidden("calendar") ? undefined : () => navigate(workspaceCalendarRoute(props.selectedWorkspaceId))}
       onRename={props.onRenameProject}
       extra={<ClientOverview workspaceId={props.selectedWorkspaceId} />}
+      leading={<ClientInitials workspaceId={props.selectedWorkspaceId} name={projectName} />} // 🟡 LAWOSS
     /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
   ) : null;
 
@@ -1362,6 +1372,8 @@ export function SessionPage(props: SessionPageProps) {
                   mcpConnectedCount={props.mcpConnectedCount}
                   loading={props.statusBar?.loading ?? false}
                   showSettingsButton={props.statusBar?.showSettingsButton}
+                  legalworkServerClient={props.legalworkServerClient} /* 🟡 LAWOSS #477 */
+                  folderUnavailable={folderUnavailable}
                 />
               ) : null}
             </main>
@@ -1525,7 +1537,7 @@ export function SessionPage(props: SessionPageProps) {
                       <div className="mx-auto max-w-lg rounded-2xl border border-red-7/35 bg-red-1/40 p-5 text-left shadow-[var(--dls-card-shadow)]">
                         <div className="text-sm font-medium text-red-11">{selectedWorkspaceErrorTitle}</div>
                         <p className="mt-2 whitespace-pre-wrap wrap-anywhere text-sm leading-6 text-red-11/90">
-                          {selectedWorkspaceErrorMessage}
+                          {selectedWorkspaceErrorText}
                         </p>
                         <div className="mt-4 flex flex-wrap gap-2">
                           <Button
@@ -1584,6 +1596,8 @@ export function SessionPage(props: SessionPageProps) {
               mcpConnectedCount={props.mcpConnectedCount}
               loading={props.statusBar?.loading ?? false}
               showSettingsButton={props.statusBar?.showSettingsButton}
+              legalworkServerClient={props.legalworkServerClient} /* 🟡 LAWOSS #477 */
+              folderUnavailable={folderUnavailable}
             />
           ) : null}
               </main>

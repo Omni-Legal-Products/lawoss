@@ -22,7 +22,8 @@ export type CreatePreview = { mode: "new"; appFiles: "inside"; target: string; c
 export type MapPreview = { mode: "map"; appFiles: "outside"; root: string; sourceDigest: string; externalProfile: { version: 1; matterId: string; roots: { id: string; path: string }[]; sources: { id: string; root: string; path: string; role: "case_memory"; required: true; writable: false; anchors: string[] }[] } };
 export type TrialClonePreview = { mode: "trial_clone"; appFiles: "inside"; source: string; sourceDigest: string; target: string; trial: true };
 export type OfficeRequest = { parent: string; name?: string; jurisdiction: "sk" | "cz"; title: string; language: "sk" | "cs" | "en"; lawyerName: string };
-export type ClientRequest = { parent: string; name: string; title: string; clientType: "fo" | "fo-podnikatel" | "po" | "iny"; jurisdiction: "sk" | "cz"; date: string; language?: "sk" | "cs" | "en" };
+// `ico` a `description` (#423): klient vetou v chate; formulár ich neposiela, karta ich potom má prázdne ako doteraz.
+export type ClientRequest = { parent: string; name: string; title: string; clientType: "fo" | "fo-podnikatel" | "po" | "iny"; jurisdiction: "sk" | "cz"; date: string; language?: "sk" | "cs" | "en"; ico?: string; description?: string };
 export type SubjectRequest = { clientRoot: string; name: string; title: string };
 export type MatterRequest = { clientRoot: string; parent: string; title: string; date: string; kind: MatterKind; area: string; jurisdiction: "sk" | "cz"; subject?: string; language?: "sk" | "cs" | "en" };
 
@@ -167,9 +168,102 @@ export async function planPracticeOffice(request: PracticeRequest): Promise<Crea
   const officeOperations = existing ? [config(existing.name), ...(existing.memory ? [] : memory(existing.name))] : [directory("Office"), config("Office"), ...memory("Office")];
   return { mode: "new", appFiles: "inside", target: root, plan: await rootPlan(root, [...officeOperations, ...practiceInstructions(names, request.language, clientPath, request.scope)]) };
 }
+/**
+ * #433 „podľa zvyklosti kancelárie“ (MČ 16. 11. 2026): keď priečinky klientov už nesú kód (`C001-syn-tatran-automatika-s-r-o`),
+ * nový klient dostane ďalší kód a slug mena; inak ostáva priečinok s menom klienta. Bez nového kľúča v `okf.config`.
+ * Kód číta aj `clientCode` v appke: 1–3 písmená a aspoň dve číslice, tu ešte pomlčka a slug za ním.
+ */
+const CLIENT_CODE = /^([A-Za-z]{1,3})(\d{2,})-(.+)$/;
+/** Najdlhší slug za kódom; skracuje sa na hranici slova (pomlčke). */
+const MAX_CLIENT_SLUG = 60;
+/** Písmená, ktoré Unicode rozklad (NFD) nerozloží na ASCII písmeno a diakritiku. */
+const ASCII_LETTERS: Record<string, string> = { ß: "ss", æ: "ae", œ: "oe", ø: "o", ł: "l", đ: "d", ð: "d", þ: "th", ı: "i" };
+
+/** Slug ako v kódovaných priečinkoch syntetickej kancelárie: malé ASCII písmená a číslice, pomlčky („s. r. o.“ → `s-r-o`). */
+export function clientFolderSlug(name: string): string {
+  const ascii = name.normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^\x00-\x7f]/g, letter => ASCII_LETTERS[letter] ?? "-");
+  const slug = ascii.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  if (slug.length <= MAX_CLIENT_SLUG) return slug;
+  const cut = slug.slice(0, MAX_CLIENT_SLUG + 1), boundary = cut.lastIndexOf("-");
+  return (boundary > 0 ? cut.slice(0, boundary) : slug.slice(0, MAX_CLIENT_SLUG)).replace(/-+$/, "");
+}
+
+/** Bežný priečinok klienta: nie skrytý (`.…`) ani prchavý (`Thumbs.db`, `~$…`); súbory a odkazy volajúci nepošle. */
+const countsAsClientFolder = (name: string) => !name.startsWith(".") && !VOLATILE_ENTRY.test(name);
+const comparableName = (name: string) => name.normalize("NFC").toLocaleLowerCase();
+
+/**
+ * Meno priečinka nového klienta podľa existujúcich priečinkov v priečinku klientov (čistá funkcia, #433).
+ * `folders` sú mená podpriečinkov (len skutočné priečinky, na väčšinu), `taken` všetky mená v priečinku (na kolíziu).
+ * Pravidlo: najčastejšia dvojica predpona + počet číslic kódu (`C` + 3) musí mať aspoň 2 priečinky a viac ako polovicu
+ * priečinkov klientov. Potom `<predpona><najvyššie číslo + 1>-<slug mena>`; medzery v číslovaní sa nevypĺňajú.
+ * Obsadené meno (aj inou veľkosťou písmen) sa nikdy neprepíše, berie sa ďalšie číslo. Inak meno klienta (`safeSegment`).
+ */
+export function newClientFolderName(name: string, folders: readonly string[], taken: readonly string[] = folders, cardTitles: ReadonlyMap<string, string> = new Map()): string {
+  const plain = safeSegment(name);
+  const clients = folders.filter(countsAsClientFolder);
+  const groups = new Map<string, { prefix: string; width: number; count: number; max: number }>();
+  for (const folder of clients) {
+    const match = CLIENT_CODE.exec(folder);
+    if (!match) continue;
+    const [, prefix, digits] = match, key = `${prefix}\u0000${digits.length}`;
+    const group = groups.get(key) ?? { prefix, width: digits.length, count: 0, max: 0 };
+    group.count += 1; group.max = Math.max(group.max, Number(digits));
+    groups.set(key, group);
+  }
+  const rule = [...groups.values()].sort((a, b) => b.count - a.count)[0];
+  if (!rule || rule.count < 2 || rule.count * 2 <= clients.length) return plain;
+  // Číslo nad šírkou kódu (C999 → C1000) predpona aj tak nesie; obsadené číslo inej šírky sa preskočí kolíziou nižšie.
+  const max = Math.max(...[...groups.values()].filter(group => comparableName(group.prefix) === comparableName(rule.prefix)).map(group => group.max));
+  const used = new Set(taken.map(comparableName));
+  const slug = clientFolderSlug(name) || "klient";
+  // Ten istý klient znova nie je nový klient: rovnaký slug za kódom alebo rovnaké meno na karte (porovnané slugom,
+  // teda bez diakritiky, veľkosti písmen a interpunkcie: „s.r.o.“ = „s. r. o.“). Iný klient s obsadeným číslom ide ďalej.
+  const sameClient = clients.find(folder => {
+    const match = CLIENT_CODE.exec(folder), title = cardTitles.get(folder);
+    return (match && match[3].toLowerCase() === slug) || (title !== undefined && clientFolderSlug(title) === slug);
+  });
+  if (sameClient && clientFolderSlug(name)) throw new ClientExistsError(sameClient);
+  for (let number = max + 1; ; number += 1) {
+    const code = `${rule.prefix}${String(number).padStart(rule.width, "0")}`;
+    const folder = safeSegment(`${code}-${slug}`);
+    const clash = (entry: string) => entry === comparableName(folder) || entry === comparableName(code) || entry.startsWith(`${comparableName(code)}-`);
+    if (![...used].some(clash)) return folder;
+  }
+}
+
+/** Klient s týmto menom už v priečinku klientov je (#433); `folder` je meno jeho priečinka. */
+export class ClientExistsError extends Error {
+  readonly code = "client_exists";
+  constructor(readonly folder: string) { super(`A client with this name already exists in the clients folder (${folder}). Nothing was created or overwritten.`); }
+}
+
+/** Koľko kariet klientov sa číta naraz (veľká kancelária, pomalý NAS). */
+const CARD_READS_AT_ONCE = 8;
+
+/** Mená v priečinku klientov pre `newClientFolderName` a názvy z kariet kódovaných priečinkov; nečitateľný priečinok = žiadne (chybu potom ohlási plán). */
+export async function clientsFolderEntries(parent: string): Promise<{ folders: string[]; taken: string[]; cardTitles: Map<string, string> }> {
+  const entries = await readdir(parent, { withFileTypes: true }).catch(() => []);
+  const folders = entries.filter(entry => entry.isDirectory()).map(entry => entry.name), cardTitles = new Map<string, string>();
+  const coded = folders.filter(folder => countsAsClientFolder(folder) && CLIENT_CODE.test(folder));
+  for (let index = 0; index < coded.length; index += CARD_READS_AT_ONCE) {
+    await Promise.all(coded.slice(index, index + CARD_READS_AT_ONCE).map(async folder => {
+      const title = (await clientCard(join(parent, folder)))?.title;
+      if (title) cardTitles.set(folder, title);
+    }));
+  }
+  return { folders, taken: entries.map(entry => entry.name), cardTitles };
+}
+
+/** Priečinok, ktorý pre nového klienta vznikne v `parent` (formulár aj `lawoss_new_client`, #433); ten istý klient znova = `ClientExistsError`. */
+export async function newClientFolder(parent: string, name: string): Promise<string> {
+  const { folders, taken, cardTitles } = await clientsFolderEntries(parent);
+  return newClientFolderName(name, folders, taken, cardTitles);
+}
+
 export async function planNewClient(request: ClientRequest): Promise<CreatePreview> {
-  const name = safeSegment(request.name), target = join(request.parent, name), language = request.language ?? "sk";
-  const generated = planEntity({ type: "klient", dir: target, title: request.title, clientType: request.clientType, language, jurisdiction: request.jurisdiction, date: request.date }, LOCALIZED_TEMPLATES, () => false);
+  const name = await newClientFolder(request.parent, request.name), target = join(request.parent, name), language = request.language ?? "sk";
+  const generated = planEntity({ type: "klient", dir: target, title: request.title, clientType: request.clientType, language, jurisdiction: request.jurisdiction, date: request.date, ...(request.ico ? { ico: request.ico } : {}), ...(request.description ? { description: request.description } : {}) }, LOCALIZED_TEMPLATES, () => false);
   return { mode: "new", appFiles: "inside", target, clientRoot: target, plan: await rootPlan(request.parent, templateOperations(name, generated.entries)) };
 }
 export async function planNewSubject(request: SubjectRequest): Promise<CreatePreview> {
@@ -179,8 +273,24 @@ export async function planNewSubject(request: SubjectRequest): Promise<CreatePre
   const card = `---\ntype: subject\ntitle: ${yaml(request.title)}\n---\n\n# ${request.title}\n`;
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.clientRoot, [directory(name), file(`${name}/subject.md`, card), directory(`${name}/memory`), file(`${name}/memory/.keep`, "")]) };
 }
+/** Skutočný kalendárny dátum v tvare RRRR-MM-DD (nie `2026-02-31`). */
+export function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
 /** Veci klienta žijú v `Spisy/` ako v šablóne klienta, jeho AGENTS.md, CLI `novy-spis` aj v čítaní pamäte. */
 const MATTERS_DIR = "Spisy";
+/**
+ * Pravidlo priečinka novej veci relatívne ku klientovi: `Spisy/<RRRR-MM> <názov>`. Jediný zdroj pre formulár novej
+ * veci, roztriedenie aj `okf plan|apply spis` bez `<dir>` (#416), aby názov priečinka neurčoval asistent.
+ */
+export function newMatterFolder(date: string, title: string): { name: string; folder: string } {
+  // #416: dátum je časť cesty; bez prísnej kontroly by `--date ../../zz` založil priečinok mimo klienta.
+  if (!isCalendarDate(date)) throw new Error(`Neplatný dátum prípadu „${date}“: zadaj skutočný dátum v tvare RRRR-MM-DD.`);
+  const name = `${date.slice(0, 7)} ${safeSegment(title)}`;
+  return { name, folder: `${MATTERS_DIR}/${name}` };
+}
 const CLIENT_CARDS = ["client.md", "klient.md"];
 
 /** Karta klienta a jej názov, aby nová vec vedela, komu patrí (`klient:` a odkaz v matter.md). */
@@ -209,9 +319,9 @@ export type MatterOperationsInput = {
  * bez priečinka `Spisy`. Rovnaký zdroj pre formulár novej veci aj pre roztriedenie spisu.
  */
 export function buildMatterOperations(input: MatterOperationsInput): { name: string; folder: string; operations: CreateOperation[] } {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !["contentious", "non_contentious"].includes(input.kind)) throw new Error("Valid date and matter kind are required.");
+  if (!isCalendarDate(input.date) || !["contentious", "non_contentious"].includes(input.kind)) throw new Error("Valid date and matter kind are required.");
   // Oblasť je údaj veci (`area:` v matter.md), nie priečinok.
-  const area = safeSegment(input.area), name = input.folder?.split("/").pop() ?? `${input.date.slice(0, 7)} ${safeSegment(input.title)}`, folder = input.folder ?? `${MATTERS_DIR}/${name}`;
+  const area = safeSegment(input.area), name = input.folder?.split("/").pop() ?? newMatterFolder(input.date, input.title).name, folder = input.folder ?? `${MATTERS_DIR}/${name}`;
   const generated = planEntity({ type: "spis", dir: folder, title: input.title, language: input.language, jurisdiction: input.jurisdiction, date: input.date, workingProfile: input.workingProfile, matterKind: input.kind === "contentious" ? "dispute" : "other", ...(input.clientTitle ? { klient: input.clientTitle } : {}), ...(input.clientCardPath ? { clientCardPath: input.clientCardPath } : {}), ...(input.extras?.caseNumber ? { spzn: input.extras.caseNumber } : {}), ...(input.extras?.counterparty ? { protistrana: input.extras.counterparty } : {}), ...(input.extras?.court ? { sud: input.extras.court } : {}) }, LOCALIZED_TEMPLATES, () => false);
   const template = templateOperations(folder, generated.entries).filter(operation => operation.path !== folder);
   const operations = [directory(folder), ...template.map(operation => operation.path === `${folder}/matter.md` && operation.kind === "file" ? file(operation.path, (operation.content ?? "").replace("type: spis", `type: matter\nkind: ${input.kind}\narea: ${yaml(area)}\nsubject: ${yaml(input.subject ?? "")}`)) : operation)];
@@ -219,12 +329,12 @@ export function buildMatterOperations(input: MatterOperationsInput): { name: str
 }
 
 export async function planNewMatter(request: MatterRequest): Promise<CreatePreview> {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(request.date) || !["contentious", "non_contentious"].includes(request.kind)) throw new Error("Valid date and matter kind are required.");
+  if (!isCalendarDate(request.date) || !["contentious", "non_contentious"].includes(request.kind)) throw new Error("Valid date and matter kind are required.");
   safeSegment(request.area);
   // Subjekt je meno priečinka subjektu. Cesta (C:\…\Divízia, /Users/…) by do karty veci
   // zapísala údaj tohto počítača, ktorý na inom počítači so zosynchronizovaným klientom neplatí.
   if (request.subject !== undefined && /[\\/]/.test(request.subject)) throw new Error("Matter subject must be the subject folder name, not a path.");
-  const name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join(request.parent, MATTERS_DIR, name);
+  const name = newMatterFolder(request.date, request.title).name, target = join(request.parent, MATTERS_DIR, name);
   const clientRoot = await realpath(request.clientRoot), parentRoot = await realpath(request.parent);
   // Windows: realpath vracia `\`, porovnanie s `${clientRoot}/` by odmietlo každý subjekt klienta.
   if (!contained(clientRoot, parentRoot)) throw new Error("Matter parent must be within the inspected client root.");

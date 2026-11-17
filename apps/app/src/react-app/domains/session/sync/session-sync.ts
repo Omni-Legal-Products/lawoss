@@ -15,6 +15,7 @@ import { scheduledTextMetadata } from "../../scheduled-tasks/scheduled-message";
 import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
 import { textPartProviderMetadata } from "./assistant-message-sender";
 import { commentaryTag, isModelCommentary, keepCommentaryAnswer, nativeTextMetadata } from "@/lawoss/chat/commentary";
+import { revalidateOkfAfterAgentTool, revalidateOkfAfterAgentTurn } from "@/lawoss/okf/overview-refresh";
 
 /** LAWOSS: engine v2 reports a text fragment's provider phase only when it ends (`data.native`). */
 const liveCommentary = (event: { type: string; data: { native?: unknown } }): boolean =>
@@ -75,7 +76,7 @@ import {
 } from "@/app/lib/eigenwelt-budget";
 import {
   createSessionErrorUIMessage,
-  describeOpencodeSessionError,
+  describeSessionFailure,
   isSessionAbortError,
   snapshotToUIMessages,
 } from "./usechat-adapter";
@@ -1339,6 +1340,7 @@ function applyEvent(
           state: { ...part.state, metadata: event.data.metadata },
         };
       if (event.type === "session.tool.success") {
+        revalidateOkfAfterAgentTool(cache, part.tool); // 🟡 LAWOSS #460: a write in the chat updates the OKF overview.
         const attachments = event.data.content.flatMap(
           (content, index): FilePart[] =>
             content.type === "file"
@@ -1470,11 +1472,9 @@ function applyEvent(
         event.type === "session.execution.failed"
           ? event.data.error
           : undefined;
-      const text =
-        usageLimitStop ??
-        (stopped
-          ? t("chat.stopped")
-          : describeOpencodeSessionError(error, "Session failed", provider));
+      // 🟡 LAWOSS #502: provider errors keep their notice (translated text + raw detail) for the chat card.
+      const failure = usageLimitStop || stopped ? undefined : describeSessionFailure(error, "Session failed", provider);
+      const text = failure?.text ?? usageLimitStop ?? t("chat.stopped");
       useComposerStateStore.getState().setQueuePaused(sessionId, true);
       if (stopped)
         useSessionActivityStore.getState().clearError(workspaceId, sessionId);
@@ -1491,7 +1491,7 @@ function applyEvent(
               createSessionErrorUIMessage(
                 latestAssistantMessageId(current) ?? sessionId,
                 text,
-                { stopped },
+                { stopped, providerError: failure?.providerError },
               ),
             ),
         );
@@ -1515,6 +1515,7 @@ function applyEvent(
     ["workspace-files", workspaceId],
   ])
     void cache.invalidateQueries({ queryKey: key });
+  revalidateOkfAfterAgentTurn(cache); // 🟡 LAWOSS #460: files may have changed during the turn (OKF overview).
   const runStartedAt = takeTaskRunStart(sessionId);
   if (runStartedAt !== null)
     captureRunOutcome(

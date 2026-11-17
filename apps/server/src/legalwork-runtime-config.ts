@@ -106,9 +106,10 @@ import { externalOpencodeConfigDir, usesExternalWorkspaceAppFiles } from "./lawo
 import { retireOutsideProjection } from "./lawoss/outside-stale-projection.js";
 import { OUTSIDE_CLIENTS_FILE, outsideSkillsDirectory, shareableConfiguration, withOutsideAgentSkeletons } from "./lawoss/outside-engine-config.js";
 import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
-import { LAWOSS_MEMORY_TOOL, browserLoginRules, fileChangeRules } from "./lawoss/tool-permission-defaults.js";
+import { LAWOSS_MEMORY_TOOL, browserLoginRules, fileChangeRules, newClientRules } from "./lawoss/tool-permission-defaults.js";
 import { lawossToolDenialRules, LAWOSS_LOAD_WIKI_TOOLS } from "./lawoss/hidden-upstream-tools.js";
 import { yoloModeActive, yoloNativeAgentRules } from "./lawoss/yolo-mode.js";
+import { LAWOSS_DISABLED_ENGINE_PLUGINS } from "./lawoss/engine-foreign-skills.js";
 import { nativeHostExecutionActions } from "./agent-sandbox/engine-policy.js";
 import { REVIEW_AGENT, reviewAgentConfig } from "./reviews/agent.js";
 
@@ -326,6 +327,8 @@ export async function buildLegalworkRuntimeSettings(
     ...fileChangeRules(configuredPermission, false),
     // LAWOSS: a saved login's new website asks always, also after a `*` allow (MČ 9. 11. 2026).
     ...browserLoginRules(),
+    // LAWOSS: a new client of the office asks always, also in YOLO (lawoss_new_client, MČ 31. 10. 2026).
+    ...newClientRules(configuredPermission),
     { action: "legalwork_project_set_instructions", resource: "*", effect:
       permissionAction(configuredPermission, "legalwork_project_set_instructions", "*") === "deny" ? "deny" : "ask" },
   ];
@@ -367,7 +370,7 @@ export async function buildLegalworkRuntimeSettings(
         description: "Scheduled task with access to all authorized local projects", mode: "primary", hidden: true,
         system: agentPrompt + "\nThis scheduled run may access all authorized local projects. Use legalwork_schedule_projects and legalwork_schedule_project_list/read to find and read project data. Use legalwork_recordings_list and legalwork_recording_read for recordings across those projects and unassigned global recordings. Read chat transcripts directly using kind=sessions and exact chat IDs. Do not open chats or navigate the LegalWork UI to retrieve data. If direct reads are unavailable, report that limitation. Existing tool permissions and approvals still apply.",
         // LAWOSS: after the copied rules, so a `*` allow there cannot silence lawoss_files.
-        permissions: [...allProjectTaskPermissions(memberPermission), ...fileChangeRules(configuredPermission, false), ...browserLoginRules()],
+        permissions: [...allProjectTaskPermissions(memberPermission), ...fileChangeRules(configuredPermission, false), ...browserLoginRules(), ...newClientRules(configuredPermission)],
       },
       legalwork: {
         ...runtimeAgentMap(runtimeConfig).legalwork,
@@ -376,7 +379,7 @@ export async function buildLegalworkRuntimeSettings(
         system: agentPrompt,
         // LAWOSS: „YOLO Mode" (lawoss/yolo-mode.ts) for the chat agent only; scheduled and other agents keep the shared rules.
         ...(config && await yoloModeActive(config) ? { permissions: [...runtimeAgentMap(runtimeConfig).legalwork?.permissions ?? [],
-          ...yoloNativeAgentRules(configuredPermission), ...fileChangeRules(configuredPermission, true), ...browserLoginRules()] } : {}),
+          ...yoloNativeAgentRules(configuredPermission), ...fileChangeRules(configuredPermission, true), ...browserLoginRules(), ...newClientRules(configuredPermission)] } : {}),
       },
     },
     commands: { ...core.commands, ...runtimeConfig.commands },
@@ -602,7 +605,8 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     // The final process-owned directives restore mandatory guards even when a
     // trusted authored document removes plugins. Only the unsafe native command
     // expansion loader is replaced; native MCP discovery and execution remain.
-    await writeGeneratedConfigFile(mandatoryRuntimeConfigFilePath(config), JSON.stringify({ plugins: [...mandatoryPlugins, "-opencode.config.command"] }));
+    // 🟡 LAWOSS #530: ani kompatibilný plugin skillov `.claude`/`.agents` (lawoss/engine-foreign-skills.ts).
+    await writeGeneratedConfigFile(mandatoryRuntimeConfigFilePath(config), JSON.stringify({ plugins: [...mandatoryPlugins, "-opencode.config.command", ...LAWOSS_DISABLED_ENGINE_PLUGINS] }));
     await writeOrgPolicyEngineLayer(config, await buildOrgPolicyEngineLayerFor(config, workspaceId));
     // The shared document lives outside the native configuration directory.
     // Signal the completed publication inside its recursive watch as well: an

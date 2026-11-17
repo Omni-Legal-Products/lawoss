@@ -55,7 +55,7 @@ export async function installNativeOkfPack(client: Pick<LegalworkServerClient, "
   const bundle = await import("../../okf/skill-bundle");
   for (const skill of [
     { name: bundle.NOVY_SPIS_SKILL_NAME, body: bundle.novySpisSkillBody(locale), resource: bundle.OKF_CLI_RESOURCE_NAME, content: bundle.okfCliSource() },
-    { name: bundle.OKF_PAMAT_SKILL_NAME, body: bundle.pamatSkillBody(), resource: bundle.OKF_MEMORY_CLI_RESOURCE_NAME, content: bundle.okfMemoryCliSource() },
+    { name: bundle.OKF_PAMAT_SKILL_NAME, body: bundle.pamatSkillBody(locale), resource: bundle.OKF_MEMORY_CLI_RESOURCE_NAME, content: bundle.okfMemoryCliSource() },
     { name: bundle.USPORIADAJ_SPIS_SKILL_NAME, body: bundle.usporiadajSpisSkillBody(), resource: bundle.OKF_CLI_RESOURCE_NAME, content: bundle.okfCliSource() },
     { name: bundle.ROZTRIED_SPIS_SKILL_NAME, body: bundle.roztriedSpisSkillBody(locale), resource: bundle.OKF_CLI_RESOURCE_NAME, content: bundle.okfCliSource() },
     { name: bundle.VYSTUP_SKILL_NAME, body: bundle.vystupSkillBody(), resource: bundle.POSTPROCESS_RESOURCE_NAME, content: bundle.postprocessSource() },

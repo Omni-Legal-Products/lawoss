@@ -56,8 +56,17 @@ const SEPARATOR = /[ \t]/;
  * následovat oddělovač (`"a"b` je pro shell jeden argument).
  */
 function tokenize(command: string): string[] | null {
+  return shellWords(command)?.map((word) => word.text) ?? null;
+}
+
+/**
+ * Tie isté slová ako `tokenize`, s príznakom, či slovo bolo v uvozovkách: `"&&"` je dáta, holé `&&` by bol operátor
+ * (karta príkazov OKF, `okf-command-card.ts`). Holé `&&` tu stále neprejde (`LITERAL_WORD`), volajúci ho musí povoliť sám.
+ */
+export type ShellWord = { text: string; quoted: boolean };
+export function shellWords(command: string, operators: ReadonlySet<string> = new Set()): ShellWord[] | null {
   if (CONTROL_CHAR.test(command) || CMD_EXPANSION.test(command)) return null;
-  const tokens: string[] = [];
+  const tokens: ShellWord[] = [];
   let i = 0;
   while (i < command.length) {
     while (i < command.length && SEPARATOR.test(command[i]!)) i++;
@@ -70,13 +79,13 @@ function tokenize(command: string): string[] | null {
       if (ch === '"' && DOUBLE_QUOTED_EXPANSION.test(body)) return null;
       i = end + 1;
       if (i < command.length && !SEPARATOR.test(command[i]!)) return null;
-      tokens.push(body);
+      tokens.push({ text: body, quoted: true });
     } else {
       const start = i;
       while (i < command.length && !SEPARATOR.test(command[i]!)) i++;
       const word = command.slice(start, i);
-      if (!LITERAL_WORD.test(word)) return null;
-      tokens.push(word);
+      if (!LITERAL_WORD.test(word) && !operators.has(word)) return null;
+      tokens.push({ text: word, quoted: false });
     }
   }
   return tokens;

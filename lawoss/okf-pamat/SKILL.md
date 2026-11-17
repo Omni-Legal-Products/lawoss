@@ -1,6 +1,6 @@
 ---
 name: okf-pamat
-description: Use when reading or writing case memory in an OKF matter folder (spis) or an explicit .lawoss/memory-profile.json workspace — recording facts, decisions, deadlines, subjects, lessons or legal authorities, and projecting them into _STATUS.md. Triggers (SK) — "zapíš do pamäte", "čo vieme o spise", "aktualizuj _STATUS", "skontroluj pamäť spisu", "povýš poznatok"; (CZ) — "zapiš do paměti", "co víme o spisu", "aktualizuj _STATUS", "zkontroluj paměť spisu", "povyš poznatek"; (EN) — "matter memory", "case memory", "record decision".
+description: Použite pri čítaní alebo zápise pamäte prípadu v spise OKF alebo v priestore s výslovným .lawoss/memory-profile.json — zaznamenanie faktov, rozhodnutí, lehôt, subjektov, poznatkov a právnych zdrojov a ich premietnutie do _STATUS.md. Spúšťače (SK) — "zapíš do pamäte", "čo vieme o spise", "aktualizuj _STATUS", "skontroluj pamäť spisu", "povýš poznatok"; (CZ) — "zapiš do paměti", "co víme o spisu", "aktualizuj _STATUS", "zkontroluj paměť spisu", "povyš poznatek"; (EN) — "matter memory", "case memory", "record decision".
 ---
 
 # okf-pamat — pamäť spisu
@@ -36,6 +36,19 @@ zapíš mi tú lehotu“), zavolaj raz `lawoss_memory_deadline` (`date` ako `RRR
 v `deadlines` označenú `deadline_basis: lawyer_instruction` (bez `verified`); advokát schvaľuje jednu
 kartu a zapíšu sa oba súbory alebo žiadny. Pokyn vopred neeviduj sám a nevysvetľuj pravidlá namiesto
 zápisu. Dátum neodvodzuj: bez výslovného dátumu alebo pri nejasnom prípade sa opýtaj jednou vetou.
+
+**Úloha alebo pripomienka, nie lehota.** „Pripomeň mi do 25. 11. …“, „zapíš to ako úlohu“, „daj si úlohu“
+je pracovná úloha advokáta, nie procesná lehota: zapíš ju `lawoss_memory_write` ako nový záznam `type: task`
+(`id` ďalšie voľné `T-…` podľa `read`, `state: pending`, `due: RRRR-MM-DD` = dátum z vety, **bez** `deadlines`),
+`title` čo treba urobiť, v `## Truth` veta advokáta. Karta povie „Zapísať úlohu do prípadu?“. `lawoss_memory_deadline`
+použi len vtedy, keď advokát hovorí o lehote (lehota na vyjadrenie, odvolanie, splatnosť, „zapíš lehotu“). Ak nie
+je jasné, či ide o úlohu alebo lehotu, spýtaj sa jednou vetou. Dátum neodvodzuj ani tu.
+
+**Ktorý prípad.** Advokát často povie len časť názvu („v prípade Úhrada dodávok …“). Prípady klienta sú priečinky
+pod `Spisy/` (zoznam cez `read` na `Spisy/`), ich názov je `title` v `matter.md`/`spis.md` (prečítaj kartu, ak názov
+priečinka nestačí). Porovnaj bez ohľadu na veľké písmená a diakritiku: názov začína slovami advokáta alebo ich všetky
+obsahuje. Práve jedna zhoda → použi ju a v odpovedi ju pomenuj celým názvom; viac zhôd → spýtaj sa, ktorý z nich
+(vymenuj ich); žiadna → povedz to a vymenuj prípady klienta. Nehovor, že prípad neexistuje, kým si nepozrel karty.
 
 V aplikácii LAWOSS je skill nainštalovaný do `.opencode/skills/okf-pamat/` aj s CLI
 `resources/okf-memory.js` (jeden súbor, bez závislostí). Všade, kde je nižšie

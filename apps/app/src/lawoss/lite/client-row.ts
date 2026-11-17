@@ -4,7 +4,7 @@
  *   meno, ktoré používateľ zadal sám (premenovanie projektu), ostáva;
  * - stručný stav riadku: len to, čo je v súboroch (najbližšia lehota, stav veci); chýbajúce = nič, nikdy „žiadne“;
  * - kontext chatu (Klient · Prípad) podľa priečinka chatu;
- * - bežný režim: krátky zoznam položiek pod klientom, ostatné pod „Viac“; rozbalený je jeden klient (accordion).
+ * - bežný režim: pevný krátky zoznam položiek pod klientom; rozbalený je jeden klient (accordion).
  */
 import { isOfficeFile, type MatterOverview } from "../../../../../lawoss/okf/read";
 import { canActOnSource, locateInScope, type OkfReadResult, type OkfScope } from "../okf/read-model";
@@ -137,18 +137,21 @@ export function groupOfDirectory<G extends Group>(scope: OkfScope | null, groups
   return best?.group ?? null;
 }
 
-/** Položky pod klientom v bežnom režime: Prehľad, Prípady, Chaty, Súbory, Pripojené priečinky. */
-const LITE_MAIN = ["projectHome", "projectMatters", "projectSessions", "projectFiles", "projectLinkedFolders"] as const;
-const isLiteMain = (key: string): boolean => LITE_MAIN.some((k) => k === key);
+/**
+ * Položky pod klientom v bežnom režime (alfa 14): Prehľad, Prípady, Dokumenty (natívne Súbory), Chaty. Nič iné
+ * (Pracovný priestor, Lehoty, Tabuľková kontrola, Úlohy, Pripojené priečinky) – ich stránky ostávajú, otvárajú sa
+ * z Prehľadu, prípadu, chatu a Dokumentov a v Pokročilom režime.
+ */
+export const LITE_PROJECT_ITEMS = ["projectHome", "projectMatters", "projectFiles", "projectSessions"] as const;
 
 /**
- * Rozdelenie položiek projektu: Pokročilý režim natívne (všetko v natívnom poradí, bez „Viac“); bežný režim krátky
- * zoznam v pevnom poradí a ostatné zapnuté položky (aj Pracovný priestor) pod „Viac“. Vypnuté položky ostanú vypnuté.
+ * Rozdelenie položiek projektu: Pokročilý režim natívne (zapnuté položky `items` v natívnom poradí); bežný režim
+ * pevný zoznam `LITE_PROJECT_ITEMS` z položiek, ktoré appka ponúka (`available`). Uložené prispôsobenie panela ho
+ * nemení: v bežnom režime sa prispôsobenie neponúka, takže vypnutú položku by nebolo kde zapnúť.
  */
-export function liteProjectNav<K extends string>(items: readonly K[], mode: UiMode): { lite: boolean; main: K[]; more: K[] } {
-  if (mode !== "lite") return { lite: false, main: [...items], more: [] };
-  const main = LITE_MAIN.flatMap((key) => items.filter((item) => item === key));
-  return { lite: true, main, more: items.filter((item) => !isLiteMain(item)) };
+export function liteProjectNav<K extends string>(items: readonly K[], mode: UiMode, available: readonly K[] = items): { lite: boolean; main: K[] } {
+  if (mode !== "lite") return { lite: false, main: [...items] };
+  return { lite: true, main: LITE_PROJECT_ITEMS.flatMap((key) => available.filter((item) => item === key)) };
 }
 
 /**

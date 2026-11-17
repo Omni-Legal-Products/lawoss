@@ -1,11 +1,13 @@
 /** @jsxImportSource react */
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AI_GUIDANCE_VERSION, type AiGovernanceView } from "@legalwork/types/ai-governance";
 import { t, type Language } from "@/i18n";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { publishAiBoundaries, useAiBoundaries } from "./boundaries-store";
 import { resolveLegalworkConnection, type ResolvedLegalworkConnection } from "@/react-app/shell/legalwork-connection";
+import { useUiMode } from "@/lawoss/lite/ui-mode";
 
 const copy: Record<Language, {title: string; remote: string; reading: string; profile: string; action: string; blocked: string; bounded: string; acknowledge: string; saved: string; failed: string; jurisdiction: string}> = {
   cs: {
@@ -16,7 +18,7 @@ const copy: Record<Language, {title: string; remote: string; reading: string; pr
     profile: "Použití chráněných údajů vyžaduje posouzení konkrétního účtu, účelu, kategorií údajů a příslušných jurisdikcí. Přihlášení ani placený tarif takové posouzení nenahrazují.",
     action: "Odeslání, podání nebo podpis se schvalují samostatně pro konkrétní úkon.",
     blocked: "Při zapnutých hranicích AI jsou běžný chat s neověřeným kontextem, vzdálené OCR, SystemOne a živý hlasový režim blokované. Veřejný text lze samostatně otestovat níže v odděleném prostředí. Ověření modelové hranice a kancelářské politiky není dokončeno. Blokace platí i pro localhost a zadání bez ověřeného kontextu. Model lze nastavit; pokračovat můžete bez něj. Ruční práce a soubory zůstávají dostupné.",
-    jurisdiction: "Jurisdikce informace", acknowledge: "Přečetl/a jsem informaci", saved: "Přečtení zaznamenáno. Povolení AI tím nevzniká.", failed: "Přečtení se nepodařilo zaznamenat na tomto zařízení.",
+    jurisdiction: "Jurisdikce informace", acknowledge: "Rozumím", saved: "Přečtení zaznamenáno. Povolení AI tím nevzniká.", failed: "Přečtení se nepodařilo zaznamenat na tomto zařízení.",
   },
   sk: {
     bounded: "Spracovanie vybraných dokumentov má samostatný podmienený režim: výslovne vyberiete existujúci posúdený profil prípadu pre nastavený účet a model. Hostiteľ skontroluje konkrétny priečinok, zdroje a každý úplný prenos. Nové právne schválenie tu vytvoriť nemožno; bez profilu pokračujte ručne. Syntetický test na doslovnej loopback adrese vyžaduje samostatné potvrdenie hostiteľa a nevytvára klientské oprávnenie.",
@@ -26,7 +28,7 @@ const copy: Record<Language, {title: string; remote: string; reading: string; pr
     profile: "Použitie chránených údajov vyžaduje posúdenie konkrétneho účtu, účelu, kategórií údajov a príslušných jurisdikcií. Prihlásenie ani platený program také posúdenie nenahrádzajú.",
     action: "Odoslanie, podanie alebo podpis sa schvaľujú samostatne pre konkrétny úkon.",
     blocked: "Pri zapnutých AI hraniciach sú bežný chat s neovereným kontextom, vzdialené OCR, SystemOne a živý hlasový režim blokované. Verejný text možno samostatne otestovať nižšie v oddelenom prostredí. Overenie modelovej hranice a kancelárskej politiky nie je dokončené. Blokovanie platí aj pre localhost a zadanie bez overeného kontextu. Model možno nastaviť; pokračovať môžete bez neho. Ručná práca a súbory zostávajú dostupné.",
-    jurisdiction: "Jurisdikcia informácie", acknowledge: "Prečítal/a som informáciu", saved: "Prečítanie zaznamenané. Povolenie AI tým nevzniká.", failed: "Prečítanie sa nepodarilo zaznamenať na tomto zariadení.",
+    jurisdiction: "Jurisdikcia informácie", acknowledge: "Rozumiem", saved: "Prečítanie zaznamenané. Povolenie AI tým nevzniká.", failed: "Prečítanie sa nepodarilo zaznamenať na tomto zariadení.",
   },
   en: {
     bounded: "Selected document processing has a separate conditional mode: explicitly choose an existing reviewed case profile for the configured account and model. The host reviews the exact directory, sources and every complete transmission. New legal approvals cannot be created here; without a profile continue manually. A synthetic test on a literal loopback address requires separate native review and creates no client grant.",
@@ -36,7 +38,7 @@ const copy: Record<Language, {title: string; remote: string; reading: string; pr
     profile: "Protected information requires a review of the particular account, purpose, data categories and applicable jurisdictions. Signing in or paying for a plan does not replace that review.",
     action: "Sending, filing and signing require a separate confirmation of the particular action.",
     blocked: "While AI boundaries are on, ordinary chat with an unverified context, remote OCR, SystemOne and realtime voice are blocked. Public text can be tested separately below in an isolated environment. The model boundary and firm policy are not yet verified. This also applies to localhost and requests without a verified context. You can configure a model and continue without it; manual work and files remain available.",
-    jurisdiction: "Information jurisdiction", acknowledge: "I have read this information", saved: "Reading recorded. This does not grant AI permission.", failed: "Reading could not be recorded on this device.",
+    jurisdiction: "Information jurisdiction", acknowledge: "Understood", saved: "Reading recorded. This does not grant AI permission.", failed: "Reading could not be recorded on this device.",
   },
   de: {
     bounded: "Für ausgewählte Dokumente besteht ein gesonderter bedingter Modus: Wählen Sie ausdrücklich ein bestehendes geprüftes Fallprofil für das konfigurierte Konto und Modell. Der Host prüft Verzeichnis, Quellen und jede vollständige Übertragung. Neue rechtliche Freigaben können hier nicht erstellt werden; ohne Profil arbeiten Sie manuell weiter. Ein synthetischer Test an einer wörtlichen Loopback-Adresse erfordert eine separate Hostprüfung und erzeugt keine Mandantenfreigabe.",
@@ -46,7 +48,7 @@ const copy: Record<Language, {title: string; remote: string; reading: string; pr
     profile: "Geschützte Informationen erfordern eine Prüfung von Konto, Zweck, Datenkategorien und einschlägigen Rechtsordnungen. Anmeldung oder Bezahltarif ersetzen diese Prüfung nicht.",
     action: "Versand, Einreichung und Signatur erfordern eine eigene Bestätigung des konkreten Vorgangs.",
     blocked: "Solange die KI-Grenzen aktiv sind, sind normaler Chat mit ungeprüftem Kontext, Remote-OCR, SystemOne und Echtzeit-Sprache gesperrt. Öffentlicher Text kann unten separat in einer isolierten Umgebung getestet werden. Modellgrenze und Kanzleirichtlinie sind noch nicht geprüft. Dies gilt auch für localhost und Anfragen ohne verifizierten Kontext. Sie können ein Modell konfigurieren und ohne Modell fortfahren; manuelle Arbeit und Dateien bleiben verfügbar.",
-    jurisdiction: "Rechtsordnung der Information", acknowledge: "Ich habe die Information gelesen", saved: "Lesen erfasst. Dadurch entsteht keine KI-Freigabe.", failed: "Das Lesen konnte auf diesem Gerät nicht erfasst werden.",
+    jurisdiction: "Rechtsordnung der Information", acknowledge: "Verstanden", saved: "Lesen erfasst. Dadurch entsteht keine KI-Freigabe.", failed: "Das Lesen konnte auf diesem Gerät nicht erfasst werden.",
   },
 };
 
@@ -54,8 +56,30 @@ export function createAiGuidanceClient(connection: ResolvedLegalworkConnection) 
   return createLegalworkServerClient({baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken, hostToken: connection.resolvedHostToken});
 }
 
+/**
+ * Test alfy 14. 11. 2026 (Nastavenia › Integrácie): úvod stránky bola stena textu „AI a chránené údaje“ a „Verejný text
+ * v oddelenom prostredí“. S `liteDisclosure` je v bežnom režime celý blok za zbaleným riadkom. Potvrdenie prečítania nič
+ * nepodmieňuje (nepovoľuje AI ani nič neodomyká), preto je zbalený aj pred potvrdením; „Rozumiem“ je vo vnútri ako doteraz.
+ * Text, ovládanie ani potvrdenie sa nemenia; pokročilý režim bez zmeny.
+ */
+function GuidanceDisclosure(props: {enabled: boolean; label: string; children: ReactNode}) {
+  return <GuidanceDisclosureView {...props} lite={useUiMode() === "lite"} />;
+}
+
+/** Test seam: zobrazenie podľa režimu. */
+export function GuidanceDisclosureView({enabled, lite, label, children}: {enabled: boolean; lite: boolean; label: string; children: ReactNode}) {
+  if (!enabled || !lite) return <>{children}</>;
+  return <details className="group text-sm" data-lawoss-ai-guidance-disclosure="">
+    <summary className="flex cursor-pointer list-none items-center gap-2 rounded border border-amber-500/60 px-3 py-2 font-medium group-open:mb-2 [&::-webkit-details-marker]:hidden">
+      <ChevronRight aria-hidden className="size-4 transition-transform group-open:rotate-90 motion-reduce:transition-none" />
+      {label}
+    </summary>
+    {children}
+  </details>;
+}
+
 /** Shared informational view: no checkbox or browser state can activate a provider. */
-export function AiGuidance({locale}: {locale: Language}) {
+export function AiGuidance({locale, liteDisclosure = false}: {locale: Language; liteDisclosure?: boolean}) {
   const text = copy[locale], id = useId();
   const [view, setView] = useState<AiGovernanceView | null>(null);
   const live = useAiBoundaries();
@@ -98,7 +122,8 @@ export function AiGuidance({locale}: {locale: Language}) {
       setSaved(true);
     } catch {setFailed(true);} finally {setBusy(false);}
   };
-  return <aside aria-labelledby={id} data-lawoss-ai-governance="unsupported" className="space-y-2 rounded border border-amber-500/60 p-3 text-sm">
+  return <GuidanceDisclosure enabled={liteDisclosure} label={t("lawoss.lite.ai_guidance_details", locale)}>
+  <aside aria-labelledby={id} data-lawoss-ai-governance="unsupported" className="space-y-2 rounded border border-amber-500/60 p-3 text-sm">
     <h3 id={id} className="font-semibold">{text.title}</h3>
     <p>{text.remote}</p><p>{text.reading}</p><p>{text.profile}</p><p>{text.action}</p>
     {/* AI hranice: shared with the Settings row, so a toggle updates this notice immediately.
@@ -127,5 +152,6 @@ export function AiGuidance({locale}: {locale: Language}) {
       {publicReply ? <output role="status" className="block whitespace-pre-wrap">{publicReply}</output> : null}
       {publicError ? <p role="alert">{publicError}</p> : null}
     </section>
-  </aside>;
+  </aside>
+  </GuidanceDisclosure>;
 }

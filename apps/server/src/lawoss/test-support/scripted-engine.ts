@@ -111,6 +111,8 @@ export async function startScriptedEngine(input: {
   managedConfig?: boolean;
   /** Replaces the production rules (each test states what its profile is). */
   configuration?: (production: Record<string, unknown>) => Record<string, unknown>;
+  /** false: plugin tools keep their own registration (Code Mode unless the plugin opts out), as the app runs them. */
+  directTools?: boolean;
 }) {
   const production = (await buildLegalworkRuntimeSettings(input.config, input.workspaceId)).configuration as Record<string, unknown>;
   const picked = Object.fromEntries(["default_agent", "permissions", "agents", "skills", "experimental"].flatMap((key) => production[key] === undefined ? [] : [[key, production[key]]]));
@@ -118,7 +120,7 @@ export async function startScriptedEngine(input: {
   await mkdir(runtimeStorageDir(input.config), { recursive: true });
   const file = join(runtimeStorageDir(input.config), `engine-config-${input.workspaceId}.json`);
   await writeFile(file, JSON.stringify({ update: "disable", ...rules }));
-  const direct = await directToolsPlugin(input.home);
+  const direct = input.directTools === false ? [] : [await directToolsPlugin(input.home)];
   const managed: PluginSpec[] = [];
   if (input.managedConfig) {
     const settingsPath = join(runtimeStorageDir(input.config), "engine-settings.json");
@@ -127,14 +129,14 @@ export async function startScriptedEngine(input: {
     await writeFile(settingsPath, JSON.stringify({ version: 2, workspaces, sharedConfiguration: {} }));
     managed.push({ name: "legalwork-managed-config", options: { settingsPath } });
   }
-  const plugins = [...[...managed, ...input.plugins].map((plugin) => typeof plugin === "string" ? builtPlugin(plugin) : { package: builtPlugin(plugin.name), options: plugin.options }), direct];
+  const plugins = [...[...managed, ...input.plugins].map((plugin) => typeof plugin === "string" ? builtPlugin(plugin) : { package: builtPlugin(plugin.name), options: plugin.options }), ...direct];
   const content = { update: "disable", warming: false, plugins, ...fixtureModel(input.modelUrl) };
   const engine = await startRealEngineV2(input.binary, input.home, input.cleanups, {
     OPENCODE_CONFIG: file, OPENCODE_CONFIG_CONTENT: JSON.stringify(content), OPENCODE_CONFIG_PROJECT_DISABLE: "1",
     LEGALWORK_SERVER_URL: input.serverUrl, [WIKI_AGENT_TICKET_ENV]: "synthetic-ticket",
   });
   const client = OpenCode.make({ baseUrl: engine.url, headers: { authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
-  const pluginIds = [...input.managedConfig ? ["legalwork.managed-config"] : [], ...input.pluginIds ?? [], "lawoss.test-direct-tools"];
+  const pluginIds = [...input.managedConfig ? ["legalwork.managed-config"] : [], ...input.pluginIds ?? [], ...direct.length ? ["lawoss.test-direct-tools"] : []];
   return { engine, client, file, chat: (directory: string, agent = "legalwork") => openChat(client, directory, agent, pluginIds) };
 }
 

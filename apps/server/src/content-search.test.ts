@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { PDFDocument } from "pdf-lib";
-import { searchFileContents } from "./content-search.js";
+import { contentPreparationLimits, preparationBacklog, searchFileContents, whenPreparationIdle } from "./content-search.js";
 import { DocumentPreparation } from "./document-preparation/service.js";
 import { OcrManager } from "./ocr/manager.js";
 import { OcrService } from "./ocr/service.js";
@@ -128,4 +128,140 @@ test("retry recovers every unreadable file across the background concurrency lim
   expect(recovered.items).toHaveLength(3);
   expect(recovered.incomplete).toBe(0);
   expect(recovered.retryable).toBe(false);
+});
+
+test("preparation continues in the background after a single search, without polling (#474)", async () => {
+  const f = await fixture(true);
+  for (let index = 0; index < 12; index++) await writeFile(join(f.root, `note-${index}.txt`), `Escrow clause number ${index}.`);
+  const first = await searchFileContents(f.workspace, "escrow", signal(), f.preparation, "owner");
+  expect(first.preparing).toBeGreaterThan(2);
+  await whenPreparationIdle(f.preparation);
+  const second = await searchFileContents(f.workspace, "escrow", signal(), f.preparation, "owner");
+  expect([second.preparing, second.items.length]).toEqual([0, 12]);
+});
+
+// 🟡 LAWOSS #525: bounded background queue, no cache thrash, idle and moved roots dropped.
+const defaultLimits = { ...contentPreparationLimits };
+afterEach(() => { Object.assign(contentPreparationLimits, defaultLimits); });
+/** Extraction held until `open()`, recording every started file. */
+function gatedExtraction() {
+  const started: string[] = [];
+  const waiting: Array<() => void> = [];
+  let opened = false;
+  contentPreparationLimits.extract = async (...args: Parameters<typeof extractCorpusText>) => {
+    started.push(join(args[0], args[1]));
+    if (!opened) await new Promise<void>((resolve) => waiting.push(resolve));
+    return extractCorpusText(...args);
+  };
+  return { started, open() { opened = true; for (const resolve of waiting.splice(0)) resolve(); } };
+}
+async function notes(root: string, count: number) {
+  for (let index = 0; index < count; index++) await writeFile(join(root, `note-${index}.txt`), `Escrow clause number ${index}.`);
+}
+const search = (f: Awaited<ReturnType<typeof fixture>>, workspace = f.workspace) =>
+  searchFileContents(workspace, "escrow", signal(), f.preparation, "owner");
+
+test("the background queue admits only what the cache holds and repeated searches do not re-prepare (#525)", async () => {
+  Object.assign(contentPreparationLimits, { queue: 3, cacheEntries: 6 });
+  const f = await fixture(true);
+  await notes(f.root, 12);
+  const gate = gatedExtraction();
+  const first = await search(f);
+  // Two start at once, three wait (queue limit), the rest are refused instead of reported as preparing.
+  expect([gate.started.length, first.preparing, first.limited]).toEqual([2, 5, true]);
+  expect(preparationBacklog(f.preparation)).toMatchObject({ running: 2, queued: 3 });
+  // Searching again while they wait queues nothing twice.
+  const again = await search(f);
+  expect([gate.started.length, again.preparing, preparationBacklog(f.preparation).queued]).toEqual([2, 5, 3]);
+  gate.open();
+  await whenPreparationIdle(f.preparation);
+  expect(gate.started.length).toBe(5);
+  await search(f);
+  await whenPreparationIdle(f.preparation);
+  // One more fits; then the cache is full of files this office just searched and nothing is evicted.
+  expect(gate.started.length).toBe(6);
+  for (let round = 0; round < 3; round++) {
+    const settled = await search(f);
+    await whenPreparationIdle(f.preparation);
+    expect([settled.items.length, settled.preparing, settled.limited]).toEqual([6, 0, true]);
+  }
+  expect(gate.started.length).toBe(6);
+  expect(new Set(gate.started).size).toBe(6);
+  expect(preparationBacklog(f.preparation).cached).toBe(6);
+});
+
+test("queued files of a root nobody searched for a while are dropped (#525)", async () => {
+  const f = await fixture(true);
+  await notes(f.root, 8);
+  const gate = gatedExtraction();
+  const now = Date.now();
+  contentPreparationLimits.now = () => now;
+  await search(f);
+  expect(preparationBacklog(f.preparation)).toMatchObject({ running: 2, queued: 6 });
+  contentPreparationLimits.now = () => now + contentPreparationLimits.idleMs;
+  gate.open();
+  await whenPreparationIdle(f.preparation);
+  expect(gate.started.length).toBe(2);
+  expect(preparationBacklog(f.preparation).queued).toBe(0);
+  // A new search resumes the remaining files.
+  await search(f);
+  await whenPreparationIdle(f.preparation);
+  expect(gate.started.length).toBe(8);
+  expect((await search(f)).items).toHaveLength(8);
+});
+
+test("concurrent searches of two workspaces keep each other's queue (#525)", async () => {
+  const f = await fixture(true);
+  const scratch = fileURLToPath(new URL("../../../.legalwork/scratch/", import.meta.url));
+  const other = await realpath(await mkdtemp(join(scratch, "search-fixture-other-")));
+  cleanups.push(() => rm(other, { recursive: true, force: true }));
+  const second: WorkspaceInfo = { ...f.workspace, id: "search-fixture-other", path: other };
+  await notes(f.root, 5);
+  await notes(other, 5);
+  const gate = gatedExtraction();
+  await Promise.all([search(f), search(f, second)]);
+  gate.open();
+  await whenPreparationIdle(f.preparation);
+  expect(gate.started.length).toBe(10);
+  const [first, next] = await Promise.all([search(f), search(f, second)]);
+  expect([first.items.length, first.preparing, next.items.length, next.preparing]).toEqual([5, 0, 5, 0]);
+});
+
+test("an office larger than the cache does not re-prepare when the palette searches every client (#525)", async () => {
+  Object.assign(contentPreparationLimits, { cacheEntries: 6 });
+  const f = await fixture(true);
+  const scratch = fileURLToPath(new URL("../../../.legalwork/scratch/", import.meta.url));
+  const other = await realpath(await mkdtemp(join(scratch, "search-fixture-other-")));
+  cleanups.push(() => rm(other, { recursive: true, force: true }));
+  const second: WorkspaceInfo = { ...f.workspace, id: "search-fixture-other", path: other };
+  await notes(f.root, 5);
+  await notes(other, 5);
+  const gate = gatedExtraction();
+  gate.open();
+  const counts: number[] = [];
+  for (let round = 0; round < 4; round++) {
+    await Promise.all([search(f), search(f, second)]);
+    await whenPreparationIdle(f.preparation);
+    counts.push(gate.started.length);
+  }
+  expect(counts.every((count) => count === counts[0])).toBe(true);
+  expect(new Set(gate.started).size).toBe(gate.started.length);
+  expect(preparationBacklog(f.preparation).cached).toBeLessThanOrEqual(6);
+});
+
+test("a workspace whose root changed drops the old root's queue (#525)", async () => {
+  const f = await fixture(true);
+  const scratch = fileURLToPath(new URL("../../../.legalwork/scratch/", import.meta.url));
+  const moved = await realpath(await mkdtemp(join(scratch, "search-fixture-moved-")));
+  cleanups.push(() => rm(moved, { recursive: true, force: true }));
+  await notes(f.root, 6);
+  await notes(moved, 3);
+  const gate = gatedExtraction();
+  await search(f);
+  expect(preparationBacklog(f.preparation).queued).toBe(4);
+  await search(f, { ...f.workspace, path: moved });
+  gate.open();
+  await whenPreparationIdle(f.preparation);
+  expect(gate.started.filter((path) => path.startsWith(f.root + "/")).length).toBe(2);
+  expect(gate.started.filter((path) => path.startsWith(moved + "/")).length).toBe(3);
 });

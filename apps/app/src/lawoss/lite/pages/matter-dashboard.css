@@ -1,0 +1,168 @@
+/*
+ * Prípad v bežnom režime ako pasívny prehľad (alfa 14, spec-pripad.md). Diely z Dnes a Klienta (today.css: dlaždice,
+ * štítky, riadok so štvorčekom dní, dok chatu) s tokenmi --td-* (okf-glass.css, .lw-matter). Svetlá aj tmavá téma cez
+ * tokeny; zaoblenia z dizajn systému; zlatá len ako glazúra s odleskom pri hoveri/fokuse, nikdy zvislý prúžok.
+ * Rozloženie podľa šírky stránky prípadu (container), nie okna: stránka je aj ~480 px karta vedľa chatu.
+ */
+.lw-matter.lw-pripad {
+  --dn-radius: var(--lw-radius-2xl, 18px);
+  --dn-radius-sm: var(--lw-radius-xl, 14px);
+  --dn-amber: var(--lw-warning, #d89a4e);
+  --dn-green: var(--lw-success, #8dbb8f);
+  container-name: lw-pripad;
+  gap: 18px;
+  padding-bottom: 0;
+}
+.lw-experiment-content > .lw-sheet:has(.lw-pripad-dock) { padding-bottom: 0; }
+
+/* Hlavička: drobček, názov, jeden riadok štítkov. */
+.lw-pripad-head { display: grid; gap: 6px; padding: 16px 4px 0; animation: lw-okf-rise 620ms var(--td-ease) both; }
+.lw-pripad-head .lw-matter-topline { margin: 0; }
+.lw-matter.lw-pripad .lw-h1 { font-size: clamp(24px, 3.4cqi, 34px); }
+.lw-pripad-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 0; }
+.lw-pripad-pills .lw-dnes-pill { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.lw-pripad-pills .lw-matter-copy { border: 0; font-family: var(--lw-font-mono); font-size: 12px; cursor: copy; transition: color 160ms var(--td-ease), background 160ms var(--td-ease); }
+.lw-pripad-pills .lw-matter-copy:hover { color: var(--lw-text-primary); background: color-mix(in srgb, var(--td-gold) 14%, transparent); }
+.lw-pripad-pills .lw-matter-copy[data-copied="ok"] { color: var(--lw-success, #7fb38a); }
+.lw-pripad-pills .lw-matter-copy[data-copied="failed"] { color: var(--td-hot); }
+
+/* Dlaždice: tri v rade, dve pod 620 px (dlaždica „Kde prípad stojí“ cez celú šírku), jedna pod 380 px. */
+.lw-pripad .lw-pripad-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@container lw-pripad (width < 620px) {
+  .lw-pripad .lw-pripad-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lw-pripad .lw-pripad-tiles > .lw-pripad-stage { grid-column: 1 / -1; grid-row: 2; }
+}
+@container lw-pripad (width < 380px) {
+  .lw-pripad .lw-pripad-tiles { grid-template-columns: minmax(0, 1fr); }
+  .lw-pripad .lw-pripad-tiles > .lw-pripad-stage { grid-row: auto; }
+}
+/* Výšku radu dáva obsah najvyššej dlaždice (bez min-height), cieľ ~105 px ako na Dnes (spec-lehoty.md B2). */
+.lw-pripad .lw-pripad-tiles > .lw-dnes-tile { padding: 14px 16px; }
+.lw-pripad .lw-pripad-tiles .lw-dnes-num { min-height: 36px; font-size: 34px; }
+.lw-pripad .lw-pripad-tiles .lw-dnes-num-word { font-size: 22px; }
+.lw-pripad-tile-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.lw-pripad-tile-line > .lw-dnes-tile-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw-pripad-tile-date { flex: none; font-size: 12px; color: var(--lw-text-tertiary); white-space: nowrap; }
+button.lw-pripad-tile-button { width: 100%; font: inherit; text-align: left; cursor: pointer; transition: transform 160ms var(--td-ease), border-color 160ms var(--td-ease); }
+button.lw-pripad-tile-button:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--td-gold) 45%, transparent); }
+.lw-pripad-num-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 8px; min-width: 0; }
+.lw-pripad .lw-pripad-num-row > .lw-dnes-pill { margin: 0; padding: 2px 8px; font-size: 11px; }
+.lw-pripad .lw-dnes-tile .lw-dnes-tile-sub + .lw-dnes-tile-sub { color: var(--lw-text-tertiary); font-size: 12px; }
+.lw-pripad-phase-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; margin-top: 4px; }
+.lw-pripad-phase { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; font-size: 18px; line-height: 1.25; font-weight: 600; color: var(--lw-text-primary); }
+.lw-pripad-phase[data-muted] { margin-top: 4px; font-size: 14px; font-weight: 500; color: var(--lw-text-tertiary); }
+.lw-pripad-phase-row > .lw-dnes-pill { margin: 0; padding: 1px 8px; font-size: 11px; }
+.lw-pripad-next { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--lw-text-secondary); }
+.lw-pripad-next svg { flex: none; color: var(--td-gold); }
+.lw-dnes-pill[data-tone="green"] { background: color-mix(in srgb, var(--dn-green) 15%, transparent); color: var(--dn-green); }
+.lw-dnes-pill[data-tone="gold"] { background: color-mix(in srgb, var(--td-gold) 15%, transparent); color: var(--td-gold-hi); }
+
+/* Priebeh: vodorovná os, na úzkej šírke posun do strany. */
+.lw-pripad-axis { display: grid; gap: 12px; padding: 16px 18px; }
+.lw-pripad-axis .lw-dnes-h2 { margin: 0; }
+.lw-pripad-os {
+  --os-line: color-mix(in srgb, var(--lw-text-primary) 14%, transparent);
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(104px, 1fr); gap: 0;
+  margin: 0; padding: 14px 0 4px; list-style: none; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin;
+}
+.lw-pripad-os > li { position: relative; display: grid; align-content: start; gap: 4px; min-width: 0; padding: 0 12px 0 0; }
+/* Čiara osi a bod pri každom zázname (vodorovne, nie zvislý prúžok). */
+.lw-pripad-os > li::before { content: ""; position: absolute; top: -10px; left: 0; right: 0; height: 1px; background: var(--os-line); }
+.lw-pripad-os > li::after {
+  content: ""; position: absolute; top: -14px; left: 0; width: 9px; height: 9px; border-radius: var(--lw-radius-full, 9999px);
+  background: var(--lw-surface); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--lw-text-primary) 40%, transparent);
+}
+.lw-pripad-os > li[data-future]::before { background: repeating-linear-gradient(90deg, var(--os-line) 0 4px, transparent 4px 8px); }
+.lw-pripad-os > li[data-future]::after { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--td-gold) 70%, transparent); }
+.lw-pripad-os > li[data-urgency="hot"]::after { background: var(--td-hot); box-shadow: none; }
+.lw-pripad-os > li[data-today]::after { background: var(--td-gold); box-shadow: 0 0 0 3px color-mix(in srgb, var(--td-gold) 22%, transparent); }
+.lw-pripad-os-date { font-family: var(--lw-font-mono); font-size: 11px; color: var(--lw-text-tertiary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lw-pripad-os > li[data-today] .lw-pripad-os-date { color: var(--td-gold-hi); font-family: var(--lw-font-sans); font-weight: 600; }
+.lw-pripad-os > li[data-future] .lw-pripad-os-date { color: var(--td-gold-hi); }
+.lw-pripad-os > li[data-urgency="hot"] .lw-pripad-os-date { color: var(--td-hot); }
+.lw-pripad-os-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; font-size: 13px; line-height: 1.3; color: var(--lw-text-primary); }
+.lw-pripad-os > li[data-future] .lw-pripad-os-text { color: var(--lw-text-secondary); }
+.lw-pripad-all > summary { display: inline-flex; align-items: center; gap: 4px; list-style: none; font-size: 12px; color: var(--lw-text-secondary); cursor: pointer; }
+.lw-pripad-all > summary::-webkit-details-marker { display: none; }
+.lw-pripad-all > summary::after { content: "▾"; color: var(--td-gold); }
+.lw-pripad-all[open] > summary::after { content: "▴"; }
+.lw-pripad-all[open] > summary { margin-bottom: 10px; }
+
+/* Tri stĺpce (bez strán dva); pod 760 px obsahu dva (strany pod nimi cez celú šírku), pod 480 px pod sebou. */
+/* Stĺpce majú rôznu výšku: zarovnané nahor, prázdny panel sa nenaťahuje (spec-lehoty.md B4). */
+.lw-pripad-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.lw-pripad-cols[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@container lw-pripad (width < 760px) {
+  .lw-pripad-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lw-pripad-cols > .lw-pripad-col:nth-child(3) { grid-column: 1 / -1; }
+}
+@container lw-pripad (width < 480px) {
+  .lw-pripad-cols, .lw-pripad-cols[data-cols="2"] { grid-template-columns: minmax(0, 1fr); }
+}
+.lw-pripad-col { display: flex; flex-direction: column; gap: 8px; padding: 16px 14px 12px; }
+.lw-pripad-col .lw-dnes-h2 { display: flex; align-items: center; gap: 8px; margin: 0 4px; font-size: 15px; }
+.lw-pripad-head-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lw-pripad-count { padding: 1px 8px; border-radius: var(--lw-radius-full, 9999px); background: color-mix(in srgb, var(--lw-text-primary) 7%, transparent); font-size: 12px; font-weight: 500; color: var(--lw-text-secondary); font-variant-numeric: tabular-nums; }
+.lw-pripad .lw-dnes-item { width: 100%; gap: 10px; padding: 7px 6px; border: 0; background: transparent; font: inherit; color: inherit; text-align: left; }
+.lw-pripad button.lw-dnes-item { cursor: pointer; }
+.lw-pripad div.lw-dnes-item:hover { background: transparent; }
+.lw-pripad button.lw-dnes-item:hover:not(:disabled) { background: color-mix(in srgb, var(--lw-text-primary) 5%, transparent); }
+.lw-pripad .lw-dnes-item .lw-dnes-dni { width: 52px; padding: 5px 0; }
+.lw-pripad .lw-dnes-item .lw-dnes-dni b { font-size: 18px; }
+.lw-pripad .lw-dnes-item .lw-dnes-dni span { max-width: 48px; font-size: 10.5px; }
+.lw-pripad .lw-dnes-item > .lw-dnes-pill { padding: 1px 8px; font-size: 11px; }
+/* V úzkom stĺpci štítok pôvodu pod názov, nech názov nezje „…“. */
+.lw-pripad-col .lw-dnes-item:has(> .lw-dnes-dni) { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 4px 10px; }
+.lw-pripad-col .lw-dnes-item:has(> .lw-dnes-dni) > .lw-dnes-dni { grid-row: 1 / span 2; }
+.lw-pripad-col .lw-dnes-item:has(> .lw-dnes-dni) > .lw-dnes-pill { grid-column: 2; justify-self: start; }
+/* Názov lehoty alebo úlohy najviac na dva riadky (spec-lehoty.md B1), celý v `title`. */
+.lw-pripad-col .lw-dnes-item-text b { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; white-space: normal; overflow-wrap: anywhere; line-height: 1.3; }
+.lw-pripad .lw-dnes-quiet.lw-pripad-empty { margin: 2px 4px; }
+.lw-pripad-link { margin: 2px 4px 0; padding: 0; border: 0; background: none; font: inherit; font-size: 12px; color: var(--lw-text-secondary); text-decoration: none; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.lw-pripad-link:hover { color: var(--td-gold-hi); }
+.lw-pripad-head-row .lw-pripad-link { margin: 0; }
+.lw-pripad-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lw-pripad-avatar {
+  flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--lw-radius-full, 9999px);
+  background: var(--lw-gold-glaze), var(--lw-surface); color: var(--lw-gold-glaze-text); box-shadow: inset 0 0 0 1px var(--lw-gold-glaze-border);
+  font-size: 11px; font-weight: 600;
+}
+
+/* Rozhovory o prípade: kompaktný zoznam. */
+.lw-pripad-chats { display: grid; gap: 6px; padding: 16px 14px 12px; }
+.lw-pripad-chats .lw-dnes-h2 { margin: 0 4px 2px; font-size: 15px; }
+.lw-pripad-chats .lw-pripad-all { margin: 0 4px; }
+.lw-pripad-chats .lw-pripad-all[open] > summary { margin-bottom: 4px; }
+.lw-pripad-conv .lw-dnes-mini-icon { flex: none; width: 30px; height: 30px; }
+.lw-pripad-conv:hover:not(:disabled) { background: color-mix(in srgb, var(--lw-text-primary) 5%, transparent); }
+.lw-pripad-conv:disabled { opacity: 0.55; cursor: default; }
+.lw-pripad-when { flex: none; font-size: 12px; color: var(--lw-text-tertiary); font-variant-numeric: tabular-nums; }
+.lw-pripad-conv .lw-matter-conv-go { flex: none; font-size: 12px; }
+@container lw-pripad (width < 520px) { .lw-pripad-conv .lw-matter-conv-go { display: none; } }
+
+/* Pole chatu dole: návrhy sú rýchle akcie (štýl návrhu z Dnes), „Ďalšie“ rozbalí ostatné nad poľom. */
+/* `.lw-matter > *` (matter.css) dáva deťom position: relative; dok musí ostať sticky dole. */
+.lw-matter.lw-pripad > .lw-pripad-dock { position: sticky; bottom: 0; z-index: 4; padding-top: 4px; }
+.lw-pripad-dock .lw-matter-action.lw-dnes-suggest {
+  padding: 0 12px; border: 1px solid color-mix(in srgb, var(--lw-text-primary) 14%, transparent); border-radius: var(--lw-radius-full, 9999px);
+  background: color-mix(in srgb, var(--lw-text-primary) 4%, transparent); color: var(--lw-text-secondary); font-size: 13px;
+}
+.lw-pripad-dock .lw-matter-action.lw-dnes-suggest:hover:not(:disabled) { transform: none; border-color: color-mix(in srgb, var(--td-gold) 55%, transparent); color: var(--td-gold-hi); }
+.lw-pripad-more > summary.lw-dnes-suggest { display: inline-flex; align-items: center; list-style: none; border-style: dashed; }
+.lw-pripad-more > summary::-webkit-details-marker { display: none; }
+.lw-pripad-more .lw-matter-more-list { top: auto; bottom: calc(100% + 8px); }
+.lw-pripad-hint { margin: -2px 2px 0; font-size: 11.5px; color: var(--lw-text-tertiary); }
+.lw-pripad-dock button:focus-visible, .lw-pripad-dock input:focus-visible, .lw-pripad-dock summary:focus-visible,
+.lw-pripad button:focus-visible, .lw-pripad a:focus-visible { outline: 2px solid var(--td-gold); outline-offset: 2px; }
+/* V úzkej karte vedľa chatu sa pole neukáže, chat je hneď vedľa. Stavy a pretiahnutie súborov ostávajú. */
+@container lw-pripad (width < 560px) { .lw-pripad-dock { display: none; } }
+/* Bez doku dáva spodný okraj stránky posledný viditeľný blok. */
+@container lw-pripad (width < 560px) { .lw-matter.lw-pripad > :nth-last-child(2) { margin-bottom: 24px; } }
+
+.lw-pripad-tiles, .lw-pripad-axis, .lw-pripad-cols > .lw-dnes-panel, .lw-pripad-chats { animation: lw-okf-rise 620ms var(--td-ease) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lw-pripad-head, .lw-pripad-tiles, .lw-pripad-axis, .lw-pripad-cols > .lw-dnes-panel, .lw-pripad-chats { animation: none; }
+  button.lw-pripad-tile-button, .lw-pripad-pills .lw-matter-copy { transition: none; }
+  button.lw-pripad-tile-button:hover { transform: none; }
+}

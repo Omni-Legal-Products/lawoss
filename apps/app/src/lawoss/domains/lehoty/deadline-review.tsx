@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { t, type Language } from "@/i18n";
@@ -59,9 +60,10 @@ export function DeadlineWorkflowPanel({ data, scope }: { data: OkfReadResult; sc
   if(!connection||!scope||!client||!target)return null;
   const owner:DeadlineOwner={baseUrl:connection.baseUrl,token:connection.token,authGeneration:connection.authGeneration??0,scopeKey:okfScopeKey(scope),workspaceId:target.workspace.id,matterPath:target.path};
   const matter = data.inputs.find(input => input.path === selected), jurisdiction = matter?.cardFrontmatter?.jurisdiction ?? matter?.records.find(record => record.type === "matter")?.jurisdiction;
-  return <section className="lw-reg"><h2>{t("lawoss.deadlines.title",locale)}</h2><label>{copy(locale,"Případ","Prípad","Case","Fall")} <select value={selected} onChange={event => setSelection({owner:ownerScope,path:event.target.value})}>{data.matters.map(m => <option key={m.path} value={m.path}>{m.title}</option>)}</select></label><ScopedWorkflow key={deadlineOwnerKey(owner)} owner={owner} client={client} jurisdiction={jurisdiction === "sk" ? "sk" : "cz"} locale={locale} /></section>;
+  // 🟡 LAWOSS: kým nový postup lehôt nie je zapnutý, panel sa nezobrazí vôbec (predtým nadpis a veta pre vývojárov).
+  return <ScopedWorkflow header={<><h2>{t("lawoss.deadlines.title",locale)}</h2><label>{copy(locale,"Případ","Prípad","Case","Fall")} <select value={selected} onChange={event => setSelection({owner:ownerScope,path:event.target.value})}>{data.matters.map(m => <option key={m.path} value={m.path}>{m.title}</option>)}</select></label></>} key={deadlineOwnerKey(owner)} owner={owner} client={client} jurisdiction={jurisdiction === "sk" ? "sk" : "cz"} locale={locale} />;
 }
-export function ScopedWorkflow({ client,owner,jurisdiction,locale }: { client: LegalworkServerClient; owner: DeadlineOwner; jurisdiction: "cz" | "sk"; locale: Language }) {
+export function ScopedWorkflow({ client,owner,jurisdiction,locale,header }: { client: LegalworkServerClient; owner: DeadlineOwner; jurisdiction: "cz" | "sk"; locale: Language; header?: ReactNode }) {
   const {workspaceId,matterPath}=owner,cache=useQueryClient(),key=["lawoss-deadlines",deadlineOwnerKey(owner)];
   const lease=useRef<ReturnType<typeof createDeadlineOwnerLease>|null>(null);
   useEffect(()=>{const captured=createDeadlineOwnerLease();lease.current=captured;return()=>{captured.dispose();if(lease.current===captured)lease.current=null;};},[]);
@@ -75,9 +77,9 @@ export function ScopedWorkflow({ client,owner,jurisdiction,locale }: { client: L
   useEffect(()=>{if(!availability.data?.enabled)return;const captured=lease.current;if(!captured)return;void captured.run(signal=>client.lawossDeadlineRequest(workspaceId,"/recover",{matterPath},{signal}),()=>{void cache.invalidateQueries({queryKey:key});}).catch(error=>{if(!captured.signal.aborted)setError(error instanceof Error?error.message:String(error));});},[availability.data?.enabled]);
   const profiles = availability.data?.proposedProfiles.filter(profile => profile.jurisdiction === jurisdiction) ?? [], profile = profiles[0];
   const inspect = (item: DeadlineItemDto) => perform(async () => { setPreview(await request<DeadlineReviewDto>(`/${item.candidateId}/review`,{matterPath,expectedRevisionHash:item.revisionHash})); });
-  if (availability.isPending) return <p>…</p>;
-  if (!availability.data?.enabled) return <p role="status">{t("lawoss.deadlines.disabled",locale)}</p>;
-  return <>
+  if (availability.isPending) return header === undefined ? <p>…</p> : null;
+  if (!availability.data?.enabled) return header === undefined ? <p role="status">{t("lawoss.deadlines.disabled",locale)}</p> : null;
+  return <section className="lw-reg">{header}
     {availability.data.legalReviewRequired ? <p className="lw-status warn">{t("lawoss.deadlines.legalGate",locale)}</p> : null}
     {profile ? <details><summary>{profile.id} · {profile.version} · {copy(locale,"právní schválení neuděleno","právne schválenie neudelené","legal approval not granted","rechtliche Freigabe nicht erteilt")}</summary>{profile.sources.map(source => <p key={source.url+source.locator}><a href={source.url} target="_blank" rel="noreferrer">{source.locator}</a></p>)}<ul>{profile.exclusions.map(exclusion => <li key={exclusion}>{exclusion}</li>)}</ul></details> : null}
     <label>{copy(locale,"Připravit dokument v tomto případě","Pripraviť dokument v tomto prípade","Prepare a document in this case","Dokument in diesem Fall vorbereiten")} <input value={preparePath} onChange={event => setPreparePath(event.target.value)} placeholder="rozhodnuti.pdf" /></label><button type="button" className="lw-btn" disabled={busy || !preparePath.trim()} onClick={() => void perform(async () => { await lease.current?.run(signal=>client.prepareLawossDocuments(workspaceId,[matterPath ? `${matterPath}/${preparePath}` : preparePath],{signal})); await cache.invalidateQueries({queryKey:[...key,"documents"]}); })}>{copy(locale,"Připravit čtení","Pripraviť čítanie","Prepare text","Text aufbereiten")}</button>
@@ -97,5 +99,5 @@ export function ScopedWorkflow({ client,owner,jurisdiction,locale }: { client: L
     {items.data?.items.map(item => <div className="lw-row" key={item.candidateId}><span>{item.candidate.calculation.kind === "determinate" ? <strong>{item.candidate.calculation.dueDate} · </strong> : null}{item.candidateId} · {item.state} · {item.exportState} · {item.trusted ? t("lawoss.deadlines.confirmed",locale) : t("lawoss.deadlines.review",locale)}</span><button type="button" className="lw-btn" disabled={busy} onClick={() => void inspect(item)}>{copy(locale,"Otevřít kontrolu","Otvoriť kontrolu","Open review","Prüfung öffnen")}</button>{item.state !== "confirmed" ? <button type="button" className="lw-btn" disabled={busy} onClick={() => { setEditing(item); setPreview(null); }}>{copy(locale,"Připravit novou revizi","Pripraviť novú revíziu","Prepare a new revision","Neue Revision vorbereiten")}</button> : null}</div>)}
     {preview ? <DeadlineReviewView preview={preview} item={items.data?.items.find(item=>item.candidateId === preview.candidate.candidateId)} locale={locale} busy={busy} onDecision={(decision,reason)=>void perform(async()=>{ await request(`/${preview.candidate.candidateId}/decision`,{matterPath,expectedRevisionHash:preview.candidate.revisionHash,expectedReviewHash:preview.reviewHash,operationId:crypto.randomUUID(),decision,reason}); setPreview(await request<DeadlineReviewDto>(`/${preview.candidate.candidateId}/review`,{matterPath,expectedRevisionHash:preview.candidate.revisionHash})); })} onRetry={()=>void perform(async()=>{await request(`/${preview.candidate.candidateId}/export/retry`,{matterPath,expectedRevisionHash:preview.candidate.revisionHash,operationId:crypto.randomUUID()});})} /> : null}
     {error || items.error || documents.error ? <p role="alert">{error || String(items.error || documents.error)}</p> : null}
-  </>;
+  </section>;
 }

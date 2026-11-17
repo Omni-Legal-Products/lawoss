@@ -1,13 +1,16 @@
 import { symlinkSkipReason } from "../../tests/symlink-capability.mts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { realpathSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
+import { realpathSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { parseFrontmatter, planEntity, renderTemplate, validateMarkdown } from "../src/core.ts";
-import { apply, detect, plan, render, validate } from "../src/fs.ts";
+import { apply, detect, officeFactsJurisdiction, plan, render, validate } from "../src/fs.ts";
 import { TEMPLATES } from "../src/templates.ts";
 import { run } from "../src/cli.ts";
+import { buildMatterOperations, newMatterFolder } from "../src/onboarding/entities.ts";
 import { readStandingAuthorization } from "../../okf-pamat/src/config.ts";
 const dirSymlinkSkip = symlinkSkipReason("dir");
 
@@ -204,6 +207,153 @@ describe("kontrakt spisu", () => {
     const c = capture();
     expect(run(["plan", "spis", "/x", "--title", "Vec"], c.out)).toBe(2);
     expect(c.lines.join("\n")).toContain("--sk");
+  });
+
+  test("#415: bez --sk/--cz berie jurisdikciu z okf.config kancelárie; prepínač má prednosť", () => {
+    mkdirSync(join(root, "Office"), { recursive: true });
+    writeFileSync(join(root, "Office", "okf.config"), "\uFEFFversion: 1\njurisdiction: cz\nlanguage: cs\n");
+    const client = join(root, "Klienti", "Alfa");
+    mkdirSync(client, { recursive: true });
+    writeFileSync(join(client, "client.md"), "---\ntype: klient\ntitle: Alfa\n---\n");
+    expect(run(["apply", "spis", join(client, "Spisy", "A"), "--title", "Vec A"], () => {})).toBe(0);
+    expect(parseFrontmatter(readFileSync(join(client, "Spisy", "A", "matter.md"), "utf8"))?.jurisdiction).toBe("cz");
+    expect(run(["apply", "spis", join(client, "Spisy", "B"), "--title", "Vec B", "--sk"], () => {})).toBe(0);
+    expect(parseFrontmatter(readFileSync(join(client, "Spisy", "B", "matter.md"), "utf8"))?.jurisdiction).toBe("sk");
+  });
+
+  test("#415: jurisdikcia z karty klienta má prednosť pred kanceláriou", () => {
+    mkdirSync(join(root, "Office"), { recursive: true });
+    writeFileSync(join(root, "Office", "okf.config"), "version: 1\njurisdiction: sk\n");
+    const client = join(root, "Klienti", "Beta");
+    mkdirSync(client, { recursive: true });
+    writeFileSync(join(client, "client.md"), "---\ntype: klient\ntitle: Beta\njurisdiction: cz\n---\n");
+    expect(run(["apply", "spis", join(client, "Spisy", "A"), "--title", "Vec"], () => {})).toBe(0);
+    expect(parseFrontmatter(readFileSync(join(client, "Spisy", "A", "matter.md"), "utf8"))?.jurisdiction).toBe("cz");
+  });
+
+  test("#415: kancelária bez platnej jurisdikcie nič nedoplní a spis sa nezaloží", () => {
+    mkdirSync(join(root, "Office"), { recursive: true });
+    writeFileSync(join(root, "Office", "okf.config"), "version: 1\njurisdiction: at\n");
+    const c = capture();
+    expect(run(["plan", "spis", join(root, "Klienti", "Gama", "Spisy", "A"), "--title", "Vec"], c.out)).toBe(2);
+    expect(c.lines.join("\n")).toContain("--sk");
+  });
+
+  describe("#415: kancelária bez okf.config – jurisdikcia z .office.json appky vedľa nasadeného CLI", () => {
+    // Kancelária z onboardingu appky: Office/ bez okf.config, karta klienta bez jurisdikcie.
+    const office = () => {
+      const practice = join(root, "Prax"), client = join(practice, "Klienti", "Alfa");
+      mkdirSync(join(practice, "Office", "memory"), { recursive: true });
+      writeFileSync(join(practice, "Office", "AGENTS.md"), "# Kancelária\n");
+      mkdirSync(client, { recursive: true });
+      writeFileSync(join(client, "client.md"), "---\ntype: klient\ntitle: Alfa\n---\n");
+      return { client };
+    };
+
+    test(".office.json vedľa nasadeného okf.js platí bez premennej prostredia; príznak vyhráva", () => {
+      const { client } = office();
+      // Nasadený skill ako v appke: priečinok appky klienta, bundle CLI a vedľa neho .office.json.
+      const resources = join(client, ".opencode", "skills", "novy-spis", "resources");
+      mkdirSync(resources, { recursive: true });
+      const cli = join(resources, "okf.js");
+      writeFileSync(cli, readFileSync(fileURLToPath(new URL("../bundle/okf.js", import.meta.url))));
+      const okf = (...args: string[]) => spawnSync("node", [cli, ...args, "--date", "2026-11-15"], { cwd: client, encoding: "utf8" });
+      expect(okf("plan", "spis", "--title", "Bez faktov").status).toBe(2);
+      // Starý viditeľný office.json CLI nečíta.
+      writeFileSync(join(resources, "office.json"), JSON.stringify({ jurisdiction: "sk" }));
+      expect(okf("plan", "spis", "--title", "Bez faktov").status).toBe(2);
+      writeFileSync(join(resources, ".office.json"), JSON.stringify({ jurisdiction: "sk" }));
+      expect(okf("apply", "spis", "--title", "Spor").status).toBe(0);
+      expect(parseFrontmatter(readFileSync(join(client, "Spisy", "2026-11 Spor", "matter.md"), "utf8"))?.jurisdiction).toBe("sk");
+      expect(okf("apply", "spis", "--title", "Česká vec", "--cz").status).toBe(0);
+      expect(parseFrontmatter(readFileSync(join(client, "Spisy", "2026-11 Česká vec", "matter.md"), "utf8"))?.jurisdiction).toBe("cz");
+      writeFileSync(join(resources, ".office.json"), JSON.stringify({ jurisdiction: "at" }));
+      expect(okf("plan", "spis", "--title", "Neplatná").status).toBe(2);
+      expect(officeFactsJurisdiction(join(resources, "chyba.json"))).toBeUndefined();
+    });
+  });
+
+  describe("#416: nový prípad bez <dir> – priečinok určí pravidlo CLI", () => {
+    const cwd = process.cwd();
+    afterEach(() => { process.chdir(cwd); });
+    const client = () => {
+      const dir = join(root, "Klienti", "Alfa");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "client.md"), "---\ntype: klient\ntitle: Alfa\n---\n");
+      return dir;
+    };
+
+    test("plan aj apply odvodia Spisy/<RRRR-MM> <názov> tým istým pravidlom ako formulár", () => {
+      const dir = client();
+      process.chdir(dir);
+      const c = capture();
+      expect(run(["plan", "spis", "--title", "Spor o dielo", "--sk", "--date", "2026-11-15", "--json"], c.out)).toBe(0);
+      expect(JSON.parse(c.lines.join("\n")).dir).toBe("Spisy/2026-11 Spor o dielo");
+      expect(newMatterFolder("2026-11-15", "Spor o dielo").folder).toBe("Spisy/2026-11 Spor o dielo");
+      expect(buildMatterOperations({ title: "Spor o dielo", date: "2026-11-15", kind: "contentious", area: "Spory", jurisdiction: "sk" }).folder).toBe("Spisy/2026-11 Spor o dielo");
+      expect(existsSync(join(dir, "Spisy"))).toBe(false);
+      expect(run(["apply", "spis", "--title", "Spor o dielo", "--sk", "--date", "2026-11-15"], () => {})).toBe(0);
+      expect(existsSync(join(dir, "Spisy", "2026-11 Spor o dielo", "matter.md"))).toBe(true);
+      // Druhý raz už priečinok existuje: nový prípad ho nezaloží znova.
+      const again = capture();
+      expect(run(["plan", "spis", "--title", "Spor o dielo", "--sk", "--date", "2026-11-15"], again.out)).toBe(2);
+      expect(again.lines.join("\n")).toContain("už existuje");
+    });
+
+    test("z podpriečinka klienta nájde klienta nad sebou; výslovný <dir> ostáva bez zmeny", () => {
+      const dir = client();
+      mkdirSync(join(dir, "01_Podklady"), { recursive: true });
+      process.chdir(join(dir, "01_Podklady"));
+      const c = capture();
+      expect(run(["plan", "spis", "--title", "Nájom", "--cz", "--date", "2026-01-02", "--json"], c.out)).toBe(0);
+      expect(JSON.parse(c.lines.join("\n")).dir).toBe("../Spisy/2026-01 Nájom");
+      process.chdir(dir);
+      expect(run(["apply", "spis", "Spor 2025", "--title", "Starý spor", "--sk"], () => {})).toBe(0);
+      expect(existsSync(join(dir, "Spor 2025", "matter.md"))).toBe(true);
+    });
+
+    test("bez karty klienta, bez --title alebo s nebezpečným názvom odmietne", () => {
+      process.chdir(root);
+      const outside = capture();
+      expect(run(["plan", "spis", "--title", "Vec", "--sk"], outside.out)).toBe(2);
+      expect(outside.lines.join("\n")).toContain("v priečinku klienta");
+      process.chdir(client());
+      const noTitle = capture();
+      expect(run(["plan", "spis", "--sk"], noTitle.out)).toBe(2);
+      expect(noTitle.lines.join("\n")).toContain("--title");
+      expect(run(["plan", "spis", "--title", "../Iný klient", "--sk"], () => {})).toBe(2);
+      expect(run(["plan", "klient", "--title", "X"], () => {})).toBe(2);
+    });
+
+    test("--date je skutočný dátum RRRR-MM-DD; `../../zz` ani 2026-02-31 priečinok mimo klienta nezaložia (src aj bundle)", () => {
+      const dir = client();
+      process.chdir(dir);
+      for (const date of ["../../zz", "2026-02-31", "2026-11", "2026-11-15/../..", "x2026-11-15"]) {
+        const c = capture();
+        expect(run(["plan", "spis", "--title", "Vec", "--sk", "--date", date], c.out)).toBe(2);
+        expect(c.lines.join("\n")).toContain("RRRR-MM-DD");
+        expect(run(["apply", "spis", "--title", "Vec", "--sk", "--date", date], () => {})).toBe(2);
+        expect(() => newMatterFolder(date, "Vec")).toThrow("RRRR-MM-DD");
+      }
+      expect(() => buildMatterOperations({ title: "Vec", date: "2026-02-31", kind: "contentious", area: "Spory", jurisdiction: "sk" })).toThrow("Valid date and matter kind are required.");
+      const cli = fileURLToPath(new URL("../bundle/okf.js", import.meta.url));
+      const bundled = spawnSync("node", [cli, "apply", "spis", "--title", "Vec", "--sk", "--date", "../../zz"], { cwd: dir, encoding: "utf8" });
+      expect(bundled.status).toBe(2);
+      expect(bundled.stdout + bundled.stderr).toContain("RRRR-MM-DD");
+      expect(readdirSync(dir).sort()).toEqual(["client.md"]);
+      expect(existsSync(join(root, "Klienti", "zz"))).toBe(false);
+      expect(existsSync(join(root, "zz"))).toBe(false);
+    });
+
+    test("bez --date je mesiac priečinka aj dátum karty z toho istého miestneho dňa", () => {
+      const dir = client();
+      process.chdir(dir);
+      const now = new Date(), pad = (n: number) => String(n).padStart(2, "0");
+      const local = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      expect(run(["apply", "spis", "--title", "Dnes", "--sk"], () => {})).toBe(0);
+      const card = parseFrontmatter(readFileSync(join(dir, "Spisy", `${local.slice(0, 7)} Dnes`, "matter.md"), "utf8"));
+      expect(String(card?.timestamp)).toBe(local);
+    });
   });
 
   test("naraz --sk aj --cz je chyba, nie tiché víťazstvo jednej", () => {

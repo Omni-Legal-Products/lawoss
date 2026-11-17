@@ -45,6 +45,20 @@
   --lw-gold-ink: rgba(201, 162, 74, 0.18);
   --lw-duration-seal: 550ms;
 
+  /* zlatý lesk (design-system.md §4b, MČ 14. 11. 2026): hlavná akcia, aktívna položka, práve zmenený riadok */
+  --lw-gold-gloss: linear-gradient(180deg, #f3df9a 0%, #d9b45c 42%, #b88f38 100%);
+  --lw-gold-gloss-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 -1px 0 rgba(60, 40, 0, 0.35), 0 8px 26px rgba(201, 162, 74, 0.3);
+  --lw-gold-gloss-shadow-hover: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(60, 40, 0, 0.35), 0 12px 34px rgba(201, 162, 74, 0.42);
+  --lw-gold-sheen: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.75), transparent);
+  --lw-gold-focus: #f3df9a;
+  --lw-gold-glaze: linear-gradient(180deg, rgba(243, 223, 154, 0.16), rgba(184, 143, 56, 0.07));
+  --lw-gold-glaze-border: rgba(217, 180, 92, 0.38);
+  --lw-gold-glaze-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 22px rgba(201, 162, 74, 0.1);
+  --lw-gold-glaze-sheen: linear-gradient(100deg, transparent, rgba(255, 240, 190, 0.22), transparent);
+  /* svetlý podklad: tmavšie zlato, aby text aktívnej položky ostal čitateľný */
+  --lw-gold-glaze-text: #8c6a1f;
+  --lw-duration-changed: 1200ms;
+
   /* light = paper fallback (not the designed theme) */
   --lw-canvas: #f6f7f9;
   --lw-surface: #ffffff;
@@ -82,6 +96,7 @@
 [data-theme="dark"] {
   --lw-gold: #c9a24a;
   --lw-gold-hi: #f2d788;
+  --lw-gold-glaze-text: #f6e9bf;
   --lw-hot: #e8836b;
   --lw-panel: linear-gradient(180deg, rgba(233, 228, 218, 0.045), rgba(233, 228, 218, 0.015)), var(--lw-surface);
   --lw-panel-shadow: inset 0 1px 0 rgba(233, 228, 218, 0.06), 0 18px 40px -28px rgba(0, 0, 0, 0.6);

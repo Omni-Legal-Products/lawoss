@@ -79,7 +79,8 @@ export function ModelBehaviorSelect({
       </Tooltip>
       <SelectContent side="top" sideOffset={8} align="start" className="min-w-48">
         <SelectGroup>
-          <SelectLabel>Thinking</SelectLabel>
+          {/* 🟡 LAWOSS: nadpis po slovensky a česky, nie anglické „Thinking“. */}
+          <SelectLabel>{t("model_behavior.title_reasoning_effort")}</SelectLabel>
           {items.map((option, index) => (
             <SelectItem key={index} value={option.value} className="text-xs">
               {option.label}

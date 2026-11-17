@@ -60,6 +60,8 @@ export function PracticeCoverage({ data, scope, failed, excludedWorkspaceIds = [
     oldest !== null && !incomplete ? t("lawoss.practice.updated", locale, { time: formatTime(oldest, locale, now) }) : null,
     excludedWorkspaceIds.length ? t("lawoss.practice.excluded", locale, { count: excludedWorkspaceIds.length }) : null,
   ].filter(Boolean).join(" · ");
+  // 🟡 LAWOSS: úplné čítanie nie je správa pre advokáta; pruh ostáva len ako výstraha pri neúplných podkladoch.
+  if (!incomplete && !problems.length) return null;
   return <div className={incomplete ? "lw-status warn" : "lw-status"} role={incomplete ? "alert" : "status"} data-lawoss-practice-coverage={failed ? "partial" : coverage.status}>
     <p>{summary}</p>
     {incomplete ? <p>{t("lawoss.practice.incomplete", locale)}</p> : null}

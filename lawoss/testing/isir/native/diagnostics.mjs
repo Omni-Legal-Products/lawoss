@@ -749,6 +749,11 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
       generationHostErrors=runs.filter(run=>generationRuns.includes(run)).map(project);
       provisioningHostErrors=runs.filter(run=>provisioningRuns.includes(run)).map(project);
     },
+    // #220: the same closed projection as the artifact, for the job log; null until captured or when empty.
+    hostErrors(){
+      if(!hostErrorsCaptured||!generationHostErrors.length&&!provisioningHostErrors.length)return null;
+      return {generationHostErrors,provisioningHostErrors};
+    },
     async write({events=[],error=null,cleanupErrors=[]}={}){
       if(!enabled)return;
       const data={schema:7,generationPrompts,provisioning,...(generationPanel?{generationPanel}:{}),...(hostErrorsCaptured?{generationHostErrors,provisioningHostErrors}:{}),promptObservations:promptProjection(),recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};

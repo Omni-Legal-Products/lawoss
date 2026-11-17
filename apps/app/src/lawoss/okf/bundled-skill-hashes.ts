@@ -9,10 +9,13 @@
  * `git log --follow --full-history` of the four files plus HEAD; when a bundled
  * SKILL.md changes, add the new hash here (a test fails until it is listed).
  */
+import { pamatSkillBody } from "./skill-bundle";
+
 export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "01de6798b2d44beedba136b36b8741732db60f2974a82e5d2b75c0c01391508e", // lawoss/okf-pamat/SKILL.md @ 04d3d2dc
   "04f60d70f08f79216840bb867333255668170d2bab7d7126693fc7f6f2003d71", // lawoss/okf-pamat/SKILL.md @ 168221d2
   "0620619c4340d3dc6ed90f4115e005e00da68308048d26e224c676118c6ad663", // lawoss/skills/novy-spis/SKILL.md @ f253188a
+  "067e3e8d9b438fa55b9b86cbdd2330a487a200ee3f4e4d821f91f66fb761ebd5", // lawoss/skills/novy-spis/SKILL.md @ #423 review, typ klienta a zavedenie priečinka chatu na mieste
   "0782b3b9aded745def112d42c2dc379015a07aac03e8a393bfa1b1b8b9aa79eb", // lawoss/okf-pamat/SKILL.md @ a4b540e2
   "0f68063b78c5df2d28b1fd525966889640d4aa9f8f5f5a8f969f6d243f62b7ba", // lawoss/okf-pamat/SKILL.md @ 61422e82
   "0f824e3f65eee0e2851a483713b951fb23fe73ff51b95ca68b4caec92917a2bf", // lawoss/okf-pamat/SKILL.md @ 0daa193a
@@ -23,14 +26,18 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "2571048a4af6d4375faf682a0f4b67c4c21bd78483d3d1e7e7ef76fe768edef0", // lawoss/okf-pamat/SKILL.md @ 0fa9dfbb
   "2ee9a6e11908e90e2df487bff8aff1edfb2be968aae61fb01e1bbff0f748f1b8", // lawoss/okf-pamat/SKILL.md @ PR B, jedna popiska Zapojené subjekty
   "31056d6d659154f8d5b18f5a4c4a80b674725eb28b62dbea730ef6d7b82a44a3", // lawoss/okf-pamat/SKILL.md @ 540df6cc
+  "3413af4a2f7d29c4469c26d17ea387220eabd8e3e77db1e8e14ae0cc2294d1d3", // lawoss/skills/novy-spis/SKILL.md @ #423 review, validate pri vlastných .md advokáta
   "376b579194aa6b8f484050dd2fba08161a417c0c19831f2016852e33e16b70c0", // lawoss/okf-pamat/SKILL.md @ 55159fbb
   "38b1727bbee79e01ca9a5b8852adbe954937815248c132691ebc6f9c34323b18", // lawoss/skills/novy-spis/SKILL.md @ f8153756
+  "485cd7d719e54b66d9f912ec31036a4f3376fc198ef6edf84e677dba7daca730", // lawoss/skills/novy-spis/SKILL.md @ #422, bez okf.config a so zamietnutou kartou
   "4996b5a816e15c26fe82a9f4028d5bf4e9cd88151c88d86f686a0d6d68fc6c09", // lawoss/okf-pamat/SKILL.md @ ef1fb80d
   "4a16ec42703a7f82276f1b908112162e0e5e77ebfdf9090f392b2735f3aa41ff", // lawoss/okf-pamat/SKILL.md @ de1b1075
   "4abb5a8ec848802c1fea97452d6619fc6a43ec6b21259672866a6d83498dadce", // lawoss/okf-pamat/SKILL.md @ 793ec793
   "5626a0d6950460f6c7ac1269cd9dd533dd85d63582015a2286694a2b0816b79d", // lawoss/okf-pamat/SKILL.md @ 21a4bc44
   "5a4e2523f4cf7fce2827101e9dbbf2647ef00274a3302172e1f36c14df2568c6", // lawoss/skills/novy-spis/SKILL.cs.md @ 221da141
   "620c5a37406db608c75da2e348e2b42dd75cae6ff777c6f4aee429ba5c56c2a7", // lawoss/okf-pamat/SKILL.md @ 790a86c0
+  "69106d7749a61f85289a7091dd0fa368b740b0da514fc3e156646909ec341218", // lawoss/skills/novy-spis/SKILL.cs.md @ #423, nový klient nástrojem lawoss_new_client
+  "711fb73e3392ca523e31eae3ab31e19b7b4d2a3b3322ce75e8c02fdd405774bb", // lawoss/skills/novy-spis/SKILL.cs.md @ #422, bez okf.config a se zamítnutou kartou
   "79b13383c649b2a9ba81bcb3ab2167d48b4744a0215090d735a2e007c2c8f0f4", // lawoss/okf-pamat/SKILL.md @ 1bc3f128
   "7a4323b22532d72555d01d39b6af4857406e007b3da42d72f473861b3502e223", // lawoss/skills/novy-spis/SKILL.md @ 221da141
   "7f0a61c1851ac80de6482b72b67a6abe086710e77e9901fdbe495f65056444c8", // lawoss/okf-pamat/SKILL.md @ b3d50764
@@ -38,6 +45,7 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "8937c0e1a2fb5c0f405866ab7fbbfad1573ee84637a079ba4bc3364221841d2a", // lawoss/okf-pamat/SKILL.md @ f6bcae3c
   "8ca9ccca2915d9030465ecddb994d788cb0eac78d50f18c15d9715693cfe76ca", // lawoss/okf-pamat/SKILL.md @ 4aa50376
   "93124c750445011a94aa1d871dbb8bca036dbb3c572931440da9e5caf28f0c80", // lawoss/okf-pamat/SKILL.md @ f0fc1a01
+  "a2c70788ed40633426e6e2c610d8e8ffba149a5da4674daeb12ab48de6238d52", // lawoss/skills/novy-spis/SKILL.md @ #423, nový klient nástrojom lawoss_new_client
   "a6147662fc53862c5c362b6aa34fb188b59891c8aeea92bd2b4f7efcdcc1aef3", // lawoss/okf-pamat/SKILL.md @ e362496e
   "baae5bd4694a0c087d7874984b7d19fbda0776ea92ba8796d0a235016da51962", // lawoss/okf-pamat/SKILL.md @ 4614bc41
   "bb5fb85573e1eb75bf1b7485f6d27fd00c62ac48536f5e8dd2780c0a161db39f", // lawoss/okf-pamat/SKILL.md @ f8153756
@@ -51,6 +59,14 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "f20e0208616f3fe50860caa94cbc004e776582d41948fbac278abfba224df922", // lawoss/skills/usporiadaj-spis/SKILL.md @ 0f9681d3
   "f7eee8ca3806176713d3d49afd5a08ca7850e756be9acd0f03c3575aaa57d82d", // lawoss/okf-pamat/SKILL.md @ b03f82fe
   "f872ac3d24a2b2bc2ce83a12c086fae5358ad8c64f66eb6c757adcf6d3c84191", // lawoss/skills/novy-spis/SKILL.cs.md @ caacdf9c
+  "fcb9cad3b3d0bfc978d613671768811f8e49c8af5a2f6b9f9709e8c2d877469c", // lawoss/skills/novy-spis/SKILL.cs.md @ #423 review, typ klienta a zavedení složky chatu na místě
+  "a8ca3ebdb54bde7da1f634dad40b2d659d392a4c7951bf4260473494d309bd59", // lawoss/skills/novy-spis/SKILL.cs.md @ #423 review, validate u vlastních .md advokáta
+  "04f32050823952422a3675940a4eed0758acebbd37e07cb9eb72c710f6cd0638", // lawoss/skills/novy-spis/SKILL.md @ #415, jurisdikcia z karty klienta alebo kancelárie
+  "090850b0f495950a8b0234d7ea2e2439369adbe3d0024640ab6312be16d5a601", // lawoss/skills/novy-spis/SKILL.cs.md @ #415, jurisdikce z karty klienta nebo kanceláře
+  "91c98e026a8852faec982b76d67e0e4e9ff63da3254816060a1668f478eda7cd", // lawoss/skills/novy-spis/SKILL.md @ #416, priečinok nového prípadu určí CLI
+  "147a8638c871ade0c1a5eb79562ef16699cff9898bf2d9bd6c5d2f8bc096dff1", // lawoss/skills/novy-spis/SKILL.cs.md @ #416, složku nové věci určí CLI
+  "78f48b29b2a22e600fe9f9405fb9c9d5fd20ad08fde44a865225cd1e4e060803", // lawoss/skills/novy-spis/SKILL.md @ #416, formulár a odmietnutý názov
+  "4429d5b9db24476aed15c9454b118c9dca10c82cb5c1a46fd6b7881ec15db169", // lawoss/skills/novy-spis/SKILL.cs.md @ #416, formulář a odmítnutý název
   "aab723e10fcc234db66e51f3020d498e7eb1409b30e22a81e7bd8a5f1822646e", // lawoss/skills/roztried-spis/SKILL.md @ feat/alfa-roztriedenie-spisu
   "64de8e0c8d2a02e2cce88cc66fa40a157eae8a20f35430128927f5aba2e2b62d", // lawoss/skills/roztried-spis/SKILL.cs.md @ feat/alfa-roztriedenie-spisu
   "e1dd31551fc99c2ce420e0ef98f559d9fe996554cb78c8008794dc7100b0f123", // lawoss/skills/roztried-spis/SKILL.md @ fix/alfa-roztriedenie-po-teste
@@ -72,4 +88,18 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "16c3f1daff9050ef1d48c847cf8cc3267f05323a57879d709b29f1f0ce80a8a8", // lawoss/okf-pamat/SKILL.md @ fix/p3-citanie-bez-karty (čítanie cez lawoss_memory bez karty)
   "8204e24401305451119dc59a1995212808e3f418406de0b792f032e2a5637a06", // lawoss/okf-pamat/SKILL.md @ fix/zapis-pamate-jedna-karta (zápis cez lawoss_memory_write jednou kartou)
   "1059b88ef1966d072b168386c10862d39950f4d4e44e62529ded6a98e61fa271", // lawoss/okf-pamat/SKILL.md @ fix/pamat-klienta-lehota (poznámka klienta, lehota z pokynu advokáta, upratanie nezaradeného)
+  "5afd267a149ba2ff4f52d8abbacc65a10102fe7bc582be438170dd03f7554c9c", // lawoss/skills/novy-spis/SKILL.md @ fix/alfa14-karty-suhlasu (plán raz, zápis jedným príkazom)
+  "55c13cd22243621289ed1ed70566a6d98909146fa98e03ad21d651585edcfd1b", // lawoss/skills/novy-spis/SKILL.cs.md @ fix/alfa14-karty-suhlasu (plán jednou, zápis jedním příkazem)
+  "98120741273a4f99e6bd2cc9b1e1ed7a160ccffcbb7947831c7933417c38695e", // lawoss/okf-pamat/SKILL.md @ fix/alfa14-karty-suhlasu (úloha s due, prípad podľa časti názvu)
+]);
+
+/**
+ * Popisy (frontmatter `description`) skillov OKF, ktoré LAWOSS pribalil. Telo SKILL.md sa pri zmene len popisu
+ * nemení, takže hash vyššie ho neobnoví; nainštalovaný skill s niektorým z týchto popisov dostane aktuálny.
+ * Iný popis je úprava používateľa a ostáva. Overenie alfy 12 (14. 11. 2026): /okf-pamat mal anglický popis.
+ */
+export const BUNDLED_OKF_SKILL_DESCRIPTIONS: ReadonlySet<string> = new Set([
+  "Use when reading or writing case memory in an OKF matter folder (spis) or an explicit .lawoss/memory-profile.json workspace — recording facts, decisions, deadlines, subjects, lessons or legal authorities, and projecting them into _STATUS.md. Triggers (SK) — \"zapíš do pamäte\", \"čo vieme o spise\", \"aktualizuj _STATUS\", \"skontroluj pamäť spisu\", \"povýš poznatok\"; (CZ) — \"zapiš do paměti\", \"co víme o spisu\", \"aktualizuj _STATUS\", \"zkontroluj paměť spisu\", \"povyš poznatek\"; (EN) — \"matter memory\", \"case memory\", \"record decision\".", // lawoss/okf-pamat/SKILL.md do alfy 12 (po anglicky)
+  pamatSkillBody("sk").description,
+  pamatSkillBody("cs").description,
 ]);

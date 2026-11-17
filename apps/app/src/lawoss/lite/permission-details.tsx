@@ -17,6 +17,7 @@ import type { FileOperationDetails } from "./file-operation-card";
 import { overviewFolder } from "./client-projects";
 import { useClientNav } from "./client-nav";
 import { comparable, within } from "./matter-conversations";
+import { useUiMode } from "./ui-mode";
 
 /** Najviac toľko riadkov zmeny; zvyšok jedným riadkom „… a ďalšie“. */
 const MAX_LINES = 200;
@@ -102,9 +103,29 @@ function useClientFolder(chatDirectory: string | null | undefined): string | nul
   return folders.sort((a, b) => b.length - a.length)[0] ?? chatDirectory;
 }
 
-/** Podrobnosti karty: vlastné (`lawoss_files`), inak pre `edit` a `external_directory`; inak `null` (surové údaje ako doteraz). */
-export function usePermissionDetails(permission: Pick<PendingPermission, "permission" | "metadata">, chatDirectory?: string | null, own?: FileOperationDetails): FileOperationDetails | null {
+/**
+ * Test alfy 14. 11. 2026 (karta lehoty a poznámky): blok „Čo a kam“ a rozbalené Podrobnosti opakovali tie isté riadky.
+ * V bežnom režime ukážu Podrobnosti len to, čo blok „Čo a kam“ nemá (dôvod, predchádzajúci text, iný riadok); riadok
+ * sa porovnáva celý, aj viacriadkový text záznamu. Len zobrazenie: čo sa schvaľuje, sa nemení.
+ */
+export function detailsBeyondScope(details: FileOperationDetails, scopeValue: string): FileOperationDetails {
+  const shown = `\n${scopeValue}\n`;
+  return { reason: details.reason, lines: details.lines.filter((line) => !shown.includes(`\n${line}\n`)) };
+}
+
+/** Majú Podrobnosti čo ukázať? `null` = surové údaje (iné karty) áno; prázdny zoznam bez dôvodu nie. */
+export function detailsHaveContent(details: FileOperationDetails | null, reason: boolean): boolean {
+  return !details || details.lines.length > 0 || (reason && Boolean(details.reason));
+}
+
+/**
+ * Podrobnosti karty: vlastné (`lawoss_files`, pamäť), inak pre `edit` a `external_directory`; inak `null` (surové údaje
+ * ako doteraz). `scopeValue`: blok „Čo a kam“; v bežnom režime sa jeho riadky v Podrobnostiach neopakujú.
+ */
+export function usePermissionDetails(permission: Pick<PendingPermission, "permission" | "metadata">, chatDirectory?: string | null, own?: FileOperationDetails, scopeValue?: string): FileOperationDetails | null {
   const clientFolder = useClientFolder(chatDirectory);
+  const lite = useUiMode() === "lite";
+  if (own && lite && scopeValue !== undefined) return detailsBeyondScope(own, scopeValue);
   return own ?? permissionDetails(permission, clientFolder);
 }
 

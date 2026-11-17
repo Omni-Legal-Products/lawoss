@@ -1,4 +1,5 @@
 import { cloneElement, useEffect, useRef, useState, type ReactNode } from "react";
+import { mcpFailureText } from "../../../../lawoss/domains/integrations/mcp-failure";
 import { useSearchParams } from "react-router-dom";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowUpRight, Check, ChevronRight, Download, FolderOpen, Globe, Grid2X2, MoreHorizontal, Plus, Plug, RefreshCw, Settings2, Trash2 } from "lucide-react";
@@ -337,6 +338,8 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
             { label: t(target?.kind === "storage" && target.connection ? "catalog.access" : "catalog.category"), value: target?.kind === "storage" && target.connection ? t(target.connection.readOnly ? "storage.read_only" : "storage.read_write") : categoryLabel(selected.category) },
           ]} />
 
+          {/* 🟡 LAWOSS: dôvod zlyhania doplnku hneď pri stave „Problém“, nie až po kliknutí na Spravovať (PATCHES.md). */}
+          {target?.kind === "server" && selected.status === "failed" ? <div role="alert" className="rounded-lg bg-destructive/5 p-4 text-sm leading-6"><div className="font-medium">{t("lawoss.integrations.mcp_failure.heading")}</div><p className="mt-1 text-muted-foreground">{mcpFailureText(mcpFailureDetail(mcp.mcpStatuses[target.name]))}</p></div> : null}
           {target?.kind === "service" && mcp.builtInExtensionDisabled?.(target.entry) ? <p className="text-sm text-muted-foreground">{t("mcp.builtins_blocked")}</p> : null}
 
           {target?.kind === "service" && target.entry.setupNote ? <p className="text-sm leading-6 text-muted-foreground">{target.entry.setupNote}</p> : null}
@@ -369,4 +372,8 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
     {engineOpen && props.developerMode ? <Dialog open onOpenChange={setEngineOpen}><DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>{t("extensions.engine_plugins")}</DialogTitle><DialogDescription>{t("plugins.desc")}</DialogDescription></DialogHeader><PluginsView extensions={props.extensions} busy={props.busy} selectedWorkspaceRoot={props.selectedWorkspaceRoot} canEditPlugins={props.canEditPlugins} canUseGlobalScope={props.canUseGlobalScope} accessHint={props.accessHint} suggestedPlugins={props.suggestedPlugins} /></DialogContent></Dialog> : null}
     <ConfirmModal open={Boolean(remove)} title={t("catalog.remove_named", { name: remove?.name ?? "" })} message={t(remove?.target.kind === "research" ? "catalog.remove_login_hint" : "catalog.remove_hint")} pending={removing} confirmLabel={t(removing ? "catalog.removing" : "common.remove")} cancelLabel={t("common.cancel")} confirmButtonVariant="destructive" onCancel={() => { if (!removing) setRemove(null); }} onConfirm={() => void removeSelected()} />
   </div>;
+}
+
+function mcpFailureDetail(status: { status: string } | undefined) {
+  return status && "error" in status && typeof status.error === "string" ? status.error : null;
 }

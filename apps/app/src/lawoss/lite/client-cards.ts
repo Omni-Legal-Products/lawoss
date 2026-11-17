@@ -3,12 +3,13 @@
  * Čisté funkcie nad už načítaným prehľadom; fáza a ďalší krok sú ručné riadky `_STATUS.md` (`buildMatterViews().strip`).
  * Stav práce prípadu ani stav kontroly súboru OKF neeviduje, preto tu nie sú.
  */
-import { isOfficeFile, type MatterInput, type MatterOverview } from "../../../../../lawoss/okf/read";
+import { daysBetween, isOfficeFile, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
 import { pendingInputs } from "../../../../../lawoss/okf/inputs";
 import type { MatterViews } from "../../../../../lawoss/okf/views";
 import { deadlineText, isCalendarDay } from "../okf/view-rules";
 import type { OkfClient } from "../okf/read-model";
 import { folderInputs, isFiled } from "./inputs-model";
+import { dayTone, type DayTone } from "./today-model";
 
 /** Najviac toľko kariet pred „Zobraziť všetky prípady“. */
 export const CARDS_SHOWN = 6;
@@ -107,4 +108,105 @@ export function inputCounts(matterInputs: readonly MatterInput[], matterPaths: r
   const inboxes = new Map(matterInputs.flatMap((input) => input.inbox ? [[input.path, input.inbox] as const] : []));
   const unfiled = [...pending.values(), ...folder].filter((entry) => !isFiled(entry, matterPaths, inboxes)).length;
   return { processed, waiting: pending.size + folder.length - unfiled, unfiled };
+}
+
+// ── Domov klienta v bežnom režime ako pasívny prehľad (alfa 14, spec-klient.md) ─────────────────────
+// Čisté odvodenia nad tým, čo prehľad klienta už dostáva; obrazovka (`client-dashboard.tsx`) ich len zobrazí.
+
+/** Dlaždica „Najbližšia lehota“: ten istý termín ako doterajšia karta (`clientTerm`), s počtom dní a farbou. */
+export type TermTile =
+  | { kind: "none" }
+  | { kind: CardTerm["kind"]; title: string; date: string; matter: MatterOverview; daysLeft: number; late: boolean; tone: DayTone };
+
+export function termTile(matters: readonly MatterOverview[], todayIso: string): TermTile {
+  const term = clientTerm(matters, todayIso);
+  if (!term) return { kind: "none" };
+  const daysLeft = daysBetween(todayIso, term.date);
+  // Pracovný termín nie je lehota: farbu naliehavosti dostane len po termíne (ako štítok na Dnes).
+  const tone: DayTone = term.overdue ? "red" : term.kind === "deadline" ? dayTone(daysLeft) : "neutral";
+  return { kind: term.kind, title: term.title, date: term.date, matter: term.matter, daysLeft, late: term.overdue, tone };
+}
+
+/**
+ * Rozpis prípadov podľa druhu pre dlaždicu „Prípady“ len z druhov, ktoré dáta majú (`kinds` z `familyNames`, druhy
+ * spojené „ · “). Prípad s dvoma druhmi sa ráta pri oboch; prípad bez rozpoznaného druhu sa nevymýšľa.
+ */
+export function kindBreakdown(kinds: Readonly<Record<string, string>>, paths: readonly string[]): { label: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const path of paths) {
+    for (const label of new Set((kinds[path] ?? "").split(" · ").map((part) => part.trim()).filter(Boolean))) counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [...counts].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
+}
+
+/** Koľko kariet nemá zapísanú fázu: jeden tichý riadok pod kartami namiesto „Fáza neevidovaná“ na každej karte. */
+export const phaseMissing = (cards: readonly Pick<CaseCard, "status">[]): number => cards.filter((card) => !card.status.phase).length;
+
+/** Štítok termínu na karte prípadu: neplatný dátum má prednosť (N-A7-4), potom po termíne, termín, bez termínu. */
+export type CardPill =
+  | { kind: "invalid"; raw: string }
+  | { kind: "late"; term: CardTerm }
+  | { kind: "due"; term: CardTerm; daysLeft: number; tone: DayTone | "work" }
+  | { kind: "none" };
+
+export function cardPill(card: Pick<CaseCard, "term" | "invalid"> & { matter?: Pick<MatterOverview, "openTasks"> }, todayIso: string): CardPill {
+  if (card.invalid !== undefined) return { kind: "invalid", raw: card.invalid };
+  const term = card.term;
+  if (term?.overdue) return { kind: "late", term };
+  // Uplynulý pracovný termín (rovnaké pravidlo ako „po termíne“ v „Čaká na vás“): karta nesmie povedať „bez termínu“.
+  // `matterTerm` ho nevracia (karta Pokročilého ostáva), preto sa hľadá tu.
+  const passed = (card.matter?.openTasks ?? []).flatMap((task): CardTerm[] => {
+    const due = task.due?.trim().slice(0, 10);
+    return due && isCalendarDay(due) && due < todayIso ? [{ kind: "work", date: due, title: task.title, overdue: true }] : [];
+  }).sort((a, b) => a.date.localeCompare(b.date))[0];
+  if (passed) return { kind: "late", term: passed };
+  if (!term) return { kind: "none" };
+  const daysLeft = daysBetween(todayIso, term.date);
+  return { kind: "due", term, daysLeft, tone: term.kind === "work" ? "work" : dayTone(daysLeft) };
+}
+
+/** Riadok zoznamu lehôt klienta v štýle „Čo horí“: štvorček dní a štítok pôvodu. */
+export type ClientDeadlineRow = { key: string; deadline: UpcomingDeadline; daysLeft: number | null; tone: DayTone; origin: "instruction" | "recorded" };
+
+/** Prvých `limit` lehôt v poradí registra (po termíne, potom najbližšie); neplatný dátum nemá počet dní. */
+export function clientDeadlineRows(deadlines: readonly UpcomingDeadline[], todayIso: string, limit: number): { rows: ClientDeadlineRow[]; more: number } {
+  const rows = deadlines.slice(0, Math.max(0, limit)).map((deadline, index): ClientDeadlineRow => {
+    const daysLeft = deadline.invalid ? null : daysBetween(todayIso, deadline.date);
+    return { key: `${deadline.matter.path}\u0000${deadline.recordId}\u0000${deadline.date}\u0000${index}`, deadline, daysLeft, tone: dayTone(daysLeft), origin: deadline.basis === "instruction" ? "instruction" : "recorded" };
+  });
+  return { rows, more: Math.max(0, deadlines.length - rows.length) };
+}
+
+/** Otvorené úlohy zo záznamov prípadov klienta; úloha zo zdieľaného súboru sa ráta raz (ako na Dnes). */
+export function openTaskTotal(matters: readonly Pick<MatterOverview, "path" | "openTasks">[]): number {
+  return new Set(matters.flatMap((m) => m.openTasks.map((task) => task.file ?? `${m.path}\u0000${task.id}`))).size;
+}
+
+/** Dve písmená z názvu klienta: prvé písmená prvých dvoch slov (spec: právnu formu ani „SYN“ nerieši). */
+export function clientInitials(name: string): string {
+  const words = name.trim().split(/\s+/).map((word) => word.replace(/^[^\p{L}\p{N}]+/u, "")).filter(Boolean);
+  return words.slice(0, 2).map((word) => ([...word][0] ?? "").toLocaleUpperCase("sk")).join("");
+}
+
+/** Chat klienta, ktorý už načítal bočný panel: názov a čas poslednej zmeny. */
+export type RecentChat = { id: string; title: string; updated?: number };
+type SessionLike = { id: string; title: string; parentID?: string | null; time?: { updated?: number | null; created?: number | null; archived?: number | null } };
+
+/**
+ * „Pokračovať“ na Domove klienta: najnovšie chaty z živého zoznamu bočného panela (nič sa nečíta navyše). Len
+ * projekty so zoznamom načítaným (`ready`); bez archivovaných a podriadených chatov; najnovšie prvé.
+ */
+export function recentChats(groups: readonly { workspace: { id: string }; status: string; sessions: readonly SessionLike[] }[], limit: number): Record<string, RecentChat[]> {
+  const when = (session: SessionLike) => session.time?.updated ?? session.time?.created ?? 0;
+  return Object.fromEntries(groups.filter((group) => group.status === "ready").map((group) => [group.workspace.id, group.sessions
+    .filter((session) => !session.parentID && !session.time?.archived && session.title.trim())
+    .sort((a, b) => when(b) - when(a))
+    .slice(0, Math.max(0, limit))
+    .map((session): RecentChat => ({ id: session.id, title: session.title.trim(), ...(when(session) ? { updated: when(session) } : {}) }))]));
+}
+
+/** Kľúč posledných chatov na deň presne (blok ukazuje deň a mesiac): nová správa v chate ho nemení. */
+export function recentChatsKey(chats: Readonly<Record<string, readonly RecentChat[]>>): string {
+  const day = (time?: number) => time ? new Date(time).toDateString() : "";
+  return Object.entries(chats).map(([id, list]) => [id, ...list.map((chat) => `${chat.id}\u0002${chat.title}\u0002${day(chat.updated)}`)].join("\u0000")).join("\u0001");
 }

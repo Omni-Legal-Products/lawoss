@@ -169,6 +169,7 @@ import { ROUTE_LEGALWORK_CAPABILITIES } from "./legalwork-capabilities";
 import { useReloadCoordinator } from "./reload-coordinator";
 import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory";
 import { liteSettingsWorkspace } from "@/lawoss/lite/office-scope";
+import { settingsReturnRoute } from "@/lawoss/lite/settings-return"; // 🟡 LAWOSS: zatvorenie Nastavení v lite
 import { composerSettingsPath, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { refreshProviderListQueries } from "@/react-app/infra/provider-list-query";
@@ -181,6 +182,7 @@ import { conversationWorkspaceId, isLawossHomeWorkspace, preferRealWorkspace } f
 import { localProviderTimeouts } from "@/lawoss/providers/local-timeouts";
 import { patchProviderConfirmingOverwrite } from "@/lawoss/providers/overwrite-confirm";
 import { lawossProviderRow } from "@/lawoss/providers/provider-row";
+import { requestRemoveClientConfirm } from "@/lawoss/shell/remove-client-confirm";
 
 function reconcileSelectedWorkspaceId(
   currentId: string,
@@ -1873,10 +1875,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   }, [workspaces]);
 
   const handleForgetWorkspace = useCallback(async (workspaceId: string) => {
-    if (typeof window !== "undefined") {
-      const message = t("workspace_list.remove_confirm") || t("workspace.remove_confirm");
-      if (!window.confirm(message)) return;
-    }
+    // 🟡 LAWOSS: potvrdenie v okne appky so slovenskými a českými tlačidlami.
+    if (!(await requestRemoveClientConfirm())) return;
     try {
       if (!legalworkClient) throw new Error(t("session_route.create_server_unavailable"));
       const nextId = workspacesRef.current.find(workspace => workspace.id !== workspaceId)?.id ?? "";
@@ -2049,6 +2049,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             fusionView={
               <FusionSettingsSection
                 fusionModels={local.prefs.fusionModels ?? []}
+                providers={providers} // 🟡 LAWOSS #479
                 onPickModel={(slot) => {
                   setFusionPickerSlot(slot);
                   modelPicker.setQuery("");
@@ -2356,7 +2357,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             initialSection={route.extensionsSection}
             onRefresh={refreshNativeIntegrations}
             lawossIntro={<div className="space-y-4">
-              <AiGuidance locale={currentLocale()} />
+              <AiGuidance locale={currentLocale()} liteDisclosure /* 🟡 LAWOSS: lite zbalené */ />
               <IntegrationSourcesCard />
               {nativeIntegrations.error ? <p role="alert" className="text-sm text-red-11">{describeRouteError(nativeIntegrations.error)}</p> : null}
               <NativeCatalog
@@ -2514,7 +2515,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           onSelectWorkspace={handleSelectSettingsWorkspace}
           headerStatus={routeLegalworkStatus}
           busyHint={loading ? t("session.loading_detail") : busyLabel}
-          onClose={props.onClose ?? (() => navigate(sessionReturnRoute))}
+          onClose={props.onClose ?? (() => navigate(settingsReturnRoute() ?? sessionReturnRoute))} // 🟡 LAWOSS: lite späť na poslednú obrazovku
+          onHome={props.onClose ?? (() => navigate(sessionReturnRoute))} // 🟡 LAWOSS: Domov natívne
           compact={props.embedded}
         >
           {settingsView}

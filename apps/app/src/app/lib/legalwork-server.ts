@@ -5,6 +5,7 @@ import type { OfficeMemoryRead } from "../../lawoss/okf/office-memory";
 import type { MovedFolderApiPath } from "../../lawoss/okf/moved-folder";
 import type { LawossOcrView } from "../../lawoss/domains/settings/ocr-opt-in";
 import { lawossMarketplaceMethods } from "../../lawoss/domains/marketplace/marketplace-api";
+import { MCP_REMOVE_TIMEOUT_MS } from "../../lawoss/domains/integrations/mcp-removal"; // 🟡 LAWOSS #436
 import type { WorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
 export type { WorkspaceMemoryStatus as LegalworkWorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
 import { trackLegalMemoryInterfaceRead } from "./legalmemory-interface-activity";
@@ -1750,6 +1751,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // Connector creation waits for OAuth discovery and engine registration
     // across local workspaces before it is safe to open sign-in.
     mcpSetup: 90_000,
+    // 🟡 LAWOSS #436: removal disconnects the connector from every open client before it answers.
+    mcpRemove: MCP_REMOVE_TIMEOUT_MS,
     workspaceExport: 30_000,
     // A dragged folder is many downloads behind one call.
     legalMemoryFolderExport: 300_000,
@@ -2043,6 +2046,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     lawossOfficeMemory: (expectedPracticeRoot: string, options?: { signal?: AbortSignal }): Promise<OfficeMemoryRead> => requestJson(baseUrl, `/lawoss/onboarding/office-memory?expectedPracticeRoot=${encodeURIComponent(expectedPracticeRoot)}`, { token, hostToken, signal: options?.signal }),
     updateOnboardingProfile: (profile: Parameters<OnboardingApi["updateOnboardingProfile"]>[0]): ReturnType<OnboardingApi["updateOnboardingProfile"]> => requestJson(baseUrl, "/lawoss/onboarding/profile", { token, hostToken, method: "POST", body: profile }),
     classifyOnboarding: (input: Parameters<OnboardingApi["classifyOnboarding"]>[0]): ReturnType<OnboardingApi["classifyOnboarding"]> => requestJson(baseUrl, "/lawoss/onboarding/classify", { token, hostToken, method: "POST", body: input, timeoutMs: 120_000 }),
+    lawossUnadoptedClients: (): Promise<{ officeRoot?: string; folders: { path: string; name: string }[] }> => requestJson(baseUrl, "/lawoss/onboarding/unadopted-clients", { token, hostToken }), // 🟡 LAWOSS #425
     suggestOnboarding: (input: { root: string }): Promise<OnboardingSuggestion> => requestJson(baseUrl, "/lawoss/onboarding/suggest", { token, hostToken, method: "POST", body: input, timeoutMs: 120_000 }),
     planOnboarding: (input: Parameters<OnboardingApi["planOnboarding"]>[0]): ReturnType<OnboardingApi["planOnboarding"]> => requestJson(baseUrl, "/lawoss/onboarding/plan", { token, hostToken, method: "POST", body: input, timeoutMs: 120_000 }),
     recoverOnboarding: (input: Parameters<NonNullable<OnboardingApi["recoverOnboarding"]>>[0]): Promise<unknown> => requestJson(baseUrl, "/lawoss/onboarding/recover", { token, hostToken, method: "POST", body: input, timeoutMs: 180_000 }),
@@ -2467,6 +2471,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       }),
     getEngineProjectStatus: (workspaceId: string) =>
       requestJson<EngineProjectStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/engine-project`, { token, hostToken }),
+    // 🟡 LAWOSS #477: okamžitý nový pokus o spustenie spravovaného enginu („Skúsiť znova“ v stavovom riadku).
+    restartEngine: () =>
+      requestJson<{ restarting: boolean; engine: { status: "starting" | "migrating" | "ready" | "error" } }>(baseUrl, "/engine/restart", {
+        token, hostToken, method: "POST",
+      }),
     retryEngineRecovery: (workspaceId: string) =>
       requestJson<EngineProjectStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/engine-project/retry-recovery`, {
         token, hostToken, method: "POST",
@@ -3292,6 +3301,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         token,
         hostToken,
         method: "DELETE",
+        timeoutMs: timeouts.mcpRemove,
       }),
     setMcpEnabled: (workspaceId: string, name: string, enabled: boolean) =>
       requestJson<{ items: LegalworkMcpItem[] }>(

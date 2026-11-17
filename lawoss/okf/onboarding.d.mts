@@ -52,6 +52,8 @@ export interface OnboardingSuggestion {
 /** `nestedClients`: priečinky jednotky, ktoré nie sú prípadmi, lebo vyzerajú ako ďalší klient (kód iného klienta alebo karta klienta, N-A7-3). */
 export interface SuggestedUnit { path: string; matters: SuggestedClient[]; matterCount: number; files: number; exact: boolean; nestedClients: SuggestedClient[] }
 export function suggestOnboardingLevel(root: string): Promise<OnboardingSuggestion>;
+/** Priečinok nového klienta v `parent` podľa zvyklosti kancelárie (kód `C025-slug`, inak meno klienta), #433. */
+export function newClientFolder(parent: string, name: string): Promise<string>;
 export function grantInPlaceReorganize(root: string, now?: Date): Promise<void>;
 /** Usporiadanie na mieste len s `allowInPlace: true` od hostiteľa, ktorý súhlas overil vo vlastnom zázname; samotná značka v priečinku nestačí. */
 export interface TriageTargetOptions { allowInPlace?: boolean }

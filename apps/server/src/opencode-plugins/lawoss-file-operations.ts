@@ -19,6 +19,7 @@ import { CREATE_FILE_RULE, EXACT_NAME_RULE, FILE_REPORT_RULE, fileOperationToolT
 import { listWorkspaces, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 import { hideEngineEnvFromShell } from "./wiki-agent-secret.js";
 import { nativeTool } from "./native-tool.js";
+import { directTool } from "./lawoss-direct-tool.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
 
 const pathArg = z.string().min(1).max(4096);
@@ -140,14 +141,14 @@ export default Plugin.define({
     const shell = await ctx.shell.hook("create.before", (event) => { hideEngineEnvFromShell(event); });
     const context = await registerPrimaryContext(ctx, (event) => { event.system.push({ type: "text", text: SYSTEM }); });
     const tools = await ctx.tool.transform((editor) => {
-      editor.add(nativeTool(ctx, {
+      editor.add(directTool(nativeTool(ctx, {
         name: "lawoss_files",
         description: `Rename, move, copy or delete files and folders, create folders, or create a new Word (.docx), Markdown (.md) or plain-text (.txt) file from content you give, in this client's folder and its linked folders. Shows the user one approval card with every change (no card when YOLO Mode is on). Deleting moves items to the Trash. Never overwrites: an existing target is refused. A declined card changes nothing. The result lists what was actually done. ${CREATE_FILE_RULE} ${EXACT_NAME_RULE} ${MOVE_ACROSS_DRIVES_RULE}`,
         schema: args,
         // The tool asks its own `lawoss_file_change` card with the whole plan; no second card for its name.
         permission: "domain",
         execute,
-      }));
+      })));
     });
     return async () => { await Promise.all([shell.dispose(), context.dispose(), tools.dispose()]); };
   },

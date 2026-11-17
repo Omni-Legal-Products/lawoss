@@ -42,7 +42,7 @@ import { legacyMcpAuthPath } from "./legacy-mcp-credentials.js";
 import { prepareIsolatedEngineHome } from "./lawoss/engine-home.js";
 import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
 import { issueWikiAgentTicket } from "./wiki/agent-access.js";
-import { settleEngineAgentTicket } from "./lawoss/engine-agent-ticket.js";
+import { createEngineTicketSettler } from "./lawoss/engine-agent-ticket.js";
 import { WIKI_AGENT_TICKET_ENV } from "./lawoss/engine-agent-contract.js";
 // 🟡 LAWOSS: na Windows relative() medzi diskami vráti absolútnu cestu bez "..".
 import { isPathWithin } from "./lawoss/path-within.js";
@@ -156,10 +156,12 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   let unsubscribe: (() => Promise<void>) | undefined;
   let refresh: Promise<unknown> = Promise.resolve();
-  let ticketSettled: Promise<unknown> = Promise.resolve();
   // LAWOSS: the client the managed engine is started for; its location settles the agent ticket.
   let managedWorkspacePath: string | undefined;
   const ticketStop = new AbortController();
+  // 🟡 LAWOSS #476: every engine the lifecycle publishes (also after a crash) gets its ticket window settled.
+  const tickets = createEngineTicketSettler(config, () => managedWorkspacePath ?? config.workspaces[0]?.path ?? "", ticketStop.signal,
+    (error) => console.warn(`[embedded] engine ticket window left open: ${error instanceof Error ? error.message : String(error)}`));
   let stopped = false;
   let stopPromise: Promise<void> | undefined;
   const stop = () => {
@@ -170,7 +172,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       // Unsubscribe synchronously; accepted writes and jobs still drain before the owner releases.
       const freshness = unsubscribe?.();
       ticketStop.abort();
-      for (const operation of [() => freshness, () => ticketSettled, () => refresh,
+      for (const operation of [() => freshness, () => tickets.settled, () => refresh,
         () => managed.lifecycle ? managed.lifecycle.close() : managed.engine?.close(), () => server?.stop(), () => lifetime.release()]) {
         try { await operation(); } catch (error) { errors.push(error); }
       }
@@ -284,7 +286,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         const service = { configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineHome, "state"), executablePath };
         const dependencies = await prepareManagedOpencodeDependencies(config, options.opencodeSdkDirectory);
         if (dependencies.reason === "bundle-unavailable") console.warn("[legalwork-server] Prepare desktop resources to validate the released engine's bundled runtime declaration.");
-        managed.lifecycle = await startManagedEngineLifecycle({ config, database, service, legacyMcpAuthPath: legacyMcpAuthPath(), create: async (mode, beforeSpawn) => {
+        managed.lifecycle = await startManagedEngineLifecycle({ config, database, service, legacyMcpAuthPath: legacyMcpAuthPath(), onEnginePublished: engine => tickets.settle(engine), create: async (mode, beforeSpawn) => {
           const engine = await createConfiguredManagedEngine(config, {
           bin: executablePath,
           candidateBuild: options.opencodeCandidateBuild,
@@ -322,8 +324,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
 
   // LAWOSS: not awaited, a cold plugin load must not delay startup; no instance serves anything before it.
   // The probe builds the opened client's location (plugins and MCP); admit it into the MCP budget (RAM 2 GB).
-  if (managed.engine) ticketSettled = settleEngineAgentTicket(config, managed.engine, managedWorkspacePath ?? config.workspaces[0]?.path ?? "", ticketStop.signal)
-    .catch((error: unknown) => { if (!ticketStop.signal.aborted) console.warn(`[embedded] engine ticket window left open: ${error instanceof Error ? error.message : String(error)}`); });
+  if (managed.engine) tickets.settle(managed.engine);
 
   const started = server;
   if (!started) throw new Error("Embedded server did not start");

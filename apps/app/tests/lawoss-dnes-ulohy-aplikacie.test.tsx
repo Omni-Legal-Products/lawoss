@@ -51,15 +51,17 @@ describe("N-A5-4: úlohy aplikácie na Dnes", () => {
     ]);
   });
 
-  test("os dní, Začnite tu a Otvorené úlohy ukážu úlohu aplikácie s klientom a odkazom na ňu", () => {
+  test("os dní a „Čo horí“ ukážu úlohu aplikácie s klientom a odkazom na ňu, ako úlohu, nie pracovný termín", () => {
     const model = buildToday(data, TODAY, undefined, tasks);
     const html = renderToStaticMarkup(<MemoryRouter><TodayView model={model} locale="sk" now={new Date(`${TODAY}T09:00:00`)} events={agendaEvents(data, tasks)} /></MemoryRouter>);
-    expect(html).toContain('data-lawoss-start="work"');
-    expect(html).toContain("Úloha · SYN Tatran Automatika");
-    expect(html).toContain('href="/tasks"');
-    // Úvod hovorí o termíne z prípadu, nie o úlohe aplikácie; „Termíny z prípadov“ ju neuvádzajú.
+    const hot = html.slice(html.indexOf('aria-labelledby="lw-dnes-hot"'), html.indexOf("</section>", html.indexOf('aria-labelledby="lw-dnes-hot"')));
+    const row = hot.match(/<a class="lw-dnes-item"[^>]*href="\/tasks"[^>]*>.*?<\/a>/)?.[0] ?? "";
+    expect(row).toContain("SYN test: zavolať klientovi k prílohe");
+    expect(row).toContain("Úloha · SYN Tatran Automatika");
+    expect(row).toContain('<span class="lw-dnes-pill" data-tone="work">Úloha</span>');
+    // Úvod a dlaždica „Najbližšia lehota“ hovoria o termíne z prípadu, nie o úlohe aplikácie.
     expect(html).not.toContain("Termín z prípadu: SYN test");
-    expect(html.match(/data-lawoss-case-dates=""[\s\S]*?<\/ul>/)?.[0] ?? "").not.toContain("SYN test");
+    expect(html.match(/data-lawoss-tile="nearest".*?<\/a>/)?.[0] ?? "").not.toContain("SYN test");
     const strip = html.match(/<section class="lw-today-strip".*?<\/section>/)?.[0] ?? "";
     const busy = strip.match(/<li[^>]*data-busy[^>]*>.*?<\/li>/g) ?? [];
     expect(busy[0]).toContain("SYN test: zavolať klientovi k prílohe");

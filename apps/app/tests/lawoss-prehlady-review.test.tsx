@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -14,6 +14,7 @@ import { groupByClient } from "../src/lawoss/lite/today-model";
 import type { OkfConnection } from "../src/lawoss/okf/connection";
 import { FOLDER_UNAVAILABLE, okfScope, readScopeMemory, type OkfScopeClient } from "../src/lawoss/okf/read-model";
 import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
+import type { UiMode } from "../src/lawoss/lite/ui-mode";
 
 // Review VŘ k #246 (6cbb3fb8): Domov klienta počíta len svoje prípady, termíny a vstupy.
 
@@ -68,6 +69,9 @@ const ALFA_TREE: Tree = {
 };
 const HORAK_TREE: Tree = { "client.md": "---\ntitle: Horák s.r.o.\nclient_type: po\n---\n" };
 
+/** Režim prehľadu pre `home` (SSR inak vždy Pokročilé). */
+let currentMode: UiMode = "pro";
+
 /** Domov klienta tak, ako ho vykreslí panel: rozsah praxe, prehľad, skupiny a model panela z tých istých dát. */
 async function home(workspaces: RouteWorkspace[], trees: Record<string, Tree>, workspaceId: string, broken: readonly string[] = [], missing: readonly string[] = []) {
   const scope = okfScope(workspaces, alfa, ROOT);
@@ -80,115 +84,122 @@ async function home(workspaces: RouteWorkspace[], trees: Record<string, Tree>, w
   queries.setQueryData(linkedFoldersKey(connection, workspaceId), { folders: [], hiddenCount: 0, workspaceRoot: "" });
   const nav = { connection, scope, data, groups, model, excludedWorkspaceIds: [] };
   return { data, model, nav, html: renderToStaticMarkup(
-    <QueryClientProvider client={queries}><MemoryRouter><SidebarProvider><ClientOverviewFrom nav={nav} workspaceId={workspaceId} /></SidebarProvider></MemoryRouter></QueryClientProvider>,
+    <QueryClientProvider client={queries}><MemoryRouter><SidebarProvider><ClientOverviewFrom nav={nav} workspaceId={workspaceId} mode={currentMode} /></SidebarProvider></MemoryRouter></QueryClientProvider>,
   ) };
 }
 
-describe("P2: zaregistrovaný vnorený klient nepatrí na Domov vonkajšieho klienta", () => {
-  const trees = {
-    alfa: {
-      ...ALFA_TREE,
-      "C099 SYN Vnoreny/client.md": "---\ntitle: SYN Vnorený\n---\n",
-      "C099 SYN Vnoreny/VSTUPY.md": intake("| IN-001 | 2026-10-01 | mail | [a.pdf](./M001 Cudzí spor/01_Podklady/a.pdf) | processed | E-001 |"),
-      "C099 SYN Vnoreny/M001 Cudzí spor/matter.md": "---\ntitle: Cudzí spor\n---\n",
-      "C099 SYN Vnoreny/M001 Cudzí spor/memory/E-001-lehota.md": rec("evidence", "E-001", { title: "Lehota vnoreného", deadlines: ["2026-10-22"] }),
-    },
-    horak: HORAK_TREE,
-  };
-
-  test("ALFA neukáže prípad, lehotu ani vstupy vnoreného klienta; svoje áno", async () => {
-    const { data, model, html } = await home([alfa, horak, nested], trees, "alfa");
-    // Predpoklad nálezu: vnorený klient je v prehľade aj s lehotou, panel ho skryje.
-    expect(data.upcomingDeadlines.map((d) => d.title)).toContain("Lehota vnoreného");
-    expect(model.hidden.has("vnoreny")).toBe(true);
-    expect(html).toContain("Spor BETA");
-    expect(html).toContain("Replika");
-    expect(html).not.toContain("Cudzí spor");
-    expect(html).not.toContain("Lehota vnoreného");
-    expect(html).toContain('data-lawoss-inputs="unrecorded"');
-  });
-
-  test("Lehoty klienta ALFA (odkaz z Domova a panela) majú to isté pravidlo ako Domov", async () => {
-    const { data, nav } = await home([alfa, horak, nested], trees, "alfa");
-    const owns = registerOwns(nav, nav.scope, alfa);
-    const folders = Object.fromEntries(data.matters.map((m) => [m.title, overviewFolder(nav.scope, m.path)!]));
-    expect(owns(folders["Spor BETA"]!)).toBe(true);
-    expect(owns(folders["Cudzí spor"]!)).toBe(false);
-  });
-
-  test("nezaregistrovaný vnorený klient: prehľad ho vôbec nečíta, ALFA ostáva bez zmeny", async () => {
-    const { html } = await home([alfa, horak], trees, "alfa");
-    expect(html).toContain("Spor BETA");
-    expect(html).not.toContain("Cudzí spor");
-  });
-});
-
-describe("P3: vstupy klienta na Domove", () => {
-  test("klient s VSTUPY.md bez prípadu: počty z registra, nie „neevidované“", async () => {
-    const trees = {
-      alfa: ALFA_TREE,
-      horak: {
-        ...HORAK_TREE,
-        "VSTUPY.md": intake(
-          "| IN-001 | 2026-10-01 | mail | [a.pdf](./00_Na_zatriedenie/a.pdf) | pending | |",
-          "| IN-002 | 2026-10-02 | mail | [b.pdf](./00_Na_zatriedenie/b.pdf) | processed | |",
-        ),
-      },
-    };
-    const { data, html } = await home([alfa, horak], trees, "horak");
-    expect(data.matters.some((m) => m.path.startsWith("Horák"))).toBe(false);
-    expect(html).toContain('data-lawoss-inputs="2"');
-    expect(html).toContain('<b>1</b> not filed');
-    expect(html).not.toContain("Inputs are not recorded.");
-  });
-
-  test("klientsky register s prípadmi sa nezráta dvakrát", async () => {
-    const trees = { alfa: { ...ALFA_TREE, "VSTUPY.md": intake("| IN-001 | 2026-10-01 | mail | [a.pdf](./Spisy/2026-03 Spor BETA/01_Podklady/a.pdf) | processed | E-001 |") }, horak: HORAK_TREE };
-    const { html } = await home([alfa, horak], trees, "alfa");
-    expect(html).toContain('data-lawoss-inputs="1"');
-  });
-
-  test("nečitateľný VSTUPY.md: „nenačítané“, nie „neevidované“", async () => {
-    const trees = { alfa: ALFA_TREE, horak: { ...HORAK_TREE, "VSTUPY.md": intake("| IN-001 | 2026-10-01 | mail | a.pdf | pending | |") } };
-    const { data, html } = await home([alfa, horak], trees, "horak", ["horak:VSTUPY.md"]);
-    // Jeden problém na súbor, s cestou voči koreňu praxe.
-    expect(data.problems.filter((p) => p.path.endsWith("VSTUPY.md")).map((p) => p.path)).toEqual(["Horák s.r.o./VSTUPY.md"]);
-    expect(html).toContain('data-lawoss-inputs="not_loaded"');
-    expect(html).toContain("The inputs register could not be read");
-    expect(html).not.toContain("Inputs are not recorded.");
-  });
-
-  test("jeden z registrov sa nedá prečítať: počty z ostatných s upozornením „čiastočné“", async () => {
+// Pokročilé aj bežný režim (alfa 14, spec-klient.md): pravidlá #246 platia v oboch prehľadoch klienta.
+for (const mode of ["pro", "lite"] as const) {
+  describe(`P2: zaregistrovaný vnorený klient nepatrí na Domov vonkajšieho klienta (${mode})`, () => {
+    beforeEach(() => { currentMode = mode; });
     const trees = {
       alfa: {
         ...ALFA_TREE,
-        "VSTUPY.md": intake("| IN-001 | 2026-10-01 | mail | a.pdf | processed | |"),
-        "Spisy/2026-03 Spor BETA/VSTUPY.md": intake("| IN-002 | 2026-10-02 | mail | b.pdf | processed | |"),
+        "C099 SYN Vnoreny/client.md": "---\ntitle: SYN Vnorený\n---\n",
+        "C099 SYN Vnoreny/VSTUPY.md": intake("| IN-001 | 2026-10-01 | mail | [a.pdf](./M001 Cudzí spor/01_Podklady/a.pdf) | processed | E-001 |"),
+        "C099 SYN Vnoreny/M001 Cudzí spor/matter.md": "---\ntitle: Cudzí spor\n---\n",
+        "C099 SYN Vnoreny/M001 Cudzí spor/memory/E-001-lehota.md": rec("evidence", "E-001", { title: "Lehota vnoreného", deadlines: ["2026-10-22"] }),
       },
       horak: HORAK_TREE,
     };
-    const { html } = await home([alfa, horak], trees, "alfa", ["alfa:Spisy/2026-03 Spor BETA/VSTUPY.md"]);
-    expect(html).toContain('data-lawoss-inputs="1"');
-    expect(html).toContain("data-lawoss-inputs-partial");
-    expect(html).toContain("the counts are incomplete");
+
+    test("ALFA neukáže prípad, lehotu ani vstupy vnoreného klienta; svoje áno", async () => {
+      const { data, model, html } = await home([alfa, horak, nested], trees, "alfa");
+      // Predpoklad nálezu: vnorený klient je v prehľade aj s lehotou, panel ho skryje.
+      expect(data.upcomingDeadlines.map((d) => d.title)).toContain("Lehota vnoreného");
+      expect(model.hidden.has("vnoreny")).toBe(true);
+      expect(html).toContain("Spor BETA");
+      expect(html).toContain("Replika");
+      expect(html).not.toContain("Cudzí spor");
+      expect(html).not.toContain("Lehota vnoreného");
+      expect(html).toContain('data-lawoss-inputs="unrecorded"');
+      // Bežný režim naozaj vykreslí pasívny prehľad, Pokročilé pôvodný.
+      expect(html.includes('data-lawoss-lite="client"')).toBe(mode === "lite");
+    });
+
+    test("Lehoty klienta ALFA (odkaz z Domova a panela) majú to isté pravidlo ako Domov", async () => {
+      const { data, nav } = await home([alfa, horak, nested], trees, "alfa");
+      const owns = registerOwns(nav, nav.scope, alfa);
+      const folders = Object.fromEntries(data.matters.map((m) => [m.title, overviewFolder(nav.scope, m.path)!]));
+      expect(owns(folders["Spor BETA"]!)).toBe(true);
+      expect(owns(folders["Cudzí spor"]!)).toBe(false);
+    });
+
+    test("nezaregistrovaný vnorený klient: prehľad ho vôbec nečíta, ALFA ostáva bez zmeny", async () => {
+      const { html } = await home([alfa, horak], trees, "alfa");
+      expect(html).toContain("Spor BETA");
+      expect(html).not.toContain("Cudzí spor");
+    });
   });
 
-  test("problém v registri iného klienta Domov tohto klienta neovplyvní", async () => {
-    const trees = { alfa: { ...ALFA_TREE, "VSTUPY.md": intake("| IN-001 | 2026-10-01 | mail | a.pdf | processed | |") }, horak: { ...HORAK_TREE, "VSTUPY.md": intake("") } };
-    const { html } = await home([alfa, horak], trees, "alfa", ["horak:VSTUPY.md"]);
-    expect(html).toContain('data-lawoss-inputs="1"');
-    expect(html).not.toContain("data-lawoss-inputs-partial");
-  });
+  describe(`P3: vstupy klienta na Domove (${mode})`, () => {
+    beforeEach(() => { currentMode = mode; });
+    test("klient s VSTUPY.md bez prípadu: počty z registra, nie „neevidované“", async () => {
+      const trees = {
+        alfa: ALFA_TREE,
+        horak: {
+          ...HORAK_TREE,
+          "VSTUPY.md": intake(
+            "| IN-001 | 2026-10-01 | mail | [a.pdf](./00_Na_zatriedenie/a.pdf) | pending | |",
+            "| IN-002 | 2026-10-02 | mail | [b.pdf](./00_Na_zatriedenie/b.pdf) | processed | |",
+          ),
+        },
+      };
+      const { data, html } = await home([alfa, horak], trees, "horak");
+      expect(data.matters.some((m) => m.path.startsWith("Horák"))).toBe(false);
+      expect(html).toContain('data-lawoss-inputs="2"');
+      expect(html).toContain('<b>1</b> not filed');
+      expect(html).not.toContain("Inputs are not recorded.");
+    });
 
-  test("iný problém zdroja (zlý záznam pamäte) bez registra ostane „neevidované“", async () => {
-    const trees = { alfa: { ...ALFA_TREE, "Spisy/2026-03 Spor BETA/memory/E-009-zle.md": "nie je to záznam" }, horak: HORAK_TREE };
-    const { data, html } = await home([alfa, horak], trees, "alfa");
-    expect(data.problems.some((p) => p.path.endsWith("E-009-zle.md"))).toBe(true);
-    expect(html).toContain('data-lawoss-inputs="unrecorded"');
-  });
+    test("klientsky register s prípadmi sa nezráta dvakrát", async () => {
+      const trees = { alfa: { ...ALFA_TREE, "VSTUPY.md": intake("| IN-001 | 2026-10-01 | mail | [a.pdf](./Spisy/2026-03 Spor BETA/01_Podklady/a.pdf) | processed | E-001 |") }, horak: HORAK_TREE };
+      const { html } = await home([alfa, horak], trees, "alfa");
+      expect(html).toContain('data-lawoss-inputs="1"');
+    });
 
-  test("chýbajúci priečinok klienta (odpojený disk): vstupy „nenačítané“", async () => {
-    const { html } = await home([alfa, horak], { alfa: ALFA_TREE, horak: HORAK_TREE }, "horak", [], ["horak"]);
-    expect(html).toContain('data-lawoss-inputs="not_loaded"');
+    test("nečitateľný VSTUPY.md: „nenačítané“, nie „neevidované“", async () => {
+      const trees = { alfa: ALFA_TREE, horak: { ...HORAK_TREE, "VSTUPY.md": intake("| IN-001 | 2026-10-01 | mail | a.pdf | pending | |") } };
+      const { data, html } = await home([alfa, horak], trees, "horak", ["horak:VSTUPY.md"]);
+      // Jeden problém na súbor, s cestou voči koreňu praxe.
+      expect(data.problems.filter((p) => p.path.endsWith("VSTUPY.md")).map((p) => p.path)).toEqual(["Horák s.r.o./VSTUPY.md"]);
+      expect(html).toContain('data-lawoss-inputs="not_loaded"');
+      expect(html).toContain("The inputs register could not be read");
+      expect(html).not.toContain("Inputs are not recorded.");
+    });
+
+    test("jeden z registrov sa nedá prečítať: počty z ostatných s upozornením „čiastočné“", async () => {
+      const trees = {
+        alfa: {
+          ...ALFA_TREE,
+          "VSTUPY.md": intake("| IN-001 | 2026-10-01 | mail | a.pdf | processed | |"),
+          "Spisy/2026-03 Spor BETA/VSTUPY.md": intake("| IN-002 | 2026-10-02 | mail | b.pdf | processed | |"),
+        },
+        horak: HORAK_TREE,
+      };
+      const { html } = await home([alfa, horak], trees, "alfa", ["alfa:Spisy/2026-03 Spor BETA/VSTUPY.md"]);
+      expect(html).toContain('data-lawoss-inputs="1"');
+      expect(html).toContain("data-lawoss-inputs-partial");
+      expect(html).toContain("the counts are incomplete");
+    });
+
+    test("problém v registri iného klienta Domov tohto klienta neovplyvní", async () => {
+      const trees = { alfa: { ...ALFA_TREE, "VSTUPY.md": intake("| IN-001 | 2026-10-01 | mail | a.pdf | processed | |") }, horak: { ...HORAK_TREE, "VSTUPY.md": intake("") } };
+      const { html } = await home([alfa, horak], trees, "alfa", ["horak:VSTUPY.md"]);
+      expect(html).toContain('data-lawoss-inputs="1"');
+      expect(html).not.toContain("data-lawoss-inputs-partial");
+    });
+
+    test("iný problém zdroja (zlý záznam pamäte) bez registra ostane „neevidované“", async () => {
+      const trees = { alfa: { ...ALFA_TREE, "Spisy/2026-03 Spor BETA/memory/E-009-zle.md": "nie je to záznam" }, horak: HORAK_TREE };
+      const { data, html } = await home([alfa, horak], trees, "alfa");
+      expect(data.problems.some((p) => p.path.endsWith("E-009-zle.md"))).toBe(true);
+      expect(html).toContain('data-lawoss-inputs="unrecorded"');
+    });
+
+    test("chýbajúci priečinok klienta (odpojený disk): vstupy „nenačítané“", async () => {
+      const { html } = await home([alfa, horak], { alfa: ALFA_TREE, horak: HORAK_TREE }, "horak", [], ["horak"]);
+      expect(html).toContain('data-lawoss-inputs="not_loaded"');
+    });
   });
-});
+}

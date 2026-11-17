@@ -1,6 +1,7 @@
 /** Súborová vrstva OKF — jediné miesto, ktoré číta a píše na disk. */
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   CARD_ALIASES,
@@ -11,6 +12,7 @@ import {
   ENTITY_TYPES,
   type DetectResult,
   type EntityType,
+  type Jurisdiction,
   type Plan,
   type PlanInput,
   type ValidationError,
@@ -23,6 +25,7 @@ import { readConfiguredLawyerName } from "../../okf-pamat/src/config.ts";
 import { findOfficeDir } from "../../okf-pamat/src/store.ts";
 import { contained, missing } from "../../okf-pamat/src/workspace-memory-fs.ts";
 import { decodeText } from "../../okf-pamat/src/text-decode.ts";
+import { parseFrontmatter as parseConfig } from "../../okf-pamat/src/record.ts";
 import { PROFILE_FILE, parseOfficeWorkingProfile, parseWorkingProfile, type WorkingProfile } from "./profile.ts";
 
 function readText(path: string): string {
@@ -42,6 +45,49 @@ function officeProfile(dir: string, language: DocumentLanguage): WorkingProfile 
   if (!statSync(path).isFile()) return undefined;
   // Konfig píše advokát ručne; na Windows s BOM alebo v UTF-16 — rovnako ako okf-memory.
   return parseOfficeWorkingProfile(decodeText(readFileSync(path)), language);
+}
+
+/**
+ * #415: jurisdikcia nového spisu bez `--sk`/`--cz`. Najprv karta klienta nad spisom (`jurisdiction:`), inak
+ * `jurisdiction:` z `okf.config` najbližšej kancelárie. Neznáma alebo poškodená hodnota sa neberie.
+ */
+export function inheritedJurisdiction(dir: string): Jurisdiction | undefined {
+  const known = (value: unknown): Jurisdiction | undefined => {
+    const lower = typeof value === "string" ? value.trim().toLowerCase() : "";
+    return lower === "sk" || lower === "cz" ? lower : undefined;
+  };
+  for (let parent = dirname(resolve(dir)); ; parent = dirname(parent)) {
+    const card = existingCard("klient", (name) => existsSync(join(parent, name)));
+    if (card) {
+      const fromClient = known(parseFrontmatter(decodeText(readFileSync(join(parent, card))))?.jurisdiction);
+      if (fromClient) return fromClient;
+      break;
+    }
+    if (dirname(parent) === parent) break;
+  }
+  const office = findOfficeDir(dir);
+  const path = office ? join(office, "okf.config") : undefined;
+  const fromOffice = path && existsSync(path) && statSync(path).isFile() ? known(parseConfig(decodeText(readFileSync(path))).get("jurisdiction")) : undefined;
+  return fromOffice ?? known(officeFactsJurisdiction());
+}
+
+/** Súbor appky LAWOSS vedľa pribaleného CLI (`.opencode/skills/<skill>/resources/.office.json`, skrytý pred zoznamom prostriedkov skillu). */
+export const OFFICE_FACTS_FILE = ".office.json";
+
+/**
+ * #415: posledná možnosť, nezávislá od prostredia procesu. Kancelária založená appkou nemusí mať `okf.config` a karty
+ * klientov jurisdikciu nenesú; príkazy agenta spúšťa server (alebo izolované prostredie), nie engine. Appka preto vedľa `okf.js` v priečinku appky klienta
+ * drží `.office.json` s jurisdikciou kancelárie (len `{"jurisdiction":"sk"|"cz"}`); CLI ho číta vedľa seba.
+ */
+export function officeFactsJurisdiction(file: string = fileURLToPath(new URL(`./${OFFICE_FACTS_FILE}`, import.meta.url))): string | undefined {
+  try {
+    if (!existsSync(file) || !lstatSync(file).isFile()) return undefined;
+    const raw: unknown = JSON.parse(decodeText(readFileSync(file)));
+    const jurisdiction: unknown = raw && typeof raw === "object" ? Reflect.get(raw, "jurisdiction") : undefined;
+    return typeof jurisdiction === "string" ? jurisdiction : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Všetky .md pod `root`, relatívne cesty, bez šablón a skrytých priečinkov. */

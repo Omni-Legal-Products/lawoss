@@ -35,17 +35,26 @@ async function fixture() {
   const requests: EngineRequest[] = [];
   /** Running chats: session ID → its location directory. */
   const running = new Map<string, string>();
+  /** Zadržané odpovede `GET /api/location` (výpis rozhovorov bočného panela), kým test nepovie. */
+  const held: { gate: Promise<void> | null } = { gate: null };
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
     const header = request.headers.get("x-opencode-directory");
     const location = url.searchParams.get("location[directory]") ?? (header ? decodeURIComponent(header) : null);
     requests.push({ method: request.method, pathname: url.pathname, location });
-    if (url.pathname === "/api/info") return Response.json({ version: "2.1.4-legalwork.http-policy.4", pid: process.pid });
+    if (url.pathname === "/api/info") return Response.json({ version: "2.1.4-legalwork.lawoss-project-stop.1", pid: process.pid });
     if (url.pathname === "/api/session/active") return Response.json({ data: Object.fromEntries([...running.keys()].map(id => [id, { type: "running" }])) });
     const session = url.pathname.match(/^\/api\/session\/([^/]+)$/);
     if (session && running.has(session[1]!)) return Response.json({ id: session[1], projectID: "p", location: { directory: running.get(session[1]!) }, time: { created: 1, updated: 1 } });
     if (url.pathname === "/api/debug/location") return new Response(null, { status: 204 });
+    if (url.pathname === "/api/location") {
+      if (held.gate) await held.gate;
+      return Response.json({ directory: location, project: { id: "global", directory: "/" } });
+    }
     if (url.pathname === "/api/mcp") return Response.json({ location: { directory: location }, data: [] });
+    // Config documents of a location (connector display after a change): none beyond the app's own.
+    if (url.pathname === "/api/config") return Response.json([]);
+    if (/^\/api\/experimental\/mcp\/[^/]+\/disconnect$/.test(url.pathname)) return new Response(null, { status: 204 });
     return Response.json({ data: [] });
   } });
   cleanup.push(() => engine.stop(true));
@@ -73,7 +82,7 @@ async function fixture() {
   const unactivated = () => locationRequests().filter((entry, index, all) => (index === 0 || all[index - 1]!.location !== entry.location)
     && !(entry.method === "GET" && entry.pathname === "/api/model"));
   const evictions = () => requests.filter(entry => entry.method === "DELETE" && entry.pathname === "/api/debug/location").map(entry => entry.location);
-  return { paths, requests, running, openMcp, locationsBuilt, evictions, unactivated };
+  return { base, paths, requests, running, held, openMcp, locationsBuilt, evictions, unactivated };
 }
 
 test("engine v2: MCP sa spustí len pre otvoreného klienta, ďalší otvorený klient uvoľní nečinného", async () => {
@@ -116,4 +125,43 @@ test("engine v2: zisťovanie behu a pripravenosť nestavajú lokáciu (náhrada 
   const probes = requests.filter(entry => LOCATION_FREE.has(entry.pathname) || /^\/api\/session\/[^/]+$/.test(entry.pathname));
   expect(probes.length).toBeGreaterThan(0);
   expect(probes.every(entry => entry.location === null)).toBe(true);
+});
+
+test("#436: odstránenie spoločného pripojenia neotvorí neotvorených klientov a zapíše konfiguráciu raz", async () => {
+  const { base, paths: [a, b, c], requests, openMcp } = await fixture();
+  const headers = { Authorization: "Bearer client", "Content-Type": "application/json" };
+  expect(await openMcp("ws_a")).toBe(200);
+  const added = await fetch(`${base}/workspace/ws_a/mcp`, { method: "POST", headers,
+    body: JSON.stringify({ name: "orsr", scope: "global", config: { type: "local", command: ["node", "orsr.mjs"], enabled: true } }) });
+  expect(added.status).toBe(200);
+  requests.length = 0;
+  const removed = await fetch(`${base}/workspace/ws_a/mcp/orsr`, { method: "DELETE", headers });
+  expect(removed.status).toBe(200);
+  const touched = new Set(requests.filter(entry => entry.location !== null && !(entry.method === "DELETE" && entry.pathname === "/api/debug/location")).map(entry => entry.location));
+  // Len otvorený klient A: neotvorení B a C si pri otvorení prečítajú zverejnenú konfiguráciu bez pripojenia.
+  expect([...touched]).toEqual([a]);
+  expect(touched.has(b!) || touched.has(c!)).toBe(false);
+  expect(requests.filter(entry => entry.pathname === "/api/experimental/mcp/orsr/disconnect").map(entry => entry.location)).toEqual([a]);
+});
+
+test("#367: otvorenie ďalšieho klienta počká na dobehnutý výpis predošlého, dve sady MCP nebežia naraz", async () => {
+  const { base, paths: [a, b], requests, held, openMcp, locationsBuilt, evictions, unactivated } = await fixture();
+  expect(await openMcp("ws_a")).toBe(200);
+  let finish = () => {};
+  held.gate = new Promise<void>((resolve) => { finish = resolve; });
+  // Bočný panel číta priečinok A (GET /api/location), keď používateľ otvára B.
+  const listing = fetch(`${base}/workspace/ws_a/opencode/api/location`, { headers: { Authorization: "Bearer client" } });
+  while (!requests.some(entry => entry.pathname === "/api/location")) await Bun.sleep(5);
+  const opening = openMcp("ws_b");
+  await Bun.sleep(100);
+  expect(locationsBuilt()).toEqual([a]);
+  finish();
+  expect((await listing).status).toBe(200);
+  expect(await opening).toBe(200);
+  expect(evictions()).toEqual([a]);
+  expect(locationsBuilt()).toEqual([a, b]);
+  // A sa uvoľnil skôr, než B dostal prvú požiadavku.
+  const evicted = requests.findIndex(entry => entry.method === "DELETE" && entry.pathname === "/api/debug/location");
+  expect(requests.findIndex(entry => entry.location === b)).toBeGreaterThan(evicted);
+  expect(unactivated()).toEqual([]);
 });

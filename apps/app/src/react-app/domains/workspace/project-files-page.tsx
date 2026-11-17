@@ -6,7 +6,7 @@ import { useProjectFiles } from "./project-file-context";
 import { ProjectFileDropTarget } from "./project-file-transfer";
 import { FileSelectionProvider } from "./file-selection";
 
-export function ProjectFilesPage({ local, connected }: {
+export function ProjectFilesPage({ local }: {
   local: ComponentProps<typeof WorkspaceFilesPanel>;
   connected: ComponentProps<typeof LegalMemoryFilesPanel>;
 }) {
@@ -19,9 +19,9 @@ export function ProjectFilesPage({ local, connected }: {
         <p className="mt-1.5 text-sm text-muted-foreground">{t("project_browser.files_description")}</p>
       </header>
       {selectionToolbar}
-      <div className="grid min-h-[32rem] flex-1 grid-rows-2 gap-4 @min-[720px]/files:grid-cols-2 @min-[720px]/files:grid-rows-1">
+      {/* 🟡 LAWOSS: „Pripojené súbory“ (Memory Drive / LegalMemory) sa neponúkajú, panel bol slepá ulička (PATCHES.md). */}
+      <div className="grid min-h-[32rem] flex-1 gap-4">
         <section className="min-h-64 min-w-0 overflow-hidden rounded-xl border border-border/70" aria-label={t("session.workspace_files")}><WorkspaceFilesPanel {...local} searchable uploadPlacement="header" /></section>
-        <section className="min-h-64 min-w-0 overflow-hidden rounded-xl border border-border/70" aria-label={t("project_browser.connected_files")}><LegalMemoryFilesPanel {...connected} title={t("project_browser.connected_files")} /></section>
       </div>
     </div>
   </section></ProjectFileDropTarget>}</FileSelectionProvider>;

@@ -113,3 +113,37 @@ test("host memory context rejects redirect, oversized and timed-out context resp
   const stale = { id: "stale", path: join(f.root, "missing") };
   await expect(resolveHostMemoryContext({ ...f.options, fetch: responseFor(Response.json(valid), [...f.workspaces.items, stale]) })).resolves.toEqual({ allowedRoots: [f.child, f.vault] });
 });
+
+test("#426: klient bez karty prípadu a pamäte nie je zlyhanie handoffu; text je pevný a netvrdí, že pamäť existuje", async () => {
+  const f = fixture(); writeFileSync(join(f.child, "zmluva.txt"), "SYNTHETIC-ONLY");
+  const original = globalThis.fetch;
+  globalThis.fetch = Object.assign(async (url: string | URL | Request) => {
+    const path = String(url);
+    return Response.json(path.endsWith("/workspaces") ? f.workspaces : f.grants);
+  }, { preconnect: original.preconnect });
+  try {
+    process.env.LEGALWORK_SERVER_URL = "http://localhost:4321"; adoptWikiAgentSecret("synthetic");
+    const hooks = await LawossOkfHandoff({ directory: f.child }, { mode: "native" });
+    const first = { system: [] as string[] }, second = { system: [] as string[] }, compaction = { context: [] as string[] };
+    await hooks["experimental.chat.system.transform"]!({ sessionID: "ses_unbound" }, first);
+    await hooks["experimental.chat.system.transform"]!({ sessionID: "ses_unbound" }, second);
+    await hooks["experimental.session.compacting"]!({ sessionID: "ses_unbound" }, compaction);
+    expect(first.system[0]).toContain("has no case memory of its own");
+    expect(first.system[0]).toContain("This is not a failure.");
+    expect(first.system[0]).toContain("Never claim that memory or records exist");
+    // Netvrdí, že klient nemá žiadne úlohy: úlohy z appky sú mimo pamäte prípadu.
+    expect(first.system[0]).toContain("so no deadlines are recorded in case memory for it. That does not mean the client has no tasks");
+    expect(first.system[0]).not.toContain("nothing is recorded for it");
+    expect(first.system[0]).not.toContain("FAILED");
+    expect(first.system[0]).not.toContain("do not treat incomplete context as empty");
+    expect(second.system).toEqual(first.system);
+    expect(compaction.context[0]).toContain("has no case memory of its own");
+    expect(compaction.context[0]).not.toContain("FAILED");
+    // Skutočné zlyhanie (host neodpovedá) ostáva FAILED.
+    globalThis.fetch = Object.assign(async () => new Response("down", { status: 503 }), { preconnect: original.preconnect });
+    const broken = await LawossOkfHandoff({ directory: f.child }, { mode: "native" });
+    const failed = { system: [] as string[] };
+    await broken["experimental.chat.system.transform"]!({ sessionID: "ses_unbound" }, failed);
+    expect(failed.system[0]).toContain("Memory handoff FAILED");
+  } finally { globalThis.fetch = original; }
+});

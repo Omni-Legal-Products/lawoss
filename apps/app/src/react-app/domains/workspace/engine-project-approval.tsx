@@ -3,6 +3,7 @@ import { type EngineProjectStatus } from "@legalwork/types/engine-project";
 import { Button } from "@/components/ui/button";
 import { type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
+import { EngineProjectDiagnostic } from "@/lawoss/i18n/engine-project-diagnostic"; // 🟡 LAWOSS #509
 
 export function engineProjectStatusQueryKey(client: LegalworkServerClient, workspaceId: string) {
   return ["engine-project-status", client.baseUrl, workspaceId];
@@ -18,8 +19,10 @@ export function EngineProjectRecoveryNotice(props: {
   error?: string;
   onRetry: () => void;
 }) {
+  // 🟡 LAWOSS #494: chýbajúci priečinok hlási preložene stránka a stavový riadok; anglická veta servera (s „OpenCode“) nie.
+  if (props.status.projection.code === "project_folder_unavailable") return null;
   if (props.status.projection.diagnostic) return <section role="alert" className="shrink-0 border-b border-border px-5 py-3 text-sm">
-    <p>{props.status.projection.diagnostic}</p>
+    <EngineProjectDiagnostic diagnostic={props.status.projection.diagnostic} />{/* 🟡 LAWOSS #509: localized, original under details */}
     {props.error ? <p className="mt-2 text-destructive">{props.error}</p> : null}
     <Button className="mt-2" size="sm" variant="outline" disabled={props.pending} onClick={props.onRetry}>{t(props.pending ? "engine_project.recovery_retrying" : "common.refresh")}</Button>
   </section>;

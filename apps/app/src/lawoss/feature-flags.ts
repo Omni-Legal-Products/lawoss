@@ -38,6 +38,9 @@ const UNADOPTED_UPSTREAM_SIDEBAR_ITEMS: ReadonlySet<string> = new Set<string>([
   "navCalendar",
   "navScheduled",
   "projectCalendar",
+  // Alfa 13: Workflows a Vyhodnotenia (benchmark modelov) sú nástroje vývojárov upstreamu, nie advokáta.
+  "navWorkflows",
+  "navEvaluations",
 ]);
 
 /** Pohľady projektu v bočnom paneli („+“) a na stránke projektu. */

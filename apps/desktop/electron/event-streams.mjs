@@ -33,7 +33,11 @@ export function createEventStreams(fetchImpl = fetch) {
         stream.reader = response.body?.getReader();
         return { status: response.status, statusText: response.statusText, headers: Array.from(response.headers.entries()) };
       } catch (error) {
+        const cancelled = stream.controller.signal.aborted;
         cancel(owner, id);
+        // 🟡 LAWOSS #506: like read(), a window that cancelled or closed has settled
+        // this stream itself; rejecting would only log an IPC handler error.
+        if (cancelled) return null;
         throw error;
       }
     },

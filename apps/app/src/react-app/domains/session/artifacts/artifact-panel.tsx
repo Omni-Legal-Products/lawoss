@@ -44,6 +44,8 @@ import { FileCopyPanel } from "../../workspace/file-copy-job";
 import { useDocumentPreferences } from "./document-preferences";
 import { loadMarkdownDraft, savedMarkdownDraft, type MarkdownDraft } from "./markdown-draft";
 import { useTextAutosave } from "./use-text-autosave";
+import { unreadableFile } from "@/lawoss/domains/artifacts/unreadable-file"; // 🟡 LAWOSS #492
+import { UnreadableFileNotice } from "@/lawoss/domains/artifacts/unreadable-file-notice"; // 🟡 LAWOSS #492
 
 const ArtifactTextEditor = lazy(() =>
   import("./artifact-text-editor").then((module) => ({ default: module.ArtifactTextEditor })),
@@ -274,6 +276,10 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
   const { data, error, isError, isLoading, refetch } = useQuery(artifactQueryOptions({
     queryClient, client, workspaceId, target, generation: runtimeEntry?.generation, localReadOnly, isReader: () => reader.current, loadFile,
   }));
+  // 🟡 LAWOSS #492: prázdny/poškodený súbor (alebo DOCX, ktorý editor nenačítal) = hláška a žiadne uloženie.
+  const [failedDocument, setFailedDocument] = useState<DocxSnapshot | null>(null);
+  const unreadable = useMemo(() => data?.kind === "binary" && unreadableFile(target.value, data.data), [data, target.value])
+    || (failedDocument !== null && failedDocument === documentSnapshot);
 
   const access = useDocumentOwnership({
     enabled: isEditableDocument || (writableFile && isTextContent(target)),
@@ -464,7 +470,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
     // a conflict. Reading the workspace here would silently export an older version.
     let buffer: ArrayBuffer;
     let contentType: string | null;
-    if (isEditableDocument) {
+    if (isEditableDocument && !unreadable) { // 🟡 LAWOSS #492 nenačítaný dokument sa stiahne z disku
       const current = await (isOfficeEditor ? officeApi.current : docxApi.current)?.getBuffer();
       if (!current) throw new Error(t("artifact.still_loading_download"));
       buffer = current;
@@ -720,7 +726,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
           </span>}
         </>}
         actions={<>
-          {canAutosave && access.editable && <label className="me-3 flex shrink-0 items-center gap-1.5 text-xs" title={t("artifact.autosave_description")}>
+          {canAutosave && access.editable && !unreadable && <label className="me-3 flex shrink-0 items-center gap-1.5 text-xs" title={t("artifact.autosave_description")}>
             <Switch size="sm" checked={autosave} onCheckedChange={(enabled) => useDocumentPreferences.getState().setAutosave(autosaveKey, enabled)} />
             {t("artifact.autosave")}
           </label>}
@@ -743,7 +749,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
                         }}
                         disabled={isSaving}
                       >
-                        Discard
+                        {t("lawoss.csv_editor.discard")}{/* 🟡 LAWOSS #493 */}
                       </Button>
                     )}
                   />
@@ -762,14 +768,14 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
               <Tooltip>
                 <TooltipTrigger
                   render={(
-                    <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>Edit</Button>
+                    <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>{t("common.edit") /* 🟡 LAWOSS #493 */}</Button>
                   )}
                 />
                 <TooltipContent>{t("artifact.edit")}</TooltipContent>
               </Tooltip>
             )
           ) : null}
-          {!saveActions && isEditableDocument && access.editable && data?.kind === "binary" ? (
+          {!saveActions && isEditableDocument && access.editable && data?.kind === "binary" && !unreadable ? ( // 🟡 LAWOSS #492
             <Tooltip>
               <TooltipTrigger
                 render={(
@@ -840,10 +846,15 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
         </div>
       ) : null}
       <div className="min-h-0 flex-1 overflow-hidden" inert={access.status === "offering" || access.status === "releasing"}>
-        {isLoading || access.status === "checking" || (data?.kind === "binary" && (!binaryObjectUrl || (isBinaryEditor && !documentSnapshot))) ? (
+        {isLoading || (!unreadable && (access.status === "checking" || (data?.kind === "binary" && (!binaryObjectUrl || (isBinaryEditor && !documentSnapshot))))) ? (
           <PreviewLoading />
         ) : isError ? (
           <PreviewError message={error instanceof Error ? error.message : t("artifact.load_failed") } />
+        ) : unreadable ? ( // 🟡 LAWOSS #492
+          <UnreadableFileNotice
+            onOpenExternal={target.kind === "file" ? () => void runFileAction(openExternal) : undefined}
+            onReveal={target.kind === "file" && !isRemoteWorkspace ? () => void runFileAction(revealExternal) : undefined}
+          />
         ) : data?.kind === "text" && (editing || isDirectTextEdit) ? (
           <TextEditor value={draft} name={target.name} language={target.preview === "markdown" ? "markdown" : "text"} readOnly={localReadOnly || !access.editable} onSave={save} onChange={value => { if (!localReadOnly && access.editable) setDraft(value); }} />
         ) : target.preview === "markdown" && data?.kind === "text" ? (
@@ -882,6 +893,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
             onDirtyChange={onDocumentDirtyChange}
             autosave={autosave}
             onAutosaveError={setAutosaveError}
+            onLoadFailed={() => setFailedDocument(snapshotRef.current)}
             recoveryKey={isEditableDocument && access.ownsFile ? access.key ?? undefined : undefined}
             legacyRecoveryKey={JSON.stringify([workspaceId, target.value])}
             baseUpdatedAt={documentSnapshot.updatedAt}

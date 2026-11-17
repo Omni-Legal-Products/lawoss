@@ -460,7 +460,10 @@ describe("pripnuté a nedávne chaty v bežnom režime: predvolene vypnuté, pre
       expect(chatSectionShown(key, "pro", true, { [key]: false })).toBe(true);
     }
     expect(chatSectionShown("sectionProjects", "lite", true, {})).toBe(true);
-    expect(chatSectionShown("sectionProjects", "lite", false, {})).toBe(false);
+    // Alfa 14: bežný režim nemá prispôsobenie panela, Klienti sa preto ukážu aj po vypnutí uloženom v Pokročilom.
+    expect(chatSectionShown("sectionProjects", "lite", false, {})).toBe(true);
+    expect(chatSectionShown("sectionProjects", "pro", false, {})).toBe(false);
+    expect(chatSectionShown("sectionPinnedProjects", "lite", false, {})).toBe(false);
   });
 
   test("voľba bežného režimu sa uloží zvlášť a prežije znovunačítanie", () => {

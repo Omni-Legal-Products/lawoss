@@ -9,6 +9,9 @@ import { updateAllWithoutConflicts, updatesSignature } from "../src/lawoss/domai
 import { FileDecisionForm, LegacyInstallsPanel, MarketplaceUpdatesPanel } from "../src/lawoss/domains/marketplace/updates-panel";
 import { globalInstalledIds, installGlobalEntries } from "../src/lawoss/domains/marketplace/use-lawoss-marketplace";
 import { MarketplaceIntro, MarketplaceOffer } from "../src/lawoss/domains/marketplace/marketplace-offer";
+import { installMessage } from "../src/lawoss/domains/marketplace/native-catalog";
+import { RecommendedBundlesPanel } from "../src/lawoss/domains/marketplace/bundles-panel";
+import { t } from "../src/i18n";
 
 const entry = (id: string) => MARKETPLACE_CATALOG.find((item) => item.id === id)!;
 const plugin = (id: string) => ({ pluginId: catalogPluginId(entry(id)), name: entry(id).name, marketplaceId: null, description: null, updatedAt: null, files: [], importedAt: null });
@@ -146,5 +149,52 @@ describe("LAWOSS Marketplace v appke: aktualizácie", () => {
     expect(html).toContain("They keep working");
     expect(html).toContain(">Move to all clients<");
     expect(renderToStaticMarkup(<LegacyInstallsPanel api={null} workspaceId="ws_1" workspaceName="X" plugins={[]} onChanged={async () => undefined} />)).toBe("");
+  });
+});
+
+describe("#510: novšia verzia v katalógu pribalenom v appke", () => {
+  const panel = (current: MarketplaceView) => renderToStaticMarkup(<MarketplaceUpdatesPanel api={fakeApi().api} view={current} checking={false} error={null}
+    onCheck={() => undefined} onWeeklyChange={() => undefined} onChanged={async () => undefined} />);
+  const bundled = { pluginId: plugin("slovlex").pluginId, name: "Slov-Lex", installed: "1.2.1", available: "1.2.3", path: "plugins/slovlex", source: "bundled" as const, ref: "e".repeat(40) };
+
+  test("panel ponúkne aktualizáciu z pribaleného katalógu a nehlási, že je všetko aktuálne", () => {
+    const html = panel(view({ updates: [bundled] }));
+    expect(html).not.toContain("All plugins are up to date");
+    expect(html).toContain("Available updates: 1<");
+    expect(html).not.toContain("(release v0.2.0)");
+    expect(html).toContain("Slov-Lex: 1.2.1 to 1.2.3 (catalog included in the app)");
+    expect(html.match(/>Update</g)).toHaveLength(1);
+  });
+
+  test("bez vydania marketplace: aktualizácia z appky sa ukáže a hlásenie „bez vydania“ nie", () => {
+    const html = panel(view({ check: { status: "no_release" }, updates: [bundled] }));
+    expect(html).not.toContain("LAWOSS Marketplace has no release yet");
+    expect(html.match(/>Update</g)).toHaveLength(1);
+  });
+
+  test("balík: už nainštalované v staršej verzii sa nehlási ako nainštalované", async () => {
+    const api = lawossMarketplaceMethods(async <T,>(_path: string, init?: { method?: string; body?: unknown }): Promise<T> => {
+      const target = (init?.body as { url?: string } | undefined)?.url ?? "";
+      if (target.endsWith("/plugins/slovlex")) return { status: "already_installed", item: plugin("slovlex"), update: bundled } as T;
+      if (target.endsWith("/plugins/orsr")) return { status: "already_installed", item: plugin("orsr") } as T;
+      return { status: "installed", item: plugin("rpo") } as T;
+    });
+    const result = await installGlobalEntries(api, [entry("slovlex"), entry("orsr"), entry("rpo")]);
+    expect(result).toEqual({ installed: ["rpo"], failed: [], already: ["orsr"], outdated: [{ id: "slovlex", installed: "1.2.1", available: "1.2.3" }] });
+    const html = renderToStaticMarkup(<RecommendedBundlesPanel jurisdiction="sk" installed={new Set()} permitted install={async () => result} />);
+    expect(html).toContain("data-lawoss-recommended");
+  });
+
+  test("balík: text pri staršej verzii nevraví, že sa nič nezmenilo, a pomenuje LAWOSS Marketplace", () => {
+    const text = (locale: "sk" | "cs" | "en" | "de") => t("lawoss.integrations.base.outdated_list", locale, { names: "Právne kalkulačky SR (1.2.1 → 1.2.3)" });
+    expect(text("sk")).toBe("Už nainštalované v staršej verzii, ktorá ostáva; aktualizujte ju v časti Aktualizácie v LAWOSS Marketplace: Právne kalkulačky SR (1.2.1 → 1.2.3)");
+    for (const locale of ["sk", "cs", "en", "de"] as const) expect(text(locale)).toContain("LAWOSS Marketplace");
+  });
+
+  test("karta: inštalácia povie nainštalovanú verziu a kde je aktualizácia", () => {
+    expect(installMessage({ status: "already_installed", item: plugin("slovlex"), update: bundled }, "en"))
+      .toBe("Already installed for all clients in version 1.2.1. Version 1.2.3 is available: update it under Updates.");
+    expect(installMessage({ status: "already_installed", item: plugin("slovlex") }, "en")).toBe("Already installed for all clients. Newer versions arrive through updates.");
+    expect(installMessage({ status: "installed", item: plugin("slovlex") }, "sk")).toBe("Nainštalované pre všetkých klientov.");
   });
 });

@@ -49,8 +49,9 @@ import {
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useLocale } from "@/i18n/use-locale";
-import { LAWOSS_ROUTES, lawossRouteTitle } from "../../lawoss/shell/routes";
+import { LAWOSS_ROUTES, lawossScreenTitle } from "../../lawoss/shell/routes"; // 🟡 LAWOSS: titulok s parametrami trasy
 import { isLandingPath } from "../../lawoss/lite/visibility";
+import { liteClientFormPath } from "../../lawoss/lite/client-entry"; // 🟡 LAWOSS #424
 import { useDetachedWindow } from "./use-detached-window";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
@@ -173,6 +174,7 @@ import { seedSubmittedMessage, snapshotKey } from "@/react-app/domains/session/s
 import { chatEngine } from "@/lawoss/shell/session-directory";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
+import { useOkfRevalidateOnFinishedChats } from "@/lawoss/okf/overview-refresh";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
 import { buildLegalworkEnvSystemContext } from "@/react-app/domains/session/sync/env-context";
 import {
@@ -278,6 +280,7 @@ import {
   useProviderListQuery,
 } from "@/react-app/infra/provider-list-query";
 import { modelReadiness } from "@/lawoss/shell/model-readiness";
+import { requestRemoveClientConfirm } from "@/lawoss/shell/remove-client-confirm";
 
 /**
  * Serialize an SDK error value into a string that parseSessionError can parse.
@@ -836,6 +839,8 @@ export function SessionRoute() {
         }),
     [sessionsByWorkspaceId],
   );
+  // 🟡 LAWOSS #460: a chat of any client that stops running may have written files; the OKF overview reads again.
+  useOkfRevalidateOnFinishedChats(useMemo(() => activeReloadBlockingSessions.map(session => session.id), [activeReloadBlockingSessions]));
   const activeSelectedWorkspaceSessionIds = useMemo(
     () =>
       (sessionsByWorkspaceId[selectedWorkspaceId] ?? []).flatMap((session) => {
@@ -1966,9 +1971,11 @@ export function SessionRoute() {
   ]);
 
   const handleOpenCreateWorkspace = useCallback(() => {
+    const liteClientForm = liteClientFormPath(); // 🟡 LAWOSS #424: bežný režim zakladá klienta v kancelárii
+    if (liteClientForm) { navigate(liteClientForm); return; }
     setSelectCreatedProjectForHome(false);
     setCreateWorkspaceOpen(true);
-  }, []);
+  }, [navigate]);
 
   const handleOpenRenameWorkspace = useCallback((workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -2050,12 +2057,8 @@ export function SessionRoute() {
 
   const handleForgetWorkspace = useCallback(
     async (workspaceId: string) => {
-      if (typeof window !== "undefined") {
-        const message =
-          t("workspace_list.remove_confirm") ||
-          "Remove this project from the sidebar?";
-        if (!window.confirm(message)) return;
-      }
+      // 🟡 LAWOSS: potvrdenie v okne appky so slovenskými a českými tlačidlami.
+      if (!(await requestRemoveClientConfirm())) return;
       try {
         if (!client) throw new Error(t("session_route.create_server_unavailable"));
         await removeProjectFromSidebar(client, workspaceId, () => {
@@ -3072,7 +3075,7 @@ export function SessionRoute() {
           toast.error(t("recorder.transcriber_start_failed"));
         });
       }}
-      mainViewTitle={experimentView ? lawossRouteTitle(location.pathname) : undefined}
+      mainViewTitle={experimentView ? lawossScreenTitle(location.pathname, location.search) : undefined} // 🟡 LAWOSS: Prípad názvom prípadu
       mainView={
         openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
         : showWikis && (manageWikis || !activeWiki) ? <WikiManager client={client} serverUrl={baseUrl} workspaces={sidebarWorkspaces} onChanged={() => void refreshRouteState()} onOpen={openWikiWorkspace} onNewChat={handleOpenWikiSession} /> : scheduledPage ? (
@@ -3091,6 +3094,8 @@ export function SessionRoute() {
             assistantProfile={assistant.data?.profile}
             projectId={homeProjectId}
             onCreateProject={() => {
+              const liteClientForm = liteClientFormPath(); // 🟡 LAWOSS #424
+              if (liteClientForm) { navigate(liteClientForm); return; }
               setSelectCreatedProjectForHome(true);
               setCreateWorkspaceError(null);
               setCreateWorkspaceOpen(true);

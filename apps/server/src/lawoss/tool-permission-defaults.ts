@@ -102,3 +102,21 @@ export const BROWSER_LOGIN_PERMISSION = "lawoss_browser_login";
 export function browserLoginRules(): LawossPermissionRule[] {
   return [{ action: BROWSER_LOGIN_PERMISSION, resource: "*", effect: "ask" }];
 }
+
+/**
+ * The permission `lawoss_new_client` asks with before it creates a client of the office
+ * (opencode-plugins/lawoss-new-client.ts). Its own key, not `lawoss_file_change`, so YOLO and the app's
+ * "allow for this chat" never cover it.
+ */
+export const NEW_CLIENT_PERMISSION = "lawoss_client_create";
+
+/**
+ * A new client writes outside the chat's client: a folder in the office's clients folder, a registered client and
+ * its office access. Like a write into another client's folder (MČ 31. 10. 2026), it always gets a card, also after
+ * a `*` allow and in YOLO Mode; placed after every other rule, like `browserLoginRules`. A forbidden file change
+ * (`edit` or `*` denied, as `fileChangeRules`) forbids it too.
+ */
+export function newClientRules(rules: readonly LawossPermissionRule[]): LawossPermissionRule[] {
+  const forbidden = fileChangeRules(rules, false).some(rule => rule.resource === "*" && rule.effect === "deny");
+  return [{ action: NEW_CLIENT_PERMISSION, resource: "*", effect: forbidden ? "deny" : "ask" }];
+}

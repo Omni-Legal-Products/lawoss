@@ -94,3 +94,55 @@ export const nestedClientCode = (clientName: string, name: string): boolean => {
 };
 /** Podpriečinok klienta pomenovaný ako vec: kód („M001 Úhrada…“), dátum, spisová značka alebo slovo veci. */
 export const looksLikeMatterFolder = (name: string): boolean => codeOf(name) !== undefined || looksLikeMatterName(name);
+/**
+ * Priečinok prípadov klienta podľa štandardu: `Spisy` (zakladajú ho šablóny OKF v SK, CZ aj EN) a `Veci`, ktoré prehľad
+ * prijímal odjakživa. Bez ohľadu na veľkosť písmen a diakritiku, aj v NFD (macOS, SMB). Len pri ňom platí prísne
+ * pravidlo pre priečinky vedľa neho (`isClientMatterFolder`), v prehľade (read-model v appke) aj v náhľade onboardingu.
+ */
+const MATTERS_DIR_NAMES = new Set(["spisy", "veci"]);
+export const isMattersDirName = (name: string): boolean => MATTERS_DIR_NAMES.has(fold(name));
+/**
+ * Staršie mená, pod ktorými náhľad onboardingu (`suggest.ts`) prípady len hľadá (`Pripady`/`Případy`, `Matters`, malými
+ * písmenami ako doteraz). Prísne pravidlo pre priečinky vedľa nich neplatí a prehľad ich za priečinok prípadov nepovažuje
+ * (ako pred #431), takže ploché staršie usporiadanie s takým podpriečinkom neprepadne prípady pomenované dátumom.
+ */
+const LEGACY_MATTERS_DIR_NAMES = new Set(["pripady", "případy", "matters"]);
+export const isLegacyMattersDirName = (name: string): boolean => LEGACY_MATTERS_DIR_NAMES.has(name.normalize("NFC").toLowerCase());
+/**
+ * Registre súdov, ktoré sa v mene priečinka smú písať aj s medzerou („3 C 12-2024“, „25 Cdo 1234-2023“, „8C 123_2023“).
+ * Zámerne neúplný, konzervatívny zoznam bežných registrov SR a ČR (civilný, obchodný, odvolací, dovolací, trestný,
+ * správny, konkurzný, exekučný, insolvenčný, ústavný): s medzerou by inak bola spisovou značkou aj „12 Fa 3-2024“
+ * (faktúra) či „02 Mzdy 11-2024“. Register zlepený so senátom a oddelený podčiarkovníkom alebo pomlčkou
+ * („2CoPr_3_2024“, „12Cb-45-2026“) zoznam nepotrebuje.
+ */
+const SPACED_REGISTERS = ["C", "Cb", "Co", "Cob", "Cdo", "Obdo", "T", "To", "Tdo", "S", "Sa", "Sž", "K", "R", "Er", "Ek", "Em", "CoPr", "NcC", "INS", "ÚS"];
+const CASE_START = "(?:^|[^\\p{L}\\d])";
+/** Číslo a rok oddelené lomkou alebo jej bežnou náhradou v mene priečinka (podčiarkovník, pomlčka). */
+const CASE_TAIL = "\\d{1,6}[_/-](?:19|20)\\d{2}(?![\\p{L}\\d])";
+/**
+ * Spisová značka súdu v mene priečinka, prísnejšie ako `findCaseNumber` pri triedení: senát, register a číslo s rokom.
+ * Register zlepený so senátom (veľké písmeno a najviac päť ďalších písmen) s `_` či `-` za ním („2CoPr_3_2024“,
+ * „1NcKR_2_2024“, „1T_5_2025“); register zo `SPACED_REGISTERS` aj s medzerou („3 C 12-2024“, „25_Cdo_1234_2023“,
+ * „Odvolanie 8C 123_2023“); Ústavný súd („I. ÚS 123_2020“, „Pl. ÚS 1_2020“). Mesiac a rok („02 Mzdy 11-2024“,
+ * „3 DPH 12 2024“), číslo bytu („Byt 3A 12-2024“) ani faktúra („12 Fa 3-2024“) spisovou značkou nie sú.
+ */
+const COURT_FILE_NUMBERS = [
+  new RegExp(`${CASE_START}\\d{1,3}\\p{Lu}\\p{L}{0,5}[_-]${CASE_TAIL}`, "u"),
+  new RegExp(`${CASE_START}\\d{1,3}[ _]?(?:${SPACED_REGISTERS.join("|")})[ _]${CASE_TAIL}`, "u"),
+  new RegExp(`${CASE_START}(?:[IVX]{1,4}|Pl)\\. ?ÚS[ _]${CASE_TAIL}`, "u"),
+];
+export const hasCourtFileNumber = (name: string): boolean => {
+  const text = name.normalize("NFC");
+  return COURT_FILE_NUMBERS.some((pattern) => pattern.test(text));
+};
+/** Silný znak veci v názve: interný kód („M001 …“) alebo spisová značka súdu („8C 123_2023“). */
+export const hasMatterCode = (name: string): boolean => codeOf(name) !== undefined || hasCourtFileNumber(name);
+/**
+ * #431: je podpriečinok klienta prípadom? Karta prípadu áno vždy. Keď má klient priečinok prípadov (`isMattersDirName`),
+ * vedľa neho je prípadom už len priečinok so silným znakom (kód alebo spisová značka súdu); slovo veci ani dátum na
+ * začiatku nestačia. Bez neho (staré ploché usporiadanie) platí celá heuristika názvu. Jediné pravidlo pre prehľad
+ * (read-model v appke) aj náhľad onboardingu (`suggest.ts`), aby náhľad nesľúbil prípady, ktoré sa potom neukážu.
+ * Kód iného klienta (`nestedClientCode`) vylučuje volajúci pred týmto pravidlom.
+ */
+export const isClientMatterFolder = (name: string, client: { matterCard: boolean; mattersDir: boolean }): boolean =>
+  client.matterCard || (client.mattersDir ? hasMatterCode(name) : looksLikeMatterFolder(name));

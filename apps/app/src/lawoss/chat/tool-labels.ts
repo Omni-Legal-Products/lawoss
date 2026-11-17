@@ -65,6 +65,8 @@ function createsDocument(input: unknown): boolean {
 
 function label(name: string, input: unknown, phase: keyof Labels): string | null {
   if (name === "read" && SESSION_FILE.test(field(input, "filePath") ?? "")) return t(phase === "active" ? "lawoss.tool.session_read" : "lawoss.tool.session_read_done");
+  // Čítanie bez cesty: upstream by doplnil zástupné slovo „file“ („Prečítaný súbor file“, overenie alfy 12, 14. 11. 2026).
+  if (name === "read" && !field(input, "filePath")) return t(phase === "active" ? "lawoss.tool.file_read" : "lawoss.tool.file_read_done");
   // Príkaz s popisom od agenta (popis je v nástroji povinný) ukáže popis ako bežný príkaz `bash`.
   const description = name === "legalwork_shell" ? field(input, "description") : undefined;
   if (description) return truncateText(description, phase === "active" ? 64 : 80);
@@ -107,6 +109,22 @@ export const lawossToolHistoryLabel = (name: string, input: unknown): string | n
  */
 const CODE_MODE_INTERNAL = new Set(["search"]);
 const engineToolName = (name: string): string => name.replace(".", "_");
+/**
+ * Vnorené nástroje bez vstupu (preto bez dopytu v texte), ktoré by inak ostali surovým menom
+ * („Websearch“, „Extension list actions“; overenie alfy 12, 14. 11. 2026).
+ */
+const WEB_SEARCH: Labels = { active: "lawoss.tool.web_search", done: "lawoss.tool.web_search_done" };
+const EXTENSION_ACTIONS: Labels = { active: "lawoss.tool.extension_actions", done: "lawoss.tool.extension_actions_done" };
+const CODE_MODE_LABELS: Record<string, Labels> = {
+  websearch: WEB_SEARCH,
+  legalwork_websearch: WEB_SEARCH,
+  extension_list_actions: EXTENSION_ACTIONS,
+  legalwork_extension_list_actions: EXTENSION_ACTIONS,
+};
+const codeModeStep = (name: string, phase: keyof Labels): string | null => {
+  const fixed = CODE_MODE_LABELS[engineToolName(name)];
+  return fixed ? t(fixed[phase]) : label(engineToolName(name), undefined, phase);
+};
 const humanize = (name: string): string => {
   const text = name.replace(/^(?:inapp_|legalwork_)/, "").replace(/[_.-]+/g, " ");
   return text.charAt(0).toUpperCase() + text.slice(1);
@@ -116,8 +134,8 @@ const humanize = (name: string): string => {
 export function lawossCodeModeLabel(names: readonly string[], phase: keyof Labels): string {
   const visible = names.filter((name) => !CODE_MODE_INTERNAL.has(name));
   if (!visible.length) return t(phase === "active" ? "tool.working" : "tool_run.summary.tool");
-  const known = visible.map((name) => label(engineToolName(name), undefined, phase)).filter((text): text is string => text !== null);
-  const unknown = visible.filter((name) => label(engineToolName(name), undefined, phase) === null).map(humanize);
+  const known = visible.map((name) => codeModeStep(name, phase)).filter((text): text is string => text !== null);
+  const unknown = visible.filter((name) => codeModeStep(name, phase) === null).map(humanize);
   const rest = unknown.length ? [unknown.join(" · ")] : [];
   const restLabel = phase === "active" && rest.length ? [t("tool_activity.running_tool", { tool: rest[0] })] : rest;
   return [...new Set([...known, ...restLabel])].join(" · ");

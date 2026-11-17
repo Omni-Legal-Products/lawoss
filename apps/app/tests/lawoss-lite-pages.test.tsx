@@ -9,8 +9,8 @@ import { LITE_INPUTS_PATH, liteMatterLink, NEW_CLIENT_PATH, NEW_MATTER_PATH } fr
 import type { TodayModel } from "../src/lawoss/lite/today-model";
 import type { Cockpit } from "../../../lawoss/okf/cockpit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { OkfPageState } from "../src/lawoss/domains/okf-page";
-import { liteStateText } from "../src/lawoss/lite/state-text";
+import { OkfPageState, showsSkeleton } from "../src/lawoss/domains/okf-page";
+import { litePageProps, liteStateText } from "../src/lawoss/lite/state-text";
 import { TodayPage } from "../src/lawoss/lite/pages/today-page";
 import { ClientsPage } from "../src/lawoss/lite/pages/clients-page";
 import { LiteMatterPage } from "../src/lawoss/lite/pages/matter-page";
@@ -36,39 +36,51 @@ describe("stránky LAWOSS-lite", () => {
     const out = html(<TodayView model={model} locale="en" />);
     expect(out).toContain('data-lawoss-lite="today"');
     expect(out).toContain("Odvolání");
-    expect(out).toContain("in 2 days");
-    expect(out).toContain("Podepsat plnou moc");
+    expect(out).toContain("Next deadline: Odvolání, in 2 days.");
+    // Úlohy sú zbalené do jedného riadku s počtom (alfa 14), nie zoznam.
+    expect(out).toContain("Open tasks: 1");
+    expect(out).not.toContain("Podepsat plnou moc");
     // Rozhodnutie MČ 23. 10. 2026 (N-A3-2): len počet a odkaz na podrobný zoznam, nie riadky vstupov.
-    expect(out).toContain('data-lawoss-inputs-count="1"');
+    expect(out).toMatch(/<a class="lw-dnes-mini" data-tone="gold" data-lawoss-waiting="filing" data-lawoss-inputs-count="1" href="\/na-zaradenie"/);
     expect(out).toContain(href(LITE_INPUTS_PATH));
-    expect(out).toContain("Documents not yet in any case.");
     expect(out).not.toContain("IN-1");
     expect(out).not.toContain("datová schránka");
     expect(out).toContain(href(liteMatterLink(matter.path)));
-    expect(out).toContain(href(NEW_MATTER_PATH));
-    // pořadí: Lhůty → K zařazení → Úkoly
-    expect(out.indexOf("Odvolání")).toBeLessThan(out.indexOf("Documents not yet in any case."));
-    expect(out.indexOf("Documents not yet in any case.")).toBeLessThan(out.indexOf("Podepsat plnou moc"));
+    // #428: Dnes bez „+ Nový prípad“, prípad sa zakladá vetou v chate.
+    expect(out).not.toContain(href(NEW_MATTER_PATH));
+    // poradie: dlaždice → Čo horí → Čaká na vás → Pokračovať → pole chatu
+    const at = (marker: string) => out.indexOf(marker);
+    expect(at('data-lawoss-tile="nearest"')).toBeLessThan(at('id="lw-dnes-hot"'));
+    expect(at('id="lw-dnes-hot"')).toBeLessThan(at('id="lw-dnes-waiting"'));
+    expect(at('id="lw-dnes-waiting"')).toBeLessThan(at('id="lw-dnes-continue"'));
+    expect(at('id="lw-dnes-continue"')).toBeLessThan(at("data-lawoss-chatbar"));
   });
-  test("Dnes a Klienti: jediný vstup „+ New matter“, žádný duplicitní „New client“ (final review I4)", () => {
-    for (const out of [html(<TodayView model={model} locale="en" />), html(<ClientsView groups={[]} />)]) {
-      expect(out.split(href(NEW_MATTER_PATH)).length - 1).toBe(1);
-      expect(out).toContain("+ New case");
-      expect(out).not.toContain("New client");
-    }
+  test("Klienti: jediný vstup „+ New matter“, žádný duplicitní „New client“ (final review I4); Dnes bez neho (#428)", () => {
+    const clients = html(<ClientsView groups={[]} />);
+    expect(clients.split(href(NEW_MATTER_PATH)).length - 1).toBe(1);
+    expect(clients).toContain("+ New case");
+    expect(clients).not.toContain("New client");
+    const today = html(<TodayView model={model} locale="en" />);
+    expect(today).not.toContain(href(NEW_MATTER_PATH));
+    expect(today).not.toContain("New case");
+    expect(today).not.toContain("New client");
   });
-  test("Dnes: lhůta za 1/2/5 dní gramaticky v en/cs/sk (final review I6)", () => {
-    const due = (locale: "en" | "cs" | "sk", daysLeft: number) =>
+  test("Dnes: lhůta za 1/2/5 dní gramaticky v en/cs/sk/de (final review I6), v úvode aj v štvorčeku dní", () => {
+    const due = (locale: "en" | "cs" | "sk" | "de", daysLeft: number) =>
       html(<TodayView model={{ ...model, deadlines: [{ ...model.deadlines[0]!, daysLeft }] }} locale={locale} />);
     const expected = {
-      en: ["tomorrow", "in 2 days", "in 5 days"],
-      cs: ["zítra", "za 2 dny", "za 5 dní"],
-      sk: ["zajtra", "o 2 dni", "o 5 dní"],
+      en: [["tomorrow", "in 2 days", "in 5 days"], ["day", "days", "days"]],
+      cs: [["zítra", "za 2 dny", "za 5 dní"], ["den", "dny", "dní"]],
+      sk: [["zajtra", "o 2 dni", "o 5 dní"], ["deň", "dni", "dní"]],
+      de: [["morgen", "in 2 Tagen", "in 5 Tagen"], ["Tag", "Tage", "Tage"]],
     } as const;
-    for (const [locale, [one, two, five]] of Object.entries(expected) as [keyof typeof expected, readonly string[]][]) {
-      expect(due(locale, 1)).toContain(`>${one}<`);
-      expect(due(locale, 2)).toContain(`>${two}<`);
-      expect(due(locale, 5)).toContain(`>${five}<`);
+    for (const [locale, [lead, unit]] of Object.entries(expected) as [keyof typeof expected, readonly (readonly string[])[]][]) {
+      [1, 2, 5].forEach((days, i) => {
+        const out = due(locale, days);
+        expect(out).toContain(`, ${lead[i]}.</p>`);
+        expect(out).toContain(`<b>${days}</b><span>${unit[i]}</span>`);
+        expect(out).toContain(`${days}<small>${unit[i]}</small>`);
+      });
     }
   });
   test("Věc: /vec bez parametru nebo s neznámou cestou nikdy nevybere jinou věc (final review M1)", () => {
@@ -82,8 +94,19 @@ describe("stránky LAWOSS-lite", () => {
   test("Dnes: prázdné stavy", () => {
     const out = html(<TodayView model={{ deadlines: [], tasks: [], inputs: [], recent: [] }} locale="en" />);
     expect(out).toContain("No recorded deadlines in the next 14 days.");
-    expect(out).toContain("No open tasks.");
-    expect(out).toContain("Nothing waiting to be filed.");
+    expect(out).toContain("No recorded deadline or work date in the next 14 days.");
+    // Bez úloh a prípadov sa sekcia „Pokračovať“ ani riadok úloh neukážu; nula v malých dlaždiciach je tlmená.
+    expect(out).not.toContain("lw-dnes-continue");
+    expect(out.match(/data-zero="true"/g)).toHaveLength(3);
+    expect(out).toContain('data-lawoss-tile="nearest" data-state="none"');
+    // Bez evidencie čítania netvrdí „nič nečaká“ ani „žiadna evidovaná lehota“, ukáže len pomlčku.
+    const unknown = html(<TodayView model={{ deadlines: [], tasks: [], inputs: [], recent: [] }} locale="en" evidence={{ complete: false, recorded: 0, unrecorded: 0 }} />);
+    expect(unknown).not.toContain("nothing waiting");
+    expect(unknown).not.toContain("no recorded deadline");
+    expect(unknown).toContain('data-lawoss-deadlines="not_loaded"');
+    const known = html(<TodayView model={{ deadlines: [], tasks: [], inputs: [], recent: [] }} locale="en" evidence={{ complete: true, recorded: 2, unrecorded: 0 }} />);
+    expect(known).toContain("nothing waiting");
+    expect(known).toContain("no recorded deadline");
   });
   test("Klienti a věci", () => {
     const out = html(<ClientsView groups={[{ key: "client:Novák Jan", client: "Novák Jan", matters: [matter] }]} />);
@@ -100,7 +123,7 @@ describe("stránky LAWOSS-lite", () => {
     expect(out).toContain(">Pridať klienta</a>");
     expect(out.indexOf("Pridať klienta")).toBeLessThan(out.indexOf("Pripojiť existujúci priečinok klienta"));
   });
-  test("Věc: hlavička, pět rychlých akcí, žádný technický pojem", () => {
+  test("Věc: hlavička, pět rychlých akcí (návrhy v poli chatu), žádný technický pojem", () => {
     const out = html(<LiteMatterView matter={matter} cockpit={null} busy={null} error={null} onAction={() => {}} />);
     expect(out).toContain('data-lawoss-lite="matter"');
     expect(out).toContain("OS Praha 2");
@@ -130,11 +153,14 @@ describe("stránky LAWOSS-lite", () => {
       facts: [{ id: "E-1", title: "Rozsudek doručen 10. 9.", kind: "dôkaz", provenance: "zapísané", file: "f", source: "Rozsudek.pdf" }],
       parties: [],
     };
-    const out = html(<LiteMatterView matter={matter} cockpit={cockpit} busy={null} error={null} onAction={() => {}} />);
+    // Prehľad zaradí potvrdenú lehotu; kandidát workflow (Vyjádření) v ňom chýba, preto čaká na potvrdenie.
+    const out = html(<LiteMatterView matter={{ ...matter, deadlines: [{ date: addDays(today(), 1), title: "Odvolání", recordId: "D-1" }] }} cockpit={cockpit} busy={null} error={null} onAction={() => {}} />);
     expect(out).toContain("Vyjádření");
     expect(out).toContain(">check<");
     expect(out).toContain("Zavolat klientovi");
-    expect(out).toContain("next deadline");
+    // Najbližšia potvrdená lehota v dlaždici; kandidát čaká na potvrdenie (alfa 14, spec-pripad.md).
+    expect(out).toMatch(/data-lawoss-tile="nearest"[^]*?title="Odvolání"/);
+    expect(out).toContain("1 to confirm");
     expect(out).toContain("What we know");
     expect(out).toContain("Rozsudek doručen 10. 9.");
     expect(out).not.toContain("Nothing recorded yet.");
@@ -147,11 +173,11 @@ describe("stavy stránek LAWOSS-lite", () => {
   const base: StateProps = { connection: "ready", workspace: "Kancelář", error: null, data: empty, loading: false };
   const lite = (props: Partial<StateProps>) => html(<OkfPageState {...base} {...props} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>);
 
-  test("celé lite stránky při startu: načítání a znovu, bez technických pojmů", () => {
+  test("celé lite stránky při startu: načítání bez „Try again“ (ukáže se až po dlhom čakaní), bez technických pojmů", () => {
     for (const Page of [TodayPage, ClientsPage, LiteMatterPage]) {
       const out = renderToStaticMarkup(<QueryClientProvider client={new QueryClient()}><MemoryRouter><Page /></MemoryRouter></QueryClientProvider>);
       expect(out).toContain("Loading your cases…");
-      expect(out).toContain("Try again");
+      expect(out).not.toContain("Try again");
       // Navigace LawossLayout je pro chrome (lite shell řeší Task 6); kontrolujeme obsah stránky.
       const sheet = out.slice(out.indexOf('<section class="lw-sheet">'));
       expect(sheet).toContain("Loading your cases…");
@@ -205,6 +231,23 @@ describe("stavy stránek LAWOSS-lite", () => {
     expect(html(<OkfPageState {...base} error={new Error("x")} retry={retry} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>)).toContain("Try again");
     expect(html(<OkfPageState {...base} connection="loading" retry={retry} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>)).toContain("Try again");
     expect(html(<OkfPageState {...base} data={{ ...empty, problems: [{ path: "AK", message: "x" }] }} retry={retry} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>)).toContain("Try again");
+    // Bežný režim (retryAfterMs): kostra načítania ešte nič nezlyhala, „Try again“ až po dlhom čakaní; chyba ho ukáže hneď.
+    const liteProps = { stateText: liteStateText("en"), retryAfterMs: litePageProps("en").retryAfterMs, retry };
+    expect(html(<OkfPageState {...base} {...liteProps} connection="loading">{() => "dashboard"}</OkfPageState>)).not.toContain("Try again");
+    expect(html(<OkfPageState {...base} {...liteProps} data={undefined}>{() => "dashboard"}</OkfPageState>)).not.toContain("Try again");
+    expect(html(<OkfPageState {...base} {...liteProps} error={new Error("x")}>{() => "dashboard"}</OkfPageState>)).toContain("Try again");
+    expect(html(<OkfPageState {...base} {...liteProps} connection="unavailable">{() => "dashboard"}</OkfPageState>)).toContain("Try again");
+    expect(html(<OkfPageState {...base} {...liteProps} data={{ ...empty, problems: [{ path: "AK", message: "x" }] }}>{() => "dashboard"}</OkfPageState>)).toContain("Try again");
+  });
+  test("kostra načítania: len čakanie na spojenie alebo na pamäť otvoreného priečinka", () => {
+    expect(showsSkeleton({ ...base, connection: "loading" })).toBe(true);
+    expect(showsSkeleton({ ...base, data: undefined })).toBe(true);
+    expect(showsSkeleton({ ...base })).toBe(false);
+    expect(showsSkeleton({ ...base, data: undefined, error: new Error("x") })).toBe(false);
+    expect(showsSkeleton({ ...base, data: undefined, hostAccessDenied: true })).toBe(false);
+    expect(showsSkeleton({ ...base, data: undefined, missingFolder: "chýba" })).toBe(false);
+    expect(showsSkeleton({ ...base, data: undefined, workspace: null })).toBe(false);
+    expect(showsSkeleton({ ...base, data: undefined, connection: "unavailable" })).toBe(false);
   });
   test("pro stav zůstává beze změny", () => {
     const out = html(<OkfPageState {...base} workspace={null}>{() => "dashboard"}</OkfPageState>);

@@ -17,7 +17,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-15]
+        # 🟡 LAWOSS: macOS len po zlúčení do dev, PR nečaká na preťažené macOS runnery.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-15"]') }}
 
     defaults:
       run:

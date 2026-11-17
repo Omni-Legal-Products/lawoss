@@ -5,6 +5,7 @@ import {
 } from "../../app/lib/legalwork-server";
 import { legalworkServerInfo, type LegalworkServerInfo } from "../../app/lib/desktop";
 import { isDesktopRuntime } from "../../app/utils";
+import { noteResolvedConnection } from "@/lawoss/shell/route-snapshot"; // 🟡 LAWOSS #418
 
 export type LegalworkConnectionSource = "desktop-runtime" | "stored-settings" | "empty";
 
@@ -29,6 +30,13 @@ function hasUsableConnection(url: string, token: string) {
  * connections and for desktop cases where the runtime bridge is unavailable.
  */
 export async function resolveLegalworkConnection(): Promise<ResolvedLegalworkConnection> {
+  // 🟡 LAWOSS #418: a resolved connection other than the kept workspace list's forgets that list.
+  const resolved = await resolveConnection();
+  noteResolvedConnection(resolved.normalizedBaseUrl, resolved.resolvedToken, resolved.resolvedHostToken);
+  return resolved;
+}
+
+async function resolveConnection(): Promise<ResolvedLegalworkConnection> {
   let staleDesktopRuntimeBaseUrl = "";
   let desktopRuntimeReportedDown = false;
 

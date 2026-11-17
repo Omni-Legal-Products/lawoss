@@ -22,14 +22,15 @@ import { addDays, buildOverview, deadlineTier, ISO_DAY, isCalendarDay, missingSc
 import type { OkfRecord } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
 import { parseWorkingProfile, PROFILE_FILE } from "../../../../../lawoss/okf/src/profile";
-import { looksLikeMatterFolder, nestedClientCode } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
+import { hasCourtFileNumber, isClientMatterFolder, isMattersDirName, nestedClientCode } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { validateStore } from "../../../../../lawoss/okf-pamat/src/validate.ts";
 import { selectSourceSnapshot } from "./practice-read-state";
-import { loadOkfConnection, type OkfConnection } from "./connection";
+import { keptOkfConnection, loadOkfConnection, type OkfConnection } from "./connection";
 import type { OfficeMemoryRead } from "./office-memory";
 import { isHostAccessDenied } from "../lite/connection-problem";
 import { fileContentCacheFor } from "./file-content-cache";
+import { listenOkfFocus, okfIdleRefreshInterval } from "./overview-refresh";
 
 export type OkfReadClient = Pick<LegalworkServerClient, "listWorkspaceDirectory" | "readWorkspaceFile"> & Partial<Pick<LegalworkServerClient, "lawossDeadlineRequest">>;
 /** `folderUnavailable`: id pracovného priestoru, ktorého priečinok na disku chýba (presunutý, premenovaný, odpojený disk). */
@@ -85,7 +86,6 @@ export const MAX_DISCOVERY_DIRECTORIES = 1000;
 const MAX_DISCOVERY_DEPTH = 16;
 const SKIP_DIRECTORIES = new Set(["memory", "Office", "_kancelaria", "node_modules", "vendor", "dist", "build", "target", "coverage"]);
 const childPath = (dir: string, name: string): string => dir ? `${dir}/${name}` : name;
-const MATTERS_DIR = "Spisy";
 const MEMORY_DIR = "memory";
 const CARD_FILES = ["matter.md", "spis.md", "project.md", "projekt.md"];
 const CLIENT_CARDS = ["client.md", "klient.md"];
@@ -93,7 +93,8 @@ const CLIENT_CARDS = ["client.md", "klient.md"];
 const AK_CLIENT = /^AK\/[^/]+\/[^/]+$/;
 /** Pracovní podsložky uvnitř klienta nebo věci - nejsou to samostatné věci. */
 const WORK_DIRS = new Set(["DS", "Prilohy", "Přílohy", "research", "drafts", "final", "analysis", "sources", "qa", "logs"]);
-const isWorkDir = (name: string): boolean => WORK_DIRS.has(name) || /^\d{2}_/.test(name) || name.startsWith("_");
+// #431: číslovaný pracovný priečinok („01_Podklady“), nie spisová značka so senátom a podčiarkovníkom („25_Cdo_1234_2023“).
+const isWorkDir = (name: string): boolean => WORK_DIRS.has(name) || (/^\d{2}_/.test(name) && !hasCourtFileNumber(name)) || name.startsWith("_");
 const RESERVED = new Set(["index.md", "log.md", "INDEX.md"]);
 /**
  * Chyba kontroly, ktorá robí zdroj neúplným. Neplatný dátum (`DATE_INVALID`) nie: záznam sa načíta,
@@ -231,7 +232,7 @@ export async function readWorkspaceMemory(
     // Klient s kartou (client.md/klient.md) je OKF klient - i bez věcí zůstává klientem, ne věcí.
     const hasClientCard = entries.some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
     if (hasClientCard) clientPaths.push(path);
-    if (AK_CLIENT.test(path) && !hasClientCard && !entries.some((e) => e.kind === "dir" && [MATTERS_DIR, "Veci"].includes(e.name))) {
+    if (AK_CLIENT.test(path) && !hasClientCard && !entries.some((e) => e.kind === "dir" && isMattersDirName(e.name))) {
       const matters = entries.filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name) && !isWorkDir(e.name));
       const ownFiles = entries.some((e) => e.kind === "file" && !e.name.startsWith("."));
       if (matters.length === 0 || ownFiles) paths.push(path);
@@ -241,17 +242,22 @@ export async function readWorkspaceMemory(
       }
       return;
     }
+    // #431: klient so `Spisy/` alebo `Veci/` (`isMattersDirName`, aj prázdnym, ktoré vznikne pri zavedení) má prípady v ňom,
+    // v priečinkoch s kartou prípadu a v priečinkoch s kódom či spisovou značkou (`isClientMatterFolder`); slovo veci
+    // ani dátum tam nestačia. Celá heuristika názvu platí len pre staré ploché usporiadanie bez nich.
+    const hasMattersDir = entries.some((e) => e.kind === "dir" && isMattersDirName(e.name));
     for (const child of entries.filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name))) {
       if (scanned >= MAX_DISCOVERY_DIRECTORIES || paths.length >= MAX_MATTERS) { truncated = true; break; }
       // Preserve empty legacy matters only inside a recognised client or the existing AK profile.
-      if ([MATTERS_DIR, "Veci"].includes(child.name) && (clientFolder || path.startsWith("AK/"))) {
+      if (isMattersDirName(child.name) && (clientFolder || path.startsWith("AK/"))) {
         for (const matter of await dirs(child.path)) await discover(matter, true, depth + 2, clientFolder);
       // Priamy podpriečinok klienta s kartou pomenovaný ako vec (`2025-01 Spor`, spisová značka) je vec aj bez
       // karty; rovnaký vzor ako rozpoznanie a roztriedenie (suggest-patterns.ts), D1 2026-10-09.
       } else {
         const coded = hasClientCard && !isWorkDir(child.name) && clientCoded(path, child.name);
         if (coded) codedChildren.add(child.path);
-        await discover(child.path, hasClientCard && !isWorkDir(child.name) && looksLikeMatterFolder(child.name) && !coded, depth + 1, clientFolder);
+        // Karta prípadu rozhodne v `discover`; tu len meno podľa spoločného pravidla s náhľadom onboardingu.
+        await discover(child.path, hasClientCard && !isWorkDir(child.name) && !coded && isClientMatterFolder(child.name, { matterCard: false, mattersDir: hasMattersDir }), depth + 1, clientFolder);
       }
     }
   };
@@ -797,19 +803,31 @@ const SERVER_SETTINGS_CHANGED = "legalwork-server-settings-changed";
 /** LAWOSS: rozsah kanceláře byl obnoven (lite/office-scope) - stránky načtou spojení i data znovu. */
 export const OFFICE_SCOPE_RESTORED = "lawoss-office-scope-restored";
 
+/**
+ * #418: zmena nastavení servera (napr. zatvorenie Nastavení) prehľad nemaže, len ho označí na nové čítanie. Kľúč
+ * prehľadu nesie adresu, token, `authGeneration` a rozsah, takže iné spojenie starý prehľad nikdy nedostane;
+ * pri tom istom spojení ostáva posledný prehľad viditeľný, kým sa číta znova.
+ */
+export function revalidateOkfOverview(queries: QueryClient): void {
+  void queries.cancelQueries({ queryKey: ["okf-overview"] });
+  void queries.invalidateQueries({ queryKey: ["okf-overview"] });
+  void queries.invalidateQueries({ queryKey: ["okf-practice-root"] });
+}
+
 export function useOkfConnection(): { connection: OkfConnection | null; error: string | null } {
-  const [connection, setConnection] = useState<OkfConnection | null>(null);
+  // #418: a remount starts from the last connection of the same server, so its cached overview shows at once.
+  const [connection, setConnection] = useState<OkfConnection | null>(keptOkfConnection);
   const [error, setError] = useState<string | null>(null);
   // Server může po přepnutí složky vydat nové spojení (adresa, token) - upstream to ohlásí
   // událostí; bez nového načtení by stránka četla starým tokenem a hlásila chybu.
   const queries = useQueryClient();
   const [generation, setGeneration] = useState(0);
   useEffect(() => {
-    const onChange = () => {
-      void queries.cancelQueries({ queryKey: ["okf-overview"] });
-      queries.removeQueries({ queryKey: ["okf-overview"] });
-      void queries.invalidateQueries({ queryKey: ["okf-practice-root"] });
-      setConnection(null); setGeneration(value => value + 1);
+    const onChange = (event: Event) => {
+      revalidateOkfOverview(queries);
+      // #418: same stored settings (e.g. an engine reload) keep the connection until the new one resolves; a restored
+      // office scope changes the active folder, so pages read it again from scratch.
+      setConnection(event.type === SERVER_SETTINGS_CHANGED ? keptOkfConnection() : null); setGeneration(value => value + 1);
     };
     for (const name of [SERVER_SETTINGS_CHANGED, OFFICE_SCOPE_RESTORED]) window.addEventListener(name, onChange);
     return () => { for (const name of [SERVER_SETTINGS_CHANGED, OFFICE_SCOPE_RESTORED]) window.removeEventListener(name, onChange); };
@@ -859,17 +877,16 @@ export function officeOf(workspaces: readonly RouteWorkspace[], active: RouteWor
   return ancestors.sort((a, b) => normalizeDirectoryPath(a.path).length - normalizeDirectoryPath(b.path).length)[0] ?? active;
 }
 
-/** Ako často sa pohľady z OKF ticho obnovujú, kým je okno aktívne. */
+/** Ako často sa koreň praxe a spojenie OKF ticho obnovujú, kým je okno aktívne (prehľad: `overview-refresh.ts`). */
 export const OKF_REFRESH_MS = 15_000;
-/** Strop pre veľkú kanceláriu: obnova nesmie bežať dlhšie, než trvá samotné čítanie. */
-const OKF_REFRESH_MAX_MS = 120_000;
 /** Posledná dĺžka čítania podľa rozsahu; dlhé čítanie predĺži interval. */
 const readDurations = new Map<string, number>();
 
-/** 15 s, alebo desaťnásobok posledného čítania, najviac 2 minúty. */
-export function okfRefreshInterval(lastReadMs: number | undefined): number {
-  return Math.min(OKF_REFRESH_MAX_MS, Math.max(OKF_REFRESH_MS, Math.round((lastReadMs ?? 0) * 10)));
-}
+/**
+ * #460: tichá obnova prehľadu pri nečinnosti. Čítanie prejde strom všetkých klientov, preto nie každých 15 s, ale po
+ * zápise agenta, pri návrate do okna, pri otvorení stránky a inak najviac raz za 5 minút (`overview-refresh.ts`).
+ */
+export const okfRefreshInterval = okfIdleRefreshInterval;
 
 /** Kľúč rozsahu: členovia a koreň praxe; nový klient v praxi = nové čítanie. */
 const scopeKey = (scope: OkfScope | null): string => scope ? okfScopeKey(scope) : "";
@@ -900,6 +917,7 @@ export function useOkfOverview(connection: OkfConnection | null, scope: OkfScope
   const queries = useQueryClient();
   const [day, setDay] = useState(today);
   useEffect(() => { const timer = setInterval(() => setDay(today()), 1000); return () => clearInterval(timer); }, []);
+  useEffect(() => listenOkfFocus(queries), [queries]);
   return useQuery(okfOverviewQueryOptions(connection,scope,day,queries));
 }
 

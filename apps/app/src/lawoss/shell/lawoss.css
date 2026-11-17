@@ -239,8 +239,10 @@
 }
 .lw-btn:hover { border-color: color-mix(in srgb, var(--lw-gold) 50%, transparent); background: color-mix(in srgb, var(--lw-gold) 8%, transparent); }
 /* Hlavná akcia ako „+ Nová vec“ v Dnes: kovové zlato. */
-.lw-btn.gold { border-color: transparent; background: var(--lw-metal); background-size: 180% 100%; color: var(--lw-on-gold); font-weight: 600; padding: 0 20px; box-shadow: var(--lw-gold-glow); transition: background-position 600ms var(--lw-ease-expo), box-shadow 300ms var(--lw-ease-expo); }
-.lw-btn.gold:hover { background-position: 100% 0; box-shadow: var(--lw-gold-glow-hover); }
+/* Zlatý lesk (§4b): odlesk a jeho vypnutie pri reduced-motion v lawoss/theme/lawoss-components.css. */
+.lw-btn.gold { position: relative; border-color: transparent; background: var(--lw-gold-gloss); color: var(--lw-on-gold); font-weight: 600; padding: 0 20px; box-shadow: var(--lw-gold-gloss-shadow); transition: transform 160ms var(--lw-ease-expo), box-shadow 160ms var(--lw-ease-expo); }
+.lw-btn.gold:hover:not(:disabled) { background: var(--lw-gold-gloss); transform: translateY(-1px); box-shadow: var(--lw-gold-gloss-shadow-hover); }
+.lw-btn.gold:focus-visible { outline: 2px solid var(--lw-gold-focus); outline-offset: 3px; }
 
 /* diagrams */
 .lw-strip { margin-top: 16px; }
@@ -489,6 +491,71 @@
 .lw-nav-urgency[data-urgency="hot"] { background: #e8836b; box-shadow: 0 0 8px rgba(232, 131, 107, 0.85); }
 /* B3: blížiaca sa lehota v riadku klienta/veci má farbu zlatého bodu (význam nesie text). */
 .lw-row-near { color: #c9a24a; }
+/* Alfa 14, bežný režim: aktívna položka bočného panela (globálne riadky aj strom klienta) má statickú zlatú glazúru
+   s 1 px obrysom; odlesk prejde raz len pri hoveri, v pokoji nič nebeží (design-system.md §4b, MČ 14. 11. 2026). Žiadny zvislý prúžok na okraji. Obrys je celý rámik
+   (`inset 0 0 0 1px`), nie posunutý tieň. Pokročilý režim (bez `data-lawoss-ui="lite"`) ostáva natívny. */
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session)[data-active] {
+  isolation: isolate;
+  background: var(--lw-gold-glaze);
+  color: var(--lw-gold-glaze-text);
+  box-shadow: inset 0 0 0 1px var(--lw-gold-glaze-border), var(--lw-gold-glaze-shadow);
+}
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session)[data-active]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 30%;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--lw-gold-glaze-sheen);
+  --lw-sheen-from: -135%;
+  --lw-sheen-to: 470%;
+  transform: translateX(var(--lw-sheen-from)) skewX(-18deg);
+}
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session)[data-active]:hover::after {
+  animation: lw-sheen-once 900ms var(--lw-ease-expo) 1 both;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session)[data-active]::after { content: none; animation: none; }
+}
+/* Stav riadku (aktívny, hover, fokus) sa v bežnom režime prepne naraz, bez prechodu. Glazúra je gradient a skočí hneď,
+   natívny prechod `box-shadow` a `color` (sidebar.tsx, design-system.css) dobieha: na opustenom riadku bol vidieť 1 px
+   zlatý rámik a zlatý text bez výplne, na novom výplň bez rámika (počas prechodu, prípadne dlhšie, ak okno nekreslí
+   nové snímky). Odlesk pri hoveri je animácia na ::after a ostáva. */
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session) { transition: none; }
+/* Glazúra aktívneho riadku obsadí box-shadow, ktorým kreslí natívny krúžok fokusu; klávesnica preto dostane obrys. */
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar :is(.lw-sidebar-item, .lw-sidebar-session)[data-active]:focus-visible { outline: 2px solid var(--sidebar-ring); outline-offset: -2px; }
+/* Alfa 14, bežný režim: lehota vpravo v riadku klienta, počty a stav registrov v bočnom paneli (len tokeny). */
+.lw-row-due-near { color: var(--lw-warning); }
+.lw-nav-meta { margin-left: auto; flex: none; font-family: var(--lw-font-mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--lw-text-tertiary); }
+.lw-nav-meta[data-tone="warning"] { color: var(--lw-warning); }
+.lw-row-due { flex: none; white-space: nowrap; font-family: var(--lw-font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+/* Alfa 14, bežný režim: riadok klienta. Tlačidlá Nový chat a Možnosti priečinka (`[data-workspace-actions]`) si
+   miesto v riadku berú len vtedy, keď sú vidieť: pri hoveri, zameraní klávesnicou (`:focus-visible`, nie fokus po
+   kliknutí, ktorý by ich nechal svietiť) a pri otvorenej ponuke. Vtedy ich miesto preberie lehota vpravo, ktorá sa
+   skryje; inak lehota sedí vpravo a meno sa skráti pred ňou. Prázdne miesto bodky neprečítaného chatu sa nerezervuje
+   a tlačidlá sa posunú k šípke. Bez animácie (žiadny pohyb pri prefers-reduced-motion). Pokročilý režim natívne. */
+@media (hover: hover) {
+  :root[data-lawoss-ui="lite"] .lw-chat-sidebar div:has(> [data-workspace-actions]):not(:hover, :has(:focus-visible), :has([data-popup-open])) [data-workspace-drag-handle] { padding-right: 0; }
+  :root[data-lawoss-ui="lite"] .lw-chat-sidebar div:has(> [data-workspace-actions]):not(:hover, :has(:focus-visible), :has([data-popup-open])) > [data-workspace-actions] > * { opacity: 0; }
+  :root[data-lawoss-ui="lite"] .lw-chat-sidebar div:has(> [data-workspace-actions]):is(:hover, :has(:focus-visible), :has([data-popup-open])) [data-lawoss-row-due] { display: none; }
+}
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar [data-workspace-drag-handle] + span:empty { display: none; }
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar div:has(> [data-workspace-actions]):has([data-workspace-drag-handle] + span:empty) > [data-workspace-actions] { right: 2.5rem; }
+/* Alfa 14, bežný režim: zlatá je len položka otvorenej trasy. Keď je aktívna položka pod klientom (Prehľad, Dokumenty,
+   Chaty, prípad, chat), riadok klienta ostane len jemne zvýraznený ako predok, bez glazúry a odlesku. */
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar li:has(.lw-sidebar-session[data-active]) .lw-sidebar-item[data-active] {
+  background: color-mix(in srgb, var(--sidebar-accent) 50%, transparent);
+  color: var(--sidebar-foreground);
+  box-shadow: none;
+}
+:root[data-lawoss-ui="lite"] .lw-chat-sidebar li:has(.lw-sidebar-session[data-active]) .lw-sidebar-item[data-active]::after { content: none; animation: none; }
+.lw-registers-dot { flex: none; width: 7px; height: 7px; border-radius: var(--lw-radius-full); background: var(--lw-text-tertiary); }
+.lw-registers-dot[data-state="ready"] { background: var(--lw-success); }
+.lw-registers-dot[data-state="failing"] { background: var(--lw-warning); }
+.lw-registers[data-state="failing"] .lw-registers-label { color: var(--lw-warning); }
 
 
 /* ── zjednotenie s pohľadmi z OKF (5. 10. 2026) ────────────────────────────
@@ -523,3 +590,13 @@
 .lw-plan-group > .lw-sc { border-bottom-color: var(--lw-border-subtle); }
 /* Upstream má vlastnú triedu .lw-field (výplň vstupného poľa); v LAWOSS formulári je to len obal popisu a poľa. */
 .lw-form .lw-field { background: none; box-shadow: none; }
+
+/* Karta schválenia v bežnom režime (test alfy 14. 11. 2026): blok „Čo a kam“ je jediný čitateľný popis zápisu, preto
+   bežné písmo a viac miesta namiesto strojového; cesty sa lámu kdekoľvek, text po slovách. Pokročilý režim natívne. */
+:root[data-lawoss-ui="lite"] [data-lawoss-readable-scope] {
+  font-family: inherit;
+  font-size: 13px;
+  max-height: 16rem;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}

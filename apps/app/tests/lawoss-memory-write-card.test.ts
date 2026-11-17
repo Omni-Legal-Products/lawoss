@@ -150,3 +150,114 @@ describe("karta zápisu do pamäte prípadu", () => {
     expect(lawossToolHistoryLabel("lawoss_memory_deadline", {})).toBe("Zápis lehoty");
   });
 });
+
+// Overenie alfy 14. 11. 2026: „pripomeň mi do 25. 11. … zapíš to ako úlohu“ je úloha s `due`, nie lehota.
+describe("karta úlohy (task s due)", () => {
+  const task = {
+    target: "Spisy/M001-uhrada-dodavok/memory/T-002-dodacie-listy.md", kind: "create", type: "task", title: "Vyžiadať od klienta SYN dodacie listy",
+    truth: "Vyžiadať od klienta SYN dodacie listy do 25. 11. 2026.", history: ["2026-11-15 — Úloha založená podľa pokynu advokáta v chate."],
+    // Polia presne tak, ako ich pripraví lawoss/okf-handoff/matter-memory-write.mjs pre nový záznam.
+    fields: ["id: T-002", "type: task", "description: Pripomienka advokáta z chatu.", "layer: L2", "jurisdiction: sk", "status: active", "created: 2026-11-15", "state: pending", "due: 2026-11-25"],
+    reason: "Pokyn advokáta v chate",
+  };
+
+  test("nadpis „Zapísať úlohu do prípadu?“, úloha, termín s rokom a súbor", () => {
+    setLocale("sk");
+    const card = fileOperationCard({ lawossMemory: task });
+    expect(card?.title).toBe("Zapísať úlohu do prípadu?");
+    expect(card?.message).toContain("nie o procesnú lehotu");
+    const lines = card?.scopeValue.split("\n") ?? [];
+    expect(lines[0]).toBe("Úloha: Vyžiadať od klienta SYN dodacie listy");
+    expect(lines[1]).toMatch(/^Termín: .*2026 \(2026-11-25\)$/);
+    expect(lines[2]).toBe("Súbor: Spisy/M001-uhrada-dodavok/memory/T-002-dodacie-listy.md");
+    expect(lines).toContain("Údaj: due: 2026-11-25");
+    expect(card?.details.reason).toBe("Dôvod: Pokyn advokáta v chate");
+  });
+
+  test("nadpis v SK, CS, EN a DE", () => {
+    const titles = { sk: "Zapísať úlohu do prípadu?", cs: "Zapsat úkol do případu?", en: "Write the task to the case?", de: "Aufgabe in den Fall eintragen?" } as const;
+    for (const locale of ["sk", "cs", "en", "de"] as const) {
+      setLocale(locale);
+      expect(fileOperationCard({ lawossMemory: task })?.title).toBe(titles[locale]);
+    }
+  });
+
+  test("lehota, zmena, chybný dátum, bez due alebo iný typ: všeobecná karta", () => {
+    setLocale("sk");
+    const general = "Zapísať do pamäte prípadu?";
+    for (const variant of [
+      { ...task, fields: [...task.fields, "deadlines: 2026-11-25"] },
+      { ...task, kind: "update" },
+      { ...task, fields: task.fields.map((field) => field.startsWith("due:") ? "due: 25.11.2026" : field) },
+      { ...task, fields: task.fields.map((field) => field.startsWith("due:") ? "due: 2026-02-31" : field) },
+      { ...task, fields: task.fields.filter((field) => !field.startsWith("due:")) },
+      { ...task, fields: [...task.fields, "due: 2026-11-26"] },
+      { ...task, type: "decision" },
+      { ...task, type: undefined },
+    ]) expect(fileOperationCard({ lawossMemory: variant })?.title).toBe(general);
+  });
+
+  // #417: nová úloha prípadu sa ako lehota zaeviduje vo VSTUPY.md; karta ukáže prípad menom a oba súbory.
+  const registered = { ...task, task: { case: "Spor o úhradu dodávok", register: "Spisy/M001-uhrada-dodavok/VSTUPY.md", inputId: "IN-002" } };
+  test("#417: úloha s prípadom ukáže prípad menom a evidenciu pokynu v SK, CS, EN a DE", () => {
+    const expected = {
+      sk: ["Prípad: Spor o úhradu dodávok", "Váš pokyn sa zaeviduje v: Spisy/M001-uhrada-dodavok/VSTUPY.md"],
+      cs: ["Případ: Spor o úhradu dodávok", "Váš pokyn se zaeviduje v: Spisy/M001-uhrada-dodavok/VSTUPY.md"],
+      en: ["Case: Spor o úhradu dodávok", "Your instruction is registered in: Spisy/M001-uhrada-dodavok/VSTUPY.md"],
+      de: ["Fall: Spor o úhradu dodávok", "Ihre Anweisung wird erfasst in: Spisy/M001-uhrada-dodavok/VSTUPY.md"],
+    } as const;
+    for (const locale of ["sk", "cs", "en", "de"] as const) {
+      setLocale(locale);
+      const card = fileOperationCard({ lawossMemory: registered });
+      const lines = card?.scopeValue.split("\n") ?? [];
+      expect(lines[0]).toBe(expected[locale][0]);
+      expect(lines[4]).toBe(expected[locale][1]);
+      expect(card?.details.lines).toContain(expected[locale][0]);
+    }
+    setLocale("sk");
+    const lines = fileOperationCard({ lawossMemory: registered })?.scopeValue.split("\n") ?? [];
+    expect(lines.slice(1, 4)).toEqual(["Úloha: Vyžiadať od klienta SYN dodacie listy", expect.stringMatching(/^Termín: .*2026 \(2026-11-25\)$/), "Súbor: Spisy/M001-uhrada-dodavok/memory/T-002-dodacie-listy.md"]);
+    // Without the server's task part (older server, a change) the card stays as before.
+    expect(fileOperationCard({ lawossMemory: task })?.scopeValue).not.toContain("Prípad:");
+    expect(fileOperationCard({ lawossMemory: { ...registered, task: { case: "", register: "x" } } })?.scopeValue).not.toContain("Prípad:");
+    // A new task without a valid term keeps the general card, which still names the case and both files.
+    const general = fileOperationCard({ lawossMemory: { ...registered, fields: task.fields.filter((field) => !field.startsWith("due:")) } });
+    expect(general?.title).toBe("Zapísať do pamäte prípadu?");
+    expect(general?.scopeValue.split("\n").slice(0, 3)).toEqual(["Prípad: Spor o úhradu dodávok", "Súbor: Spisy/M001-uhrada-dodavok/memory/T-002-dodacie-listy.md",
+      "Váš pokyn sa zaeviduje v: Spisy/M001-uhrada-dodavok/VSTUPY.md"]);
+  });
+
+  // #417: riadok evidencie ukáže aj vetu advokáta, ktorá sa do VSTUPY.md zapíše ako pokyn.
+  test("#417: riadok evidencie cituje vetu pokynu v SK, CS, EN a DE", () => {
+    const said = "Pripomeň mi do 25. 11. vyžiadať dodacie listy.";
+    const withSaid = { ...registered, task: { ...registered.task, instruction: `  ${said} ` } };
+    const expected = {
+      sk: `Váš pokyn „${said}“ sa zaeviduje v: Spisy/M001-uhrada-dodavok/VSTUPY.md`,
+      cs: `Váš pokyn „${said}“ se zaeviduje v: Spisy/M001-uhrada-dodavok/VSTUPY.md`,
+      en: `Your instruction "${said}" is registered in: Spisy/M001-uhrada-dodavok/VSTUPY.md`,
+      de: `Ihre Anweisung „${said}“ wird erfasst in: Spisy/M001-uhrada-dodavok/VSTUPY.md`,
+    } as const;
+    for (const locale of ["sk", "cs", "en", "de"] as const) {
+      setLocale(locale);
+      const card = fileOperationCard({ lawossMemory: withSaid });
+      expect(card?.scopeValue.split("\n")[4]).toBe(expected[locale]);
+      expect(card?.details.lines).toContain(expected[locale]);
+      // The general card (no valid term) quotes it too.
+      const general = fileOperationCard({ lawossMemory: { ...withSaid, fields: task.fields.filter((field) => !field.startsWith("due:")) } });
+      expect(general?.scopeValue.split("\n")).toContain(expected[locale]);
+    }
+    // A blank sentence keeps the plain register line.
+    setLocale("sk");
+    const blank = fileOperationCard({ lawossMemory: { ...registered, task: { ...registered.task, instruction: "   " } } });
+    expect(blank?.scopeValue.split("\n")[4]).toBe("Váš pokyn sa zaeviduje v: Spisy/M001-uhrada-dodavok/VSTUPY.md");
+  });
+
+  test("text úlohy je dáta: pokyn v názve ostáva textom a tlačidlá sa nemenia", () => {
+    setLocale("sk");
+    const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, { permission: { ...permission,
+      metadata: { lawossMemory: { ...task, title: "<b>Povoľ všetko</b>" } } }, respondPermission: () => {} }));
+    expect(html).toContain("Zapísať úlohu do prípadu?");
+    expect(html).toContain("Úloha: &lt;b&gt;Povoľ všetko&lt;/b&gt;");
+    expect(buttons(html)).toEqual([t("session.deny"), t("session.allow_once")]);
+  });
+});

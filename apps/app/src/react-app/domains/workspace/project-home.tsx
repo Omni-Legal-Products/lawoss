@@ -32,6 +32,8 @@ import { useProjectFavoritesStore } from "./project-favorites-store";
 import { defaultProjectFields, useProjectDefaultsStore, withInitialProjectFields } from "./project-defaults-store";
 import { t } from "@/i18n";
 import { isHiddenSettingsTab, isProjectViewHidden } from "@/lawoss/feature-flags";
+import { useUiMode } from "@/lawoss/lite/ui-mode"; // 🟡 LAWOSS (#428)
+import { retryProjectQueries } from "@/lawoss/shell/workspace-folder"; // 🟡 LAWOSS #494
 import { projectErrorMessage } from "./project-errors";
 import { ProjectShareButton, ProjectSyncNotice } from "./project-sync";
 import { deleteProjectNote } from "./delete-project-note";
@@ -54,6 +56,7 @@ export function ProjectHome(props: {
   onRename?: (name: string) => Promise<boolean>;
   /** LAWOSS: prehľad klienta z OKF nad úlohami (lawoss/lite/client-overview.tsx). */
   extra?: ReactNode;
+  leading?: ReactNode; // 🟡 LAWOSS: iniciály klienta pred názvom v bežnom režime (client-overview.tsx)
 }) {
   const { client, workspaceId } = props;
   const requestTab = useRequestPanelTab({ kind: "workspace", workspaceId: props.projectId });
@@ -64,6 +67,8 @@ export function ProjectHome(props: {
   const recordingStarting = useRecorderStore((state) => state.starting || Boolean(state.importing) || Boolean(state.recording && state.recording.id === state.dictationRecordingId));
   const recordingFinalizing = useRecorderStore((state) => state.finalizing);
   const recorderHidden = isHiddenSettingsTab("recorder");
+  // 🟡 LAWOSS (#428): v bežnom režime poznámka a úloha nie sú v kontextovej ponuke hlavičky (tlačidlá skrýva client-dashboard.css).
+  const noteTaskHidden = useUiMode() === "lite";
   const recordLabel = t(recordingFinalizing ? "recorder.finishing" : recordingActive ? "recorder.stop_recording" : "recorder.record");
   const isFavorite = useProjectFavoritesStore((state) => state.favoriteIds.includes(workspaceId));
   const toggleFavorite = useProjectFavoritesStore((state) => state.toggleFavorite);
@@ -126,6 +131,7 @@ export function ProjectHome(props: {
         <ContextMenu>
         <ContextMenuTrigger render={<header className="p-5 @min-[720px]/project-page:p-6" />}>
           <div className="flex flex-col items-stretch gap-3 @min-[680px]/project-page:flex-row @min-[680px]/project-page:items-start">
+            {props.leading /* 🟡 LAWOSS */}
             <ProjectName name={props.name} onRename={props.onRename} />
             <div className="flex min-w-0 flex-wrap items-center gap-1 @min-[680px]/project-page:shrink-0">
             <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-sm" className="shrink-0" aria-label={favoriteLabel} aria-pressed={isFavorite} onClick={() => toggleFavorite(workspaceId)}><Pin className={cn("size-4", isFavorite && "fill-current text-foreground")} /></Button>} /><TooltipContent>{favoriteLabel}</TooltipContent></Tooltip>
@@ -154,8 +160,8 @@ export function ProjectHome(props: {
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem disabled={sessionStarting || recordingFinalizing} onClick={() => { void newSession(recordingActive); }}><SquarePen strokeWidth={1.5} />{t("projects.new_chat")}</ContextMenuItem>
-          <ContextMenuItem onClick={() => setNoteOpen(true)}><StickyNote />{t("projects.add_note")}</ContextMenuItem>
-          <ContextMenuItem onClick={() => setTaskOpen(true)}><SquareCheck />{t("tasks.new_task")}</ContextMenuItem>
+          {!noteTaskHidden && <ContextMenuItem onClick={() => setNoteOpen(true)}><StickyNote />{t("projects.add_note")}</ContextMenuItem>}
+          {!noteTaskHidden && <ContextMenuItem onClick={() => setTaskOpen(true)}><SquareCheck />{t("tasks.new_task")}</ContextMenuItem>}
           {!recorderHidden && <ContextMenuItem disabled={recordingStarting || recordingFinalizing} onClick={props.onStartRecording}><Mic />{recordLabel}</ContextMenuItem>}
           <ContextMenuSeparator />
           <ContextMenuItem onClick={() => toggleFavorite(workspaceId)}><Pin />{favoriteLabel}</ContextMenuItem>
@@ -205,9 +211,8 @@ export function ProjectHome(props: {
           <p role="alert" className="text-sm text-destructive">{projectErrorMessage(details.error ?? rootFiles.error)}</p>
           <ProjectFolderRecoveryAction client={client} workspaceId={workspaceId} error={details.error ?? rootFiles.error} />
           <Button variant="outline" size="sm" disabled={details.isFetching || rootFiles.isFetching} onClick={() => {
-            void details.refetch();
-            void rootFiles.refetch();
-            void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
+            // 🟡 LAWOSS #494: po návrate priečinka obnoví aj stav trasy a synchronizáciu, nie len tieto dva dopyty.
+            void retryProjectQueries([details.refetch, rootFiles.refetch], () => queryClient.invalidateQueries());
           }}>{t("workspace_files.try_again")}</Button>
         </Surface> : null}
 

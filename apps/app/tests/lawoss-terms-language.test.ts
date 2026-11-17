@@ -113,7 +113,7 @@ describe("EN a DE: Client / Case / Chats a Mandant / Fall / Chats (N-11)", () =>
 
 describe("SK a CS: Prípad / Případ namiesto spisu (N-3, F1, N-6)", () => {
   // Právne pojmy a doslovný názov priečinka: „Číslo spisu“, priečinok „Spisy“.
-  const LEFT_TO_C1 = new Set(["lawoss.setup.wizard.clientRootHint", "projects.schema.matter_number"]);
+  const LEFT_TO_C1 = new Set(["lawoss.setup.wizard.clientRootHint", "projects.schema.matter_number", "lawoss.okf_command.new_case_folder"]);
   const OLD = /(?<![-\p{L}/])[Ss]pis(y|u|e|ov|om|och|mi|ů|ům|ech|em)?(?![\p{L}])/u;
   test("slovníky nehovoria o spise vo význame prípadu", () => {
     for (const dict of [shellSk, shellCs, mattersSk, mattersCs, setupSk, setupCs, integrationsSk, integrationsCs]) {
@@ -178,8 +178,9 @@ describe("K5/K6: texty sa prekladajú pri renderi, nie pri uložení", () => {
     const root = join(import.meta.dir, "..", "src", "react-app", "domains", "session");
     const card = readFileSync(join(root, "chat", "permission-approval-modal.tsx"), "utf8");
     expect(card.match(/const locale = useLocale\(\);/g)?.length).toBe(2);
-    const memos = [...card.matchAll(/useMemo\(\(\) => describePermissionRequest\(props\.permission\), (\[[^\]]*\])\)/g)].map((m) => m[1]);
-    expect(memos).toEqual(["[props.permission, locale]", "[props.permission, locale]"]);
+    // Lite (čitateľná karta /novy-spis, 15. 11. 2026) je druhý vstup popisu karty, preto aj v deps.
+    const memos = [...card.matchAll(/useMemo\(\(\) => describePermissionRequest\(props\.permission, lite\), (\[[^\]]*\])\)/g)].map((m) => m[1]);
+    expect(memos).toEqual(["[props.permission, locale, lite]", "[props.permission, locale, lite]"]);
     const behavior = readFileSync(join(root, "surface", "use-model-behavior.ts"), "utf8");
     expect(behavior).toContain("const locale = useLocale();");
     expect(behavior).toMatch(/useMemo\(\(\) => \{[\s\S]*?\}, \[defaultModel, modelVariant, providerCatalog, locale\]\);/);

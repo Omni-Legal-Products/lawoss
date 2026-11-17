@@ -29,6 +29,11 @@ import { CandidatesPanel, ModeSwitch, MonthCalendar, type ViewMode } from "./age
 import { CARDS_SHOWN, caseCards, cardStatus, clientTerm, inputCounts, type CardStatus, type CardTerm, type InputCounts } from "./client-cards";
 import { DeadlineStrip, liteText } from "./pages/today-page";
 import { useMinuteTick } from "./live";
+import { useUiMode, type UiMode } from "./ui-mode";
+import { ClientDashboardView } from "./client-dashboard";
+import { clientInitials } from "./client-cards";
+import { MissingFolder } from "../domains/missing-folder";
+import { unavailableWorkspaceIds } from "../okf/missing-folder";
 import "./pages/okf-glass.css";
 import "./pages/client-home.css";
 
@@ -52,7 +57,9 @@ function StandaloneClientOverview({ workspaceId }: { workspaceId: string }) {
 }
 
 /** Prehľad z dát panela (export pre testy správania). */
-export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientNav; workspaceId: string }) {
+export function ClientOverviewFrom({ nav, workspaceId, mode }: { nav: PublishedClientNav; workspaceId: string;
+  /** Len pre testy: režim bez úložiska (SSR inak vždy Pokročilé). */
+  mode?: UiMode }) {
   useMinuteTick();
   const locale = useLocale();
   const { scope, data, model } = nav;
@@ -60,7 +67,10 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
   // #168: priečinok mimo rozsahu praxe (`excludedWorkspaceIds`) prehľad klienta nedostane.
   const allowed = Boolean(scope && data && model.clients.has(workspaceId) && !nav.excludedWorkspaceIds.includes(workspaceId));
   // #271: server vráti len úlohy tohto klienta, nie prvých 200 celého stroja.
-  const { tasks: rawAppTasks, complete: appTasksComplete } = useAppTasks(nav.connection, workspaceId);
+  const { tasks: rawAppTasks, complete: appTasksComplete, loading: appTasksLoading } = useAppTasks(nav.connection, workspaceId);
+  // Bežný režim: pasívny prehľad (alfa 14, spec-klient.md); Pokročilé ostáva bez zmeny.
+  const uiMode = useUiMode();
+  const lite = (mode ?? uiMode) === "lite";
   const derived = useMemo(() => {
     if (!allowed || !scope || !data) return null;
     // Review #246 (P2): prípad zaregistrovaného vnoreného klienta (skrytého v paneli) patrí jemu, nie vonkajšiemu.
@@ -91,19 +101,27 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
     const appTasks = appTodayTasks(rawAppTasks.filter((task) => task.projectId === workspaceId), appTaskClient(nav.connection?.workspaces ?? [], scope, data.clients ?? []));
     return { foreignFolders, own, ownInputs, kinds, statuses, events: agendaEvents(source, appTasks), todayModel: buildToday(source, todayIso, undefined, appTasks), inputs: inputCounts(ownInputs, own.matters.map((m) => m.path), ownClients), intakeFailed, folderMissing };
   }, [allowed, scope, data, model, nav.connection, nav.groups, workspaceId, todayIso, locale, rawAppTasks]);
-  if (!scope || !data || !derived) return null;
+  // #494: priečinok tohto klienta chýba: nad prehľadom (vstupy „nenačítané“) tá istá karta ako na ostatných stránkach
+  // („Nájsť presunutý priečinok“, N-A7-1); ostatní klienti ju nedostanú.
+  const unavailable = unavailableWorkspaceIds(data);
+  const missing = unavailable.has(workspaceId) ? nav.connection?.workspaces.find((w) => w.id === workspaceId) : undefined;
+  const missingCard = nav.connection && missing ? <MissingFolder connection={nav.connection} missing={missing} unavailable={unavailable} /> : null;
+  if (!scope || !data || !derived) return missingCard;
   const { own, ownInputs, kinds, statuses, events, todayModel, inputs, intakeFailed, folderMissing, foreignFolders } = derived;
   const clientRoot = nav.connection?.workspaces.find((w) => w.id === workspaceId)?.path ?? "";
   // Iní klienti: registrovaní klienti panela a priečinky klientov z prehľadu praxe (únik medzi klientmi).
   const otherClients = otherClientFolders(clientRoot, (nav.connection?.workspaces ?? []).filter((w) => model.clients.has(w.id)),
     nav.groups.flatMap((group) => clientGroupDirectory(scope, group) ?? []));
+  const folders = <LinkedFolders connection={nav.connection} workspaceId={workspaceId} practiceRoot={scope.practiceRoot ?? null} otherClients={otherClients} locale={locale} />;
+  // Tie isté údaje pre oba režimy: poctivé stavy (#242, #246, #264, čiastočné čítanie) majú jeden zdroj.
+  const shared = { workspaceId, locale, todayIso, matters: own.matters, deadlines: [...own.overdue, ...own.upcomingDeadlines],
+    partial: data.coverage.status !== "complete" || !appTasksComplete, deadlineEvidence: deadlineCoverage(ownInputs), readFailed: !canActOnSource(data, workspaceId),
+    kinds, statuses, inputs, inputsFailed: intakeFailed || (inputs === null && folderMissing), events, today: todayModel, foreignFolders };
+  if (lite) return <>{missingCard}<ClientDashboardView {...shared} pending={appTasksLoading} chats={nav.chats?.[workspaceId]} folders={folders} chat={model.practiceRootId !== workspaceId} /></>;
   return <div className="space-y-4">
-    <ClientOverviewView workspaceId={workspaceId} locale={locale} todayIso={todayIso} matters={own.matters}
-      deadlines={[...own.overdue, ...own.upcomingDeadlines]} soon={own.totals.deadlinesWithin7Days} partial={data.coverage.status !== "complete" || !appTasksComplete}
-      deadlineEvidence={deadlineCoverage(ownInputs)} readFailed={!canActOnSource(data, workspaceId)} kinds={kinds}
-      statuses={statuses} inputs={inputs} inputsFailed={intakeFailed || (inputs === null && folderMissing)} events={events} today={todayModel}
-      foreignFolders={foreignFolders} />
-    <LinkedFolders connection={nav.connection} workspaceId={workspaceId} practiceRoot={scope.practiceRoot ?? null} otherClients={otherClients} locale={locale} />
+    {missingCard}
+    <ClientOverviewView {...shared} soon={own.totals.deadlinesWithin7Days} />
+    {folders}
   </div>;
 }
 
@@ -284,4 +302,16 @@ function CaseCardView({ matter, term, invalid, status, kind, todayIso, locale }:
       <span>{t("lawoss.lite.tasks_short", locale)} {matter.openTasks.length}</span>
     </span>
   </Link>;
+}
+
+/**
+ * Iniciály klienta pred názvom v hlavičke (🟡 LAWOSS hák `leading` v `project-home.tsx`): len v bežnom režime a len
+ * pri klientovi OKF, ktorého pozná bočný panel. Meno je to isté ako v hlavičke.
+ */
+export function ClientInitials({ workspaceId, name }: { workspaceId: string; name: string }) {
+  const nav = usePublishedClientNav();
+  const lite = useUiMode() === "lite";
+  const initials = clientInitials(name);
+  if (!lite || !initials || !nav?.model.clients.has(workspaceId)) return null;
+  return <span className="lw-klient-initials" aria-hidden data-lawoss-client-initials="">{initials}</span>;
 }

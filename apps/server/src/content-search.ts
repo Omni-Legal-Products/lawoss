@@ -24,6 +24,7 @@ import { documentMatches } from "./corpus/passages.js";
 import type { DocumentPreparation } from "./document-preparation/service.js";
 import { within } from "./reviews/storage.js";
 import { viewerProtectedPaths } from "./lawoss/filesystem-boundary.js";
+import { fileNameMatches } from "./lawoss/file-name-match.js";
 
 const RESULT_LIMIT = 60;
 
@@ -88,10 +89,13 @@ export async function searchSessionContents(
         add(session);
       if (found.size > RESULT_LIMIT) break;
     }
-    let scanned = 0;
+    let scanned = 0, budgetHit = false;
+    // 🟡 LAWOSS #465: prepis chatov najviac 3 s na požiadavku, potom neúplný výsledok („spresnite“).
+    const sessionDeadline = Date.now() + 3000;
     for (const session of sessions) {
       signal.throwIfAborted();
       if (found.size > RESULT_LIMIT) break;
+      if (Date.now() > sessionDeadline) { budgetHit = true; break; }
       if (found.has(String(session.id))) continue;
       // Stream complete public prose, excluding synthetic messages, tool
       // results and reasoning. Native user.text includes model reminders;
@@ -109,7 +113,7 @@ export async function searchSessionContents(
         [String(session.id)],
       );
       for (const part of parts) {
-        if (++scanned % 200 === 0) {
+        if (++scanned % 50 === 0) {
           await setImmediate();
           signal.throwIfAborted();
         }
@@ -121,7 +125,7 @@ export async function searchSessionContents(
     }
     return {
       items: [...found.values()].slice(0, RESULT_LIMIT),
-      limited: found.size > RESULT_LIMIT,
+      limited: found.size > RESULT_LIMIT || budgetHit,
     };
   } finally {
     db.close();
@@ -138,7 +142,39 @@ type FileEntry = {
   touched: number;
   retryRequested?: boolean;
 };
-const caches = new WeakMap<DocumentPreparation, Map<string, FileEntry>>();
+// 🟡 LAWOSS #474: files a search could not start yet wait here and are prepared after the response,
+// two at a time, so preparation no longer advances only while the palette keeps polling.
+// 🟡 LAWOSS #525: the queue is bounded and admits only files the cache holds without evicting anything;
+// background work never evicts. A search evicts only entries nobody touched for `idleMs`, whatever their
+// root: the palette searches every client with one query, so evicting a fresh entry only moves the
+// re-preparation to the next client or round. Otherwise the file is refused (`limited`, not `preparing`). Queued files of a root nobody searched for `idleMs`,
+// or of a workspace whose root changed, are dropped.
+type QueuedFile = { root: string; path: string; revision: string; retry: boolean };
+type PreparationState = {
+  cache: Map<string, FileEntry>;
+  queue: Map<string, QueuedFile>;
+  idle: Array<() => void>;
+  /** Extractions in flight, including ones whose cache entry was replaced. */
+  running: number;
+  /** Text characters held by the cache. */
+  characters: number;
+  /** Root → time of its last search. */
+  searched: Map<string, number>;
+  /** Workspace id → root of its last search. */
+  workspaces: Map<string, string>;
+};
+const states = new WeakMap<DocumentPreparation, PreparationState>();
+const CONCURRENCY = 2;
+/** LAWOSS #525: limits of the shared preparation cache and queue; tests may lower them. */
+export const contentPreparationLimits = {
+  queue: 256,
+  cacheEntries: 2000,
+  cacheCharacters: 24_000_000,
+  idleMs: 5 * 60_000,
+  now: () => Date.now(),
+  extract: extractCorpusText,
+};
+const limits = contentPreparationLimits;
 const SKIP_DIRECTORIES = new Set([
   "node_modules",
   "vendor",
@@ -147,55 +183,128 @@ const SKIP_DIRECTORIES = new Set([
   "coverage",
   "__pycache__",
 ]);
+function preparationState(preparation: DocumentPreparation) {
+  let state = states.get(preparation);
+  if (!state) {
+    state = { cache: new Map(), queue: new Map(), idle: [], running: 0, characters: 0, searched: new Map(), workspaces: new Map() };
+    states.set(preparation, state);
+  }
+  return state;
+}
+
+function settle(state: PreparationState) {
+  if (!state.queue.size && !state.running) for (const resolve of state.idle.splice(0)) resolve();
+}
+
+/** Resolves once no file of this server is being prepared or waiting (#474). */
+export function whenPreparationIdle(preparation: DocumentPreparation): Promise<void> {
+  const state = preparationState(preparation);
+  if (!state.queue.size && !state.running) return Promise.resolve();
+  return new Promise((resolve) => state.idle.push(resolve));
+}
+
+/** Files waiting for and in background preparation (#525). */
+export function preparationBacklog(preparation: DocumentPreparation) {
+  const state = preparationState(preparation);
+  return { queued: state.queue.size, running: state.running, cached: state.cache.size };
+}
+
+function dropQueued(state: PreparationState, root: string) {
+  for (const [key, file] of state.queue) if (file.root === root) state.queue.delete(key);
+}
+
+/** A search of this workspace keeps its root's queue alive; a changed root drops the old one. */
+function noteSearch(state: PreparationState, workspaceId: string, root: string) {
+  const previous = state.workspaces.get(workspaceId);
+  state.workspaces.set(workspaceId, root);
+  if (previous && previous !== root && ![...state.workspaces.values()].includes(previous)) {
+    state.searched.delete(previous);
+    dropQueued(state, previous);
+  }
+  state.searched.set(root, limits.now());
+}
+
+const idleRoot = (state: PreparationState, root: string) => {
+  const searched = state.searched.get(root);
+  return searched === undefined || limits.now() - searched >= limits.idleMs;
+};
+
+/** Whether `extra` more entries fit without evicting anything. */
+const fits = (state: PreparationState, extra: number) =>
+  state.cache.size + extra < limits.cacheEntries && state.characters < limits.cacheCharacters;
+
+function forget(state: PreparationState, key: string) {
+  const entry = state.cache.get(key);
+  if (!entry) return;
+  state.cache.delete(key);
+  state.characters -= entry.value?.text.length ?? 0;
+}
+
+/** Evicts least recently used entries untouched for `idleMs`; true when one more entry fits. */
+function makeRoom(state: PreparationState) {
+  if (fits(state, 0)) return true;
+  const cutoff = limits.now() - limits.idleMs;
+  for (const [key, entry] of [...state.cache.entries()].sort((a, b) => a[1].touched - b[1].touched)) {
+    if (entry.touched > cutoff) break;
+    if (entry.pending) continue;
+    forget(state, key);
+    if (fits(state, 0)) return true;
+  }
+  return false;
+}
+
 function documentEntry(
   preparation: DocumentPreparation,
   root: string,
   path: string,
   revision: string,
   retry: boolean,
-) {
-  let cache = caches.get(preparation);
-  if (!cache) {
-    cache = new Map();
-    caches.set(preparation, cache);
-  }
+): FileEntry | "queued" | "refused" {
+  const state = preparationState(preparation);
   const key = join(root, path);
-  const prior = cache.get(key);
+  const prior = state.cache.get(key);
   if (prior?.revision === revision) {
-    prior.touched = Date.now();
+    prior.touched = limits.now();
     if (retry && !prior.pending && (prior.error || !prior.value?.complete))
       prior.retryRequested = true;
     if (prior.pending || !prior.retryRequested) return prior;
   }
-  if ([...cache.values()].filter((entry) => entry.pending).length >= 2) return;
-  let characters = [...cache.values()].reduce(
-    (total, entry) => total + (entry.value?.text.length ?? 0),
-    0,
-  );
-  for (const [id, entry] of [...cache.entries()].sort(
-    (a, b) => a[1].touched - b[1].touched,
-  )) {
-    if (cache.size < 2000 && characters <= 24_000_000) break;
-    if (entry.pending) continue;
-    cache.delete(id);
-    characters -= entry.value?.text.length ?? 0;
+  const again = retry || (prior?.revision === revision && prior.retryRequested === true);
+  const file = { root, path, revision, retry: again };
+  if (state.running >= CONCURRENCY) {
+    // A waiting file is updated in place; a new one only while the cache can still hold it.
+    if (state.queue.has(key) || (state.queue.size < limits.queue && (prior || fits(state, state.queue.size)))) {
+      state.queue.set(key, file);
+      return "queued";
+    }
+    return "refused";
   }
-  const entry: FileEntry = { revision, pending: true, touched: Date.now() };
-  cache.set(key, entry);
-  void extractCorpusText(
-    root,
-    path,
+  if (!prior && !makeRoom(state)) return "refused";
+  state.queue.delete(key);
+  return prepare(preparation, state, file);
+}
+
+function prepare(preparation: DocumentPreparation, state: PreparationState, file: QueuedFile) {
+  const key = join(file.root, file.path);
+  forget(state, key);
+  const entry: FileEntry = { revision: file.revision, pending: true, touched: limits.now() };
+  state.cache.set(key, entry);
+  state.running++;
+  void limits.extract(
+    file.root,
+    file.path,
     preparation,
     AbortSignal.timeout(5 * 60_000),
     {
-      retry:
-        retry ||
-        (prior?.revision === revision && prior.retryRequested === true),
+      retry: file.retry,
+      // 🟡 LAWOSS #465: bez výslovného zopakovania hľadanie skeny nevykresľuje (corpus/extract.ts).
+      scans: file.retry ? "prepare" : "native-only",
     },
   )
     .then(
       (value) => {
         entry.value = value;
+        if (state.cache.get(key) === entry) state.characters += value.text.length;
       },
       (error) => {
         entry.error =
@@ -204,8 +313,31 @@ function documentEntry(
     )
     .finally(() => {
       entry.pending = false;
+      state.running--;
+      drain(preparation, state);
     });
   return entry;
+}
+
+function drain(preparation: DocumentPreparation, state: PreparationState) {
+  for (const [key, file] of state.queue) {
+    if (state.running >= CONCURRENCY) return;
+    state.queue.delete(key);
+    const current = state.cache.get(key);
+    if (current?.revision === file.revision && (current.pending || !file.retry)) continue;
+    // Nobody searched this root for a while (or its workspace moved): skip the rest of its files.
+    if (idleRoot(state, file.root)) {
+      dropQueued(state, file.root);
+      continue;
+    }
+    // Background work never evicts; the rest waits for a later search.
+    if (!current && !fits(state, 0)) {
+      state.queue.clear();
+      break;
+    }
+    prepare(preparation, state, file);
+  }
+  settle(state);
 }
 
 export async function searchFileContents(
@@ -227,6 +359,13 @@ export async function searchFileContents(
     preparing = 0,
     limited = false;
   const deadline = Date.now() + 2500;
+  // 🟡 LAWOSS #525: hľadanie udrží frontu svojho koreňa nažive (nečinný alebo zmenený koreň sa zahodí).
+  noteSearch(preparationState(preparation), workspace.id, root);
+  // 🟡 LAWOSS #465: po čase na obsah sa prechádzanie nezastaví, len hľadá ďalej podľa názvu (bez prípravy obsahu),
+  // spolu najviac 4 s; každých 64 položiek prepustí iné požiadavky servera (žiadne blokovanie slučky udalostí).
+  const nameDeadline = deadline + 1500;
+  const nameItems: ContentSearchResult[] = [], pathItems: ContentSearchResult[] = [];
+  let stopped = false;
   const issue = (path: string, reason: string) => {
     if (issues.length < 20) issues.push({ path, reason });
   };
@@ -235,10 +374,13 @@ export async function searchFileContents(
     const entries = await opendir(directory);
     for await (const entry of entries) {
       signal.throwIfAborted();
-      if (++visited > 20_000 || Date.now() > deadline) {
-        limited = true;
+      if (++visited > 20_000 || Date.now() > nameDeadline) {
+        limited = stopped = true;
         break;
       }
+      if (visited % 64 === 0) { await setImmediate(); signal.throwIfAborted(); }
+      const contentOpen = Date.now() <= deadline;
+      if (!contentOpen) limited = true;
       if (entry.name.startsWith(".") || entry.isSymbolicLink()) continue;
       const path = join(directory, entry.name);
       if (entry.isDirectory()) {
@@ -247,20 +389,26 @@ export async function searchFileContents(
             if (signal.aborted) throw error;
             skipped++;
           });
-        if (limited) break;
+        if (stopped) break;
         continue;
       }
       if (!entry.isFile()) continue;
       const relativePath = relative(root, path).split("\\").join("/");
+      // Názov súboru má prednosť; zhoda len v ceste (napr. názov priečinka klienta) ide až za obsah.
+      const fileName = basename(path);
+      const nameMatch = matchesSearch(fileName, query) || fileNameMatches(fileName, query);
+      const pathMatch = nameMatch || matchesSearch(relativePath, query) || fileNameMatches(relativePath, query);
+      if (!contentOpen && !pathMatch) continue;
       try {
         const canonicalPath = await realpath(path);
         if (!within(root, canonicalPath)) continue;
         // Before the preparation cache, which all roles share.
         if (isProtected(canonicalPath, relativePath)) continue;
         const info = await stat(canonicalPath);
-        const nameMatch = matchesSearch(relativePath, query);
         let source: CorpusText | undefined;
-        if (CORPUS_EXTENSIONS.has(extname(path).toLowerCase())) {
+        if (!contentOpen) {
+          // Len zhoda názvu (overená pred realpath), obsah sa už nepripravuje.
+        } else if (CORPUS_EXTENSIONS.has(extname(path).toLowerCase())) {
           if (info.size > 64 * 1024 * 1024) {
             skipped++;
             issue(relativePath, "File exceeds the 64 MiB preparation limit.");
@@ -272,7 +420,9 @@ export async function searchFileContents(
               `${info.mtimeMs}:${info.ctimeMs}:${info.size}`,
               retry,
             );
-            if (!document || document.pending) preparing++;
+            // 🟡 LAWOSS #525: odmietnutý súbor (plná fronta alebo cache) sa nepripravuje, výsledok je len neúplný.
+            if (document === "refused") limited = true;
+            else if (document === "queued" || document.pending) preparing++;
             else if (document.error) {
               skipped++;
               issue(relativePath, document.error);
@@ -297,8 +447,8 @@ export async function searchFileContents(
         const matches = source
           ? documentMatches(source, relativePath, query)
           : { sources: [], sourcesLimited: false };
-        if (!nameMatch && !matches.sources.length) continue;
-        items.push({
+        if (!pathMatch && !matches.sources.length) continue;
+        (nameMatch ? nameItems : matches.sources.length ? items : pathItems).push({
           kind: "files",
           id: relativePath,
           workspaceId: workspace.id,
@@ -320,6 +470,9 @@ export async function searchFileContents(
     }
   }
   await visit(root);
+  // 🟡 LAWOSS #465: zhody názvu pred zhodami obsahu, aby ich limit výsledkov neodrezal.
+  items.unshift(...nameItems);
+  items.push(...pathItems);
   return {
     items: items.slice(0, RESULT_LIMIT),
     limited: limited || items.length > RESULT_LIMIT,

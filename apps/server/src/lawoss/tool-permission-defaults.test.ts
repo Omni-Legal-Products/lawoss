@@ -10,7 +10,7 @@ import {
   closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, readGlobalToolPermissions, readRuntimeOpencodeConfigText, writeRuntimeOpencodeConfig,
 } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
-import { BROWSER_LOGIN_PERMISSION, LAWOSS_MEMORY_TOOL, fileChangeRule, fileChangeRules, withLawossToolDefaultRules, withLawossToolDefaults } from "./tool-permission-defaults.js";
+import { BROWSER_LOGIN_PERMISSION, LAWOSS_MEMORY_TOOL, NEW_CLIENT_PERMISSION, fileChangeRule, fileChangeRules, newClientRules, withLawossToolDefaultRules, withLawossToolDefaults } from "./tool-permission-defaults.js";
 import { permissionAction, type NativePermissionRule } from "../agent-sandbox/permissions.js";
 import { writeYoloMode } from "./yolo-mode.js";
 import { engineSettings, hasBundledPlugin } from "./test-support/native-config.js";
@@ -128,6 +128,27 @@ test("a saved login's new website asks a card always: after a broad allow, for s
   expect(evaluate([...yolo.permissions, ...yolo.agents.legalwork?.permissions ?? []], BROWSER_LOGIN_PERMISSION)).toBe("ask");
   // YOLO still removes the file-change card, only the saved-login card stays.
   expect(evaluate([...yolo.permissions, ...yolo.agents.legalwork?.permissions ?? []], "lawoss_file_change")).toBe("allow");
+});
+
+test("a new client of the office asks a card always: after a broad allow, for scheduled runs and in YOLO Mode (MČ 31. 10. 2026)", async () => {
+  const { config } = await setup();
+  expect(evaluate((await engineFile(config)).permissions, NEW_CLIENT_PERMISSION)).toBe("ask");
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, rules([{ action: "*", resource: "*", effect: "allow" }, { action: NEW_CLIENT_PERMISSION, resource: "*", effect: "allow" }]));
+  const broad = await engineFile(config);
+  expect(lastIndex(broad.permissions, NEW_CLIENT_PERMISSION)).toBeGreaterThan(lastIndex(broad.permissions, "*"));
+  expect(evaluate(broad.permissions, NEW_CLIENT_PERMISSION)).toBe("ask");
+  expect(evaluate(broad.agents["legalwork-scheduled-all"]?.permissions ?? [], NEW_CLIENT_PERMISSION)).toBe("ask");
+  await writeYoloMode(config, true);
+  const yolo = await engineFile(config);
+  const chat = [...yolo.permissions, ...yolo.agents.legalwork?.permissions ?? []];
+  // YOLO removes the file-change card inside the client, never the card for a new client outside it.
+  expect([evaluate(chat, "lawoss_file_change"), evaluate(chat, NEW_CLIENT_PERMISSION)]).toEqual(["allow", "ask"]);
+  // A forbidden file change forbids creating a client too, also in YOLO.
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, rules([{ action: "edit", resource: "*", effect: "deny" }]));
+  const denied = await engineFile(config);
+  expect(evaluate([...denied.permissions, ...denied.agents.legalwork?.permissions ?? []], NEW_CLIENT_PERMISSION)).toBe("deny");
+  expect(newClientRules([{ action: "*", resource: "*", effect: "deny" }])).toEqual([{ action: NEW_CLIENT_PERMISSION, resource: "*", effect: "deny" }]);
+  expect(newClientRules([{ action: "edit", resource: "Zmluvy/*", effect: "deny" }])).toEqual([{ action: NEW_CLIENT_PERMISSION, resource: "*", effect: "ask" }]);
 });
 
 test("reading case memory (lawoss_memory) needs no card; the lawyer's own rule and a later wildcard still win", async () => {

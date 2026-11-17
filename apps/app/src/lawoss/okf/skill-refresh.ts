@@ -4,7 +4,7 @@
  * SKILL.md only when it is byte-for-byte a version LAWOSS bundled earlier.
  */
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
-import { BUNDLED_OKF_SKILL_HASHES } from "./bundled-skill-hashes";
+import { BUNDLED_OKF_SKILL_DESCRIPTIONS, BUNDLED_OKF_SKILL_HASHES } from "./bundled-skill-hashes";
 
 export type OkfSkillClient = Pick<
   LegalworkServerClient,
@@ -77,6 +77,7 @@ export async function refreshOkfSkills(
   workspaceId: string,
   skills: readonly BundledOkfSkill[],
   known: ReadonlySet<string> = BUNDLED_OKF_SKILL_HASHES,
+  knownDescriptions: ReadonlySet<string> = BUNDLED_OKF_SKILL_DESCRIPTIONS,
 ): Promise<OkfSkillRefresh> {
   const existing = await client.listSkills(workspaceId, { includeGlobal: true });
   const modified: string[] = [];
@@ -89,6 +90,12 @@ export async function refreshOkfSkills(
       const state = await refreshSkillMarkdown(client, workspaceId, skill, known);
       if (state === "customized") modified.push(skill.name);
       if (state === "updated") written.push(skill.name);
+      // Telo je aktuálne, ale popis je starší pribalený (napr. anglický popis /okf-pamat): obnoví sa len popis.
+      const description = installed.description?.trim() ?? "";
+      if (state === "current" && description !== skill.body.description && knownDescriptions.has(description)) {
+        await client.upsertSkill(workspaceId, { name: skill.name, ...skill.body });
+        written.push(skill.name);
+      }
     }
     await refreshResource(client, workspaceId, skill);
   }

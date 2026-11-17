@@ -14,6 +14,8 @@ import type { ProjectDetails } from "@legalwork/types/workspace";
 import { matchesProjectFilters, useProjectFilterStore } from "../domains/workspace/project-filters";
 import { useProjectSyncStore } from "../domains/workspace/project-sync-store";
 import { defaultProjectFields, useProjectDefaultsStore, withInitialProjectFields } from "../domains/workspace/project-defaults-store";
+import { plainSearchExcerpt } from "@/lawoss/lite/search-excerpt"; // 🟡 LAWOSS: úryvok bez markdownu
+import { runContentSearch } from "@/lawoss/shell/content-search-run"; // 🟡 LAWOSS #474
 import "./command-palette.css";
 
 export type SessionOption = {
@@ -45,8 +47,8 @@ export function CommandPalette(props: {
 }) {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState("__all__");
-  const [revision, setRevision] = useState(0);
   const [preparing, setPreparing] = useState(0);
+  const [polling, setPolling] = useState(false);
   const filterState = useProjectFilterStore();
   const syncStates = useProjectSyncStore(state => state.states);
   const savedDefaults = useProjectDefaultsStore(defaultProjectFields);
@@ -78,49 +80,34 @@ export function CommandPalette(props: {
   useEffect(() => {
     const key = JSON.stringify([trimmed, filter, eligibleIds, scope]);
     if (previousSearch.current !== key) { previousSearch.current = key; resultsByJob.current.clear(); setResults([]); }
-    setLimited(false); setPending(0); setPreparing(0); setResultQuery(trimmed);
+    setLimited(false); setPending(0); setPreparing(0); setPolling(false); setResultQuery(trimmed);
     if (!props.open || trimmed.length === 1 || (trimmed.length < 2 && filter !== "tasks" && filter !== "all") || filter === "projects") return;
     const controller = new AbortController();
-    const jobs: Array<{ workspace: SearchWorkspace; kind: "sessions" | "tasks" | "files" }> = [];
+    const jobs: Array<{ key: string; workspace: SearchWorkspace; kind: "sessions" | "tasks" | "files" }> = [];
     const taskServers = new Set<string>();
     for (const workspace of scopedWorkspaces) {
-      if (trimmed.length >= 2 && (filter === "all" || filter === "sessions")) jobs.push({ workspace, kind: "sessions" });
-      if (trimmed.length >= 2 && workspace.local && (filter === "all" || filter === "files")) jobs.push({ workspace, kind: "files" });
+      if (trimmed.length >= 2 && (filter === "all" || filter === "sessions")) jobs.push({ key: `${workspace.id}:sessions`, workspace, kind: "sessions" });
+      if (trimmed.length >= 2 && workspace.local && (filter === "all" || filter === "files")) jobs.push({ key: `${workspace.id}:files`, workspace, kind: "files" });
       if ((filter === "all" || filter === "tasks") && (scope !== "__all__" || !taskServers.has(workspace.server))) {
-        taskServers.add(workspace.server); jobs.push({ workspace, kind: "tasks" });
+        taskServers.add(workspace.server); jobs.push({ key: `${workspace.id}:tasks`, workspace, kind: "tasks" });
       }
     }
     setPending(jobs.length);
+    // 🟡 LAWOSS #474: kým sa súbory pripravujú, znova sa pýtajú len zdroje s `preparing`, s odstupom a stropom.
     const timer = window.setTimeout(() => {
-      const run = async (job: typeof jobs[number]) => {
-        try {
-          const response = await props.search(job.workspace.id, job.kind, trimmed, controller.signal, { projectOnly: scope !== "__all__" });
-          if (controller.signal.aborted) return;
-          resultsByJob.current.set(`${job.workspace.id}:${job.kind}`, response.items);
+      void runContentSearch({
+        jobs, signal: controller.signal,
+        search: job => props.search(job.workspace.id, job.kind, trimmed, controller.signal, { projectOnly: scope !== "__all__" }),
+        onResponse: (job, response) => {
+          resultsByJob.current.set(job.key, response.items);
           setResults([...resultsByJob.current.values()].flat());
           if (response.limited) setLimited(true);
-          if (response.preparing) setPreparing(current => current + (response.preparing ?? 0));
-        } catch {
-          // Keep showing matches from the other search sources.
-        } finally {
-          if (!controller.signal.aborted) setPending(current => Math.max(0, current - 1));
-        }
-      };
-      // File extraction must never queue ahead of transcript search. Keep disk work modest.
-      const files = jobs.filter(job => job.kind === "files");
-      const worker = async () => { while (files.length && !controller.signal.aborted) { const job = files.shift(); if (job) await run(job); } };
-      const records = jobs.filter(job => job.kind !== "files");
-      const recordWorker = async () => { while (records.length && !controller.signal.aborted) { const job = records.shift(); if (job) await run(job); } };
-      void Promise.all([recordWorker(), recordWorker(), recordWorker(), recordWorker(), worker(), worker()]);
+        },
+        onProgress: progress => { setPending(progress.pending); setPreparing(progress.preparing); setPolling(progress.polling); },
+      });
     }, 220);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [props.open, scopedWorkspaces, props.search, trimmed, filter, scope, revision, eligibleIds]);
-
-  useEffect(() => {
-    if (!props.open || pending || !preparing) return;
-    const timer = window.setTimeout(() => setRevision(value => value + 1), 1500);
-    return () => window.clearTimeout(timer);
-  }, [props.open, pending, preparing, revision]);
+  }, [props.open, scopedWorkspaces, props.search, trimmed, filter, scope, eligibleIds]);
 
   const items = useMemo(() => {
     const projects: ContentSearchResult[] = scopedWorkspaces.filter(workspace => matchesSearch(workspace.title, trimmed)).map(workspace => ({
@@ -171,7 +158,7 @@ export function CommandPalette(props: {
           </TabsList>
         </Tabs>
         <CommandPanel className="search-results-panel">
-          <CommandEmpty className="search-empty"><Search aria-hidden="true" /><span>{(pending || preparing) ? t("content_search.searching") : trimmed.length === 1 ? t("content_search.keep_typing") : trimmed ? t("content_search.no_results") : t("content_search.start")}</span></CommandEmpty>
+          <CommandEmpty className="search-empty"><Search aria-hidden="true" /><span>{pending ? t("content_search.searching") : trimmed.length === 1 ? t("content_search.keep_typing") : trimmed ? (preparing ? t("content_search.no_results_preparing", { count: preparing }) /* 🟡 LAWOSS #474 */ : t("content_search.no_results")) : t("content_search.start")}</span></CommandEmpty>
           <CommandList>{(item: ContentSearchResult) => {
             const Icon = icons[item.kind];
             const project = props.workspaces.find(workspace => workspace.id === item.workspaceId)?.title;
@@ -182,7 +169,7 @@ export function CommandPalette(props: {
                 <div className="search-result-meta">{names[item.kind]}{item.completed ? ` · ${t("tasks.status_done")}` : ""}{project && item.kind !== "projects" ? ` · ${project}` : ""}{item.path && item.excerpt !== item.path ? ` · ${item.path}` : ""}</div>
                 {item.incomplete && <div className="search-result-meta">{t("content_search.partial")}</div>}
                 {item.sources?.some(source => source.page) && <div className="search-result-meta">{t("content_search.pages", { pages: [...new Set(item.sources.flatMap(source => source.page ? [source.page] : []))].join(", ") })}</div>}
-                {trimmed && item.excerpt ? <div className="search-result-excerpt"><Highlight text={item.excerpt} query={trimmed} /></div> : null}
+                {trimmed && item.excerpt ? <div className="search-result-excerpt"><Highlight text={plainSearchExcerpt(item.excerpt)} /* 🟡 LAWOSS */ query={trimmed} /></div> : null}
               </div>
               <CornerDownLeft className="search-result-enter" aria-hidden="true" />
             </CommandItem>;
@@ -190,7 +177,7 @@ export function CommandPalette(props: {
         </CommandPanel>
         <CommandFooter>
           <span className="search-shortcut">{t("content_search.open_shortcut", { shortcut: isMacPlatform() ? "⌘ K" : "Ctrl + K" })}</span>
-          <span aria-live="polite" className="search-footer-status">{(pending || preparing) ? <><Loader2 className="size-3 animate-spin" />{preparing ? t("content_search.preparing", { count: preparing }) : t("content_search.searching")}</> : limited || visible.length < items.length ? t("content_search.refine") : (trimmed || filter === "tasks") ? t("content_search.results", { count: visible.length }) : null}</span>
+          <span aria-live="polite" className="search-footer-status">{(pending || polling) ? <><Loader2 className="size-3 animate-spin" />{preparing ? t("content_search.preparing", { count: preparing }) : t("content_search.searching")}</> : limited || visible.length < items.length ? t("content_search.refine") : (trimmed || filter === "tasks") ? t("content_search.results", { count: visible.length }) : null}</span>
           <span className="search-key-help">{t("content_search.keys")}</span>
         </CommandFooter>
         </div>

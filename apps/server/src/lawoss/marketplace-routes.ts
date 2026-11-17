@@ -20,6 +20,7 @@ import {
   installGlobalPlugin,
   isMarketplacePlugin,
   listInstalled,
+  missingMcp,
   moveWorkspacePlugin,
   pluginFileChanges,
   removeGlobalPlugin,
@@ -78,9 +79,12 @@ export function registerLawossMarketplaceRoutes(options: {
       const info = await options.resolveWorkspace(workspaceId).catch(() => null);
       if (info) workspace = (await listInstalled(config, info.id)).filter(isMarketplacePlugin);
     }
+    // #436: removed connections of plugins installed for all clients (the plugin then offers install again).
+    const globalMissingMcp = Object.fromEntries((await Promise.all(global.map(async (plugin) => [plugin.pluginId, await missingMcp(config, plugin)] as const))).filter(([, names]) => names.length));
     return {
       global,
       globalChanges,
+      globalMissingMcp,
       workspace,
       settings: { weeklyCheck: state.weeklyCheck, lastCheckedAt: state.lastCheckedAt },
       check: state.lastCheck,

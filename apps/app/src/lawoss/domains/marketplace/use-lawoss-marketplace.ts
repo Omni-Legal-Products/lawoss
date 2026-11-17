@@ -23,7 +23,8 @@ export async function loadMarketplaceApi(): Promise<LawossMarketplaceApi | null>
 
 /** Id pluginov z katalógu, ktoré sú nainštalované pre všetkých klientov. */
 export function globalInstalledIds(view: MarketplaceView | null, entries: readonly MarketplaceEntry[]): Set<string> {
-  const installed = new Set((view?.global ?? []).map((plugin) => plugin.pluginId));
+  // #436: a plugin whose connection was removed in Settings is offered again (install brings the connection back).
+  const installed = new Set((view?.global ?? []).filter((plugin) => !view?.globalMissingMcp?.[plugin.pluginId]?.length).map((plugin) => plugin.pluginId));
   return new Set(entries.filter((entry) => entry.install.action === "plugin" && installed.has(catalogPluginId(entry))).map((entry) => entry.id));
 }
 
@@ -40,8 +41,11 @@ export async function installGlobalEntries(api: LawossMarketplaceApi, entries: r
     // Po výpadku zdroja by každý ďalší doplnok čakal na sieť znova; zvyšok balíka dostane tú istú radu hneď.
     if (unreachable) { result.failed.push({ id: entry.id, message: unreachable }); continue; }
     try {
-      await api.install(catalogPluginUrl(entry));
-      result.installed.push(entry.id);
+      const outcome = await api.install(catalogPluginUrl(entry));
+      // #510: „Nainštalované“ len pre skutočnú inštaláciu; staršia verzia sa nahlási s ponukou aktualizácie.
+      if (outcome.update) (result.outdated ??= []).push({ id: entry.id, installed: outcome.update.installed, available: outcome.update.available });
+      else if (outcome.status === "already_installed") (result.already ??= []).push(entry.id);
+      else result.installed.push(entry.id);
     } catch (error) {
       const message = installFailureMessage(error);
       if (isSourceUnreachable(error)) unreachable = message;

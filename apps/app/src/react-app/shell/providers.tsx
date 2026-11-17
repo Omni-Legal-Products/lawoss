@@ -18,6 +18,8 @@ import { resolveLegalworkConnection } from "./legalwork-connection";
 import { ReloadCoordinatorProvider } from "./reload-coordinator";
 import { ProviderOverwriteConfirmHost } from "@/lawoss/providers/overwrite-confirm-host";
 import { ChatTrimConfirmHost } from "@/lawoss/chat/trim-confirm-host";
+// 🟡 LAWOSS: potvrdenie „Odobrať klienta“ v okne appky (nie systémové Cancel / OK).
+import { RemoveClientConfirmHost } from "@/lawoss/shell/remove-client-confirm-host";
 
 function resolveDefaultServerUrl(): string {
   if (isDesktopRuntime()) return "http://127.0.0.1:4096";
@@ -72,6 +74,7 @@ export function AppProviders({ children }: AppProvidersProps) {
             <Toaster />
             <ProviderOverwriteConfirmHost />
             <ChatTrimConfirmHost />
+            <RemoveClientConfirmHost />
           </LocalProvider>
         </ArchitectureMismatchGate>
       </ServerProvider>

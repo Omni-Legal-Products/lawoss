@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kind": "legalwork-patched-source-build",
   "baseVersion": "2.1.4",
-  "version": "2.1.4-legalwork.http-policy.4",
+  "version": "2.1.4-legalwork.lawoss-project-stop.1",
   "channel": "legalwork",
   "upstream": {
     "repository": "https://github.com/anomalyco/opencode.git",
@@ -72,8 +72,8 @@
   ],
   "inputs": {
     "patch": {
-      "path": "docs/patches/opencode-2.1.4-mcp-http-policy-v3.patch",
-      "sha256": "422bbc772dffc711254b7f518b5f4ce4498af2cb0f6220e9bd4a11bc3414c92c"
+      "path": "docs/patches/opencode-2.1.4-lawoss-project-stop.patch",
+      "sha256": "a394496277c837357f04b1b6bc61171ac79953c4a50c3a63d3d9d0a273daf2ef"
     },
     "lockfile": {
       "upstreamPath": "bun.lock",
@@ -84,19 +84,22 @@
       "sha256": "1767628e91b25f3b730c39edf67069a4575ff2d5509b0e494fa95ec6b693e246"
     },
     "testReceipt": {
-      "path": "docs/patches/opencode-2.1.4-migration-times.receipt.json",
-      "sha256": "62831d34304930800094afa27c8a6a6bbdabbcaa3b84234abf706e5c727b2dfe"
+      "path": "docs/patches/opencode-2.1.4-lawoss-project-stop.receipt.json",
+      "sha256": "bd4c4ef0f16148fb0545d46b47d765b6a5d9553d0396ed39525d8638a79749a3"
     }
   },
   "buildStatus": "tested-source-lock",
   "testEvidence": {
-    "receiptSha256": "62831d34304930800094afa27c8a6a6bbdabbcaa3b84234abf706e5c727b2dfe",
+    "receiptSha256": "bd4c4ef0f16148fb0545d46b47d765b6a5d9553d0396ed39525d8638a79749a3",
     "lockfileSha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2",
-    "patchSha256": "422bbc772dffc711254b7f518b5f4ce4498af2cb0f6220e9bd4a11bc3414c92c",
+    "patchSha256": "a394496277c837357f04b1b6bc61171ac79953c4a50c3a63d3d9d0a273daf2ef",
     "bun": "1.4.4",
-    "migrationTestsPassed": 38,
-    "migrationTestsFailed": 0,
+    "projectStopTestsPassed": 51,
+    "projectStopTestsFailed": 0,
+    "coreFullFailuresMatchBaseline": true,
     "coreTypecheckPassed": true,
-    "priorHttpPatchUnchanged": true
+    "serverTypecheckPassed": true,
+    "cliTypecheckPassed": true,
+    "priorPatchSectionsUnchanged": true
   }
 }

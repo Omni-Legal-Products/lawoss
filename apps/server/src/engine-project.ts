@@ -11,6 +11,8 @@ import { readLegalworkWorkspaceConfig, writeLegalworkWorkspaceConfig } from "./l
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { nativeEngineProjectRegistrySchema } from "./native-engine-project-registry.js";
 import { engineStorageDir } from "./engine-storage.js";
+import { isGeneratedProjectionText } from "./lawoss/outside-stale-projection.js";
+import { archiveForeignProjection, isForeignProjectionText } from "./lawoss/foreign-projection.js"; // 🟡 LAWOSS #509
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 
 const recordSchema = z.object({
@@ -45,16 +47,48 @@ async function writeRecord(config: ServerConfig, workspace: WorkspaceInfo, recor
   await writeLegalworkWorkspaceConfig(config, workspace.id, current => ({ ...current, [key]: record }));
 }
 
-async function projectionStatus(record: ProjectRecord): Promise<EngineProjectStatus["projection"]> {
-  try { if (!(await lstat(record.directory)).isDirectory()) return { diagnostic: "This project folder is unavailable. Reconnect its existing folder before starting OpenCode automation." }; }
-  catch (error) { if (missing(error)) return { diagnostic: "This project folder is unavailable. Reconnect its existing folder before starting OpenCode automation." }; throw error; }
+/** 🟡 LAWOSS #439: the generator's own format (a regular file) whose private receipt was lost (reinstall, reset of app
+ * data). It is taken over only on publication, when it also matches what LegalWork generates now (`sameShape`). */
+async function unreceiptedProjection(config: ServerConfig, path: string): Promise<{ text: string; foreign: boolean } | undefined> {
+  const info = await lstat(path).catch(error => { if (missing(error)) return undefined; throw error; });
+  if (!info?.isFile() || info.isSymbolicLink()) return undefined;
+  const text = await readFile(path, "utf8");
+  if (isGeneratedProjectionText(config, text)) return { text, foreign: false };
+  // 🟡 LAWOSS #509: the generator's document from another installation (another computer or profile) that opened the
+  // same folder: only references into its private library, which are recognised but never read.
+  return isForeignProjectionText(config, text) ? { text, foreign: true } : undefined;
+}
+/** 🟡 LAWOSS #439: same keys, array lengths and every non-text value (a changed boolean or number, a removed key is the
+ * lawyer's edit); text values are references into the private library and may name other strings. */
+function sameShape(left: unknown, right: unknown): boolean {
+  if (typeof left === "string" || typeof right === "string") return typeof left === typeof right;
+  if (Array.isArray(left) || Array.isArray(right)) return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => sameShape(item, right[index]));
+  if (left && right && typeof left === "object" && typeof right === "object") {
+    const keys = Object.keys(left), other = Object.keys(right);
+    return keys.length === other.length && keys.every(key => Object.hasOwn(right, key) && sameShape(Reflect.get(left, key), Reflect.get(right, key)));
+  }
+  return left === right;
+}
+const projectionJson = (text: string): unknown => JSON.parse(text.slice(text.indexOf("\n") + 1));
+// 🟡 LAWOSS #509
+const foreignDiagnostic = "Another LegalWork installation (another computer or user profile) that opened this folder replaced the OpenCode settings file in .opencode with its own generated file. LegalWork takes it over when it next publishes settings (restart or Refresh), if its structure matches these settings. If it does not match, or you edited it, move your edits into another native OpenCode config file, remove .opencode/opencode.json and retry.";
+const unreceiptedDiagnostic = "LegalWork generated the OpenCode settings file in .opencode, but its private receipt is missing (app data was reset, or the folder was opened on another computer). LegalWork takes it over when it next publishes settings, if the file still matches them. If you edited it, move your edits into another native OpenCode config file, remove .opencode/opencode.json and retry.";
+
+async function projectionStatus(config: ServerConfig, record: ProjectRecord): Promise<EngineProjectStatus["projection"]> {
+  // 🟡 LAWOSS #494: kód, podľa ktorého appka ukáže preložený text namiesto vety o „OpenCode“.
+  const unavailable = { diagnostic: "This project folder is unavailable. Reconnect its existing folder before starting OpenCode automation.", code: "project_folder_unavailable" };
+  try { if (!(await lstat(record.directory)).isDirectory()) return unavailable; }
+  catch (error) { if (missing(error)) return unavailable; throw error; }
   if (!record.projection) {
     const candidates = names.map(name => join(record.directory, ".opencode", name));
     const occupied = await Promise.all(candidates.map(path => lstat(path).then(() => true, error => { if (missing(error)) return false; throw error; })));
-    return occupied.every(Boolean) ? { diagnostic: "Both native OpenCode files inside .opencode are already authored. Preserve them and reserve .opencode/opencode.json or .opencode/opencode.jsonc for LegalWork's generated project settings." } : {};
+    if (!occupied.every(Boolean)) return {};
+    for (const path of candidates) { const found = await unreceiptedProjection(config, path); if (found) return { diagnostic: found.foreign ? foreignDiagnostic : unreceiptedDiagnostic }; } // 🟡 LAWOSS #439, #509
+    return { diagnostic: "Both native OpenCode files inside .opencode are already authored. Preserve them and reserve .opencode/opencode.json or .opencode/opencode.jsonc for LegalWork's generated project settings." };
   }
   try {
     if (digest(await readFile(record.projection.path, "utf8")) !== record.projection.digest) {
+      if (await unreceiptedProjection(config, record.projection.path)) return { path: record.projection.path, diagnostic: foreignDiagnostic }; // 🟡 LAWOSS #509
       return { path: record.projection.path, diagnostic: "The LegalWork-generated OpenCode file was changed outside LegalWork. Preserve your edits by moving them into another native OpenCode config file, then remove this generated file and retry." };
     }
     return { path: record.projection.path };
@@ -69,7 +103,7 @@ export async function engineProjectStatus(config: ServerConfig, workspace: Works
   const projection = await withProjectLock(config, workspace, async () => {
     const record = await readRecord(config, workspace, directory);
     const diagnostic = projectionFailures.get(config)?.get(workspace.id);
-    return diagnostic ? { diagnostic } : projectionStatus(record);
+    return diagnostic ? { diagnostic } : projectionStatus(config, record);
   }).catch(error => {
     const diagnostic = projectFileFailure(error, directory);
     if (!diagnostic) throw error;
@@ -264,12 +298,27 @@ async function writeProjectProjection(config: ServerConfig, workspace: Workspace
   const candidates = record.projection ? [record.projection.path] : [
     ...names.map(name => join(directory, ".opencode", name)),
   ];
+  let unreceipted = false, foreign = false; // 🟡 LAWOSS #509
   for (const path of candidates) {
     const written = await withFileWriteLock(path, async () => {
       let current: string | undefined;
       try { current = await readFile(path, "utf8"); }
       catch (error) { if (!missing(error)) throw error; }
-      if (current !== undefined && (record.projection?.path !== path || digest(current) !== record.projection.digest)) return false;
+      // 🟡 LAWOSS #439: without a receipt, the generator's own document that still matches the settings is replaced
+      // (after a backup copy next to it) and the receipt written again; any doubt keeps it as authored.
+      // 🟡 LAWOSS #509: with a receipt, another installation's projection of the same shape replaces the receipted bytes
+      // (also when its library has the same path, e.g. the same user name on another computer); its original is kept only
+      // in this installation's private archive (alternating installs would litter the client's folder).
+      const found = current !== undefined && (!record.projection || (record.projection.path === path && digest(current) !== record.projection.digest)) ? await unreceiptedProjection(config, path) : undefined;
+      const generated = found;
+      const adopted = generated !== undefined && generated.text === current && sameShape(projectionJson(current), projectionJson(content));
+      const elsewhere = generated !== undefined && (generated.foreign || record.projection !== undefined);
+      if (elsewhere) foreign = true; else if (generated !== undefined) unreceipted = true;
+      if (current !== undefined && !adopted && (record.projection?.path !== path || digest(current) !== record.projection.digest)) return false;
+      if (adopted && current !== undefined && current !== content) {
+        if (elsewhere) await archiveForeignProjection(config, workspace.id, current);
+        else await writeFile(`${path}.bak-${new Date().toISOString().replace(/[:.]/g, "-")}`, current, { flag: "wx", mode: 0o600 });
+      }
       let transitioning = false;
       try {
       if (current !== content) {
@@ -295,7 +344,7 @@ async function writeProjectProjection(config: ServerConfig, workspace: Workspace
     });
     if (written) return path;
   }
-  throw new ApiError(409, "project_engine_configuration_conflict", record.projection
+  throw new ApiError(409, "project_engine_configuration_conflict", foreign ? foreignDiagnostic : unreceipted ? unreceiptedDiagnostic : record.projection
     ? "The LegalWork-generated OpenCode file contains edits. Preserve them in an authored config file, remove the generated file and retry."
     : "Both native OpenCode files inside .opencode are authored. Keep them intact and reserve .opencode/opencode.json or .opencode/opencode.jsonc for LegalWork's generated project settings.",
   { directory, paths: candidates });

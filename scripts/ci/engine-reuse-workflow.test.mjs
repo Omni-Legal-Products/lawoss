@@ -95,3 +95,27 @@ test('existing required check names fail if units or a selected engine build fai
     assert.throws(() => run('success', 'true', result));
   }
 });
+
+// 🟡 LAWOSS: preťažené macOS runnery nesmú blokovať beh, ktorý engine nekompiluje.
+test('a prebuilt engine is selected on ubuntu and only compilation needs the pinned macOS builder', () => {
+  const engine = workflow('ci-opencode-derivative');
+  const runner = engine.jobs.runner, build = engine.jobs.build;
+  assert.equal(runner['runs-on'], 'ubuntu-latest');
+  assert.equal(build.needs, 'runner');
+  assert.equal(build['runs-on'], '${{ needs.runner.outputs.os }}');
+  const lookup = runner.steps.find(step => step.id === 'cache');
+  assert.equal(lookup.with['lookup-only'], true);
+  const restore = build.steps.find(step => step.uses === 'actions/cache/restore@v4');
+  const save = build.steps.find(step => step.uses === 'actions/cache/save@v4');
+  // Rovnaká relatívna cesta a kľúč, inak by sa cache medzi macOS a ubuntu nezhodla.
+  assert.equal(lookup.with.path, restore.with.path);
+  assert.equal(save.with.path, restore.with.path);
+  assert.equal(lookup.with.key, '${{ steps.cache-key.outputs.key }}');
+  assert.doesNotMatch(restore.with.path, /runner\.temp/);
+  const select = runner.steps.find(step => step.id === 'select');
+  assert.match(select.env.PREBUILT, /inputs.reuse-run-id != ''/);
+  assert.match(select.env.PREBUILT, /steps.cache.outputs.cache-hit == 'true'/);
+  assert.match(select.env.PREBUILT, /steps.base-producer.outputs.run-id != ''/);
+  assert.match(select.run, /os=ubuntu-latest; else os=macos-15/);
+  assert.match(runner.steps.find(step => step.id === 'cache-key').if, /inputs.build-mode == 'development'/);
+});
