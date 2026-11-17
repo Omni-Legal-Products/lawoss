@@ -16,3 +16,5 @@ export { automaticAssistantBrowserModel, hasAssistantSubscription, AssistantReso
 
 export { legalResearchProviders, legalResearchCountries, researchDatabaseSetupSchema } from "@legalwork/types/legal-research";
 export { researchLawAreas, researchJurisdictionLabel } from "@legalwork/types/legal-research-wiki";
+// LAWOSS #410: one list of local model-server templates for the app and the server.
+export { isLocalRuntimeEndpoint, LOCAL_RUNTIME_BASE_URLS } from "@legalwork/types/local-runtime-endpoints";

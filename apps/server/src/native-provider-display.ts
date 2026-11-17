@@ -7,7 +7,7 @@ import type { EngineProjectStatus } from "@legalwork/types/engine-project";
 import { orgChatEngineIds } from "./org-policy-ai.js";
 import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
-import { isLocalRuntimeEndpoint } from "@legalwork/types/local-runtime-endpoints";
+import { isLocalRuntimeEndpoint } from "./native-shared-values.js";
 
 type Definitions = NativeConfig["providers"];
 export type ProviderDisplayMetadata = Record<string, { hasCustomEndpoint: boolean; editable: boolean; chatCompletionsOnly?: boolean }>;

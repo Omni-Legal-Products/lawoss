@@ -1,5 +1,5 @@
 import type { ConfigProvider } from "@opencode/schema/config/provider";
-import { isLocalRuntimeEndpoint, LOCAL_RUNTIME_BASE_URLS } from "@legalwork/types/local-runtime-endpoints";
+import { isLocalRuntimeEndpoint, LOCAL_RUNTIME_BASE_URLS } from "../native-shared-values.js";
 
 const OLLAMA_PORT = new URL(LOCAL_RUNTIME_BASE_URLS.ollama).port;
 
