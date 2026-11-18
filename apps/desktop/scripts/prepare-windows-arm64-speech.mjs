@@ -31,6 +31,12 @@ async function download(url, sha256) {
   if (createHash("sha256").update(bytes).digest("hex") !== sha256) throw new Error(`Checksum mismatch: ${url}`);
   return bytes;
 }
+async function vendoredNotice(name, sha256) {
+  const file = path.join(desktop, "build", "notices", `onnxruntime-${pin.onnxruntimeVersion}`, name);
+  const bytes = Buffer.from((await readFile(file, "utf8")).replace(/\r\n/g, "\n"), "utf8");
+  if (createHash("sha256").update(bytes).digest("hex") !== sha256) throw new Error(`Checksum mismatch: ${file}`);
+  return bytes;
+}
 async function extract(url, name, sha256, members = []) {
   const bytes = await download(url, sha256);
   const archive = path.join(temporary, name);
@@ -114,9 +120,11 @@ try {
   const notices = path.join(destination, "arm64-notices");
   await mkdir(notices, { recursive: true });
   await copyFile(path.join(source, "LICENSE"), path.join(notices, "sherpa-onnx-LICENSE"));
-  const onnxSource = `https://raw.githubusercontent.com/microsoft/onnxruntime/v${pin.onnxruntimeVersion}`;
-  await writeFile(path.join(notices, "onnxruntime-LICENSE"), await download(`${onnxSource}/LICENSE`, pin.onnxruntimeLicenseSha256));
-  await writeFile(path.join(notices, "onnxruntime-ThirdPartyNotices.txt"), await download(`${onnxSource}/ThirdPartyNotices.txt`, pin.onnxruntimeNoticesSha256));
+  // 🟡 LAWOSS: onnxruntime notices are vendored (build/notices), because the upstream GitHub repository
+  // stopped answering (HTTP 404, 18. 11. 2026). Taken from the PyPI wheel onnxruntime==1.24.4 and checked
+  // against the same pinned hashes as before; line endings are normalized so a CRLF checkout still matches.
+  await writeFile(path.join(notices, "onnxruntime-LICENSE"), await vendoredNotice("LICENSE", pin.onnxruntimeLicenseSha256));
+  await writeFile(path.join(notices, "onnxruntime-ThirdPartyNotices.txt"), await vendoredNotice("ThirdPartyNotices.txt", pin.onnxruntimeNoticesSha256));
   // Prove that the generated adapter can load its native DLLs before packaging.
   run(process.execPath, ["-e", "const s=require('sherpa-onnx-node');console.log('ARM64 speech:',s.version)"] , { cwd: desktop });
 } finally {
