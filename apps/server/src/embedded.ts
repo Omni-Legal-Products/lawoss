@@ -172,7 +172,8 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       // Unsubscribe synchronously; accepted writes and jobs still drain before the owner releases.
       const freshness = unsubscribe?.();
       ticketStop.abort();
-      for (const operation of [() => freshness, () => tickets.settled, () => refresh,
+      // 🟡 LAWOSS #561: event streams end before the engine they relay stops.
+      for (const operation of [() => freshness, () => tickets.settled, () => refresh, () => server?.releaseEngineEvents(),
         () => managed.lifecycle ? managed.lifecycle.close() : managed.engine?.close(), () => server?.stop(), () => lifetime.release()]) {
         try { await operation(); } catch (error) { errors.push(error); }
       }

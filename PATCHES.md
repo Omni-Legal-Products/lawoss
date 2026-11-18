@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Riadne ukončenie appky nezapíše chyby prúdu udalostí (#561) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/server.ts`, `apps/server/src/embedded.ts`, nový `apps/server/src/lawoss/engine-events-release.ts` (LAWOSS, + test `lawoss/shutdown-engine-events.e2e.test.ts`) | #561: `stop()` vloženého servera zatváral spravovaný engine skôr než HTTP server, takže natívny prúd `/event` (`scopedNativeEvents` cez `mergeEvents`) pri každom ukončení appky skončil chybou „Engine event transport ended.“. Server ju zapísal ako `Unhandled error`, zatvoril socket a Electron zapísal `Error occurred in handler for 'legalwork:desktop': TypeError: terminated`; upratovanie pôvodných obrázkov zapísalo WARN. `StartedServer` má nové `releaseEngineEvents()` (typ, `startServer` a signál trasy `/event`, riadky označené `🟡 LAWOSS #561`) a `embedded.ts` ho volá pred zatvorením enginu: prúdy `/event` skončia ako bežný koniec prúdu a upratovanie obrázkov sa zastaví. Pád enginu počas behu prúd ďalej preruší chybou. Samostatný `cli.ts` má rovnaké poradie, appka ho nepoužíva a ostáva bez zmeny. |
+
 ## Licencie onnxruntime pre Windows ARM64 pribalené v repe (2026-11-18)
 
 | Súbor | Zmena |

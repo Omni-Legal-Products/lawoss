@@ -86,3 +86,19 @@ test("riadne ukončenie ukončí natívny prúd udalostí čisto a nič nezapí�
   expect(errors.filter(line => /Engine event transport ended|Unhandled error|Response stream error/.test(line))).toEqual([]);
   expect(warnings.filter(line => /image cleanup/i.test(line))).toEqual([]);
 }, 20_000);
+
+test("pád enginu počas behu prúd udalostí ďalej preruší chybou (#561)", async () => {
+  const server = await start();
+  const workspace = server.config.workspaces[0]!.id;
+  const response = await fetch(`${server.url}/workspace/${encodeURIComponent(workspace)}/opencode/event`, { headers: { authorization: "Bearer client-token" } });
+  const reader = response.body!.getReader();
+  await reader.read();
+
+  const errors = logged("error");
+  logged("warn");
+  process.kill(server.managedOpencodeStatus()!.pid!, "SIGTERM");
+  const rest = await reader.read().then(() => "ended", () => "failed");
+
+  expect(rest).toBe("failed");
+  expect(errors.some(line => line.includes("Engine event transport ended"))).toBe(true);
+}, 20_000);
