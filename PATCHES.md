@@ -7,6 +7,13 @@
 | `apps/server/src/errors.ts`, `apps/server/src/routes/files.ts` (+ test `apps/server/src/lawoss/file-write-denied.e2e.test.ts`) | #545: zápis cez `POST files/raw` (Uložiť v editore .docx), `POST files/content` a `POST files/import` pri `EACCES`/`EPERM`/`EROFS` padal na `500 internal_error` a server logoval „Unhandled error“. Nové `fileWriteError` v `errors.ts` ich mení na `403 file_not_writable` (`details.reason` nesie pôvodný kód) a `ENOSPC` na `507 disk_full`; iné chyby prechádzajú bez zmeny. Trasy volajú `fileWriteError` okolo celej zápisovej časti. `withFileWriteLock` sa nemení, lebo ho používajú aj interné zápisy, ktoré čítajú pôvodný `error.code`. `write-batch` a `ops` (súborové relácie) ostávajú bez zmeny. |
 | `apps/app/src/react-app/domains/session/artifacts/artifact-panel.tsx`, nové `apps/app/src/lawoss/domains/artifacts/file-save-error.ts` a `apps/app/src/lawoss/i18n/file-save.ts` (LAWOSS), registrácia v `apps/app/src/i18n/locales/{en,de,sk,cs}.ts` (+ test `apps/app/tests/lawoss-file-save-error-545.test.ts`) | Uloženie v paneli dokumentu zmení správu chyby `file_not_writable`/`disk_full` na preloženú hlášku (sk/cs/en/de), takže ju ukáže toast tlačidla Uložiť, ⌘S aj pruh automatického ukladania. Toast tlačidla Uložiť pri týchto kódoch nezmizne sám (`duration: Infinity`). Neuložené zmeny ostanú v editore ako doteraz, lebo neúspešné uloženie neoznačí dokument za uložený. |
 
+## Nečitateľný `.opencode` nad klientom nezastaví štart enginu (#540) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/skills.ts` (+ testy `skills.test.ts`, `legalwork-runtime-config.test.ts`) | #540: `listSkills` prechádza všetky nadradené priečinky klienta a pre každý volá `listSkillsInDir(<priečinok>/.opencode/skills)`. Pri `.opencode` bez práv (iný vlastník na NAS, `chmod 000`) `lstat` v `resolveWorkspaceFilePath` vyhodil `EACCES`, `listSkillsInDir` ho pustil ďalej a cez `resolveCapabilityLibrary` → `buildLegalworkRuntimeSettings` → `writeLegalworkRuntimeConfigFile` (`embedded.ts`, pred spustením enginu) zhodil štart enginu pre všetkých klientov. Chyby `EACCES`, `EPERM` a `ENOTDIR` pri overení cesty aj pri `readdir` priečinka skillov teraz znamenajú nedostupný zdroj: priečinok sa zapíše do `skipped` s dôvodom a výpis pokračuje. Iné chyby sa vyhadzujú ako doteraz. |
+| `apps/server/src/native-workspace-config.ts` (+ test `legalwork-runtime-config.test.ts`) | Rovnaký prechod nadradených priečinkov v `projectConfigPaths` (`GET /workspace/:id/config`) vyhodil `EACCES` zo `stat` na `<predok>/.opencode/opencode.jsonc`. Nečitateľný (`EACCES`, `EPERM`) alebo nie-priečinok (`ENOTDIR`) sa berie ako chýbajúci súbor, rovnako ako `ENOENT`. |
+
 ## Lokálne modely Ollama cez Chat Completions (#410) (2026-11-18)
 
 | Súbor | Zmena |
