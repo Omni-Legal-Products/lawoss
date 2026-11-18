@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Kľúč API bez medzier a overenie kľúča OpenRouter (#574) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/connections/provider-auth/store.ts`, nový `apps/app/src/lawoss/providers/key-check.ts` (LAWOSS, nahrádza `openai-key-check.ts`), texty v `apps/app/src/lawoss/i18n/shell.ts` (+ test `apps/app/tests/lawoss-kluc-api-574.test.ts`) | #574: `submitProviderApiKey` a `submitCustomProvider` berú kľúč cez `normalizeApiKey`: okrajové medzery sa odstránia a kľúč s medzerou, tabulátorom alebo zalomením vnútri sa odmietne preloženou vetou (sk/cs/en/de), nič sa neuloží. Overenie pred uložením je v `verifyProviderKey`: OpenAI ako doteraz zoznamom modelov (#502, #524), OpenRouter na workeri. Odmietnutý kľúč sa neuloží. Neoverený kľúč (bez siete, bez workera, nečakaná odpoveď) sa uloží s varovaním (toast `lawoss.provider_key.unverified`). Store má +1 import, 1 pomocnú funkciu `checkProviderKeyOnWorker` a 6 zmenených riadkov. |
+| `apps/server/src/server.ts`, nový `apps/server/src/lawoss/provider-key-check.ts` (LAWOSS, + test `provider-key-check.test.ts`) | Trasa `POST /workspace/:id/provider-key-check` (+1 import, 10 riadkov): kľúč OpenRouter overí cez `GET https://openrouter.ai/api/v1/key` (verejný zoznam modelov kľúč nekontroluje). Vráti len `valid`/`rejected`/`unverified`/`unchecked`; 401 je `rejected`, iná odpoveď alebo chyba siete `unverified`. Kľúč ani telo odpovede sa nevracajú ani nelogujú. Kľúč s medzerou trasa odmietne (400). |
+| `apps/app/src/app/lib/legalwork-server.ts` | Metóda klienta `checkProviderKey` pre novú trasu (9 riadkov). |
+
 ## Licencie onnxruntime pre Windows ARM64 pribalené v repe (2026-11-18)
 
 | Súbor | Zmena |
@@ -2470,7 +2478,7 @@ Návrat priečinka bez obnovenia okna: karta `lawoss/domains/missing-folder.tsx`
 
 ### Chyby poskytovateľa AI v chate a kľúč OpenAI (2026-11-16, fix/502-chyby-poskytovatela, #502)
 
-Logika je v nových LAWOSS súboroch `apps/app/src/lawoss/chat/provider-error.tsx` (typ chyby enginu → preložená veta, karta s akciou a technickými podrobnosťami), `apps/app/src/lawoss/providers/method-labels.ts` a `openai-key-check.ts`; texty v `lawoss/i18n/shell.ts`; test `apps/app/tests/lawoss-chyby-poskytovatela.test.tsx`. #524: kód `model_discovery_scope_missing` (obmedzený kľúč bez rozsahu `api.model.read`) uloženie neblokuje; samostatné upozornenie v UI nie je, lebo modálne okno ani Nastavenia → AI návratový text uloženia nezobrazujú.
+Logika je v nových LAWOSS súboroch `apps/app/src/lawoss/chat/provider-error.tsx` (typ chyby enginu → preložená veta, karta s akciou a technickými podrobnosťami), `apps/app/src/lawoss/providers/method-labels.ts` a `openai-key-check.ts` (od #574 `key-check.ts`); texty v `lawoss/i18n/shell.ts`; test `apps/app/tests/lawoss-chyby-poskytovatela.test.tsx`. #524: kód `model_discovery_scope_missing` (obmedzený kľúč bez rozsahu `api.model.read`) uloženie neblokuje; samostatné upozornenie v UI nie je, lebo modálne okno ani Nastavenia → AI návratový text uloženia nezobrazujú.
 
 | Súbor | Zmena |
 |---|---|

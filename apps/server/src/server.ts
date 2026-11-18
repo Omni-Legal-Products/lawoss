@@ -254,6 +254,7 @@ import {
 } from "./legalwork-runtime-config.js";
 import { providerRepairNotices } from "./runtime-provider-repair.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
+import { checkProviderKey } from "./lawoss/provider-key-check.js"; // 🟡 LAWOSS #574
 import { createCustomProviderModelRefresh, providerBaseURL, readModelRefreshSettings, readStoredProviderApiKey } from "./custom-provider-model-refresh.js";
 // LAWOSS: provider model refresh reads only the bundled catalog (no network).
 import { bundledProviderModelCatalog } from "./lawoss/bundled-provider-catalog.js";
@@ -2434,6 +2435,17 @@ function createRoutes(
       }
     }
     return jsonResponse({ models: await discoverProviderModels(baseURL, apiKey) });
+  });
+
+  // 🟡 LAWOSS #574: overenie kľúča vstavaného poskytovateľa pred uložením (lawoss/provider-key-check.ts); kľúč sa nevracia.
+  addRoute(routes, "POST", "/workspace/:id/provider-key-check", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    await resolveWorkspace(config, ctx.params.id);
+    const { providerId, apiKey } = await readJsonBody(ctx.request);
+    if (typeof providerId !== "string" || typeof apiKey !== "string" || !apiKey || /\s/.test(apiKey)) {
+      throw new ApiError(400, "invalid_provider_key", "Enter a provider ID and an API key without whitespace.");
+    }
+    return jsonResponse({ result: await checkProviderKey(providerId, apiKey) });
   });
 
   addRoute(routes, "POST", "/workspace/:id/provider-model-refresh", "client", async (ctx) => {
