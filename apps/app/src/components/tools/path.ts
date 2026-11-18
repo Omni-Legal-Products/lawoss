@@ -21,3 +21,16 @@ export function toolDisplayTitle(
   }
   return `${title} ${detail}`
 }
+
+/**
+ * 🟡 LAWOSS #550: cesta súboru vo vstupe nástrojov read/edit/write. Engine v2 ju posiela ako `path`,
+ * starší engine ako `filePath`; bez toho karta ukazovala „Zápis file“.
+ */
+export function toolInputPath(input: unknown): string | undefined {
+  if (!input || typeof input !== "object") return undefined
+  for (const key of ["filePath", "path"]) {
+    const value: unknown = Reflect.get(input, key)
+    if (typeof value === "string" && value.trim()) return value
+  }
+  return undefined
+}
