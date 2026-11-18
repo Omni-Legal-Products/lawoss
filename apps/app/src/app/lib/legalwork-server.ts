@@ -2040,6 +2040,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     getProjectTemplates: (language?: "en" | "de" | "cs" | "sk") => requestJson<ProjectTemplateCatalog>(baseUrl, language ? `/workspaces/project-templates?language=${language}` : "/workspaces/project-templates", { token, hostToken }),
     saveProjectTemplates: (catalog: ProjectTemplateCatalog) => requestJson<ProjectTemplateCatalog>(baseUrl, "/workspaces/project-templates", { token, hostToken, method: "PUT", body: catalog }),
     getProjectDetails: (workspaceId: string) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken }),
+    // 🟡 LAWOSS #554: potvrdená oprava poškodených nastavení klienta (lawoss/lite/client-settings-warning.tsx).
+    repairClientSettings: (workspaceId: string) => requestJson<{ repaired: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/client-settings/repair`, { token, hostToken, method: "POST", body: { confirmed: true }, timeoutMs: timeouts.config }),
     updateProjectDetails: (workspaceId: string, payload: { revision: number; fields: ProjectField[] }) =>
       requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken, method: "PATCH", body: payload }),
     onboardingStatus: (): ReturnType<OnboardingApi["onboardingStatus"]> => requestJson(baseUrl, "/lawoss/onboarding/status", { token, hostToken }),
