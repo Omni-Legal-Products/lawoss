@@ -69,3 +69,15 @@ test("pripravný skript nespúšťa cmake-js CLI", async () => {
   assert.match(source, /home:\s*homedir\(\)/);
   assert.doesNotMatch(source, /cmake-js\/bin\/cmake-js/);
 });
+
+test("pribalené licencie onnxruntime sedia s pripnutými hashmi aj pri CRLF checkoute", async () => {
+  const { createHash } = await import("node:crypto");
+  const pin = JSON.parse(await readFile(new URL("../build/windows-arm64-speech.json", import.meta.url), "utf8"));
+  for (const [name, sha] of [["LICENSE", pin.onnxruntimeLicenseSha256], ["ThirdPartyNotices.txt", pin.onnxruntimeNoticesSha256]]) {
+    const text = await readFile(new URL(`../build/notices/onnxruntime-${pin.onnxruntimeVersion}/${name}`, import.meta.url), "utf8");
+    for (const variant of [text, text.replace(/\n/g, "\r\n")]) {
+      const bytes = Buffer.from(variant.replace(/\r\n/g, "\n"), "utf8");
+      assert.equal(createHash("sha256").update(bytes).digest("hex"), sha, name);
+    }
+  }
+});
