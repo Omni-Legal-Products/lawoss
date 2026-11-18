@@ -1,6 +1,7 @@
 import { projectTemplateStrings } from "@legalwork/types/workspace";
 import { diagnosticsCs } from "../../lawoss/i18n/diagnostics";
 import { filePreviewCs } from "../../lawoss/i18n/file-preview";
+import { fileSaveCs } from "../../lawoss/i18n/file-save";
 import { deadlinesCs } from "../../lawoss/i18n/deadlines";
 import { setupCs } from "../../lawoss/i18n/setup";
 import { initialCs } from "../../lawoss/i18n/initial";
@@ -18,6 +19,7 @@ export default {
   ...projectTemplateStrings.cs,
   ...diagnosticsCs,
   ...filePreviewCs,
+  ...fileSaveCs,
   ...setupCs,
   ...initialCs,
   ...mattersCs,
