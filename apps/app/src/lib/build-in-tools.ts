@@ -58,7 +58,9 @@ export interface BashMetadata extends ToolMetadata {
 }
 
 export interface ReadInput {
-  filePath: string;
+  // 🟡 LAWOSS #550: engine v2 posiela `path`; čítať cez `toolInputPath`.
+  filePath?: string;
+  path?: string;
   offset?: number;
   limit?: number;
 }
@@ -98,7 +100,9 @@ export interface FileDiff {
 }
 
 export interface EditInput {
-  filePath: string;
+  // 🟡 LAWOSS #550: engine v2 posiela `path`; čítať cez `toolInputPath`.
+  filePath?: string;
+  path?: string;
   oldString: string;
   newString: string;
   replaceAll?: boolean;
@@ -112,7 +116,9 @@ export interface EditMetadata extends ToolMetadata {
 
 export interface WriteInput {
   content: string;
-  filePath: string;
+  // 🟡 LAWOSS #550: engine v2 posiela `path`; čítať cez `toolInputPath`.
+  filePath?: string;
+  path?: string;
 }
 
 export interface WriteMetadata extends ToolMetadata {
