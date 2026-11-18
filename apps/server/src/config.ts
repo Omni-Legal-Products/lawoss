@@ -2,7 +2,9 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import type { ApprovalMode, ApprovalConfig, ServerConfig, WordAddinConfig, WorkspaceConfig, LogFormat } from "./types.js";
 import { buildWorkspaceInfos } from "./workspaces.js";
-import { parseList, readJsonFile, shortId } from "./utils.js";
+import { parseList, shortId } from "./utils.js";
+// 🟡 LAWOSS #553: poškodený server.json sa odloží a nahlási namiesto tichého `{}`.
+import { loadServerConfigFile } from "./lawoss/server-config-recovery.js";
 
 export interface CliArgs {
   managedEngineStorageDirectory?: string;
@@ -241,9 +243,9 @@ export function printHelp(): void {
   console.log(message);
 }
 
-async function loadFileConfig(configPath: string): Promise<FileConfig> {
-  const parsed = await readJsonFile<FileConfig>(configPath);
-  return parsed ?? {};
+async function loadFileConfig(configPath: string): Promise<{ fileConfig: FileConfig; damage: string | null }> {
+  const { config, warning } = await loadServerConfigFile<FileConfig>(configPath); // 🟡 LAWOSS #553
+  return { fileConfig: config ?? {}, damage: warning };
 }
 
 export async function resolveServerConfig(
@@ -252,7 +254,7 @@ export async function resolveServerConfig(
 ): Promise<ServerConfig> {
   const envConfigPath = process.env.LEGALWORK_SERVER_CONFIG;
   const configPath = cli.configPath ?? envConfigPath ?? resolve(homedir(), ".config", "legalwork", "server.json");
-  const fileConfig = await loadFileConfig(configPath);
+  const { fileConfig, damage } = await loadFileConfig(configPath); // 🟡 LAWOSS #553
   const configDir = dirname(configPath);
   const engineStorage = cli.managedEngineStorageDirectory ?? process.env.LEGALWORK_ENGINE_STORAGE_DIR?.trim();
   const hostPlugins: unknown = cli.managedEnginePluginDirectories
@@ -295,6 +297,7 @@ export async function resolveServerConfig(
 
   const retiredCount = workspaceConfigs.filter(workspace => workspace.workspaceType === "remote").length;
   const workspaceWarnings = retiredCount ? [`${retiredCount} saved remote agent workspace(s) are no longer supported. Their connection settings remain preserved in ${configPath}.`] : [];
+  if (damage) workspaceWarnings.push(damage); // 🟡 LAWOSS #553
   const workspaces = buildWorkspaceInfos(workspaceConfigs, configDir);
 
   const tokenFromEnv = process.env.LEGALWORK_TOKEN;

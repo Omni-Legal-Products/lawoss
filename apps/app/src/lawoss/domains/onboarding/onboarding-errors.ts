@@ -182,6 +182,16 @@ const movedClientMessage = (error: unknown, locale: Language) => {
   const choice = movedClientChoice(error);
   return choice ? movedClient[locale].message(choice.name, choice.evidence === "marker") : undefined;
 };
+/**
+ * #553: server.json sa poškodil počas behu appky (pri štarte by ho server odložil), takže zápis klienta skončí
+ * 422 `invalid_json`. Veta povie, ktorý súbor a že pomôže reštart.
+ */
+const serverConfigMessage = (error: unknown, locale: Language) => {
+  const details = refusal(error, "invalid_json");
+  return details && error instanceof Error && error.message === "Failed to parse server config" && typeof details.path === "string"
+    ? t("lawoss.server_config.onboarding", { path: details.path, lng: locale })
+    : undefined;
+};
 /** Popisy volieb pri otázke „Je to ten istý klient?“. */
 export const movedClientActions = (locale: Language): { link: string; addNew: string } => ({ link: movedClient[locale].link, addNew: movedClient[locale].addNew });
 /** Ďalší krok pri odmietnutí: otvoriť klienta, ktorému priečinok patrí. Iné chyby ho nemajú. */
@@ -207,5 +217,6 @@ export function onboardingErrorMessage(error: unknown, locale: Language): string
     officeConfigEncodingMessage(error, locale) ??
     folderNotFoundMessage(error, locale) ??
     canonicalPathRejection(error, locale) ??
+    serverConfigMessage(error, locale) ??
     t("lawoss.onboarding.error_generic", locale);
 }
