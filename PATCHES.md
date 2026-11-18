@@ -5,6 +5,11 @@
 | Súbor | Zmena |
 |---|---|
 | `apps/app/src/components/tools/path.ts` (nový `toolInputPath`), `apps/app/src/lib/build-in-tools.ts`, `apps/app/src/lib/tool-activity.ts`, `apps/app/src/components/tools/{tool-presentation.ts,file.tsx,edit.tsx}`, `apps/app/src/lib/artifacts.ts`, `apps/app/src/lawoss/chat/tool-labels.ts` (LAWOSS, + test `tests/lawoss-nazov-suboru-path-550.test.ts`) | #550: engine v2 posiela cestu nástrojov `read`/`edit`/`write` ako `path` (`packages/core/src/tool/plugin/{read,edit,write}.ts`), appka čítala `filePath`. `parseFilename(undefined)` vracal „file“, karta ukazovala „Zápis file“ / „Zapísaný súbor file“ a zapísané či upravené súbory chýbali v súboroch chatu. `toolInputPath` berie `filePath`, inak `path`; typy vstupov majú obe polia voliteľné. Čítanie bez cesty v `tool-labels.ts` (alfa 12) teraz kontroluje tú istú cestu, takže v2 ukáže meno súboru. |
+## Licencie onnxruntime pre Windows ARM64 pribalené v repe (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/desktop/scripts/prepare-windows-arm64-speech.mjs` (+ test `windows-arm64-speech-compile.test.mjs`), nové `apps/desktop/build/notices/onnxruntime-1.24.4/` | Build ARM64 rečového addonu sťahoval `LICENSE` a `ThirdPartyNotices.txt` onnxruntime z `raw.githubusercontent.com/microsoft/onnxruntime`. Repozitár 18. 11. 2026 vracia 404 a alfa 18 pre Windows ARM64 padla (beh 44264585735). Súbory sú teraz v repe, prevzaté z PyPI kolesa `onnxruntime==1.24.4` s koncami riadkov LF; skript ich overí proti tým istým pripnutým SHA-256 v `windows-arm64-speech.json` a pred overením normalizuje CRLF, lebo checkout na Windows runneri môže konce riadkov zmeniť. |
 
 ## Dátumy podľa jazyka rozhrania (#548) (2026-11-18)
 
