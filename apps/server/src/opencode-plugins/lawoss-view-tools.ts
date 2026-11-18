@@ -2,6 +2,7 @@ import { Plugin } from "@opencode/plugin";
 import type { Info, ToolEditor } from "@opencode/plugin/promise/tool";
 import WikiTools from "./legalwork-wiki-tools.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
+import { directTool } from "./lawoss-direct-tool.js";
 import { z } from "zod";
 import { ViewInputSchema } from "@legalwork/types/views";
 
@@ -84,7 +85,8 @@ const failure = (body: Record<string, unknown>): ViewResult => ({ content: JSON.
 
 /** LAWOSS checks around one upstream view tool; everything else is the upstream preview/stream/save protocol. */
 export function lawossViewTool(tool: Info): Info {
-  return { ...tool, async execute(raw, call) {
+  // #573: RULES name view_catalog, view_create and view_update, so the view tools are offered directly.
+  return directTool({ ...tool, async execute(raw, call) {
     if (!ownerScope.safeParse(raw ?? {}).success) return failure({ ok: false, code: "view_workspace_required", error: "Use the current client's workspace for this view." });
     if (tool.name !== "view_create" && tool.name !== "view_update") return tool.execute(raw, call);
     const args = normalizeViewArgs(raw);
@@ -100,7 +102,7 @@ export function lawossViewTool(tool: Info): Info {
       return failure({ ok: false, code: "wiki_invalid_data", error: "The view arguments are invalid.", ...(issues.length ? { issues } : {}),
         hint: "Arguments are {owner?, input:{version:1,title,mode,catalog,program,queries,datasets?}}; program goes inside input." });
     }
-  } };
+  } });
 }
 
 /** Only the five view tools pass; wiki tools, wiki guidance and wiki reminders never register. */
