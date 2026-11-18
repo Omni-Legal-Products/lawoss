@@ -325,6 +325,7 @@ export async function runtimeConfigUpgradeNotices(config: ServerConfig, workspac
       if (item.code === "retired_managed_browser_replaced") return [{ code: item.code, fields: item.fields }];
       if (item.code === "sandbox_settings_repaired") return [{ code: item.code, fields: item.fields }];
       if (item.code === "ai_boundaries_repaired") return [{ code: item.code, fields: item.fields }];
+      if (item.code === "client_settings_repaired") return [{ code: item.code, fields: item.fields }]; // 🟡 LAWOSS #554
       throw new Error("Invalid saved configuration upgrade notice.");
     });
   });
