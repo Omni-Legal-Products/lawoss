@@ -3,6 +3,7 @@ import { copiesBundledCoreIntoWorkspace } from "../lawoss/bundled-core-placement
 import { rebaseWorkspaceMemoryAuthority } from "../lawoss/workspace-reconnect-memory.js";
 import { rebindWorkspaceSessions } from "../lawoss/workspace-session-rebind.js";
 import { serializeWorkspaceMutation } from "../lawoss/workspace-registry-lock.js";
+import { withClientSettingsState } from "../lawoss/unreadable-client-settings.js"; // 🟡 LAWOSS #554
 import { historicalWorkspaceSessions } from "../lawoss/workspace-history-sessions.js";
 import type { registerProjectFolderRoutes } from "./project-folders.js";
 import { readFile, rename, rm, writeFile, lstat } from "node:fs/promises";
@@ -361,7 +362,8 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
 
   addRoute(routes, "GET", "/workspace/:id/project", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    return jsonResponse(await readProjectDetails(workspace.path));
+    // 🟡 LAWOSS #554: poškodené uložené nastavenia klienta appka ukáže pri klientovi (prehľad aj chat).
+    return jsonResponse(await withClientSettingsState(config, workspace.id, await readProjectDetails(workspace.path)));
   });
 
   addRoute(routes, "PATCH", "/workspace/:id/project", "client", async (ctx) => {
