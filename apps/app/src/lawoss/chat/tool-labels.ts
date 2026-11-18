@@ -115,6 +115,8 @@ const engineToolName = (name: string): string => name.replace(".", "_");
  */
 const WEB_SEARCH: Labels = { active: "lawoss.tool.web_search", done: "lawoss.tool.web_search_done" };
 const EXTENSION_ACTIONS: Labels = { active: "lawoss.tool.extension_actions", done: "lawoss.tool.extension_actions_done" };
+/** #562: vnorené nástroje vstavaného prehliadača (`browser.tabs_open`, `browser.click`, …) sú jeden krok advokáta, nie „Browser tabs open“. */
+const BROWSER: Labels = { active: "lawoss.tool.browser", done: "lawoss.tool.browser_done" };
 const CODE_MODE_LABELS: Record<string, Labels> = {
   websearch: WEB_SEARCH,
   legalwork_websearch: WEB_SEARCH,
@@ -122,7 +124,7 @@ const CODE_MODE_LABELS: Record<string, Labels> = {
   legalwork_extension_list_actions: EXTENSION_ACTIONS,
 };
 const codeModeStep = (name: string, phase: keyof Labels): string | null => {
-  const fixed = CODE_MODE_LABELS[engineToolName(name)];
+  const fixed = CODE_MODE_LABELS[engineToolName(name)] ?? (engineToolName(name).startsWith("browser_") ? BROWSER : undefined);
   return fixed ? t(fixed[phase]) : label(engineToolName(name), undefined, phase);
 };
 const humanize = (name: string): string => {
