@@ -94,6 +94,7 @@ import { ReactSessionComposer } from "./composer/composer";
 import { buildComposerDraft } from "./composer/composer-draft";
 import { TodoPanel } from "./todo-panel";
 import { planBarVisible } from "@/lawoss/chat/plan-bar";
+import { ClientSettingsWarning } from "@/lawoss/lite/client-settings-warning"; // 🟡 LAWOSS #554
 import {
   VoicePanel,
   type VoiceOpenCodeJobSnapshot,
@@ -2027,6 +2028,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       ) : null}
 
       {snapshot?.historyProvenance?.status==="unavailable" ? <p role="status" className="mx-6 rounded-lg border px-3 py-2 text-sm text-muted-foreground">{t("session.history_provenance_unavailable")}</p>:null}
+      {props.assistantDate ? null : <div className="mx-6"><ClientSettingsWarning client={props.client} workspaceId={props.workspaceId} /></div>}{/* 🟡 LAWOSS #554 */}
       {snapshot?.historyProvenance?.undo?.status==="unresolved" ? <p role="alert" className="mx-6 rounded-lg border px-3 py-2 text-sm">{t("session.history_undo_unresolved")}</p>:null}
       <div className="relative min-h-0 flex-1 overflow-hidden" data-session-chat-content="">
         {props.assistantHeader}
