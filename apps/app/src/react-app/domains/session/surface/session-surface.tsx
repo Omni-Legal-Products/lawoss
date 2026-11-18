@@ -51,6 +51,7 @@ import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
 import { t } from "@/i18n";
 import { AI_BOUNDARIES_STORED_MESSAGE, aiBoundariesRefusal } from "@/lawoss/domains/ai/boundaries-refusal";
+import { composerFailureToast } from "@/lawoss/domains/ai/composer-failure-toast"; // 🟡 LAWOSS #551
 import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { chatTrimDoneMessage, confirmChatTrim } from "@/lawoss/chat/trim-confirm";
 import type { ImportedPlugin } from "@/app/lib/extension-imports";
@@ -1199,14 +1200,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   // LAWOSS: „AI hranice" are in Settings → AI Providers ("providers" maps to /settings/ai).
   const openAiSettings = props.onOpenSettingsSection ? () => props.onOpenSettingsSection?.("providers") : undefined;
-  const queueFailure = (error: unknown) => {
-    const boundaries = aiBoundariesRefusal(error);
-    if (boundaries) {
-      toast.error(t("composer.queue_failed"), { description: boundaries, ...(openAiSettings ? { action: { label: t("lawoss.ai_boundaries.open_settings"), onClick: openAiSettings } } : {}) });
-      return;
-    }
-    toast.error(t("composer.queue_failed"), { description: error instanceof Error ? error.message : String(error) });
+  // 🟡 LAWOSS #551: jedno spracovanie chyby pre front aj odoslanie (AI hranice lokalizovane, s nastavením).
+  const failureToast = (error: unknown, title: string) => {
+    const failure = composerFailureToast(error, title, openAiSettings);
+    toast.error(failure.title, failure.options);
   };
+  const queueFailure = (error: unknown) => failureToast(error, t("composer.queue_failed"));
   const queueDraft = async (text: string) => {
     if (props.assistantOnboarding?.state.needed && props.assistantOnboarding.state.step === "avatar") return;
     if ((!text && attachments.length === 0) || queueSubmitting.current) return;
@@ -1233,7 +1232,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       });
     } catch (error) {
       if (outgoingId) removeAssistantOutgoingMessage(outgoingId);
-      toast.error(t("composer.send_failed_restored"), { description: error instanceof Error ? error.message : String(error) });
+      failureToast(error, t("composer.send_failed_restored"));
     }
     finally { queueSubmitting.current = false; setQueueSaving(false); }
   };

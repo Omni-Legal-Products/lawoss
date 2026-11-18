@@ -7,6 +7,12 @@
 | `apps/server/src/routes/workspaces.ts`, `apps/server/src/server.ts`, `apps/server/src/runtime-config-upgrade.ts`, `apps/server/src/runtime-opencode-config-store.ts`, LAWOSS `apps/server/src/lawoss/unreadable-client-settings.ts` (+ test `lawoss/client-settings.e2e.test.ts`) | #554: `GET /workspace/:id/project` pri nečitateľnom riadku `native_runtime_configs` klienta pridá `lawossClientSettingsUnreadable: true` (`withClientSettingsState`, 1 import + 1 riadok). Nová trasa `POST /workspace/:id/lawoss/client-settings/repair` (len host token, `{confirmed: true}`) nahradí poškodený riadok predvolenými nastaveniami cez `repairApplicationRuntimeConfig`; originál ide do `native_config_backups` v tej istej transakcii, čitateľný riadok vráti 409 `client_settings_not_damaged`. Nový kód oznámenia `client_settings_repaired` (1 riadok v únii, 1 v parseri). V `server.ts` 1 import a 1 registrácia. |
 | `apps/app/src/react-app/domains/workspace/project-home.tsx`, `apps/app/src/react-app/domains/session/surface/session-surface.tsx`, `apps/app/src/app/lib/legalwork-server.ts`, LAWOSS `apps/app/src/lawoss/lite/client-settings-warning.tsx` a `apps/app/src/lawoss/i18n/shell.ts` (+ test `tests/lawoss-client-settings-554.test.tsx`) | Červené varovanie (vzor `other-client-warning.tsx`) na Domove klienta nad prehľadom a nad chatom (nie v Asistentovi): nastavenia sú poškodené, asistent preto u klienta nemá oprávnenia, tlačidlo „Obnoviť predvolené nastavenia“ s potvrdením (len v desktopovej appke). Číta tú istú odpoveď `["project", workspaceId]` ako Domov. V každom upstream súbore 1 import + 1 riadok, v klientovi API metóda `repairClientSettings`. |
 
+## AI hranice: odmietnutá správa v existujúcom chate (#551) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx`, nový `apps/app/src/lawoss/domains/ai/composer-failure-toast.ts` (LAWOSS, + test `tests/lawoss-ai-hranice-toast-551.test.ts`) | #551: odoslanie z existujúceho chatu (`queueDraft`) pri chybe ukazovalo `composer.send_failed_restored` s `error.message`. Pri zapnutých AI hraniciach to bol anglický text servera („Protected AI processing is unavailable…“), bez odkazu do nastavení, a toast po pár sekundách zmizol. Odoslanie aj front (`queueFailure`) teraz idú cez `composerFailureToast`: pre AI hranice lokalizovaná veta `lawoss.ai_boundaries.chat_refused`, akcia „Otvoriť nastavenie AI hraníc“ a `duration: Infinity`; iné chyby bez zmeny. |
+
 ## Meno súboru v krokoch read/edit/write enginu v2 (#550) (2026-11-18)
 
 | Súbor | Zmena |
