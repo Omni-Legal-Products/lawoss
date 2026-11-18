@@ -1,12 +1,12 @@
 import type { ReadToolPart, WriteToolPart } from "@/lib/build-in-tools"
-import { parseFilename } from "@/components/tools/path"
+import { parseFilename, toolInputPath } from "@/components/tools/path" // 🟡 LAWOSS #550
 
 interface ReadFileToolProps {
   part: ReadToolPart
 }
 
 export function ReadFileTool({ part }: ReadFileToolProps) {
-  const filename = parseFilename(part.input.filePath);
+  const filename = parseFilename(toolInputPath(part.input));
 
   if (part.state === "output-error") {
     return (
@@ -48,7 +48,7 @@ interface WriteFileToolProps {
 }
 
 export function WriteFileTool({ part }: WriteFileToolProps) {
-  const filename = parseFilename(part.input.filePath);
+  const filename = parseFilename(toolInputPath(part.input));
 
   if (part.state === "output-error") {
     return (
