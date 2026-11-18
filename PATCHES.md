@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Poškodený riadok nastavení jedného klienta nezastaví engine ostatným (#542) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/legalwork-runtime-config.ts`, nový `apps/server/src/lawoss/unreadable-client-settings.ts`, `apps/server/src/lawoss/linked-folders.ts` (LAWOSS okrem prvého, + testy `legalwork-runtime-config.test.ts`) | #542: `writeLegalworkRuntimeConfigFile` skladá jeden súbor nastavení enginu pre všetkých klientov a pri nečitateľnom riadku `native_runtime_configs` ľubovoľného klienta (nielen štartovacieho) vyhodil 409 `execution_settings_invalid` a zastavil štart enginu celej appky. Teraz sa klient s nečitateľným riadkom do `workspaces` súboru nezapíše (`clientSettingsReadable`, 2 riadky `🟡 LAWOSS #542` v slučke); plugin `legalwork-managed-config` mu potom zamietne každé oprávnenie („This project has no LegalWork permissions."), takže nedostane viac ako predtým. Jeho stará projekcia v priečinku sa neprepisuje a riadok sa nikdy neopravuje ani nenahrádza prázdnymi oprávneniami; každé čítanie nastavení klienta ďalej končí 409. Vrstva politiky firmy (`buildOrgPolicyEngineLayerFor`, aj trasa `/org-policy/guard`) pri nečitateľnom štartovacom klientovi použije len aplikačné pravidlá nástrojov; vrstva je vždy aspoň taká prísna ako pravidlá firmy. Mapa pripojených priečinkov ponechá koreň takého klienta (hranica pre ostatných) bez pripojených priečinkov. Hláška v appke pre poškodeného klienta (anglický text so značkou LegalWork) ostáva na samostatnú úpravu. |
+
 ## Lokálne modely Ollama cez Chat Completions (#410) (2026-11-18)
 
 | Súbor | Zmena |
