@@ -49,6 +49,14 @@ async function targetFor(config: ServerConfig, input: PublicAiInput) {
   return {endpoint, apiKey, fingerprint: hash(JSON.stringify({endpoint, provider: input.providerId, model: input.modelId, account: hash(apiKey)}))};
 }
 
+/** #552: hostiteľ skladá text kontroly v jazyku rozhrania z `publicAi`; `summary` ostáva anglický záznam pre audit. */
+export function publicAiReview(endpoint: string, input: Pick<PublicAiInput, "providerId" | "modelId">, body: string) {
+  const origin = new URL(endpoint).origin;
+  return {summary: `Public text only → ${origin} — ${input.providerId}/${input.modelId}. No client files, tools, shell or legal approval.`,
+    description: JSON.stringify(JSON.parse(body), null, 2),
+    publicAi: {origin, endpoint, providerId: input.providerId, modelId: input.modelId}};
+}
+
 async function boundedPublicBody(request: Request): Promise<string> {
   const limit = 256 * 1024;
   const declared = Number(request.headers.get("content-length"));
@@ -101,8 +109,7 @@ export async function runPublicAiPrompt(config: ServerConfig, approvals: Approva
         const requestOperationId = `${operationId}:${++requestNumber}`;
         const expected = binding(body, target.fingerprint, engineHash, requestOperationId);
         const receipt = await port.requestDecision({workspaceId: "__host_public_ai__", action: "ai.public.synthetic", operationId: requestOperationId,
-          bindingHash: expected, summary: `Public text only → ${new URL(target.endpoint).origin} — ${input.providerId}/${input.modelId}. No client files, tools, shell or legal approval.`,
-          description: `Target: ${target.endpoint}\nComplete serialized system and message context to be sent:\n` + JSON.stringify(JSON.parse(body), null, 2),
+          bindingHash: expected, ...publicAiReview(target.endpoint, input, body),
           readCurrentBindingHash: async () => binding(body, (await targetFor(config, input)).fingerprint, await fileHash(binary), requestOperationId)}, active);
         if (receipt.decision !== "allow") throw new ApiError(403, "public_ai_denied", "The native host declined this public transmission.");
         active.throwIfAborted();
