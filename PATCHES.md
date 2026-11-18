@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Dátumy podľa jazyka rozhrania (#548) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/session/artifacts/artifact-docx-editor.tsx`, `apps/app/src/components/chat/message-list.tsx`, `apps/app/src/react-app/domains/session/panel/document-visual-review.tsx`, `apps/app/src/react-app/domains/connections/provider-auth/provider-auth-modal.tsx`, `apps/app/src/app/utils/index.ts`, nový `apps/app/src/lawoss/i18n/format-date.ts` (LAWOSS, + test `tests/lawoss-datumy-jazyk-548.test.ts`) | #548: +1 import a 1 zmenený riadok v každom súbore. `toLocaleString()`/`toLocaleDateString()` bez jazyka brali jazyk systému (Electron), takže pri anglickom macOS a slovenskom rozhraní obnova konceptu ukázala „11/18/2026, 1:54:05 AM“. Teraz `formatUiDateTime`/`formatUiDate` s `currentLocale()`. Ostatné volania (benchmark, wiki, tabuľky MCP) sú v LAWOSS skryté alebo okrajové a ostávajú. |
+
 ## Lokálne modely Ollama cez Chat Completions (#410) (2026-11-18)
 
 | Súbor | Zmena |

@@ -11,6 +11,7 @@ import type {
   ProviderListItem,
 } from "../types";
 import type { WorkspaceInfo } from "../lib/desktop";
+import { formatUiDate } from "@/lawoss/i18n/format-date"; // 🟡 LAWOSS #548
 
 export function formatModelRef(model: ModelRef) {
   return `${model.providerID}/${model.modelID}`;
@@ -350,7 +351,7 @@ export function formatRelativeTime(timestampMs: number) {
     return t("time.hours_ago", { count: Math.max(1, Math.round(delta / (60 * 60_000))) });
   }
 
-  return new Date(timestampMs).toLocaleDateString();
+  return formatUiDate(timestampMs);
 }
 
 export function addOpencodeCacheHint(message: string) {

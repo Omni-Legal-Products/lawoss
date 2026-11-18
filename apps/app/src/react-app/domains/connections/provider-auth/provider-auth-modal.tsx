@@ -70,6 +70,7 @@ import {
 } from "./local-templates";
 import { findCustomModelLimitProblem } from "./custom-provider-config";
 import { ChatGptPlanCard } from "./chatgpt-plan-card";
+import { formatUiDateTime } from "@/lawoss/i18n/format-date"; // 🟡 LAWOSS #548
 
 /** Base URLs that default to the Responses API (`@ai-sdk/openai`). */
 function inferCustomApiType(baseURL: string): CustomProviderApiType {
@@ -2114,7 +2115,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                         }} disabled={actionDisabled || customBusy || customFetching} />
                       </label>
                       <p className="text-[11px] text-dls-secondary">{t("provider_auth.auto_refresh_models_hint")}</p>
-                      {customRefreshStatus?.lastUpdatedAt ? <p className="text-[11px] text-dls-secondary">{t("provider_auth.models_updated", { time: new Date(customRefreshStatus.lastUpdatedAt).toLocaleString() })}</p> : null}
+                      {customRefreshStatus?.lastUpdatedAt ? <p className="text-[11px] text-dls-secondary">{t("provider_auth.models_updated", { time: formatUiDateTime(customRefreshStatus.lastUpdatedAt) })}</p> : null}
                       {customRefreshStatus?.pendingReload ? <p className="text-[11px] text-dls-secondary">{t("provider_auth.models_waiting")}</p> : null}
                       {customRefreshStatus?.lastError && !localError ? <p role="status" className="text-[11px] text-dls-secondary">{customRefreshStatus.lastError}</p> : null}
                     </div>

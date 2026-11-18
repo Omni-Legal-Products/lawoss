@@ -138,6 +138,7 @@ import { LEGALMEMORY_OPEN_EVENT, parseLegalMemoryRef } from "@/components/markdo
 import { STORAGE_LINK_SOURCE, STORAGE_OPEN_EVENT, parseStorageRefLink, type StorageRef } from "@/components/markdown/storage-ref"
 import { groupMessages, isMessageGroup, getAssistantRenderGroups, groupAssistantToolRuns, hasToolRunTail, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
 import { t } from "@/i18n";
+import { formatUiDateTime } from "@/lawoss/i18n/format-date"; // 🟡 LAWOSS #548
 import { aiBoundariesRefusal } from "@/lawoss/domains/ai/boundaries-refusal";
 import { InterruptedRunNotice, isInterruptedRun } from "@/lawoss/chat/interrupted-run";
 import { AssistantAvatar } from "@/react-app/domains/session/sidebar/assistant-appearance";
@@ -153,7 +154,7 @@ function MessageTimestamp({ message, className }: { message: UIMessage; classNam
         "select-none whitespace-nowrap text-[11px] tabular-nums text-muted-foreground/70",
         className
       )}
-      title={new Date(created).toLocaleString()}
+      title={formatUiDateTime(created)}
     >
       {formatMessageTimestamp(created)}
     </span>
