@@ -104,7 +104,8 @@ export async function loadServerConfigFile<T extends object>(configPath: string,
 
 /**
  * Desktop: keď sa server.json nedal obnoviť, klientov vráti zoznam desktopovej appky (`legalwork-workspaces.json`)
- * s ich id a kľúčmi úložiska. Ostatné nastavenia servera ostanú predvolené.
+ * s ich id a kľúčmi úložiska a oprávni ich korene, takže sú použiteľní hneď pri tomto štarte. Ostatné nastavenia
+ * servera ostanú predvolené.
  */
 export function restoreClientsFromHost(config: ServerConfig, hostWorkspaces: readonly WorkspaceConfig[] | undefined): void {
   const prefix = `${SERVER_CONFIG_DAMAGED}|reset|`;
@@ -112,5 +113,7 @@ export function restoreClientsFromHost(config: ServerConfig, hostWorkspaces: rea
   const reset = warnings.find(item => item.startsWith(prefix));
   if (reset === undefined || config.workspaces.length || !hostWorkspaces?.length) return;
   config.workspaces = buildWorkspaceInfos([...hostWorkspaces], process.cwd());
+  // Ako pri bežnom seede (`resolveServerConfig` bez `authorizedRoots` v súbore): oprávnené sú práve korene klientov.
+  config.authorizedRoots = [...new Set([...config.authorizedRoots, ...config.workspaces.map(workspace => workspace.path)])];
   config.workspaceWarnings = warnings.map(item => item === reset ? warning("restored", reset.slice(prefix.length)) : item);
 }

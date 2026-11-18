@@ -40,8 +40,8 @@ test("orezaný server.json sa odloží bajt po bajte, štart nahlási kód a zá
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("neplatný koniec za celým JSON objektom sa opraví ako v Electrone a klienti ostanú", async () => {
-  const { root, entry, valid, configPath } = await office();
+test("neplatný koniec za celým JSON objektom sa opraví ako v Electrone a klienti aj ich oprávnenie ostanú", async () => {
+  const { root, folder, entry, valid, configPath } = await office();
   const damaged = `${valid}\n}garbage\u0000`;
   await writeFile(configPath, damaged);
   try {
@@ -51,6 +51,7 @@ test("neplatný koniec za celým JSON objektom sa opraví ako v Electrone a klie
     expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual(JSON.parse(valid));
     expect(config.workspaces.map(workspace => workspace.id)).toEqual([entry.id]);
     expect(config.workspaceWarnings).toEqual([`${CODE}|repaired|${join(root, backup!)}`]);
+    expect(config.authorizedRoots).toEqual([folder]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -93,6 +94,15 @@ test("desktop: neopraviteľný server.json obnoví klientov zo zoznamu appky s i
     const list = await response.json() as { items: { id: string; path: string }[]; warnings: string[] };
     expect(list.items.map(item => [item.id, item.path])).toEqual([[entry.id, entry.path]]);
     expect(list.warnings).toEqual([`${CODE}|restored|${join(root, backup!)}`]);
+    // Obnovení klienti musia byť hneď použiteľní, rovnako ako po bežnom seede z Electronu (nie 403 workspace_unauthorized).
+    expect(server.config.authorizedRoots).toEqual([entry.path]);
+    const auth = { Authorization: "Bearer client" };
+    const project = await fetch(`${server.url}/workspace/${entry.id}/project`, { headers: auth });
+    expect(project.status).toBe(200);
+    const files = await fetch(`${server.url}/workspace/${entry.id}/files/list`, { headers: auth });
+    expect(files.status).toBe(200);
+    const activate = await fetch(`${server.url}/workspaces/${entry.id}/activate`, { method: "POST", headers: { Authorization: "Bearer host" } });
+    expect(activate.status).not.toBe(403);
   } finally {
     await server?.stop();
     if (oldData === undefined) delete process.env.LEGALWORK_DATA_DIR; else process.env.LEGALWORK_DATA_DIR = oldData;
