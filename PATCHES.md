@@ -6,6 +6,11 @@
 |---|---|
 | `apps/server/src/agent-sandbox/raw-http.ts`, nový `apps/server/src/lawoss/sandbox-http-failure.ts` (LAWOSS, + test `apps/server/src/lawoss/sandbox-http-unreachable.e2e.test.ts`) | #565: `POST /workspace/:id/sandbox/http` (`execute`/`fetch` agenta) pri nedosiahnuteľnom cieli padal na `500 internal_error` a server logoval „Unhandled error“ s celým `AggregateError`. `rawHttpRequest` teraz podľa kódu chyby (nie textu) mení zlyhanie spojenia, DNS a TLS na `502 sandbox_http_unreachable` a vyčerpaný 30 s rozpočet či `ETIMEDOUT`/`UND_ERR_CONNECT_TIMEOUT` na `504 sandbox_http_timeout`, so stručnou správou s hostiteľom a kódom. Zamietnutie politikou, validácia, zrušenie volajúcim a neznáme chyby ostávajú bez zmeny. |
 
+## Meno súboru v krokoch read/edit/write enginu v2 (#550) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/components/tools/path.ts` (nový `toolInputPath`), `apps/app/src/lib/build-in-tools.ts`, `apps/app/src/lib/tool-activity.ts`, `apps/app/src/components/tools/{tool-presentation.ts,file.tsx,edit.tsx}`, `apps/app/src/lib/artifacts.ts`, `apps/app/src/lawoss/chat/tool-labels.ts` (LAWOSS, + test `tests/lawoss-nazov-suboru-path-550.test.ts`) | #550: engine v2 posiela cestu nástrojov `read`/`edit`/`write` ako `path` (`packages/core/src/tool/plugin/{read,edit,write}.ts`), appka čítala `filePath`. `parseFilename(undefined)` vracal „file“, karta ukazovala „Zápis file“ / „Zapísaný súbor file“ a zapísané či upravené súbory chýbali v súboroch chatu. `toolInputPath` berie `filePath`, inak `path`; typy vstupov majú obe polia voliteľné. Čítanie bez cesty v `tool-labels.ts` (alfa 12) teraz kontroluje tú istú cestu, takže v2 ukáže meno súboru. |
 ## Licencie onnxruntime pre Windows ARM64 pribalené v repe (2026-11-18)
 
 | Súbor | Zmena |
