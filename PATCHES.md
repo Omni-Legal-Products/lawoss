@@ -7,6 +7,12 @@
 | `apps/server/src/server.ts`, `apps/server/src/embedded.ts`, nový `apps/server/src/lawoss/engine-events-release.ts` (LAWOSS, + test `lawoss/shutdown-engine-events.e2e.test.ts`) | #561: `stop()` vloženého servera zatváral spravovaný engine skôr než HTTP server, takže natívny prúd `/event` (`scopedNativeEvents` cez `mergeEvents`) pri každom ukončení appky skončil chybou „Engine event transport ended.“. Server ju zapísal ako `Unhandled error`, zatvoril socket a Electron zapísal `Error occurred in handler for 'legalwork:desktop': TypeError: terminated`; upratovanie pôvodných obrázkov zapísalo WARN. `StartedServer` má nové `releaseEngineEvents()` (typ, `startServer` a signál trasy `/event`, riadky označené `🟡 LAWOSS #561`) a `embedded.ts` ho volá pred zatvorením enginu: prúdy `/event` skončia ako bežný koniec prúdu a upratovanie obrázkov sa zastaví. Pád enginu počas behu prúd ďalej preruší chybou. Samostatný `cli.ts` má rovnaké poradie, appka ho nepoužíva a ostáva bez zmeny. |
 | `apps/desktop/electron/event-streams.mjs`, `http-requests.mjs`, `main.mjs` (+ testy `event-streams.test.mjs`, `http-requests.test.mjs`) | #561: okná držia aj prúd `/sync/events` a môžu mať rozbehnuté požiadavky; vypnutie vloženého servera im zavrelo socket a Electron zapísal `Error occurred in handler for 'legalwork:desktop': TypeError: terminated` (`UND_ERR_SOCKET`). `before-quit` teraz pred zastavením servera volá `eventStreams.closeAll()` a `httpRequests.closeAll()`: rozbehnuté čítania a požiadavky sa skončia ako zrušené (`null`, ako pri #506) a nové po začiatku ukončenia vrátia `null` bez siete. Socket zavretý počas behu appky ďalej končí chybou. |
 
+## AI hranice: odmietnutá správa v existujúcom chate (#551) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx`, nový `apps/app/src/lawoss/domains/ai/composer-failure-toast.ts` (LAWOSS, + test `tests/lawoss-ai-hranice-toast-551.test.ts`) | #551: odoslanie z existujúceho chatu (`queueDraft`) pri chybe ukazovalo `composer.send_failed_restored` s `error.message`. Pri zapnutých AI hraniciach to bol anglický text servera („Protected AI processing is unavailable…“), bez odkazu do nastavení, a toast po pár sekundách zmizol. Odoslanie aj front (`queueFailure`) teraz idú cez `composerFailureToast`: pre AI hranice lokalizovaná veta `lawoss.ai_boundaries.chat_refused`, akcia „Otvoriť nastavenie AI hraníc“ a `duration: Infinity`; iné chyby bez zmeny. |
+
 ## Meno súboru v krokoch read/edit/write enginu v2 (#550) (2026-11-18)
 
 | Súbor | Zmena |
