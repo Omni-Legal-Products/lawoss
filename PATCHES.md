@@ -6,6 +6,12 @@
 |---|---|
 | `apps/server/src/opencode-plugins/legalwork-assistant-tools.ts` (+ test v `legalwork-assistant-tools.test.ts`) | Poverenie enginu `GET /assistant` nikdy neprečíta (`wiki/agent-access.ts`: trasa nie je medzi nástrojmi, 403 `wiki_agent_endpoint_denied`). Plugin v2 (`Plugin.define`) sa pritom pýtal pri každom ťahu, kroku modelu (`session.context`), povolení a výsledku nástroja cez `isAssistant` bez pamäte; skoršia oprava (test alfy 10. 11.) zapamätala odmietnutie len v nepoužívaných hookoch v1. Teraz si `isAssistant` prvé odmietnutie zapamätá na celú inštanciu pluginu: v chate klienta jedna požiadavka (pri štarte inštancie) namiesto ~10 na ťah. |
 
+## AI hranice: odmietnutá správa v existujúcom chate (#551) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx`, nový `apps/app/src/lawoss/domains/ai/composer-failure-toast.ts` (LAWOSS, + test `tests/lawoss-ai-hranice-toast-551.test.ts`) | #551: odoslanie z existujúceho chatu (`queueDraft`) pri chybe ukazovalo `composer.send_failed_restored` s `error.message`. Pri zapnutých AI hraniciach to bol anglický text servera („Protected AI processing is unavailable…“), bez odkazu do nastavení, a toast po pár sekundách zmizol. Odoslanie aj front (`queueFailure`) teraz idú cez `composerFailureToast`: pre AI hranice lokalizovaná veta `lawoss.ai_boundaries.chat_refused`, akcia „Otvoriť nastavenie AI hraníc“ a `duration: Infinity`; iné chyby bez zmeny. |
+
 ## Meno súboru v krokoch read/edit/write enginu v2 (#550) (2026-11-18)
 
 | Súbor | Zmena |
