@@ -1,5 +1,12 @@
 # LAWOSS downstream patches
 
+## Uloženie do priečinka bez práva zápisu (#545) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/errors.ts`, `apps/server/src/routes/files.ts` (+ test `apps/server/src/lawoss/file-write-denied.e2e.test.ts`) | #545: zápis cez `POST files/raw` (Uložiť v editore .docx), `POST files/content` a `POST files/import` pri `EACCES`/`EPERM`/`EROFS` padal na `500 internal_error` a server logoval „Unhandled error“. Nové `fileWriteError` v `errors.ts` ich mení na `403 file_not_writable` (`details.reason` nesie pôvodný kód) a `ENOSPC` na `507 disk_full`; iné chyby prechádzajú bez zmeny. Trasy volajú `fileWriteError` okolo celej zápisovej časti. `withFileWriteLock` sa nemení, lebo ho používajú aj interné zápisy, ktoré čítajú pôvodný `error.code`. `write-batch` a `ops` (súborové relácie) ostávajú bez zmeny. |
+| `apps/app/src/react-app/domains/session/artifacts/artifact-panel.tsx`, nové `apps/app/src/lawoss/domains/artifacts/file-save-error.ts` a `apps/app/src/lawoss/i18n/file-save.ts` (LAWOSS), registrácia v `apps/app/src/i18n/locales/{en,de,sk,cs}.ts` (+ test `apps/app/tests/lawoss-file-save-error-545.test.ts`) | Uloženie v paneli dokumentu zmení správu chyby `file_not_writable`/`disk_full` na preloženú hlášku (sk/cs/en/de), takže ju ukáže toast tlačidla Uložiť, ⌘S aj pruh automatického ukladania. Toast tlačidla Uložiť pri týchto kódoch nezmizne sám (`duration: Infinity`). Neuložené zmeny ostanú v editore ako doteraz, lebo neúspešné uloženie neoznačí dokument za uložený. |
+
 ## Poškodený riadok nastavení jedného klienta nezastaví engine ostatným (#542) (2026-11-18)
 
 | Súbor | Zmena |

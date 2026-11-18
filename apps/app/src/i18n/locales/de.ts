@@ -1,5 +1,6 @@
 import { diagnosticsDe } from "../../lawoss/i18n/diagnostics";
 import { filePreviewDe } from "../../lawoss/i18n/file-preview";
+import { fileSaveDe } from "../../lawoss/i18n/file-save";
 import { deadlinesDe } from "../../lawoss/i18n/deadlines";
 import { setupDe } from "../../lawoss/i18n/setup";
 import { initialDe } from "../../lawoss/i18n/initial";
@@ -27,6 +28,7 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
 const de = {
   ...diagnosticsDe,
   ...filePreviewDe,
+  ...fileSaveDe,
   ...setupDe,
   ...initialDe,
   ...mattersDe,

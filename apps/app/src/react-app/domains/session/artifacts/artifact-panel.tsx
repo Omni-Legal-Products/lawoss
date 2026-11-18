@@ -46,6 +46,7 @@ import { loadMarkdownDraft, savedMarkdownDraft, type MarkdownDraft } from "./mar
 import { useTextAutosave } from "./use-text-autosave";
 import { unreadableFile } from "@/lawoss/domains/artifacts/unreadable-file"; // 🟡 LAWOSS #492
 import { UnreadableFileNotice } from "@/lawoss/domains/artifacts/unreadable-file-notice"; // 🟡 LAWOSS #492
+import { fileSaveErrorMessage, localizedFileSaveError } from "@/lawoss/domains/artifacts/file-save-error"; // 🟡 LAWOSS #545
 
 const ArtifactTextEditor = lazy(() =>
   import("./artifact-text-editor").then((module) => ({ default: module.ArtifactTextEditor })),
@@ -407,7 +408,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
       pendingWrite.current = operation;
       const clear = () => { if (pendingWrite.current === operation) pendingWrite.current = null; };
       void operation.then(clear, clear);
-      return operation;
+      return operation.catch((error: unknown) => { throw localizedFileSaveError(error); }); // 🟡 LAWOSS #545
     },
     onSuccess: (result, input) => {
       const savedDocx = isBinaryEditor && input.kind === "binary" && snapshotRef.current
@@ -656,7 +657,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
       else toast.error(t("artifact.save_wait_loading"));
       return ok === true;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("artifact.save_failed"));
+      toast.error(error instanceof Error ? error.message : t("artifact.save_failed"), fileSaveErrorMessage(error) === null ? undefined : { duration: Infinity }); // 🟡 LAWOSS #545
       return false;
     } finally {
       setDocumentSaving(false);

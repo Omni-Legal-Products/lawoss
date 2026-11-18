@@ -30,6 +30,19 @@ export function projectFileError(projectPath: string, error: unknown, platform: 
     `Cannot access project "${basename(projectPath)}".\nFolder: ${projectPath}\n${recovery}`, { path: projectPath, reason });
 }
 
+// 🟡 LAWOSS #545
+const NOT_WRITABLE = new Set(["EACCES", "EPERM", "EROFS"]);
+
+/** A denied or full destination is the user's to fix, not a server fault. Other errors pass through unchanged. */
+export function fileWriteError(error: unknown): unknown {
+  const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
+  if (code !== undefined && NOT_WRITABLE.has(code)) {
+    return new ApiError(403, "file_not_writable", "The file cannot be saved: the folder is read-only or you do not have permission to write to it.", { reason: code });
+  }
+  if (code === "ENOSPC") return new ApiError(507, "disk_full", "The file cannot be saved: the disk is full.");
+  return error;
+}
+
 /** The published engine client wraps fetch failures in ClientError.cause. */
 export function findApiError(error: unknown): ApiError | undefined {
   const seen = new Set<unknown>();
