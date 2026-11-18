@@ -38,6 +38,9 @@ export const NATIVE_STRINGS = {
     "approvalTitle": "LegalWork approval",
     "publicTitle": "Public AI request",
     "publicQuestion": "Send this public synthetic model request?",
+    "publicSummary": "Public text only → {origin} — {provider}/{model}. No client files, tools, shell or legal approval.", // 🟡 LAWOSS #552
+    "publicTarget": "Target",
+    "publicContext": "Complete serialized system and message context to be sent",
     "changeQuestion": "Allow this workspace change?",
     "source": "Source",
     "host": "Host",
@@ -117,6 +120,9 @@ export const NATIVE_STRINGS = {
     "approvalTitle": "Schválení LAWOSS",
     "publicTitle": "Veřejný požadavek AI",
     "publicQuestion": "Odeslat tento veřejný syntetický požadavek modelu?",
+    "publicSummary": "Pouze veřejný text → {origin} — {provider}/{model}. Žádné soubory klienta, nástroje, shell ani právní schválení.", // 🟡 LAWOSS #552
+    "publicTarget": "Cíl",
+    "publicContext": "Úplný serializovaný systémový a zprávový kontext, který bude odeslán",
     "changeQuestion": "Povolit tuto změnu pracovního prostoru?",
     "source": "Zdroj",
     "host": "Hostitel",
@@ -196,6 +202,9 @@ export const NATIVE_STRINGS = {
     "approvalTitle": "Schválenie LAWOSS",
     "publicTitle": "Verejná požiadavka AI",
     "publicQuestion": "Odoslať túto verejnú syntetickú požiadavku modelu?",
+    "publicSummary": "Iba verejný text → {origin} — {provider}/{model}. Žiadne súbory klienta, nástroje, shell ani právne schválenie.", // 🟡 LAWOSS #552
+    "publicTarget": "Cieľ",
+    "publicContext": "Úplný serializovaný systémový a správový kontext, ktorý sa odošle",
     "changeQuestion": "Povoliť túto zmenu pracovného priestoru?",
     "source": "Zdroj",
     "host": "Hostiteľ",
@@ -275,6 +284,9 @@ export const NATIVE_STRINGS = {
     "approvalTitle": "LAWOSS-Freigabe",
     "publicTitle": "Öffentliche KI-Anfrage",
     "publicQuestion": "Diese öffentliche synthetische Modellanfrage senden?",
+    "publicSummary": "Nur öffentlicher Text → {origin} — {provider}/{model}. Keine Mandantendateien, Tools, Shell oder rechtliche Freigabe.", // 🟡 LAWOSS #552
+    "publicTarget": "Ziel",
+    "publicContext": "Vollständiger serialisierter System- und Nachrichtenkontext, der gesendet wird",
     "changeQuestion": "Diese Änderung des Arbeitsbereichs erlauben?",
     "source": "Quelle",
     "host": "Host",
