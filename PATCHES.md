@@ -1,5 +1,12 @@
 # LAWOSS downstream patches
 
+## Poškodený server.json sa odloží a nahlási (#553) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/config.ts`, `apps/server/src/embedded.ts`, nový `apps/server/src/lawoss/server-config-recovery.ts` (LAWOSS, + test `lawoss/server-config-recovery.e2e.test.ts`) | #553: `loadFileConfig` čítal server.json cez `readJsonFile`, ktorý chybu parsovania zahodil, takže appka naštartovala bez klientov a každý zápis nastavení (aj onboarding) skončil 422 `invalid_json`. Teraz `loadServerConfigFile`: neplatný JSON (aj prázdny súbor či JSON, ktorý nie je objekt) skopíruje bez prepísania do `server.json.poskodeny-<čas>`; neplatný koniec za celým objektom opraví ako Electron (`repaired`), inak server.json po zálohe odstráni, aby ďalšie zápisy prešli (`reset`). Keď sa zálohu nepodarí vytvoriť, súbor ostane nedotknutý (`kept`). Do `workspaceWarnings` pridá `LAWOSS_SERVER_CONFIG_DAMAGED\|<druh>\|<cesta>`. V desktope `restoreClientsFromHost` po `reset` vráti klientov zo zoznamu Electronu (`hostWorkspaces`) s ich id a kľúčmi úložiska (`restored`). 4 riadky `🟡 LAWOSS #553` v `config.ts`, 2 v `embedded.ts`. |
+| `apps/app/src/react-app/shell/use-workspace-route-state.ts`, `apps/app/src/react-app/shell/settings-route.tsx`, nové `apps/app/src/lawoss/domains/workspaces/server-config-warning.ts` a `apps/app/src/lawoss/i18n/server-config.ts` (LAWOSS), registrácia v `apps/app/src/i18n/locales/{en,de,sk,cs}.ts`, `apps/app/src/lawoss/domains/onboarding/onboarding-errors.ts` (+ test `apps/app/tests/lawoss-server-config-damaged-553.test.ts`) | Varovania zo zoznamu klientov sa v hlavnej trase dostali len do `routeError`, ktorý sa nezobrazuje. `announceServerConfigWarnings` kódované varovanie raz ukáže ako preloženú notifikáciu (sk/cs/en/de) s cestou k zálohe a ostatné varovania vráti bez zmeny (+1 import a 1 riadok v každom súbore). Onboarding pri 422 `invalid_json` „Failed to parse server config“ (poškodenie počas behu appky) povie, ktorý súbor je poškodený a že pomôže reštart, namiesto „Niečo sa nepodarilo“. |
+
 ## Dátumy podľa jazyka rozhrania (#548) (2026-11-18)
 
 | Súbor | Zmena |
