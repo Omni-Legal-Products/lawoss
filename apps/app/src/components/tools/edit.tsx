@@ -2,7 +2,7 @@
 
 import { Tool } from "@/components/ui/tool"
 import type { EditToolPart } from "@/lib/build-in-tools"
-import { parseFilename } from "@/components/tools/path"
+import { parseFilename, toolInputPath } from "@/components/tools/path" // 🟡 LAWOSS #550
 import { t } from "@/i18n"
 
 interface EditToolProps {
@@ -10,7 +10,7 @@ interface EditToolProps {
 }
 
 function getEditToolTitle(part: EditToolPart): string | null {
-  const filename = parseFilename(part.input.filePath)
+  const filename = parseFilename(toolInputPath(part.input))
 
   if (part.state === "output-error") {
     return t("tool.update_attempted", { file: filename })
