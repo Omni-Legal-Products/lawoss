@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Profily dokumentov: trvalá 409 sa neopakuje každých 5 s (#563) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/session/panel/document-processing-panel.tsx`, nový `apps/app/src/lawoss/domains/documents/profile-polling.ts` (LAWOSS, + test `tests/lawoss-profily-dokumentov-563.test.ts`) | #563: panel „Spracovanie dokumentov“ volal `GET …/lawoss/documents/profiles` každých 5 s (`refetchInterval: 5000`) aj pri trvalej `409 protected_ai_provider_unsupported` (Ollama, OpenRouter): 11 požiadaviek za 30 s, každá s chybou v konzole a WARN v `main.log`. `profilesRefetchInterval`/`profilesRetry` pri tomto kóde neopakujú; zmena modelu je nový kľúč dotazu, takže sa znova načíta. Ostatné chyby a bežné obnovovanie bez zmeny. |
+
 ## Licencie onnxruntime pre Windows ARM64 pribalené v repe (2026-11-18)
 
 | Súbor | Zmena |
