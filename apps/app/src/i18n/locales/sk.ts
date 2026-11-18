@@ -2,6 +2,7 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
 import { diagnosticsSk } from "../../lawoss/i18n/diagnostics";
 import { filePreviewSk } from "../../lawoss/i18n/file-preview";
 import { fileSaveSk } from "../../lawoss/i18n/file-save";
+import { serverConfigSk } from "../../lawoss/i18n/server-config";
 import { deadlinesSk } from "../../lawoss/i18n/deadlines";
 import { setupSk } from "../../lawoss/i18n/setup";
 import { initialSk } from "../../lawoss/i18n/initial";
@@ -20,6 +21,7 @@ export default {
   ...diagnosticsSk,
   ...filePreviewSk,
   ...fileSaveSk,
+  ...serverConfigSk,
   ...setupSk,
   ...initialSk,
   ...mattersSk,

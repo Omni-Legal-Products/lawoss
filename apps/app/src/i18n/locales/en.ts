@@ -1,6 +1,7 @@
 import { diagnosticsEn } from "../../lawoss/i18n/diagnostics";
 import { filePreviewEn } from "../../lawoss/i18n/file-preview";
 import { fileSaveEn } from "../../lawoss/i18n/file-save";
+import { serverConfigEn } from "../../lawoss/i18n/server-config";
 import { deadlinesEn } from "../../lawoss/i18n/deadlines";
 import { setupEn } from "../../lawoss/i18n/setup";
 import { initialEn } from "../../lawoss/i18n/initial";
@@ -19,6 +20,7 @@ export default {
   ...diagnosticsEn,
   ...filePreviewEn,
   ...fileSaveEn,
+  ...serverConfigEn,
   ...setupEn,
   ...initialEn,
   ...mattersEn,
