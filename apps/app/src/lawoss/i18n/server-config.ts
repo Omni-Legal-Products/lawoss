@@ -1,0 +1,33 @@
+/** LAWOSS #553: poškodený súbor nastavení kancelárie (server.json) pri štarte a pri onboardingu (`lawoss/domains/workspaces/server-config-warning.ts`). */
+export const serverConfigEn = {
+  "lawoss.server_config.title": "The office settings file was damaged",
+  "lawoss.server_config.repaired": "The office settings file (server.json) was damaged at the end. LAWOSS repaired it and your clients were kept. The original damaged file was set aside here: {path}",
+  "lawoss.server_config.restored": "The office settings file (server.json) was damaged and could not be read. LAWOSS restored your client list from its own copy; other server settings went back to their defaults. Your client files did not change. The original file was set aside here: {path}. If something is missing, quit LAWOSS and contact support with that file.",
+  "lawoss.server_config.reset": "The office settings file (server.json) was damaged and could not be restored, so LAWOSS started without your clients. Your client files did not change. The original file was set aside here: {path}. Add your clients again with “Add client”, or quit LAWOSS and contact support with that file.",
+  "lawoss.server_config.kept": "The office settings file is damaged and LAWOSS could not set it aside: {path}. Until it is repaired, LAWOSS does not show your clients and cannot save settings. Your client files did not change. Quit LAWOSS and move that file elsewhere or contact support.",
+  "lawoss.server_config.onboarding": "The client cannot be added because the office settings file is damaged: {path}. Quit LAWOSS and start it again: LAWOSS sets the damaged file aside and tells you what to do next. Your client files did not change.",
+};
+export const serverConfigSk = {
+  "lawoss.server_config.title": "Súbor nastavení kancelárie bol poškodený",
+  "lawoss.server_config.repaired": "Súbor nastavení kancelárie (server.json) bol na konci poškodený. LAWOSS ho opravil a klienti ostali zachovaní. Pôvodný poškodený súbor je odložený tu: {path}",
+  "lawoss.server_config.restored": "Súbor nastavení kancelárie (server.json) bol poškodený a nedal sa prečítať. LAWOSS obnovil zoznam klientov zo svojej kópie, ostatné nastavenia servera sa vrátili na predvolené. Súbory klientov sa nezmenili. Pôvodný súbor je odložený tu: {path}. Ak niečo chýba, ukončite LAWOSS a obráťte sa na podporu s týmto súborom.",
+  "lawoss.server_config.reset": "Súbor nastavení kancelárie (server.json) bol poškodený a nedal sa obnoviť, preto LAWOSS naštartoval bez klientov. Súbory klientov sa nezmenili. Pôvodný súbor je odložený tu: {path}. Klientov pridajte znova cez „Pridať klienta“, alebo ukončite LAWOSS a obráťte sa na podporu s týmto súborom.",
+  "lawoss.server_config.kept": "Súbor nastavení kancelárie je poškodený a LAWOSS ho nevedel odložiť: {path}. Kým sa neopraví, LAWOSS neukáže klientov a nevie uložiť nastavenia. Súbory klientov sa nezmenili. Ukončite LAWOSS a presuňte tento súbor inam alebo sa obráťte na podporu.",
+  "lawoss.server_config.onboarding": "Klienta nemožno pridať, lebo súbor nastavení kancelárie je poškodený: {path}. Ukončite LAWOSS a spustite ho znova: LAWOSS poškodený súbor odloží a povie vám, čo ďalej. Súbory klientov sa nezmenili.",
+};
+export const serverConfigCs = {
+  "lawoss.server_config.title": "Soubor nastavení kanceláře byl poškozený",
+  "lawoss.server_config.repaired": "Soubor nastavení kanceláře (server.json) byl na konci poškozený. LAWOSS ho opravil a klienti zůstali zachovaní. Původní poškozený soubor je odložený zde: {path}",
+  "lawoss.server_config.restored": "Soubor nastavení kanceláře (server.json) byl poškozený a nešel přečíst. LAWOSS obnovil seznam klientů ze své kopie, ostatní nastavení serveru se vrátila na výchozí. Soubory klientů se nezměnily. Původní soubor je odložený zde: {path}. Pokud něco chybí, ukončete LAWOSS a obraťte se na podporu s tímto souborem.",
+  "lawoss.server_config.reset": "Soubor nastavení kanceláře (server.json) byl poškozený a nešel obnovit, proto LAWOSS nastartoval bez klientů. Soubory klientů se nezměnily. Původní soubor je odložený zde: {path}. Klienty přidejte znovu přes „Přidat klienta“, nebo ukončete LAWOSS a obraťte se na podporu s tímto souborem.",
+  "lawoss.server_config.kept": "Soubor nastavení kanceláře je poškozený a LAWOSS ho nedokázal odložit: {path}. Dokud se neopraví, LAWOSS neukáže klienty a nedokáže uložit nastavení. Soubory klientů se nezměnily. Ukončete LAWOSS a přesuňte tento soubor jinam nebo se obraťte na podporu.",
+  "lawoss.server_config.onboarding": "Klienta nelze přidat, protože soubor nastavení kanceláře je poškozený: {path}. Ukončete LAWOSS a spusťte ho znovu: LAWOSS poškozený soubor odloží a řekne vám, co dál. Soubory klientů se nezměnily.",
+};
+export const serverConfigDe = {
+  "lawoss.server_config.title": "Die Einstellungsdatei der Kanzlei war beschädigt",
+  "lawoss.server_config.repaired": "Die Einstellungsdatei der Kanzlei (server.json) war am Ende beschädigt. LAWOSS hat sie repariert, Ihre Mandanten sind erhalten. Die ursprüngliche beschädigte Datei wurde hier abgelegt: {path}",
+  "lawoss.server_config.restored": "Die Einstellungsdatei der Kanzlei (server.json) war beschädigt und nicht lesbar. LAWOSS hat Ihre Mandantenliste aus der eigenen Kopie wiederhergestellt; andere Servereinstellungen sind auf die Standardwerte zurückgesetzt. Ihre Mandantendateien wurden nicht verändert. Die ursprüngliche Datei wurde hier abgelegt: {path}. Wenn etwas fehlt, beenden Sie LAWOSS und wenden Sie sich mit dieser Datei an den Support.",
+  "lawoss.server_config.reset": "Die Einstellungsdatei der Kanzlei (server.json) war beschädigt und ließ sich nicht wiederherstellen, daher wurde LAWOSS ohne Ihre Mandanten gestartet. Ihre Mandantendateien wurden nicht verändert. Die ursprüngliche Datei wurde hier abgelegt: {path}. Fügen Sie Ihre Mandanten mit „Mandant hinzufügen“ erneut hinzu oder beenden Sie LAWOSS und wenden Sie sich mit dieser Datei an den Support.",
+  "lawoss.server_config.kept": "Die Einstellungsdatei der Kanzlei ist beschädigt und LAWOSS konnte sie nicht ablegen: {path}. Bis sie repariert ist, zeigt LAWOSS Ihre Mandanten nicht an und kann keine Einstellungen speichern. Ihre Mandantendateien wurden nicht verändert. Beenden Sie LAWOSS und verschieben Sie diese Datei an einen anderen Ort oder wenden Sie sich an den Support.",
+  "lawoss.server_config.onboarding": "Der Mandant kann nicht hinzugefügt werden, weil die Einstellungsdatei der Kanzlei beschädigt ist: {path}. Beenden Sie LAWOSS und starten Sie es erneut: LAWOSS legt die beschädigte Datei ab und sagt Ihnen, wie es weitergeht. Ihre Mandantendateien wurden nicht verändert.",
+};

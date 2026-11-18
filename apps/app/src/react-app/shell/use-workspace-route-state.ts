@@ -59,6 +59,7 @@ import {
   writeWorkspaceOrderIds,
 } from "./session-memory";
 import { isSessionIndexRoute, legacySessionRoute, wikiWorkspaceRoute, workspaceSessionRoute } from "./workspace-routes";
+import { announceServerConfigWarnings } from "@/lawoss/domains/workspaces/server-config-warning"; // 🟡 LAWOSS #553
 
 export type UseWorkspaceRouteStateInput = {
   /** Keep embedded non-session pages addressable while loading workspace data. */
@@ -455,7 +456,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       const { routeWorkspaceId, selectedSessionId } = routeSelectionRef.current;
       hasLoadedServerWorkspacesRef.current = true;
       setHasLoadedServerWorkspaces(true);
-      const warnings = [...(desktopList?.warnings ?? []), ...(list.warnings ?? [])];
+      const warnings = [...(desktopList?.warnings ?? []), ...announceServerConfigWarnings(list.warnings)]; // 🟡 LAWOSS #553
       if (warnings.length) setRouteError([...new Set(warnings)].join("\n"));
       const nextWorkspaces = orderRouteWorkspaces(
         mergeRouteWorkspaces(list.items, desktopWorkspaces),
