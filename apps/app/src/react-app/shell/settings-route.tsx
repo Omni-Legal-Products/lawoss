@@ -183,6 +183,7 @@ import { localProviderTimeouts } from "@/lawoss/providers/local-timeouts";
 import { patchProviderConfirmingOverwrite } from "@/lawoss/providers/overwrite-confirm";
 import { lawossProviderRow } from "@/lawoss/providers/provider-row";
 import { requestRemoveClientConfirm } from "@/lawoss/shell/remove-client-confirm";
+import { announceServerConfigWarnings } from "@/lawoss/domains/workspaces/server-config-warning"; // 🟡 LAWOSS #553
 
 function reconcileSelectedWorkspaceId(
   currentId: string,
@@ -1247,7 +1248,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           hostToken: resolvedHostToken || undefined,
         });
         const list = await client.listWorkspaces();
-        if (list.warnings?.length) notifyAlert({ kind: "system", title: "Remote agent workspaces retired", body: list.warnings.join("\n"), dedupeKey: "retired-remote-workspaces" });
+        const listWarnings = announceServerConfigWarnings(list.warnings); // 🟡 LAWOSS #553
+        if (listWarnings.length) notifyAlert({ kind: "system", title: "Remote agent workspaces retired", body: listWarnings.join("\n"), dedupeKey: "retired-remote-workspaces" });
         const serverWorkspaceIds = new Set(list.items.map((workspace) => workspace.id));
         const nextWorkspaces = mergeRouteWorkspaces(list.items, desktopWorkspaces);
         // Account/settings navigation needs the registry, not every engine's
