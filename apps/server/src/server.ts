@@ -12,6 +12,7 @@ import { protectedEngineFetch, protectedSessionResponse, registerProtectedRuntim
 import { retainWikiAgentRuntime } from "./wiki/agent-access.js";
 import { governedOcrTransport, requireGovernedEngineDispatch, requireAiBoundariesAdmission } from "./lawoss/ai-governance-engine.js";
 import { registerDeadlineRoutes } from "./lawoss/deadlines/routes.js";
+import { registerClientSettingsRoutes } from "./lawoss/unreadable-client-settings.js"; // 🟡 LAWOSS #554
 import { acquireRuntimeDbLifetime, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { resolveWorkspaceFilePath, recheckWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { LawossDocuments } from "./lawoss/documents/service.js";
@@ -2158,6 +2159,7 @@ function createRoutes(
   registerProtectedDocumentProfileRoutes({config, routes, jsonResponse});
   registerLawossDocumentRoutes({ routes, config, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerDeadlineRoutes({ routes, config, approvals, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerClientSettingsRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, resolveWorkspace }); // 🟡 LAWOSS #554
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   registerLawossOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   const projectFolders = registerStorageRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace, onProjectFoldersChanged: (id) => noteProjectFoldersChanged(config, id), onProjectRenamed: (id, name) => noteProjectRenamed(config, id, name) });
