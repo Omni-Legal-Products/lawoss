@@ -110,6 +110,8 @@ import { LAWOSS_MEMORY_TOOL, browserLoginRules, fileChangeRules, newClientRules 
 import { lawossToolDenialRules, LAWOSS_LOAD_WIKI_TOOLS } from "./lawoss/hidden-upstream-tools.js";
 import { yoloModeActive, yoloNativeAgentRules } from "./lawoss/yolo-mode.js";
 import { LAWOSS_DISABLED_ENGINE_PLUGINS } from "./lawoss/engine-foreign-skills.js";
+// 🟡 LAWOSS #542: poškodený riadok jedného klienta nezastaví engine ostatným.
+import { clientSettingsReadable, warnUnreadableClientSettings } from "./lawoss/unreadable-client-settings.js";
 import { nativeHostExecutionActions } from "./agent-sandbox/engine-policy.js";
 import { REVIEW_AGENT, reviewAgentConfig } from "./reviews/agent.js";
 
@@ -447,7 +449,10 @@ export async function buildLegalworkRuntimeConfigObject(config?: ServerConfig, w
 
 /** The firm's enforced engine layer, against the member's own settings of `workspaceId`. */
 export async function buildOrgPolicyEngineLayerFor(config: ServerConfig, workspaceId: string): Promise<Record<string, unknown>> {
-  const own = await memberRuntimeConfig(config, workspaceId);
+  // 🟡 LAWOSS #542: pri nečitateľnom klientovi len aplikačné pravidlá; firemné pravidlá zostávajú minimom.
+  const own = await clientSettingsReadable(config, workspaceId)
+    ? await memberRuntimeConfig(config, workspaceId)
+    : applyGlobalToolPermissions({}, await readGlobalToolPermissions(config));
   const layer = Schema.decodeUnknownSync(Config.Info)(await buildOrgPolicyEngineLayer(config, { permissions: own.permissions ?? [] }), { onExcessProperty: "error" });
   const targets = async (path: string) => {
     let value: unknown;
@@ -540,6 +545,8 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     // once for this publication, not once for every registered project.
     const systemOneSettings = await readSystemOneSettings(config).catch(() => null);
     for (const workspace of config.workspaces) {
+      // 🟡 LAWOSS #542: bez záznamu v súbore engine klientovi zamietne každé oprávnenie (lawoss/unreadable-client-settings.ts).
+      if (!await clientSettingsReadable(config, workspace.id)) { warnUnreadableClientSettings(workspace.id); continue; }
       const settings = await buildLegalworkRuntimeSettings(config, workspace.id, systemOneSettings);
       workspaces[workspace.id] = { ...settings, directory: workspace.directory?.trim() || workspace.path };
       // Only application bundles belong in the common engine bootstrap.

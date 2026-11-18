@@ -19,7 +19,7 @@ import { Readable } from "node:stream";
 import { recordAudit } from "../audit.js";
 import { keepWorkspaceCopy } from "../file-storage/working-copy.js";
 import { providerError, storagePath } from "../file-storage/common.js";
-import { ApiError } from "../errors.js";
+import { ApiError, fileWriteError } from "../errors.js"; // 🟡 LAWOSS #545
 import { canonicalFilePath, withFileWriteLock, withFileWriteLocks } from "../file-write-lock.js";
 import { FileSessionStore } from "../file-sessions.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
@@ -1185,7 +1185,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       try { bytes = Buffer.from(copyViewFile(bytes)); }
       catch (error) { throw new ApiError(400, "invalid_view_import", error instanceof Error ? error.message : "Invalid dashboard file."); }
     }
-    const result = await importProjectFile(workspace.path, path, bytes);
+    const result = await importProjectFile(workspace.path, path, bytes).catch((error: unknown) => { throw fileWriteError(error); }); // 🟡 LAWOSS #545
     recordWorkspaceFileEvent(workspace.id, { type: "write", path });
     await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write", target: join(workspace.path, path), summary: source.data ? `Copied saved file from project ${source.data.projectId}: ${source.data.path}` : "Imported a local file", timestamp: Date.now() });
     return jsonResponse({ ok: true, ...result }, 201);
@@ -1410,7 +1410,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         timestamp: Date.now(),
       });
       return jsonResponse({ ok: true, path: relativePath, bytes: bytes.byteLength, updatedAt: after.mtimeMs, revision });
-    });
+    }).catch((error: unknown) => { throw fileWriteError(error); }); // 🟡 LAWOSS #545
   });
 
   addRoute(routes, "POST", "/workspace/:id/files/content", "client", async (ctx) => {
@@ -1514,6 +1514,6 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         revision,
         ...(merged ? { merged: true, content: written } : {}),
       });
-    });
+    }).catch((error: unknown) => { throw fileWriteError(error); }); // 🟡 LAWOSS #545
   });
 }
