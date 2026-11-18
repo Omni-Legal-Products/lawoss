@@ -5,6 +5,11 @@
 | Súbor | Zmena |
 |---|---|
 | `apps/app/src/react-app/domains/session/surface/session-surface.tsx`, nový `apps/app/src/lawoss/domains/ai/composer-failure-toast.ts` (LAWOSS, + test `tests/lawoss-ai-hranice-toast-551.test.ts`) | #551: odoslanie z existujúceho chatu (`queueDraft`) pri chybe ukazovalo `composer.send_failed_restored` s `error.message`. Pri zapnutých AI hraniciach to bol anglický text servera („Protected AI processing is unavailable…“), bez odkazu do nastavení, a toast po pár sekundách zmizol. Odoslanie aj front (`queueFailure`) teraz idú cez `composerFailureToast`: pre AI hranice lokalizovaná veta `lawoss.ai_boundaries.chat_refused`, akcia „Otvoriť nastavenie AI hraníc“ a `duration: Infinity`; iné chyby bez zmeny. |
+## Licencie onnxruntime pre Windows ARM64 pribalené v repe (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/desktop/scripts/prepare-windows-arm64-speech.mjs` (+ test `windows-arm64-speech-compile.test.mjs`), nové `apps/desktop/build/notices/onnxruntime-1.24.4/` | Build ARM64 rečového addonu sťahoval `LICENSE` a `ThirdPartyNotices.txt` onnxruntime z `raw.githubusercontent.com/microsoft/onnxruntime`. Repozitár 18. 11. 2026 vracia 404 a alfa 18 pre Windows ARM64 padla (beh 44264585735). Súbory sú teraz v repe, prevzaté z PyPI kolesa `onnxruntime==1.24.4` s koncami riadkov LF; skript ich overí proti tým istým pripnutým SHA-256 v `windows-arm64-speech.json` a pred overením normalizuje CRLF, lebo checkout na Windows runneri môže konce riadkov zmeniť. |
 
 ## Dátumy podľa jazyka rozhrania (#548) (2026-11-18)
 
