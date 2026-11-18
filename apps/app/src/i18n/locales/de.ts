@@ -1,6 +1,7 @@
 import { diagnosticsDe } from "../../lawoss/i18n/diagnostics";
 import { filePreviewDe } from "../../lawoss/i18n/file-preview";
 import { fileSaveDe } from "../../lawoss/i18n/file-save";
+import { serverConfigDe } from "../../lawoss/i18n/server-config";
 import { deadlinesDe } from "../../lawoss/i18n/deadlines";
 import { setupDe } from "../../lawoss/i18n/setup";
 import { initialDe } from "../../lawoss/i18n/initial";
@@ -29,6 +30,7 @@ const de = {
   ...diagnosticsDe,
   ...filePreviewDe,
   ...fileSaveDe,
+  ...serverConfigDe,
   ...setupDe,
   ...initialDe,
   ...mattersDe,
