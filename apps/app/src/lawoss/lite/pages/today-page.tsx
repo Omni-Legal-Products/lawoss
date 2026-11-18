@@ -107,7 +107,9 @@ export const liteText = (locale: Language): Text => (key, params) => t(`lawoss.l
 /** Naléhavost lhůty podle společných pravidel (view-rules), stejně jako v detailu věci. */
 const urgency = (d: Pick<TodayDeadline, "date" | "invalid">, todayIso: string): Urgency => urgencyOf(d.date, todayIso, d.invalid);
 
-function greetingKey(hour: number): string {
+/** Hodiny 0–4 sú noc: večerný pozdrav, „ráno“ až od 5:00 (#543). */
+export function greetingKey(hour: number): string {
+  if (hour < 5) return "greeting_evening";
   if (hour < 10) return "greeting_morning";
   return hour < 18 ? "greeting_day" : "greeting_evening";
 }
