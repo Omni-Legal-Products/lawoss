@@ -6,6 +6,13 @@
 |---|---|
 | `apps/app/src/react-app/domains/session/panel/document-processing-panel.tsx`, nový `apps/app/src/lawoss/domains/documents/profile-polling.ts` (LAWOSS, + test `tests/lawoss-profily-dokumentov-563.test.ts`) | #563: panel „Spracovanie dokumentov“ volal `GET …/lawoss/documents/profiles` každých 5 s (`refetchInterval: 5000`) aj pri trvalej `409 protected_ai_provider_unsupported` (Ollama, OpenRouter): 11 požiadaviek za 30 s, každá s chybou v konzole a WARN v `main.log`. `profilesRefetchInterval`/`profilesRetry` pri tomto kóde neopakujú; zmena modelu je nový kľúč dotazu, takže sa znova načíta. Ostatné chyby a bežné obnovovanie bez zmeny. |
 
+## Poškodené nastavenia klienta: varovanie pri klientovi a obnova (#554) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/routes/workspaces.ts`, `apps/server/src/server.ts`, `apps/server/src/runtime-config-upgrade.ts`, `apps/server/src/runtime-opencode-config-store.ts`, LAWOSS `apps/server/src/lawoss/unreadable-client-settings.ts` (+ test `lawoss/client-settings.e2e.test.ts`) | #554: `GET /workspace/:id/project` pri nečitateľnom riadku `native_runtime_configs` klienta pridá `lawossClientSettingsUnreadable: true` (`withClientSettingsState`, 1 import + 1 riadok). Nová trasa `POST /workspace/:id/lawoss/client-settings/repair` (len host token, `{confirmed: true}`) nahradí poškodený riadok predvolenými nastaveniami cez `repairApplicationRuntimeConfig`; originál ide do `native_config_backups` v tej istej transakcii, čitateľný riadok vráti 409 `client_settings_not_damaged`. Nový kód oznámenia `client_settings_repaired` (1 riadok v únii, 1 v parseri). V `server.ts` 1 import a 1 registrácia. |
+| `apps/app/src/react-app/domains/workspace/project-home.tsx`, `apps/app/src/react-app/domains/session/surface/session-surface.tsx`, `apps/app/src/app/lib/legalwork-server.ts`, LAWOSS `apps/app/src/lawoss/lite/client-settings-warning.tsx` a `apps/app/src/lawoss/i18n/shell.ts` (+ test `tests/lawoss-client-settings-554.test.tsx`) | Červené varovanie (vzor `other-client-warning.tsx`) na Domove klienta nad prehľadom a nad chatom (nie v Asistentovi): nastavenia sú poškodené, asistent preto u klienta nemá oprávnenia, tlačidlo „Obnoviť predvolené nastavenia“ s potvrdením (len v desktopovej appke). Číta tú istú odpoveď `["project", workspaceId]` ako Domov. V každom upstream súbore 1 import + 1 riadok, v klientovi API metóda `repairClientSettings`. |
+
 ## Poškodený server.json sa odloží a nahlási (#553) (2026-11-18)
 
 | Súbor | Zmena |
