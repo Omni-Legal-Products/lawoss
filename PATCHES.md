@@ -6,6 +6,12 @@
 |---|---|
 | `apps/server/src/opencode-plugins/legalwork-sandbox.ts`, `apps/server/src/opencode-plugins/legalwork-project-tools.ts`, `lawoss-view-tools.ts` a `lawoss-linked-folders.ts` (LAWOSS, + testy `lawoss/plugin-text-direct-tools.test.ts`, `lawoss/plugin-tools-direct.integration.test.ts`) | #573, pokračovanie #484: engine 2.1.4 ponúka nástroj pluginu modelu priamo len s `codemode: false`, inak existuje iba vnútri Code Mode `execute`. Vodítko sandboxu volá menom `legalwork_shell`, `legalwork_webfetch` a `legalwork_websearch` (vstavané `shell`, `webfetch` a `websearch` sandbox odstraňuje) a OKF skilly z neho spúšťajú `okf.js` a `okf-memory`. Texty LAWOSS a skill `roztried-spis` volajú `lawoss_documents_*`, pravidlá vizuálnych prehľadov `view_catalog`/`view_create`/`view_update`. Tieto nástroje sú teraz obalené `directTool` (v upstream súboroch import s `🟡 LAWOSS #573` a obalenie volania), oprávnenia a karty sa nemenia. Nástroje, ktoré menujú len upstream texty (`legalwork_skill_*`, `storage_*`, `legalwork_task_*` a ďalšie), ostávajú v Code Mode podľa návrhu upstreamu. Test `plugin-text-direct-tools` spúšťa pluginy s ich vlastnou registráciou a zlyhá, keď text LAWOSS, vodítko sandboxu alebo pribalený OKF skill menuje nástroj, ktorý je len v Code Mode. Pevné vety pripomienky pripojených priečinkov sú vytiahnuté do exportovanej konštanty `LINKED_FOLDERS_REMINDER_RULES` (text sa nemení). |
 
+## AI hranice: odmietnutá správa v existujúcom chate (#551) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx`, nový `apps/app/src/lawoss/domains/ai/composer-failure-toast.ts` (LAWOSS, + test `tests/lawoss-ai-hranice-toast-551.test.ts`) | #551: odoslanie z existujúceho chatu (`queueDraft`) pri chybe ukazovalo `composer.send_failed_restored` s `error.message`. Pri zapnutých AI hraniciach to bol anglický text servera („Protected AI processing is unavailable…“), bez odkazu do nastavení, a toast po pár sekundách zmizol. Odoslanie aj front (`queueFailure`) teraz idú cez `composerFailureToast`: pre AI hranice lokalizovaná veta `lawoss.ai_boundaries.chat_refused`, akcia „Otvoriť nastavenie AI hraníc“ a `duration: Infinity`; iné chyby bez zmeny. |
+
 ## Meno súboru v krokoch read/edit/write enginu v2 (#550) (2026-11-18)
 
 | Súbor | Zmena |
