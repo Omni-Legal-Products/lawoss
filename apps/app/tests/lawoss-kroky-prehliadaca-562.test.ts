@@ -24,3 +24,10 @@ test("cs: konkrétny text a spojenie s iným krokom", () => {
   setLocale("cs");
   expect(lawossCodeModeLabel(["browser.click", "websearch"], "done")).toBe("Prohlížeč: kliknutí · Vyhledáno na webu");
 });
+
+test("sk: akcie prehliadača s predponou legalwork_ (napr. legalwork_browser_open_url)", () => {
+  setLocale("sk");
+  expect(lawossCodeModeLabel(["legalwork_browser_open_url", "browser.wait", "browser.snapshot"], "done"))
+    .toBe("Prehliadač: otvorenie adresy · Prehliadač: čakanie na stránku · Prehliadač: čítanie stránky");
+  expect(lawossCodeModeLabel(["legalwork_browser_upload"], "done")).toBe(t("lawoss.tool.browser_done"));
+});

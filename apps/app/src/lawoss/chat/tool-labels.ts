@@ -143,9 +143,11 @@ const CODE_MODE_LABELS: Record<string, Labels> = {
 };
 const codeModeStep = (name: string, phase: keyof Labels): string | null => {
   const tool = engineToolName(name);
-  const browserAction = BROWSER_ACTIONS[tool];
+  // Akcie prehliadača prichádzajú ako `browser.wait` aj ako `legalwork_browser_open_url` (overenie kola 13).
+  const browserTool = tool.replace(/^legalwork_(?=browser_)/, "");
+  const browserAction = BROWSER_ACTIONS[browserTool];
   if (browserAction) return t(browserAction);
-  const fixed = CODE_MODE_LABELS[tool] ?? (tool.startsWith("browser_") ? BROWSER : undefined);
+  const fixed = CODE_MODE_LABELS[tool] ?? (browserTool.startsWith("browser_") ? BROWSER : undefined);
   return fixed ? t(fixed[phase]) : label(tool, undefined, phase);
 };
 const humanize = (name: string): string => {
