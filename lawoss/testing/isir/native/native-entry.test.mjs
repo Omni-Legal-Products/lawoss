@@ -14,6 +14,8 @@ import vm from 'node:vm';
 import { createAppUrlMatcher, guardIpcMain } from '../../../../apps/desktop/electron/app-url.mjs';
 import { createNativeLocaleState, nativeCopy } from '../../../../apps/desktop/electron/native-locale.mjs';
 import { boundedShutdown } from '../../../../apps/desktop/electron/bounded-shutdown.mjs';
+import { createEventStreams } from '../../../../apps/desktop/electron/event-streams.mjs';
+import { createHttpRequests } from '../../../../apps/desktop/electron/http-requests.mjs';
 
 // Execute the actual entry in a controlled module shell. Only its imports are
 // substituted; no Electron, main startup, file clients or subprocesses run.
@@ -110,6 +112,8 @@ async function shutdownNavigationFixture(t,{publish=publishNativeQuitAcceptance,
   const context=vm.createContext({app:productionApp,mainWindow:{isDestroyed:()=>false,show(){},webContents:{loadURL:url=>{shutdownUrl=url;events.push('shutdown-navigation');socket.message({id:evaluationId,error:{code:-32000,message:'Inspected target navigated or closed'}});}}},
     nativeCopy,uiLocales:createNativeLocaleState(()=>locale),DISPLAY_NAME:'LAWOSS',
     runtimeDisposedForQuit:false,runtimeDisposeInProgress:false,appIsQuitting:false,
+    // LAWOSS #561: before-quit ends the windows' streams and requests through the real main-process bridges.
+    eventStreams:createEventStreams(),httpRequests:createHttpRequests(),
     recorderServiceInstance:noop,chevron7Signing:noop,appAudioTap:noop,callOverlay:noop,systemDictation:noop,dictationHud:noop,meetingMonitor:noop,appTray:noop,powerSessions:noop,
     disposeRuntimeBeforeQuit:async()=>{disposed=true;events.push('leader-exit');child.exitCode=0;child.emit('exit',0);},uiControlServer:{stop:async()=>{}},
     // Upstream before-quit ohraničí upratovanie skutočným boundedShutdown; vynútené ukončenie by test zlyhalo.
