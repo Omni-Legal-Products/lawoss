@@ -187,7 +187,9 @@ import { registerCalendarRoutes } from "./routes/calendar.js";
 import { registerReviewRoutes } from "./routes/reviews.js";
 import { ReviewDefaults } from "./reviews/storage.js";
 import { ReviewLibrary } from "./reviews/library.js";
-import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
+import { readGlobalMcpMap, runtimeStorageDir } from "./runtime-opencode-config-store.js";
+// 🟡 LAWOSS #542: poškodený riadok jedného klienta nezastaví strážcu politiky firmy.
+import { clientSettingsReadable } from "./lawoss/unreadable-client-settings.js";
 import { registerDocumentPreparationRoutes } from "./routes/document-preparation.js";
 import { registerOcrRoutes } from "./routes/ocr.js";
 import { OcrManager } from "./ocr/manager.js";
@@ -3404,7 +3406,9 @@ function createRoutes(
     // (Each workspace's map holds the shared connectors too.)
     const memberConnectors = new Set<string>();
     for (const workspace of config.workspaces) {
-      for (const name of Object.keys(await runtimeMcpMapForWorkspace(config, workspace.id))) memberConnectors.add(name);
+      // 🟡 LAWOSS #542: nečitateľný klient prispeje len spoločnými konektormi; engine mu zamietne každé oprávnenie.
+      const connectors = await clientSettingsReadable(config, workspace.id) ? await runtimeMcpMapForWorkspace(config, workspace.id) : await readGlobalMcpMap(config);
+      for (const name of Object.keys(connectors)) memberConnectors.add(name);
     }
     const allowed = new Set(Object.keys(await allowedMemberConnectors(config, Object.fromEntries([...memberConnectors].map((name) => [name, true])))));
     // The firm's own connectors run under their names too, whatever members may add.

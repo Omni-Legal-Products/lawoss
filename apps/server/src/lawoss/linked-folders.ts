@@ -20,6 +20,7 @@ import { readRuntimeOpencodeConfig, runtimeExternalDirectory, runtimeStorageDir 
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { canonicalPath, commandMentionsFolder, folderOfGrant, isOfficeMemoryFolder, LINKED_FOLDERS_MAP_FILE, linkedFolderConflict, separateNestedClients, type LinkedFolderConflict, type LinkedFoldersMap } from "./linked-folders-rules.js";
 import { surveyLinkedFolder } from "./linked-folder-survey.js";
+import { clientSettingsReadable } from "./unreadable-client-settings.js";
 import { isPathWithin } from "./path-within.js";
 import { yoloModeActive } from "./yolo-mode.js";
 
@@ -163,7 +164,10 @@ export async function buildLinkedFoldersMap(config: ServerConfig): Promise<Linke
   }
   const clients = [];
   for (const workspace of await clientWorkspaces(config)) {
-    const linked = await clientLinkedFolders(config, workspace);
+    // #542: klient s nečitateľnými nastaveniami zostane hranicou pre ostatných, ale bez pripojených priečinkov.
+    const linked = await clientSettingsReadable(config, workspace.id)
+      ? await clientLinkedFolders(config, workspace)
+      : await existingCanonical(workspace.path).then((root) => root ? { root, folders: [] } : null);
     if (linked) clients.push({ ...linked, client: await clientCardFolder(linked.root, practice) });
   }
   return { version: 1, officeRoot: practice, clients, firmManaged: false, ...(await yoloModeActive(config) ? { yolo: true } : {}) };
