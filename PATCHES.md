@@ -8,6 +8,11 @@
 | `apps/server/src/server.ts`, nový `apps/server/src/lawoss/provider-key-check.ts` (LAWOSS, + test `provider-key-check.test.ts`) | Trasa `POST /workspace/:id/provider-key-check` (+1 import, 10 riadkov): kľúč OpenRouter overí cez `GET https://openrouter.ai/api/v1/key` (verejný zoznam modelov kľúč nekontroluje). Vráti len `valid`/`rejected`/`unverified`/`unchecked`; 401 je `rejected`, iná odpoveď alebo chyba siete `unverified`. Kľúč ani telo odpovede sa nevracajú ani nelogujú. Kľúč s medzerou trasa odmietne (400). |
 | `apps/app/src/app/lib/legalwork-server.ts` | Metóda klienta `checkProviderKey` pre novú trasu (9 riadkov). |
 
+## Meno súboru v krokoch read/edit/write enginu v2 (#550) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/components/tools/path.ts` (nový `toolInputPath`), `apps/app/src/lib/build-in-tools.ts`, `apps/app/src/lib/tool-activity.ts`, `apps/app/src/components/tools/{tool-presentation.ts,file.tsx,edit.tsx}`, `apps/app/src/lib/artifacts.ts`, `apps/app/src/lawoss/chat/tool-labels.ts` (LAWOSS, + test `tests/lawoss-nazov-suboru-path-550.test.ts`) | #550: engine v2 posiela cestu nástrojov `read`/`edit`/`write` ako `path` (`packages/core/src/tool/plugin/{read,edit,write}.ts`), appka čítala `filePath`. `parseFilename(undefined)` vracal „file“, karta ukazovala „Zápis file“ / „Zapísaný súbor file“ a zapísané či upravené súbory chýbali v súboroch chatu. `toolInputPath` berie `filePath`, inak `path`; typy vstupov majú obe polia voliteľné. Čítanie bez cesty v `tool-labels.ts` (alfa 12) teraz kontroluje tú istú cestu, takže v2 ukáže meno súboru. |
 ## Licencie onnxruntime pre Windows ARM64 pribalené v repe (2026-11-18)
 
 | Súbor | Zmena |
