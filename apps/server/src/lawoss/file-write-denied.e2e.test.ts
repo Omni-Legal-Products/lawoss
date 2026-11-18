@@ -3,6 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { ApiError, fileWriteError } from "../errors.js";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 
@@ -61,5 +62,13 @@ describe("#545 zápis do priečinka bez práva zápisu", () => {
     const { post } = await serveReadOnlyClientFolder();
     const response = await post("content", { path: "Spisy/Poznamka.md", content: "nová poznámka", force: true });
     expect({ status: response.status, code: (await response.json()).code }).toEqual({ status: 403, code: "file_not_writable" });
+  });
+
+  test("plný disk je 507 disk_full a iné chyby ostanú nezmenené", () => {
+    const full = Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+    const mapped = fileWriteError(full);
+    expect(mapped instanceof ApiError ? [mapped.status, mapped.code] : mapped).toEqual([507, "disk_full"]);
+    const other = Object.assign(new Error("EIO"), { code: "EIO" });
+    expect(fileWriteError(other)).toBe(other);
   });
 });
