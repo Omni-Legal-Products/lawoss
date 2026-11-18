@@ -8,6 +8,12 @@
 | `apps/server/src/server.ts`, nový `apps/server/src/lawoss/provider-key-check.ts` (LAWOSS, + test `provider-key-check.test.ts`) | Trasa `POST /workspace/:id/provider-key-check` (+1 import, 10 riadkov): kľúč OpenRouter overí cez `GET https://openrouter.ai/api/v1/key` (verejný zoznam modelov kľúč nekontroluje). Vráti len `valid`/`rejected`/`unverified`/`unchecked`; 401 je `rejected`, iná odpoveď alebo chyba siete `unverified`. Kľúč ani telo odpovede sa nevracajú ani nelogujú. Kľúč s medzerou trasa odmietne (400). |
 | `apps/app/src/app/lib/legalwork-server.ts` | Metóda klienta `checkProviderKey` pre novú trasu (9 riadkov). |
 
+## AI hranice: odmietnutá správa v existujúcom chate (#551) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx`, nový `apps/app/src/lawoss/domains/ai/composer-failure-toast.ts` (LAWOSS, + test `tests/lawoss-ai-hranice-toast-551.test.ts`) | #551: odoslanie z existujúceho chatu (`queueDraft`) pri chybe ukazovalo `composer.send_failed_restored` s `error.message`. Pri zapnutých AI hraniciach to bol anglický text servera („Protected AI processing is unavailable…“), bez odkazu do nastavení, a toast po pár sekundách zmizol. Odoslanie aj front (`queueFailure`) teraz idú cez `composerFailureToast`: pre AI hranice lokalizovaná veta `lawoss.ai_boundaries.chat_refused`, akcia „Otvoriť nastavenie AI hraníc“ a `duration: Infinity`; iné chyby bez zmeny. |
+
 ## Meno súboru v krokoch read/edit/write enginu v2 (#550) (2026-11-18)
 
 | Súbor | Zmena |
