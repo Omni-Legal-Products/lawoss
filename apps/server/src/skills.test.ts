@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deleteSkill, listSkills, resolveHubSkillKind, skillsDirForScope, upsertSkill } from "./skills.js";
+import { deleteSkill, listSkills, resolveHubSkillKind, skillsDirForScope, upsertSkill, type SkippedSkill } from "./skills.js";
 import { composedSkill } from "./skill-composition.js";
 import { resolveSkillDir } from "./skill-resources.js";
 import { computeReloadFingerprint } from "./reload-fingerprint.js";
@@ -46,6 +46,49 @@ describe("listSkills: odolnosť voči chybnému SKILL.md", () => {
 
     expect(items.map((item) => item.name)).toEqual(["dobry"]);
     await rm(root, { recursive: true, force: true });
+  });
+});
+
+describe("listSkills: nečitateľný zdroj skillov (#540)", () => {
+  // chmod neobmedzí Windows ani roota.
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("nečitateľný .opencode v nadradenom priečinku sa preskočí a skilly klienta ostanú", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lawoss-skills-540-"));
+    await mkdir(join(root, ".git"));
+    const office = join(root, "02_OKF_kancelaria");
+    const client = join(office, "Klienti", "C001-klient");
+    await writeSkill(join(client, ".opencode", "skills", "klientsky-skill"), "klientsky-skill");
+    await mkdir(join(office, ".opencode"), { recursive: true });
+    await writeFile(join(office, ".opencode", "opencode.jsonc"), "{}");
+    await chmod(join(office, ".opencode"), 0o000);
+    try {
+      const skipped: SkippedSkill[] = [];
+      const items = await listSkills(client, false, skipped);
+
+      expect(items.map((item) => item.name)).toContain("klientsky-skill");
+      expect(skipped.map((item) => item.path)).toContain(join(office, ".opencode", "skills"));
+    } finally {
+      await chmod(join(office, ".opencode"), 0o755);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("priečinok .claude/skills klienta bez práva čítania sa preskočí a ostatné skilly ostanú", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lawoss-skills-540-"));
+    await mkdir(join(root, ".git"));
+    await writeSkill(join(root, ".opencode", "skills", "citatelny-skill"), "citatelny-skill");
+    const claudeSkills = join(root, ".claude", "skills");
+    await writeSkill(join(claudeSkills, "skryty-skill"), "skryty-skill");
+    await chmod(claudeSkills, 0o111);
+    try {
+      const skipped: SkippedSkill[] = [];
+      const items = await listSkills(root, false, skipped);
+
+      expect(items.map((item) => item.name)).toContain("citatelny-skill");
+      expect(skipped.map((item) => item.path)).toContain(claudeSkills);
+    } finally {
+      await chmod(claudeSkills, 0o755);
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 

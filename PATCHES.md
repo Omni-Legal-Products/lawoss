@@ -6,6 +6,13 @@
 |---|---|
 | `apps/app/src/react-app/domains/session/artifacts/artifact-docx-editor.tsx`, `apps/app/src/components/chat/message-list.tsx`, `apps/app/src/react-app/domains/session/panel/document-visual-review.tsx`, `apps/app/src/react-app/domains/connections/provider-auth/provider-auth-modal.tsx`, `apps/app/src/app/utils/index.ts`, nový `apps/app/src/lawoss/i18n/format-date.ts` (LAWOSS, + test `tests/lawoss-datumy-jazyk-548.test.ts`) | #548: +1 import a 1 zmenený riadok v každom súbore. `toLocaleString()`/`toLocaleDateString()` bez jazyka brali jazyk systému (Electron), takže pri anglickom macOS a slovenskom rozhraní obnova konceptu ukázala „11/18/2026, 1:54:05 AM“. Teraz `formatUiDateTime`/`formatUiDate` s `currentLocale()`. Ostatné volania (benchmark, wiki, tabuľky MCP) sú v LAWOSS skryté alebo okrajové a ostávajú. |
 
+## Nečitateľný `.opencode` nad klientom nezastaví štart enginu (#540) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/skills.ts` (+ testy `skills.test.ts`, `legalwork-runtime-config.test.ts`) | #540: `listSkills` prechádza všetky nadradené priečinky klienta a pre každý volá `listSkillsInDir(<priečinok>/.opencode/skills)`. Pri `.opencode` bez práv (iný vlastník na NAS, `chmod 000`) `lstat` v `resolveWorkspaceFilePath` vyhodil `EACCES`, `listSkillsInDir` ho pustil ďalej a cez `resolveCapabilityLibrary` → `buildLegalworkRuntimeSettings` → `writeLegalworkRuntimeConfigFile` (`embedded.ts`, pred spustením enginu) zhodil štart enginu pre všetkých klientov. Chyby `EACCES`, `EPERM` a `ENOTDIR` pri overení cesty aj pri `readdir` priečinka skillov teraz znamenajú nedostupný zdroj: priečinok sa zapíše do `skipped` s dôvodom a výpis pokračuje. Iné chyby sa vyhadzujú ako doteraz. |
+| `apps/server/src/native-workspace-config.ts` (+ test `legalwork-runtime-config.test.ts`) | Rovnaký prechod nadradených priečinkov v `projectConfigPaths` (`GET /workspace/:id/config`) vyhodil `EACCES` zo `stat` na `<predok>/.opencode/opencode.jsonc`. Nečitateľný (`EACCES`, `EPERM`) alebo nie-priečinok (`ENOTDIR`) sa berie ako chýbajúci súbor, rovnako ako `ENOENT`. |
+
 ## Lokálne modely Ollama cez Chat Completions (#410) (2026-11-18)
 
 | Súbor | Zmena |
