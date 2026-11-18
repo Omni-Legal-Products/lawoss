@@ -6,6 +6,11 @@
 |---|---|
 | `apps/app/src/react-app/domains/session/panel/document-processing-panel.tsx`, nový `apps/app/src/lawoss/domains/documents/profile-polling.ts` (LAWOSS, + test `tests/lawoss-profily-dokumentov-563.test.ts`) | #563: panel „Spracovanie dokumentov“ volal `GET …/lawoss/documents/profiles` každých 5 s (`refetchInterval: 5000`) aj pri trvalej `409 protected_ai_provider_unsupported` (Ollama, OpenRouter): 11 požiadaviek za 30 s, každá s chybou v konzole a WARN v `main.log`. `profilesRefetchInterval`/`profilesRetry` pri tomto kóde neopakujú; zmena modelu je nový kľúč dotazu, takže sa znova načíta. Ostatné chyby a bežné obnovovanie bez zmeny. |
 
+## Meno súboru v krokoch read/edit/write enginu v2 (#550) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/components/tools/path.ts` (nový `toolInputPath`), `apps/app/src/lib/build-in-tools.ts`, `apps/app/src/lib/tool-activity.ts`, `apps/app/src/components/tools/{tool-presentation.ts,file.tsx,edit.tsx}`, `apps/app/src/lib/artifacts.ts`, `apps/app/src/lawoss/chat/tool-labels.ts` (LAWOSS, + test `tests/lawoss-nazov-suboru-path-550.test.ts`) | #550: engine v2 posiela cestu nástrojov `read`/`edit`/`write` ako `path` (`packages/core/src/tool/plugin/{read,edit,write}.ts`), appka čítala `filePath`. `parseFilename(undefined)` vracal „file“, karta ukazovala „Zápis file“ / „Zapísaný súbor file“ a zapísané či upravené súbory chýbali v súboroch chatu. `toolInputPath` berie `filePath`, inak `path`; typy vstupov majú obe polia voliteľné. Čítanie bez cesty v `tool-labels.ts` (alfa 12) teraz kontroluje tú istú cestu, takže v2 ukáže meno súboru. |
 ## Licencie onnxruntime pre Windows ARM64 pribalené v repe (2026-11-18)
 
 | Súbor | Zmena |
