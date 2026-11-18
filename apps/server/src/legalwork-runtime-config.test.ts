@@ -3,6 +3,7 @@ import { closeOrgPolicyRuntime } from "./org-policy.js";
 import { runtimeDbPath } from "./runtime-db-lifecycle.js";
 import { permissionAction } from "./agent-sandbox/permissions.js";
 import { afterEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
@@ -22,7 +23,7 @@ import {
   mandatoryRuntimeConfigFilePath,
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
-import { managedSettingsFileSchema, readManagedEngineSettings, type ManagedEngineSettings } from "./managed-engine-settings.js";
+import { ManagedSettingsWorkspaceMissingError, managedSettingsFileSchema, readManagedEngineSettings, type ManagedEngineSettings } from "./managed-engine-settings.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import type { NativeConfig } from "./native-opencode-config.js";
 import { readNativeWorkspaceConfig } from "./native-workspace-config.js";
@@ -32,6 +33,7 @@ import {
   GLOBAL_PROVIDERS_ID,
   GLOBAL_TOOL_PERMISSIONS_ID,
   closeRuntimeOpencodeConfig,
+  readRuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
@@ -649,4 +651,46 @@ test("only the Assistant registers a browser worker without broadening permissio
   expect(assistant.agents?.["assistant-browser"]).toMatchObject({ mode: "subagent", system: expect.stringContaining("browser worker") });
   expect(assistant.agents?.["assistant-browser"]?.permissions).toBeUndefined();
   expect(assistant.permissions).toEqual(ordinary.permissions);
+});
+
+// 🟡 LAWOSS #542: poškodený uložený riadok jedného klienta nezastaví štart enginu pre ostatných.
+describe("an unreadable saved client row (#542)", () => {
+  async function corruptedSetup() {
+    const { config } = await setup();
+    await addWorkspace(config);
+    await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ permissions: [{ action: "bash", resource: "*", effect: "deny" }] }));
+    await writeRuntimeOpencodeConfig(config, "ws_other", () => ({ permissions: [{ action: "bash", resource: "*", effect: "ask" }] }));
+    const corrupt = "{\"broken\": ";
+    const db = new Database(runtimeDbPath(config));
+    try { db.run("UPDATE native_runtime_configs SET config_json = ? WHERE workspace_id = ?", [corrupt, "ws_1"]); }
+    finally { db.close(); }
+    const storedRow = () => {
+      const reader = new Database(runtimeDbPath(config), { readonly: true });
+      try { return reader.query<{ config_json: string }, [string]>("SELECT config_json FROM native_runtime_configs WHERE workspace_id = ?").get("ws_1")?.config_json; }
+      finally { reader.close(); }
+    };
+    return { config, corrupt, storedRow };
+  }
+
+  for (const boot of ["ws_1", "ws_other"]) {
+    test(`the engine settings build with boot client ${boot}, the damaged client stays blocked`, async () => {
+      const { config, corrupt, storedRow } = await corruptedSetup();
+      await writeLegalworkRuntimeConfigFile(config, boot);
+      expect(storedRow()).toBe(corrupt);
+      await expect(readRuntimeOpencodeConfig(config, "ws_1")).rejects.toMatchObject({ status: 409, code: "execution_settings_invalid" });
+      await expect(readSettings(config, "ws_1")).rejects.toBeInstanceOf(ManagedSettingsWorkspaceMissingError);
+      const other = await readSettings(config, "ws_other");
+      expect(permissionAction(other.configuration.permissions ?? [], "bash", "*")).toBe("ask");
+    });
+  }
+
+  test("a running refresh keeps publishing other clients while one row is unreadable", async () => {
+    const { config, corrupt, storedRow } = await corruptedSetup();
+    const stop = keepLegalworkRuntimeConfigFileFresh(config, "ws_1");
+    await writeRuntimeOpencodeConfig(config, "ws_other", current => ({ ...current,
+      mcp: { servers: { stripe: { type: "remote", url: "https://mcp.stripe.com", disabled: true } } } }));
+    await stop();
+    expect(storedRow()).toBe(corrupt);
+    expect((await readSettings(config, "ws_other")).configuration.mcp?.servers?.stripe).toMatchObject({ url: "https://mcp.stripe.com" });
+  });
 });
