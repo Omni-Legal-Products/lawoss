@@ -46,6 +46,7 @@ import { createEngineTicketSettler } from "./lawoss/engine-agent-ticket.js";
 import { WIKI_AGENT_TICKET_ENV } from "./lawoss/engine-agent-contract.js";
 // 🟡 LAWOSS: na Windows relative() medzi diskami vráti absolútnu cestu bez "..".
 import { isPathWithin } from "./lawoss/path-within.js";
+import { restoreClientsFromHost } from "./lawoss/server-config-recovery.js"; // 🟡 LAWOSS #553
 
 export type HostWorkspaceAppFilesPolicy = {
   path: string;
@@ -132,6 +133,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     const hostEntries = buildWorkspaceInfos([...options.hostWorkspaces], process.cwd());
     config.workspaces = config.workspaces.map(entry => hostEntries.find(host => host.path === entry.path) ?? entry);
   }
+  restoreClientsFromHost(config, options.hostWorkspaces); // 🟡 LAWOSS #553: klienti zo zoznamu appky po neobnoviteľnom server.json
   config.reconnectHostWorkspace = options.reconnectHostWorkspace;
   applyHostWorkspaceAppFilesPolicy(config, options.hostWorkspaceAppFiles);
   config.decryptLegacyConnectorSecrets = options.decryptLegacyConnectorSecrets;
