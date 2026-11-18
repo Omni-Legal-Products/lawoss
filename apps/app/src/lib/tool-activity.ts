@@ -16,7 +16,7 @@ import {
   isWebSearchToolPart,
   isWriteToolPart,
 } from "@/lib/build-in-tools"
-import { parseFilename, truncateText } from "@/components/tools/path"
+import { parseFilename, toolInputPath, truncateText } from "@/components/tools/path" // 🟡 LAWOSS #550
 import { t } from "@/i18n";
 import { legalMemoryActivityLabel } from "@/lib/legalmemory-activity";
 // 🟡 LAWOSS: kroky agenta pre advokáta, nie názvy nástrojov (N-A5-7).
@@ -127,13 +127,13 @@ export function getToolActivityLabel(part: AnyToolPart): string {
     return description ? truncateText(description, 64) : t("tool_activity.running_command")
   }
   if (isReadToolPart(part)) {
-    return t("tool_activity.reading_file", { file: parseFilename(part.input?.filePath) })
+    return t("tool_activity.reading_file", { file: parseFilename(toolInputPath(part.input)) })
   }
   if (isEditToolPart(part)) {
-    return t("tool_activity.editing_file", { file: parseFilename(part.input?.filePath) })
+    return t("tool_activity.editing_file", { file: parseFilename(toolInputPath(part.input)) })
   }
   if (isWriteToolPart(part)) {
-    return t("tool_activity.writing_file", { file: parseFilename(part.input?.filePath) })
+    return t("tool_activity.writing_file", { file: parseFilename(toolInputPath(part.input)) })
   }
   if (isApplyPatchToolPart(part)) {
     return t("tool.applying_changes")
@@ -145,7 +145,7 @@ export function getToolActivityLabel(part: AnyToolPart): string {
       : t("tool_activity.searching_files")
   }
   if (isLspToolPart(part)) {
-    return t("tool_activity.inspecting_file", { file: parseFilename(part.input?.filePath) })
+    return t("tool_activity.inspecting_file", { file: parseFilename(toolInputPath(part.input)) })
   }
   if (isSkillToolPart(part)) {
     const name = part.input?.name?.trim()

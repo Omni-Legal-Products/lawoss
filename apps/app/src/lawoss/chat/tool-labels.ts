@@ -5,7 +5,7 @@
  * Volá ho `lib/tool-activity.ts` (počas behu) a `components/tools/tool-presentation.ts` (po skončení), PATCHES.md.
  */
 import { t } from "@/i18n";
-import { truncateText } from "@/components/tools/path";
+import { toolInputPath, truncateText } from "@/components/tools/path";
 import { marketplaceToolConnector } from "@/lawoss/domains/marketplace/mcp-servers";
 
 type Labels = { active: string; done: string };
@@ -64,9 +64,9 @@ function createsDocument(input: unknown): boolean {
 }
 
 function label(name: string, input: unknown, phase: keyof Labels): string | null {
-  if (name === "read" && SESSION_FILE.test(field(input, "filePath") ?? "")) return t(phase === "active" ? "lawoss.tool.session_read" : "lawoss.tool.session_read_done");
+  if (name === "read" && SESSION_FILE.test(toolInputPath(input) ?? "")) return t(phase === "active" ? "lawoss.tool.session_read" : "lawoss.tool.session_read_done");
   // Čítanie bez cesty: upstream by doplnil zástupné slovo „file“ („Prečítaný súbor file“, overenie alfy 12, 14. 11. 2026).
-  if (name === "read" && !field(input, "filePath")) return t(phase === "active" ? "lawoss.tool.file_read" : "lawoss.tool.file_read_done");
+  if (name === "read" && !toolInputPath(input)) return t(phase === "active" ? "lawoss.tool.file_read" : "lawoss.tool.file_read_done");
   // Príkaz s popisom od agenta (popis je v nástroji povinný) ukáže popis ako bežný príkaz `bash`.
   const description = name === "legalwork_shell" ? field(input, "description") : undefined;
   if (description) return truncateText(description, phase === "active" ? 64 : 80);

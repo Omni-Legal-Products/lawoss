@@ -8,6 +8,7 @@ import {
   isWriteToolPart,
 } from "@/lib/build-in-tools";
 import { withCreatedFiles } from "@/lawoss/chat/file-changes";
+import { toolInputPath } from "@/components/tools/path"; // 🟡 LAWOSS #550
 import { useOpenTargets } from "@/lib/target-provider";
 import { isCollectibleArtifactTarget, isOpenableFileTarget, type OpenTarget, type OpenTargetPreview } from "@/react-app/domains/session/artifacts/open-target";
 
@@ -267,12 +268,12 @@ function getArtifactPathsFromMessage(message: UIMessage) {
     }
 
     if (isWriteToolPart(part)) {
-      paths.push(part.input.filePath);
+      paths.push(toolInputPath(part.input));
       continue;
     }
 
     if (isEditToolPart(part)) {
-      paths.push(part.input.filePath);
+      paths.push(toolInputPath(part.input));
       continue;
     }
     if (isApplyPatchToolPart(part)) {

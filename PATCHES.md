@@ -5,6 +5,12 @@
 | Súbor | Zmena |
 |---|---|
 | `apps/app/src/react-app/domains/session/surface/session-surface.tsx`, nový `apps/app/src/lawoss/domains/ai/composer-failure-toast.ts` (LAWOSS, + test `tests/lawoss-ai-hranice-toast-551.test.ts`) | #551: odoslanie z existujúceho chatu (`queueDraft`) pri chybe ukazovalo `composer.send_failed_restored` s `error.message`. Pri zapnutých AI hraniciach to bol anglický text servera („Protected AI processing is unavailable…“), bez odkazu do nastavení, a toast po pár sekundách zmizol. Odoslanie aj front (`queueFailure`) teraz idú cez `composerFailureToast`: pre AI hranice lokalizovaná veta `lawoss.ai_boundaries.chat_refused`, akcia „Otvoriť nastavenie AI hraníc“ a `duration: Infinity`; iné chyby bez zmeny. |
+
+## Meno súboru v krokoch read/edit/write enginu v2 (#550) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/components/tools/path.ts` (nový `toolInputPath`), `apps/app/src/lib/build-in-tools.ts`, `apps/app/src/lib/tool-activity.ts`, `apps/app/src/components/tools/{tool-presentation.ts,file.tsx,edit.tsx}`, `apps/app/src/lib/artifacts.ts`, `apps/app/src/lawoss/chat/tool-labels.ts` (LAWOSS, + test `tests/lawoss-nazov-suboru-path-550.test.ts`) | #550: engine v2 posiela cestu nástrojov `read`/`edit`/`write` ako `path` (`packages/core/src/tool/plugin/{read,edit,write}.ts`), appka čítala `filePath`. `parseFilename(undefined)` vracal „file“, karta ukazovala „Zápis file“ / „Zapísaný súbor file“ a zapísané či upravené súbory chýbali v súboroch chatu. `toolInputPath` berie `filePath`, inak `path`; typy vstupov majú obe polia voliteľné. Čítanie bez cesty v `tool-labels.ts` (alfa 12) teraz kontroluje tú istú cestu, takže v2 ukáže meno súboru. |
 ## Licencie onnxruntime pre Windows ARM64 pribalené v repe (2026-11-18)
 
 | Súbor | Zmena |
