@@ -1,5 +1,12 @@
 # LAWOSS downstream patches
 
+## Nečitateľný `.opencode` nad klientom nezastaví štart enginu (#540) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/skills.ts` (+ testy `skills.test.ts`, `legalwork-runtime-config.test.ts`) | #540: `listSkills` prechádza všetky nadradené priečinky klienta a pre každý volá `listSkillsInDir(<priečinok>/.opencode/skills)`. Pri `.opencode` bez práv (iný vlastník na NAS, `chmod 000`) `lstat` v `resolveWorkspaceFilePath` vyhodil `EACCES`, `listSkillsInDir` ho pustil ďalej a cez `resolveCapabilityLibrary` → `buildLegalworkRuntimeSettings` → `writeLegalworkRuntimeConfigFile` (`embedded.ts`, pred spustením enginu) zhodil štart enginu pre všetkých klientov. Chyby `EACCES`, `EPERM` a `ENOTDIR` pri overení cesty aj pri `readdir` priečinka skillov teraz znamenajú nedostupný zdroj: priečinok sa zapíše do `skipped` s dôvodom a výpis pokračuje. Iné chyby sa vyhadzujú ako doteraz. |
+| `apps/server/src/native-workspace-config.ts` (+ test `legalwork-runtime-config.test.ts`) | Rovnaký prechod nadradených priečinkov v `projectConfigPaths` (`GET /workspace/:id/config`) vyhodil `EACCES` zo `stat` na `<predok>/.opencode/opencode.jsonc`. Nečitateľný (`EACCES`, `EPERM`) alebo nie-priečinok (`ENOTDIR`) sa berie ako chýbajúci súbor, rovnako ako `ENOENT`. |
+
 ## Lokálne modely Ollama cez Chat Completions (#410) (2026-11-18)
 
 | Súbor | Zmena |

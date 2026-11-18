@@ -45,7 +45,8 @@ async function projectConfigPaths(directory: string, generated: string | undefin
     for (const path of opencodeConfigPaths(current)) {
       if (path === generated) continue;
       const info = await stat(path).catch(error => {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+        // 🟡 LAWOSS #540: an unreadable ancestor `.opencode` (EACCES/EPERM) or a file named `.opencode` (ENOTDIR) has no readable config.
+        if (error instanceof Error && "code" in error && typeof error.code === "string" && ["ENOENT", "EACCES", "EPERM", "ENOTDIR"].includes(error.code)) return undefined;
         throw error;
       });
       if (info?.isFile()) paths.push(path);
