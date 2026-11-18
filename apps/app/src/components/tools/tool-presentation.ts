@@ -3,7 +3,7 @@ import { Blocks, BookOpen, Bot, FilePenLine, FilePlus2, FolderSearch, Globe, Hea
 import { isBashToolPart, isEditToolPart, isGlobToolPart, isGrepToolPart, isReadToolPart, isWriteToolPart } from "@/lib/build-in-tools";
 import { codeModeToolLabel, getCodeModeToolNames, getToolActivityLabel, isAppCapabilitiesToolPart, isToolPartInFlight, isToolPermissionDenied } from "@/lib/tool-activity";
 import { t } from "@/i18n";
-import { parseFilename, truncateText } from "./path";
+import { parseFilename, toolInputPath, truncateText } from "./path"; // 🟡 LAWOSS #550
 // 🟡 LAWOSS: kroky agenta pre advokáta, nie názvy nástrojov (N-A5-7).
 import { lawossToolCategory, lawossToolHistoryLabel } from "@/lawoss/chat/tool-labels";
 
@@ -98,9 +98,9 @@ export function getToolHistoryLabel(part: ToolPart): string {
   if (nameOf(part) === "legalwork_assistant_attention_present") return t("assistant.attention_presented");
   if (nameOf(part) === "legalwork_assistant_attention_answer") return t("assistant.attention_answered");
   if (nameOf(part) === "legalwork_assistant_follow_up") return t("assistant.attention_followed_up");
-  if (isReadToolPart(part)) return t("tool_run.read_file", { file: parseFilename(part.input?.filePath) });
-  if (isEditToolPart(part)) return t("tool_run.edited_file", { file: parseFilename(part.input?.filePath) });
-  if (isWriteToolPart(part)) return t("tool_run.wrote_file", { file: parseFilename(part.input?.filePath) });
+  if (isReadToolPart(part)) return t("tool_run.read_file", { file: parseFilename(toolInputPath(part.input)) });
+  if (isEditToolPart(part)) return t("tool_run.edited_file", { file: parseFilename(toolInputPath(part.input)) });
+  if (isWriteToolPart(part)) return t("tool_run.wrote_file", { file: parseFilename(toolInputPath(part.input)) });
   if (isGrepToolPart(part) || isGlobToolPart(part)) {
     const pattern = part.input?.pattern?.trim();
     return pattern ? t("tool_run.searched_for", { pattern: truncateText(pattern, 44) }) : t("tool_run.summary.search");
