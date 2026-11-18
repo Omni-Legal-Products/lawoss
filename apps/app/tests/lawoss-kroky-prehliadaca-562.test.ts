@@ -9,15 +9,18 @@ const BROWSER_STEPS = ["browser.tabs_open", "browser.wait", "browser.snapshot", 
 for (const locale of ["sk", "cs", "en", "de"] as const) {
   test(`${locale}: kroky prehliadača bez technických mien`, () => {
     setLocale(locale);
+    const expected = ["tabs_open", "wait", "snapshot", "find", "click"].map((action) => t(`lawoss.tool.browser_${action}` as never)).join(" · ");
     for (const phase of ["active", "done"] as const) {
       const label = lawossCodeModeLabel(BROWSER_STEPS, phase);
-      expect(label).toBe(t(phase === "active" ? "lawoss.tool.browser" : "lawoss.tool.browser_done"));
-      expect(label).not.toMatch(/tabs open|snapshot|Browser wait/i);
+      if (locale === "en") expect(label).toBe("Browser tabs open · Browser wait · Browser snapshot · Browser find · Browser click");
+      else { expect(label).toBe(expected); expect(label).not.toMatch(/Browser (tabs|wait|snapshot|find|click)/); }
     }
+    // Neznáma akcia prehliadača je všeobecný krok v jazyku rozhrania, nie technické meno.
+    expect(lawossCodeModeLabel(["browser.upload_file"], "done")).toBe(t("lawoss.tool.browser_done"));
   });
 }
 
 test("cs: konkrétny text a spojenie s iným krokom", () => {
   setLocale("cs");
-  expect(lawossCodeModeLabel(["browser.tabs_open", "websearch"], "done")).toBe(`${t("lawoss.tool.browser_done")} · ${t("lawoss.tool.web_search_done")}`);
+  expect(lawossCodeModeLabel(["browser.click", "websearch"], "done")).toBe("Prohlížeč: kliknutí · Vyhledáno na webu");
 });
