@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import type { FreshDocument } from "./document-processing";
 import { documentVisualSourceVerified, subscribeDocumentVisualSources, type DocumentVisualSource } from "./document-visual-source";
+import { formatUiDateTime } from "@/lawoss/i18n/format-date"; // 🟡 LAWOSS #548
 
 export function DocumentVisualReview(props: { record: FreshDocument; source: DocumentVisualSource; host: boolean; disabled: boolean; onReview: (pages: number[]) => void; onOpen?: () => void }) {
   const [confirmed, setConfirmed] = React.useState(false);
@@ -32,6 +33,6 @@ export function DocumentVisualReview(props: { record: FreshDocument; source: Doc
         <label className="flex items-start gap-2"><input type="checkbox" checked={confirmed} disabled={props.disabled || !verified} onChange={event => setConfirmed(event.target.checked)} />{t("documents.visual_confirm")}</label>
         <Button size="sm" variant="outline" disabled={props.disabled || !verified || !confirmed} onClick={() => { if (verified && confirmed) props.onReview(pending.map(page => page.page)); }}>{t("documents.visual_review")}</Button>
       </>}
-    </> : props.record.visualReview ? <p>{t("documents.visual_reviewed", { date: new Date(props.record.visualReview.reviewedAt).toLocaleString() })}</p> : null}
+    </> : props.record.visualReview ? <p>{t("documents.visual_reviewed", { date: formatUiDateTime(props.record.visualReview.reviewedAt) })}</p> : null}
   </div>;
 }

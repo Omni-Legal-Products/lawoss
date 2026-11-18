@@ -46,6 +46,7 @@ import { applyWordFormatting, preserveWordFormatting, readWordFormatting } from 
 import { compareWordDocuments, combineWordDocuments } from "./docx-comparison";
 import { DocxWordTools } from "./docx-word-tools";
 import { createCleanDocx, downloadDocx } from "./docx-export";
+import { formatUiDateTime } from "@/lawoss/i18n/format-date"; // 🟡 LAWOSS #548
 
 // The editor otherwise injects a fonts.googleapis.com stylesheet for any font a
 // document names that isn't installed locally — which would tell Google the
@@ -209,7 +210,7 @@ export function ArtifactDocxEditor(props: ArtifactDocxEditorProps) {
   if (!checked) return <div className="p-6 text-sm" role="status">{t("docx.checking_draft")}</div>;
   if (recovery) return <div className="space-y-4 p-6">
     <h3 className="font-medium">{t("docx.recover_prompt")}</h3>
-    <p className="text-sm text-muted-foreground">{t("docx.recover_saved_draft", { name: props.name, time: new Date(recovery.savedAt).toLocaleString() })}</p>
+    <p className="text-sm text-muted-foreground">{t("docx.recover_saved_draft", { name: props.name, time: formatUiDateTime(recovery.savedAt) })}</p>
     {recovery.baseUpdatedAt !== props.baseUpdatedAt && <p className="text-sm">{t("docx.recover_body")}</p>}
     <div className="flex gap-2">
       <Button onClick={() => { props.onRestore?.(recovery.baseUpdatedAt); setRestored(recovery); setRecovery(null); }}>{t("docx.recover_draft")}</Button>
