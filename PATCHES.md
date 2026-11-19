@@ -6,6 +6,13 @@
 |---|---|
 | `apps/app/src/components/markdown/markdown.tsx`, `apps/app/src/react-app/domains/session/surface/markdown.tsx`, nový `apps/app/src/lawoss/chat/emoji-aliases.ts` (LAWOSS, + test `tests/lawoss-emoji-cisla-571.test.tsx`) | #571: `createEmojiAliases()` bral za skratku `:meno:` každé z 6 272 kľúčových slov `emojilib`, aj čísla (`1`→🕐, `2`→🕑, `9`→🕘, `100`→💯) a krátke slová (`na`, `je`, `v`). V odpovedi sa „Podíly v poměru 1:2:3“ zmenilo na „1🕑3“ a „127.0.0.1:9:80“ na „127.0.0.1🕘80“. `emojiShortcodeAliases` berie len mená: začína písmenom, aspoň 3 znaky, aspoň 2 písmená. `:smile:`, `:thumbsup:` fungujú ďalej. |
 
+## Riadne ukončenie appky nezapíše chyby prúdu udalostí (#561) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/server.ts`, `apps/server/src/embedded.ts`, nový `apps/server/src/lawoss/engine-events-release.ts` (LAWOSS, + test `lawoss/shutdown-engine-events.e2e.test.ts`) | #561: `stop()` vloženého servera zatváral spravovaný engine skôr než HTTP server, takže natívny prúd `/event` (`scopedNativeEvents` cez `mergeEvents`) pri každom ukončení appky skončil chybou „Engine event transport ended.“. Server ju zapísal ako `Unhandled error`, zatvoril socket a Electron zapísal `Error occurred in handler for 'legalwork:desktop': TypeError: terminated`; upratovanie pôvodných obrázkov zapísalo WARN. `StartedServer` má nové `releaseEngineEvents()` (typ, `startServer` a signál trasy `/event`, riadky označené `🟡 LAWOSS #561`) a `embedded.ts` ho volá pred zatvorením enginu: prúdy `/event` skončia ako bežný koniec prúdu a upratovanie obrázkov sa zastaví. Pád enginu počas behu prúd ďalej preruší chybou. Samostatný `cli.ts` má rovnaké poradie, appka ho nepoužíva a ostáva bez zmeny. |
+| `apps/desktop/electron/event-streams.mjs`, `http-requests.mjs`, `main.mjs` (+ testy `event-streams.test.mjs`, `http-requests.test.mjs`) | #561: okná držia aj prúd `/sync/events` a môžu mať rozbehnuté požiadavky; vypnutie vloženého servera im zavrelo socket a Electron zapísal `Error occurred in handler for 'legalwork:desktop': TypeError: terminated` (`UND_ERR_SOCKET`). `before-quit` teraz pred zastavením servera volá `eventStreams.closeAll()` a `httpRequests.closeAll()`: rozbehnuté čítania a požiadavky sa skončia ako zrušené (`null`, ako pri #506) a nové po začiatku ukončenia vrátia `null` bez siete. Socket zavretý počas behu appky ďalej končí chybou. |
+
 ## Chat klienta sa na hlavného asistenta pýta len raz (#564) (2026-11-18)
 
 | Súbor | Zmena |
