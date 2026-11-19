@@ -8,6 +8,12 @@
 | `apps/server/src/server.ts`, nový `apps/server/src/lawoss/provider-key-check.ts` (LAWOSS, + test `provider-key-check.test.ts`) | Trasa `POST /workspace/:id/provider-key-check` (+1 import, 10 riadkov): kľúč OpenRouter overí cez `GET https://openrouter.ai/api/v1/key` (verejný zoznam modelov kľúč nekontroluje). Vráti len `valid`/`rejected`/`unverified`/`unchecked`; 401 je `rejected`, iná odpoveď alebo chyba siete `unverified`. Kľúč ani telo odpovede sa nevracajú ani nelogujú. Kľúč s medzerou trasa odmietne (400). |
 | `apps/app/src/app/lib/legalwork-server.ts` | Metóda klienta `checkProviderKey` pre novú trasu (9 riadkov). |
 
+## Chat klienta sa na hlavného asistenta pýta len raz (#564) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/opencode-plugins/legalwork-assistant-tools.ts` (+ test v `legalwork-assistant-tools.test.ts`) | Poverenie enginu `GET /assistant` nikdy neprečíta (`wiki/agent-access.ts`: trasa nie je medzi nástrojmi, 403 `wiki_agent_endpoint_denied`). Plugin v2 (`Plugin.define`) sa pritom pýtal pri každom ťahu, kroku modelu (`session.context`), povolení a výsledku nástroja cez `isAssistant` bez pamäte; skoršia oprava (test alfy 10. 11.) zapamätala odmietnutie len v nepoužívaných hookoch v1. Teraz si `isAssistant` prvé odmietnutie zapamätá na celú inštanciu pluginu: v chate klienta jedna požiadavka (pri štarte inštancie) namiesto ~10 na ťah. |
+
 ## Verejný text v oddelenom prostredí v jazyku rozhrania (#552) (2026-11-18)
 
 | Súbor | Zmena |
