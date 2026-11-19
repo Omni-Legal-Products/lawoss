@@ -6,6 +6,12 @@
 |---|---|
 | `apps/app/src/components/markdown/markdown.tsx`, `apps/app/src/react-app/domains/session/surface/markdown.tsx`, nový `apps/app/src/lawoss/chat/emoji-aliases.ts` (LAWOSS, + test `tests/lawoss-emoji-cisla-571.test.tsx`) | #571: `createEmojiAliases()` bral za skratku `:meno:` každé z 6 272 kľúčových slov `emojilib`, aj čísla (`1`→🕐, `2`→🕑, `9`→🕘, `100`→💯) a krátke slová (`na`, `je`, `v`). V odpovedi sa „Podíly v poměru 1:2:3“ zmenilo na „1🕑3“ a „127.0.0.1:9:80“ na „127.0.0.1🕘80“. `emojiShortcodeAliases` berie len mená: začína písmenom, aspoň 3 znaky, aspoň 2 písmená. `:smile:`, `:thumbsup:` fungujú ďalej. |
 
+## Chat klienta sa na hlavného asistenta pýta len raz (#564) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/opencode-plugins/legalwork-assistant-tools.ts` (+ test v `legalwork-assistant-tools.test.ts`) | Poverenie enginu `GET /assistant` nikdy neprečíta (`wiki/agent-access.ts`: trasa nie je medzi nástrojmi, 403 `wiki_agent_endpoint_denied`). Plugin v2 (`Plugin.define`) sa pritom pýtal pri každom ťahu, kroku modelu (`session.context`), povolení a výsledku nástroja cez `isAssistant` bez pamäte; skoršia oprava (test alfy 10. 11.) zapamätala odmietnutie len v nepoužívaných hookoch v1. Teraz si `isAssistant` prvé odmietnutie zapamätá na celú inštanciu pluginu: v chate klienta jedna požiadavka (pri štarte inštancie) namiesto ~10 na ťah. |
+
 ## Verejný text v oddelenom prostredí v jazyku rozhrania (#552) (2026-11-18)
 
 | Súbor | Zmena |

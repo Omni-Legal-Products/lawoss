@@ -302,12 +302,19 @@ export default Plugin.define({ id: "legalwork.assistant", async setup(ctx) {
   // These internal identity/policy reads use the same app credential as the
   // v1 hooks. The session-scoped credential is only for delegation endpoints;
   // attaching it here makes the server reject every ordinary user prompt.
+  // 🟡 LAWOSS #564: the engine credential may never read /assistant (wiki/agent-access.ts), so its first refusal
+  // answers every later check of this instance; otherwise each turn, model step and tool result asked again.
+  let refused = false;
   const isAssistant = async (directory: string) => {
     // LAWOSS: a refused identity read means no main Assistant here, never a failed tool or prompt.
+    if (refused) return false;
     try {
       const data = z.object({ workspace: z.object({ path: z.string() }).nullable() }).parse(await request("/assistant"));
       return Boolean(data.workspace && resolve(data.workspace.path) === resolve(directory));
-    } catch { return false; }
+    } catch (error) {
+      refused = deniedRequest(error);
+      return false;
+    }
   };
   const isCoordinator = async (sessionID: Parameters<typeof ctx.session.get>[0]["sessionID"]) => {
     const session = await ctx.session.get({ sessionID });
