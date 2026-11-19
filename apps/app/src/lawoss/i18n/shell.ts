@@ -992,7 +992,28 @@ export const shellEn = {
   "lawoss.provider_key.unverified": "The key was saved, but it could not be checked right now (the provider is unreachable or gave an unexpected answer). If the first message fails, check the key in AI provider settings.",
   "lawoss.provider_method.chatgpt_sign_in": "Sign in with ChatGPT",
   "lawoss.provider_method.codex_browser": "Codex in the browser (older method)",
-  "lawoss.provider_method.codex_device": "Codex with a device code (older method)"
+  "lawoss.provider_method.codex_device": "Codex with a device code (older method)",
+  // #580: dialóg Vlastný poskytovateľ (provider-auth-modal.tsx) mal tieto texty natvrdo po anglicky.
+  "lawoss.custom_provider.runtime": "Local server",
+  "lawoss.custom_provider.provider_id": "Provider ID:",
+  "lawoss.custom_provider.provider_id_fixed": "(fixed)",
+  "lawoss.custom_provider.chat_completions_hint": "/v1/chat/completions · most endpoints",
+  "lawoss.custom_provider.api_key": "API key",
+  "lawoss.custom_provider.api_key_optional": "API key (optional)",
+  "lawoss.custom_provider.add_model": "Add",
+  "lawoss.custom_provider.model_tools": "Tools",
+  "lawoss.custom_provider.model_reasoning": "Reasoning",
+  "lawoss.custom_provider.model_context": "Context",
+  "lawoss.custom_provider.model_output": "Output",
+  "lawoss.custom_provider.limit_auto": "auto",
+  "lawoss.custom_provider.saving": "Saving…",
+  "lawoss.custom_provider.adding": "Adding…",
+  "lawoss.custom_provider.name_required": "Enter a name.",
+  "lawoss.custom_provider.base_url_required": "Enter a base URL.",
+  "lawoss.custom_provider.fetch_models_failed": "Couldn't load the models. Enter the model IDs manually. ({detail})",
+  "lawoss.custom_provider.fetch_models_request_failed": "request failed",
+  "lawoss.custom_provider.fetch_models_no_server": "Models can't be loaded without a connection to the app server.",
+  "lawoss.providers.keys_stored_locally": "Keys are stored only on this computer."
 };
 
 /** Čeština a slovenština potřebují navíc tvary few/many (Intl.PluralRules, viz `t()` v i18n/index.ts). */
@@ -2009,7 +2030,28 @@ export const shellCs = {
   "lawoss.provider_key.unverified": "Klíč se uložil, ale teď se nedal ověřit (poskytovatel není dostupný nebo neodpověděl podle očekávání). Pokud první zpráva selže, zkontrolujte klíč v nastavení poskytovatelů AI.",
   "lawoss.provider_method.chatgpt_sign_in": "Přihlásit se přes ChatGPT",
   "lawoss.provider_method.codex_browser": "Codex v prohlížeči (starší způsob)",
-  "lawoss.provider_method.codex_device": "Codex pomocí kódu zařízení (starší způsob)"
+  "lawoss.provider_method.codex_device": "Codex pomocí kódu zařízení (starší způsob)",
+  // #580: dialóg Vlastní poskytovatel.
+  "lawoss.custom_provider.runtime": "Lokální server",
+  "lawoss.custom_provider.provider_id": "ID poskytovatele:",
+  "lawoss.custom_provider.provider_id_fixed": "(neměnné)",
+  "lawoss.custom_provider.chat_completions_hint": "/v1/chat/completions · většina endpointů",
+  "lawoss.custom_provider.api_key": "Klíč API",
+  "lawoss.custom_provider.api_key_optional": "Klíč API (nepovinné)",
+  "lawoss.custom_provider.add_model": "Přidat",
+  "lawoss.custom_provider.model_tools": "Nástroje",
+  "lawoss.custom_provider.model_reasoning": "Uvažování",
+  "lawoss.custom_provider.model_context": "Kontext",
+  "lawoss.custom_provider.model_output": "Výstup",
+  "lawoss.custom_provider.limit_auto": "výchozí",
+  "lawoss.custom_provider.saving": "Ukládá se…",
+  "lawoss.custom_provider.adding": "Přidává se…",
+  "lawoss.custom_provider.name_required": "Zadejte název.",
+  "lawoss.custom_provider.base_url_required": "Zadejte základní URL.",
+  "lawoss.custom_provider.fetch_models_failed": "Modely se nepodařilo načíst. Zadejte ID modelů ručně. ({detail})",
+  "lawoss.custom_provider.fetch_models_request_failed": "požadavek selhal",
+  "lawoss.custom_provider.fetch_models_no_server": "Bez připojení k serveru aplikace nelze modely načíst.",
+  "lawoss.providers.keys_stored_locally": "Klíče se ukládají jen v tomto počítači."
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
@@ -3023,7 +3065,28 @@ export const shellSk = {
   "lawoss.provider_key.unverified": "Kľúč sa uložil, ale teraz sa nedal overiť (poskytovateľ nie je dostupný alebo neodpovedal podľa očakávania). Ak prvá správa zlyhá, skontrolujte kľúč v nastaveniach poskytovateľov AI.",
   "lawoss.provider_method.chatgpt_sign_in": "Prihlásiť sa cez ChatGPT",
   "lawoss.provider_method.codex_browser": "Codex v prehliadači (starší spôsob)",
-  "lawoss.provider_method.codex_device": "Codex pomocou kódu zariadenia (starší spôsob)"
+  "lawoss.provider_method.codex_device": "Codex pomocou kódu zariadenia (starší spôsob)",
+  // #580: dialóg Vlastný poskytovateľ.
+  "lawoss.custom_provider.runtime": "Lokálny server",
+  "lawoss.custom_provider.provider_id": "ID poskytovateľa:",
+  "lawoss.custom_provider.provider_id_fixed": "(nemenné)",
+  "lawoss.custom_provider.chat_completions_hint": "/v1/chat/completions · väčšina endpointov",
+  "lawoss.custom_provider.api_key": "Kľúč API",
+  "lawoss.custom_provider.api_key_optional": "Kľúč API (nepovinné)",
+  "lawoss.custom_provider.add_model": "Pridať",
+  "lawoss.custom_provider.model_tools": "Nástroje",
+  "lawoss.custom_provider.model_reasoning": "Uvažovanie",
+  "lawoss.custom_provider.model_context": "Kontext",
+  "lawoss.custom_provider.model_output": "Výstup",
+  "lawoss.custom_provider.limit_auto": "predvol.",
+  "lawoss.custom_provider.saving": "Ukladá sa…",
+  "lawoss.custom_provider.adding": "Pridáva sa…",
+  "lawoss.custom_provider.name_required": "Zadajte názov.",
+  "lawoss.custom_provider.base_url_required": "Zadajte základnú URL.",
+  "lawoss.custom_provider.fetch_models_failed": "Modely sa nepodarilo načítať. Zadajte ID modelov ručne. ({detail})",
+  "lawoss.custom_provider.fetch_models_request_failed": "požiadavka zlyhala",
+  "lawoss.custom_provider.fetch_models_no_server": "Bez pripojenia k serveru aplikácie sa modely nedajú načítať.",
+  "lawoss.providers.keys_stored_locally": "Kľúče sa ukladajú len v tomto počítači."
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
@@ -4019,5 +4082,26 @@ export const shellDe = {
   "lawoss.provider_key.unverified": "Der Schlüssel wurde gespeichert, konnte aber gerade nicht geprüft werden (der Anbieter ist nicht erreichbar oder hat unerwartet geantwortet). Wenn die erste Nachricht fehlschlägt, prüfen Sie den Schlüssel in den KI-Anbieter-Einstellungen.",
   "lawoss.provider_method.chatgpt_sign_in": "Mit ChatGPT anmelden",
   "lawoss.provider_method.codex_browser": "Codex im Browser (ältere Methode)",
-  "lawoss.provider_method.codex_device": "Codex mit Gerätecode (ältere Methode)"
+  "lawoss.provider_method.codex_device": "Codex mit Gerätecode (ältere Methode)",
+  // #580: Dialog Eigener Anbieter.
+  "lawoss.custom_provider.runtime": "Lokaler Server",
+  "lawoss.custom_provider.provider_id": "Anbieter-ID:",
+  "lawoss.custom_provider.provider_id_fixed": "(fest)",
+  "lawoss.custom_provider.chat_completions_hint": "/v1/chat/completions · die meisten Endpunkte",
+  "lawoss.custom_provider.api_key": "API-Schlüssel",
+  "lawoss.custom_provider.api_key_optional": "API-Schlüssel (optional)",
+  "lawoss.custom_provider.add_model": "Hinzufügen",
+  "lawoss.custom_provider.model_tools": "Werkzeuge",
+  "lawoss.custom_provider.model_reasoning": "Schlussfolgern",
+  "lawoss.custom_provider.model_context": "Kontext",
+  "lawoss.custom_provider.model_output": "Ausgabe",
+  "lawoss.custom_provider.limit_auto": "Standard",
+  "lawoss.custom_provider.saving": "Wird gespeichert…",
+  "lawoss.custom_provider.adding": "Wird hinzugefügt…",
+  "lawoss.custom_provider.name_required": "Geben Sie einen Namen ein.",
+  "lawoss.custom_provider.base_url_required": "Geben Sie eine Basis-URL ein.",
+  "lawoss.custom_provider.fetch_models_failed": "Die Modelle konnten nicht geladen werden. Geben Sie die Modell-IDs manuell ein. ({detail})",
+  "lawoss.custom_provider.fetch_models_request_failed": "Anfrage fehlgeschlagen",
+  "lawoss.custom_provider.fetch_models_no_server": "Ohne Verbindung zum App-Server können keine Modelle geladen werden.",
+  "lawoss.providers.keys_stored_locally": "Die Schlüssel werden nur auf diesem Computer gespeichert."
 } satisfies Record<keyof typeof shellEn, string>;
