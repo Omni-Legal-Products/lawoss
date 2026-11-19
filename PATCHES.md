@@ -6,6 +6,12 @@
 |---|---|
 | `apps/server/src/opencode-plugins/legalwork-sandbox.ts`, `apps/server/src/opencode-plugins/legalwork-project-tools.ts`, `lawoss-view-tools.ts` a `lawoss-linked-folders.ts` (LAWOSS, + testy `lawoss/plugin-text-direct-tools.test.ts`, `lawoss/plugin-tools-direct.integration.test.ts`) | #573, pokračovanie #484: engine 2.1.4 ponúka nástroj pluginu modelu priamo len s `codemode: false`, inak existuje iba vnútri Code Mode `execute`. Vodítko sandboxu volá menom `legalwork_shell`, `legalwork_webfetch` a `legalwork_websearch` (vstavané `shell`, `webfetch` a `websearch` sandbox odstraňuje) a OKF skilly z neho spúšťajú `okf.js` a `okf-memory`. Texty LAWOSS a skill `roztried-spis` volajú `lawoss_documents_*`, pravidlá vizuálnych prehľadov `view_catalog`/`view_create`/`view_update`. Tieto nástroje sú teraz obalené `directTool` (v upstream súboroch import s `🟡 LAWOSS #573` a obalenie volania), oprávnenia a karty sa nemenia. Nástroje, ktoré menujú len upstream texty (`legalwork_skill_*`, `storage_*`, `legalwork_task_*` a ďalšie), ostávajú v Code Mode podľa návrhu upstreamu. Test `plugin-text-direct-tools` spúšťa pluginy s ich vlastnou registráciou a zlyhá, keď text LAWOSS, vodítko sandboxu alebo pribalený OKF skill menuje nástroj, ktorý je len v Code Mode. Pevné vety pripomienky pripojených priečinkov sú vytiahnuté do exportovanej konštanty `LINKED_FOLDERS_REMINDER_RULES` (text sa nemení). |
 
+## Profily dokumentov: trvalá 409 sa neopakuje každých 5 s (#563) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/session/panel/document-processing-panel.tsx`, nový `apps/app/src/lawoss/domains/documents/profile-polling.ts` (LAWOSS, + test `tests/lawoss-profily-dokumentov-563.test.ts`) | #563: panel „Spracovanie dokumentov“ volal `GET …/lawoss/documents/profiles` každých 5 s (`refetchInterval: 5000`) aj pri trvalej `409 protected_ai_provider_unsupported` (Ollama, OpenRouter): 11 požiadaviek za 30 s, každá s chybou v konzole a WARN v `main.log`. `profilesRefetchInterval`/`profilesRetry` pri tomto kóde neopakujú; zmena modelu je nový kľúč dotazu, takže sa znova načíta. Ostatné chyby a bežné obnovovanie bez zmeny. |
+
 ## Riadne ukončenie appky nezapíše chyby prúdu udalostí (#561) (2026-11-18)
 
 | Súbor | Zmena |
