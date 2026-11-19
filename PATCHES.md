@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Nedosiahnuteľný cieľ `sandbox/http` vráti typovanú chybu (#565) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/agent-sandbox/raw-http.ts`, nový `apps/server/src/lawoss/sandbox-http-failure.ts` (LAWOSS, + test `apps/server/src/lawoss/sandbox-http-unreachable.e2e.test.ts`) | #565: `POST /workspace/:id/sandbox/http` (`execute`/`fetch` agenta) pri nedosiahnuteľnom cieli padal na `500 internal_error` a server logoval „Unhandled error“ s celým `AggregateError`. `rawHttpRequest` teraz podľa kódu chyby (nie textu) mení zlyhanie spojenia, DNS a TLS na `502 sandbox_http_unreachable` a vyčerpaný 30 s rozpočet či `ETIMEDOUT`/`UND_ERR_CONNECT_TIMEOUT` na `504 sandbox_http_timeout`, so stručnou správou s hostiteľom a kódom. Zamietnutie politikou, validácia, zrušenie volajúcim a neznáme chyby ostávajú bez zmeny. |
+
 ## Profily dokumentov: trvalá 409 sa neopakuje každých 5 s (#563) (2026-11-18)
 
 | Súbor | Zmena |
