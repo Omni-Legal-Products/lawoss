@@ -8,6 +8,12 @@
 | `apps/server/src/server.ts`, nový `apps/server/src/lawoss/provider-key-check.ts` (LAWOSS, + test `provider-key-check.test.ts`) | Trasa `POST /workspace/:id/provider-key-check` (+1 import, 10 riadkov): kľúč OpenRouter overí cez `GET https://openrouter.ai/api/v1/key` (verejný zoznam modelov kľúč nekontroluje). Vráti len `valid`/`rejected`/`unverified`/`unchecked`; 401 je `rejected`, iná odpoveď alebo chyba siete `unverified`. Kľúč ani telo odpovede sa nevracajú ani nelogujú. Kľúč s medzerou trasa odmietne (400). |
 | `apps/app/src/app/lib/legalwork-server.ts` | Metóda klienta `checkProviderKey` pre novú trasu (9 riadkov). |
 
+## Profily dokumentov: trvalá 409 sa neopakuje každých 5 s (#563) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/session/panel/document-processing-panel.tsx`, nový `apps/app/src/lawoss/domains/documents/profile-polling.ts` (LAWOSS, + test `tests/lawoss-profily-dokumentov-563.test.ts`) | #563: panel „Spracovanie dokumentov“ volal `GET …/lawoss/documents/profiles` každých 5 s (`refetchInterval: 5000`) aj pri trvalej `409 protected_ai_provider_unsupported` (Ollama, OpenRouter): 11 požiadaviek za 30 s, každá s chybou v konzole a WARN v `main.log`. `profilesRefetchInterval`/`profilesRetry` pri tomto kóde neopakujú; zmena modelu je nový kľúč dotazu, takže sa znova načíta. Ostatné chyby a bežné obnovovanie bez zmeny. |
+
 ## Riadne ukončenie appky nezapíše chyby prúdu udalostí (#561) (2026-11-18)
 
 | Súbor | Zmena |

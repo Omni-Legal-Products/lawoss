@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { discoverDocumentSources, selectDocumentGenerationProfile, documentProfileCopy, readDocumentWorkingDirectory, persistDocumentWorkingDirectory, documentClientIdentity, documentCoverage, documentOutputState, freshDocumentSources, listAllDocuments, type DocumentGenerationCallback, type FreshDocument } from "./document-processing";
+import { profilesRefetchInterval, profilesRetry } from "@/lawoss/domains/documents/profile-polling"; // 🟡 LAWOSS #563
 
 export type DocumentProcessingPanelProps = {
   client: LegalworkServerClient; workspaceId: string; projectId: string; workspaceRoot: string;
@@ -78,7 +79,8 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
     queryKey: ["lawoss-document-profiles", ...identity, model?.providerID, model?.modelID, caseDirectory],
     queryFn: () => props.client.listLawossDocumentProfiles(props.workspaceId, {providerId: model!.providerID, modelId: model!.modelID, caseDirectory: documentExecutionDirectory(props.workspaceRoot, caseDirectory, props.isRemote).relative}),
     enabled: props.active && protectedFlow && Boolean(model) && !directoryError,
-    staleTime: 0, refetchInterval: props.active ? 5000 : false, refetchOnWindowFocus: "always",
+    // 🟡 LAWOSS #563: trvalú 409 „poskytovateľ nepodporovaný“ neopakovať každých 5 s.
+    staleTime: 0, refetchInterval: query => profilesRefetchInterval(props.active, query.state.error), retry: profilesRetry, refetchOnWindowFocus: "always",
   });
   const profileOwner = JSON.stringify([...identity, model?.providerID, model?.modelID, caseDirectory, profiles.data?.targetFingerprint]);
   const [profileChoice, setProfileChoice] = React.useState<{owner: string; id: string} | null>(null);
