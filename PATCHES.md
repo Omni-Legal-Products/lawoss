@@ -6,6 +6,12 @@
 |---|---|
 | `apps/app/src/components/markdown/markdown.tsx`, `apps/app/src/react-app/domains/session/surface/markdown.tsx`, nový `apps/app/src/lawoss/chat/emoji-aliases.ts` (LAWOSS, + test `tests/lawoss-emoji-cisla-571.test.tsx`) | #571: `createEmojiAliases()` bral za skratku `:meno:` každé z 6 272 kľúčových slov `emojilib`, aj čísla (`1`→🕐, `2`→🕑, `9`→🕘, `100`→💯) a krátke slová (`na`, `je`, `v`). V odpovedi sa „Podíly v poměru 1:2:3“ zmenilo na „1🕑3“ a „127.0.0.1:9:80“ na „127.0.0.1🕘80“. `emojiShortcodeAliases` berie len mená: začína písmenom, aspoň 3 znaky, aspoň 2 písmená. `:smile:`, `:thumbsup:` fungujú ďalej. |
 
+## Profily dokumentov: trvalá 409 sa neopakuje každých 5 s (#563) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/session/panel/document-processing-panel.tsx`, nový `apps/app/src/lawoss/domains/documents/profile-polling.ts` (LAWOSS, + test `tests/lawoss-profily-dokumentov-563.test.ts`) | #563: panel „Spracovanie dokumentov“ volal `GET …/lawoss/documents/profiles` každých 5 s (`refetchInterval: 5000`) aj pri trvalej `409 protected_ai_provider_unsupported` (Ollama, OpenRouter): 11 požiadaviek za 30 s, každá s chybou v konzole a WARN v `main.log`. `profilesRefetchInterval`/`profilesRetry` pri tomto kóde neopakujú; zmena modelu je nový kľúč dotazu, takže sa znova načíta. Ostatné chyby a bežné obnovovanie bez zmeny. |
+
 ## Riadne ukončenie appky nezapíše chyby prúdu udalostí (#561) (2026-11-18)
 
 | Súbor | Zmena |
