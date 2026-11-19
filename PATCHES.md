@@ -6,6 +6,12 @@
 |---|---|
 | `apps/app/src/react-app/domains/session/panel/document-processing-panel.tsx`, nový `apps/app/src/lawoss/domains/documents/profile-polling.ts` (LAWOSS, + test `tests/lawoss-profily-dokumentov-563.test.ts`) | #563: panel „Spracovanie dokumentov“ volal `GET …/lawoss/documents/profiles` každých 5 s (`refetchInterval: 5000`) aj pri trvalej `409 protected_ai_provider_unsupported` (Ollama, OpenRouter): 11 požiadaviek za 30 s, každá s chybou v konzole a WARN v `main.log`. `profilesRefetchInterval`/`profilesRetry` pri tomto kóde neopakujú; zmena modelu je nový kľúč dotazu, takže sa znova načíta. Ostatné chyby a bežné obnovovanie bez zmeny. |
 
+## Chat klienta sa na hlavného asistenta pýta len raz (#564) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/opencode-plugins/legalwork-assistant-tools.ts` (+ test v `legalwork-assistant-tools.test.ts`) | Poverenie enginu `GET /assistant` nikdy neprečíta (`wiki/agent-access.ts`: trasa nie je medzi nástrojmi, 403 `wiki_agent_endpoint_denied`). Plugin v2 (`Plugin.define`) sa pritom pýtal pri každom ťahu, kroku modelu (`session.context`), povolení a výsledku nástroja cez `isAssistant` bez pamäte; skoršia oprava (test alfy 10. 11.) zapamätala odmietnutie len v nepoužívaných hookoch v1. Teraz si `isAssistant` prvé odmietnutie zapamätá na celú inštanciu pluginu: v chate klienta jedna požiadavka (pri štarte inštancie) namiesto ~10 na ťah. |
+
 ## Verejný text v oddelenom prostredí v jazyku rozhrania (#552) (2026-11-18)
 
 | Súbor | Zmena |

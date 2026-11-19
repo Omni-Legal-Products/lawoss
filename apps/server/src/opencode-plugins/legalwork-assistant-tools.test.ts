@@ -60,6 +60,43 @@ test("only the Assistant coordinator receives reaction tools and coordinator ins
   }
 });
 
+// 🟡 LAWOSS #564: the engine credential may never read /assistant, so a client chat asks once and remembers.
+test("a client chat asks for the main Assistant once, however many turns, steps and tools follow", async () => {
+  const previousUrl = process.env.LEGALWORK_SERVER_URL, previousToken = wikiAgentSecret();
+  const runtime = nativePluginTestRuntime("/Client");
+  let identityReads = 0;
+  const server = Bun.serve({ port: 0, fetch(request) {
+    if (new URL(request.url).pathname !== "/assistant") return new Response(null, { status: 404 });
+    identityReads += 1;
+    return Response.json({ code: "wiki_agent_endpoint_denied", message: "This agent credential is limited to this project's tools." }, { status: 403 });
+  } });
+  process.env.LEGALWORK_SERVER_URL = server.url.origin; adoptWikiAgentSecret("fixture");
+  const turn = async (index: number) => {
+    const prompt = { sessionID: "client", prompt: { text: `Question ${index}` } };
+    await runtime.hook("session", "prompt", prompt);
+    expect(prompt.prompt.text).not.toContain("main assistant project");
+    await Promise.all([1, 2, 3].map(() => runtime.hook("session", "context", { sessionID: "client", agent: "legalwork", system: [], tools: {} })));
+    for (const action of ["read", "legalwork_assistant_delegate"]) {
+      const event = { sessionID: "client", action, effect: "allow", resources: ["*"] };
+      await runtime.hook("permission", "evaluate", event);
+      expect(event.effect).toBe(action === "read" ? "allow" : "deny");
+    }
+    for (const tool of ["read", "webfetch"]) {
+      await nativeToolBefore(runtime, tool, { url: "https://example.test" }, "client");
+      await runtime.hook("tool", "execute.after", { ...nativeTestInvocation("client"), id: `${tool}-${index}`, tool, status: "completed", result: { content: "ok" } });
+    }
+  };
+  try {
+    await runtime.start(AssistantPlugin);
+    for (const index of [1, 2, 3, 4]) await turn(index);
+    expect(identityReads).toBe(1);
+  } finally {
+    await runtime.close(); server.stop(true);
+    if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl;
+    adoptWikiAgentSecret(previousToken ?? "");
+  }
+});
+
 // LAWOSS: the engine holds no server-wide app credential (only the chat-bound one), so the main Assistant's
 // cross-project identity/policy reads are refused and its tools stay unregistered (fail closed). Whether LAWOSS
 // offers the upstream Assistant is open for MČ (PATCHES.md, Sync v0.3.0).
