@@ -115,6 +115,26 @@ const engineToolName = (name: string): string => name.replace(".", "_");
  */
 const WEB_SEARCH: Labels = { active: "lawoss.tool.web_search", done: "lawoss.tool.web_search_done" };
 const EXTENSION_ACTIONS: Labels = { active: "lawoss.tool.extension_actions", done: "lawoss.tool.extension_actions_done" };
+/**
+ * #562: vnorené nástroje vstavaného prehliadača (`browser.click`, …) v jazyku rozhrania. Rozbalená história ich
+ * ukazuje jednotlivo (zámer upstreamu, `tool-runs.test.tsx`); neznáma akcia prehliadača je všeobecný krok, nie „Browser …“.
+ */
+const BROWSER_ACTIONS: Record<string, string> = {
+  browser_tabs_open: "lawoss.tool.browser_tabs_open",
+  browser_select_tab: "lawoss.tool.browser_select_tab",
+  browser_navigate: "lawoss.tool.browser_navigate",
+  browser_open_url: "lawoss.tool.browser_open_url",
+  browser_wait: "lawoss.tool.browser_wait",
+  browser_snapshot: "lawoss.tool.browser_snapshot",
+  browser_screenshot: "lawoss.tool.browser_screenshot",
+  browser_find: "lawoss.tool.browser_find",
+  browser_click: "lawoss.tool.browser_click",
+  browser_type: "lawoss.tool.browser_type",
+  browser_fill: "lawoss.tool.browser_fill",
+  browser_scroll: "lawoss.tool.browser_scroll",
+  browser_evaluate: "lawoss.tool.browser_evaluate",
+};
+const BROWSER: Labels = { active: "lawoss.tool.browser", done: "lawoss.tool.browser_done" };
 const CODE_MODE_LABELS: Record<string, Labels> = {
   websearch: WEB_SEARCH,
   legalwork_websearch: WEB_SEARCH,
@@ -122,8 +142,13 @@ const CODE_MODE_LABELS: Record<string, Labels> = {
   legalwork_extension_list_actions: EXTENSION_ACTIONS,
 };
 const codeModeStep = (name: string, phase: keyof Labels): string | null => {
-  const fixed = CODE_MODE_LABELS[engineToolName(name)];
-  return fixed ? t(fixed[phase]) : label(engineToolName(name), undefined, phase);
+  const tool = engineToolName(name);
+  // Akcie prehliadača prichádzajú ako `browser.wait` aj ako `legalwork_browser_open_url` (overenie kola 13).
+  const browserTool = tool.replace(/^legalwork_(?=browser_)/, "");
+  const browserAction = BROWSER_ACTIONS[browserTool];
+  if (browserAction) return t(browserAction);
+  const fixed = CODE_MODE_LABELS[tool] ?? (browserTool.startsWith("browser_") ? BROWSER : undefined);
+  return fixed ? t(fixed[phase]) : label(tool, undefined, phase);
 };
 const humanize = (name: string): string => {
   const text = name.replace(/^(?:inapp_|legalwork_)/, "").replace(/[_.-]+/g, " ");

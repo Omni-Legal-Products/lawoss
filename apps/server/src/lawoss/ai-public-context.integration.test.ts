@@ -42,7 +42,7 @@ test.skipIf(!binary)("native public text uses an empty isolated engine and exact
   const reviewed: string[] = [];
   const approve = async (request: Parameters<NonNullable<typeof config.requestHostApproval>>[0]) => {
     reviewed.push(request.summary);
-    if (allow && request.description) approvedBodies.push(JSON.stringify(JSON.parse(request.description.split("Complete serialized system and message context to be sent:\n")[1])));
+    if (allow && request.description) approvedBodies.push(JSON.stringify(JSON.parse(request.description)));
     return allow ? "allow" as const : "deny" as const;
   };
   const approvals = new ApprovalService({mode: "auto", timeoutMs: 10000}, approve);
