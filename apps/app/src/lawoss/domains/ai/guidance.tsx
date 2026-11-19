@@ -6,6 +6,7 @@ import { AI_GUIDANCE_VERSION, type AiGovernanceView } from "@legalwork/types/ai-
 import { t, type Language } from "@/i18n";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { publishAiBoundaries, useAiBoundaries } from "./boundaries-store";
+import { publicAiErrorMessage } from "./public-ai-error";
 import { resolveLegalworkConnection, type ResolvedLegalworkConnection } from "@/react-app/shell/legalwork-connection";
 import { useUiMode } from "@/lawoss/lite/ui-mode";
 
@@ -101,7 +102,7 @@ export function AiGuidance({locale, liteDisclosure = false}: {locale: Language; 
       if (!connection.normalizedBaseUrl) throw new Error(publicCopy.unavailable);
       const result = await createAiGuidanceClient(connection).runPublicAiPrompt({providerId, modelId, text: publicText});
       setPublicReply(result.reply);
-    } catch (error) {setPublicError(error instanceof Error ? error.message : publicCopy.unavailable);} finally {setPublicBusy(false);}
+    } catch (error) {setPublicError(publicAiErrorMessage(error, locale) ?? publicCopy.unavailable);} finally {setPublicBusy(false);}
   };
   const [jurisdiction, setJurisdiction] = useState<"CZ" | "SK" | null>(null);
   const [saved, setSaved] = useState(false), [busy, setBusy] = useState(false), [failed, setFailed] = useState(false);

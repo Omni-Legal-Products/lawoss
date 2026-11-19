@@ -6,6 +6,13 @@
 |---|---|
 | `apps/server/src/agent-sandbox/raw-http.ts`, nový `apps/server/src/lawoss/sandbox-http-failure.ts` (LAWOSS, + test `apps/server/src/lawoss/sandbox-http-unreachable.e2e.test.ts`) | #565: `POST /workspace/:id/sandbox/http` (`execute`/`fetch` agenta) pri nedosiahnuteľnom cieli padal na `500 internal_error` a server logoval „Unhandled error“ s celým `AggregateError`. `rawHttpRequest` teraz podľa kódu chyby (nie textu) mení zlyhanie spojenia, DNS a TLS na `502 sandbox_http_unreachable` a vyčerpaný 30 s rozpočet či `ETIMEDOUT`/`UND_ERR_CONNECT_TIMEOUT` na `504 sandbox_http_timeout`, so stručnou správou s hostiteľom a kódom. Zamietnutie politikou, validácia, zrušenie volajúcim a neznáme chyby ostávajú bez zmeny. |
 
+## Verejný text v oddelenom prostredí v jazyku rozhrania (#552) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `packages/types/src/desktop-ipc.ts`, `apps/desktop/electron/host-approvals.mjs`, `apps/desktop/electron/native-locale.mjs` (+ testy `host-approvals.test.mjs`, `scripts/host-review-regression.mjs`), `apps/server/src/lawoss/ai-public-context.ts`, `lawoss/host-decision.ts` (LAWOSS, + test `lawoss/ai-public-review-552.test.ts`) | #552: okno hostiteľa pri „Verejný text v oddelenom prostredí“ ukazovalo anglický súhrn a nadpisy zo servera („Public text only → …“, „Target: …“, „Complete serialized … context“) a riadok „Pracovný priestor: `__host_public_ai__`“ s interným ID. Server teraz posiela cieľ štruktúrovane v novom poli `HostApprovalRequest.publicAi` (pôvod, adresa, poskytovateľ, model) a `description` je len presne serializovaný kontext (bez zmeny obsahu). Hostiteľ pri akcii `ai.public.synthetic` skladá súhrn, „Cieľ“ a nadpis kontextu z `nativeCopy` (sk, cs, en, de, nové kľúče `publicSummary`, `publicTarget`, `publicContext`) a riadok pracovného priestoru vynechá. Anglický `summary` ostáva pre audit a iné zobrazenia. |
+| `apps/app/src/lawoss/domains/ai/guidance.tsx`, nový `apps/app/src/lawoss/domains/ai/public-ai-error.ts` (LAWOSS, + test `apps/app/tests/lawoss-verejna-ai-chyby-552.test.ts`) | #552: po „Odmietnuť“ sekcia ukázala anglickú správu servera („The public transmission was denied; …“). `runPublic` teraz zobrazí vetu v jazyku rozhrania podľa kódu chyby (`public_ai_denied`, `public_ai_engine_unavailable`, `public_ai_engine_version`, `public_ai_provider_unsupported`, `public_ai_target_invalid`, `org_policy_denied`, `invalid_public_prompt`, `read_only`, `public_ai_model_failed`, `public_ai_empty_reply`); neznámy kód dostane všeobecnú vetu s kódom, chyba bez kódu servera doterajšiu vetu o nedostupnosti. |
+
 ## Poškodené nastavenia klienta: varovanie pri klientovi a obnova (#554) (2026-11-18)
 
 | Súbor | Zmena |
