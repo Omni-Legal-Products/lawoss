@@ -8,6 +8,12 @@
 | `apps/server/src/server.ts`, nový `apps/server/src/lawoss/provider-key-check.ts` (LAWOSS, + test `provider-key-check.test.ts`) | Trasa `POST /workspace/:id/provider-key-check` (+1 import, 10 riadkov): kľúč OpenRouter overí cez `GET https://openrouter.ai/api/v1/key` (verejný zoznam modelov kľúč nekontroluje). Vráti len `valid`/`rejected`/`unverified`/`unchecked`; 401 je `rejected`, iná odpoveď alebo chyba siete `unverified`. Kľúč ani telo odpovede sa nevracajú ani nelogujú. Kľúč s medzerou trasa odmietne (400). |
 | `apps/app/src/app/lib/legalwork-server.ts` | Metóda klienta `checkProviderKey` pre novú trasu (9 riadkov). |
 
+## Skratky emoji len pre skutočné mená (#571) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/components/markdown/markdown.tsx`, `apps/app/src/react-app/domains/session/surface/markdown.tsx`, nový `apps/app/src/lawoss/chat/emoji-aliases.ts` (LAWOSS, + test `tests/lawoss-emoji-cisla-571.test.tsx`) | #571: `createEmojiAliases()` bral za skratku `:meno:` každé z 6 272 kľúčových slov `emojilib`, aj čísla (`1`→🕐, `2`→🕑, `9`→🕘, `100`→💯) a krátke slová (`na`, `je`, `v`). V odpovedi sa „Podíly v poměru 1:2:3“ zmenilo na „1🕑3“ a „127.0.0.1:9:80“ na „127.0.0.1🕘80“. `emojiShortcodeAliases` berie len mená: začína písmenom, aspoň 3 znaky, aspoň 2 písmená. `:smile:`, `:thumbsup:` fungujú ďalej. |
+
 ## Nedosiahnuteľný cieľ `sandbox/http` vráti typovanú chybu (#565) (2026-11-18)
 
 | Súbor | Zmena |
