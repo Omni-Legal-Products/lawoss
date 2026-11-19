@@ -272,3 +272,12 @@ for (const change of ["replacement", "deletion"] as const) {
     expect(reloads).toBe(0);
   });
 }
+
+test("#579: obnova po pridaní globálneho poskytovateľa ho označí na načítanie do enginu", async () => {
+  const { baseUrl, ws, patchConfig } = await fixture();
+  await patchConfig(ws.id, { opencode: { providers: { ollama } } });
+  const response = await fetch(`${baseUrl}/workspace/${ws.id}/provider-model-refresh`, { method: "POST", headers: { authorization: "Bearer client", "content-type": "application/json" }, body: JSON.stringify({ providerId: "ollama", reloadRequired: true }) });
+  expect(response.ok).toBe(true);
+  const body: { providers: Record<string, { pendingReload?: boolean }> } = await response.json();
+  expect(body.providers.ollama?.pendingReload).toBe(true);
+});
