@@ -6,6 +6,12 @@
 |---|---|
 | `apps/server/src/agent-sandbox/raw-http.ts`, nový `apps/server/src/lawoss/sandbox-http-failure.ts` (LAWOSS, + test `apps/server/src/lawoss/sandbox-http-unreachable.e2e.test.ts`) | #565: `POST /workspace/:id/sandbox/http` (`execute`/`fetch` agenta) pri nedosiahnuteľnom cieli padal na `500 internal_error` a server logoval „Unhandled error“ s celým `AggregateError`. `rawHttpRequest` teraz podľa kódu chyby (nie textu) mení zlyhanie spojenia, DNS a TLS na `502 sandbox_http_unreachable` a vyčerpaný 30 s rozpočet či `ETIMEDOUT`/`UND_ERR_CONNECT_TIMEOUT` na `504 sandbox_http_timeout`, so stručnou správou s hostiteľom a kódom. Zamietnutie politikou, validácia, zrušenie volajúcim a neznáme chyby ostávajú bez zmeny. |
 
+## Profily dokumentov: trvalá 409 sa neopakuje každých 5 s (#563) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/session/panel/document-processing-panel.tsx`, nový `apps/app/src/lawoss/domains/documents/profile-polling.ts` (LAWOSS, + test `tests/lawoss-profily-dokumentov-563.test.ts`) | #563: panel „Spracovanie dokumentov“ volal `GET …/lawoss/documents/profiles` každých 5 s (`refetchInterval: 5000`) aj pri trvalej `409 protected_ai_provider_unsupported` (Ollama, OpenRouter): 11 požiadaviek za 30 s, každá s chybou v konzole a WARN v `main.log`. `profilesRefetchInterval`/`profilesRetry` pri tomto kóde neopakujú; zmena modelu je nový kľúč dotazu, takže sa znova načíta. Ostatné chyby a bežné obnovovanie bez zmeny. |
+
 ## Riadne ukončenie appky nezapíše chyby prúdu udalostí (#561) (2026-11-18)
 
 | Súbor | Zmena |
