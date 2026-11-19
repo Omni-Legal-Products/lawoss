@@ -62,12 +62,13 @@ export async function registerOnboardedWorkspace<N extends { id: string; path: s
   if (!workspace) return undefined;
   if (deps.desktop) {
     const existing = list.items.find(item => item.id === workspace.id);
-    const nativeList = await deps.createNative({ folderPath: workspace.path, name: workspace.displayName ?? existing?.name ?? lastSegment(workspace.path) ?? "Client", appFiles: result?.appFiles ?? existing?.appFiles });
+    // #581: meno zo servera (z karty klienta), inak by zoznam desktopu mal meno priečinka a obnova po poškodenom server.json ho vrátila.
+    const nativeList = await deps.createNative({ folderPath: workspace.path, name: workspace.displayName ?? workspace.name ?? existing?.name ?? lastSegment(workspace.path) ?? "Client", appFiles: result?.appFiles ?? existing?.appFiles });
     const native = nativeList.workspaces.find(item => item.path === workspace.path);
     if (!native || native.id !== workspace.id) throw new Error("Client registration did not preserve workspace identity.");
     // Ostatní klienti dávky praxe sú samostatné pracovné priečinky. Natívne vytvorenie každý vyberie,
     // preto sa hlavný klient vyberie a aktivuje až po nich (review 6d), inak by ostal vybraný posledný.
-    const others = await registerOtherClients(completion?.clients ?? [], native.id, (other, client) => deps.createNative({ folderPath: other.path, name: other.displayName ?? lastSegment(other.path) ?? "Client", appFiles: client.appFiles }));
+    const others = await registerOtherClients(completion?.clients ?? [], native.id, (other, client) => deps.createNative({ folderPath: other.path, name: other.displayName ?? other.name ?? lastSegment(other.path) ?? "Client", appFiles: client.appFiles }));
     await deps.selectNative(native.id);
     await deps.runtimeActive(native.id);
     await deps.ensureConnection(native, (others ?? nativeList).workspaces);
