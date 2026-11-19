@@ -4,6 +4,8 @@ import { webFetchArgs, webSearchArgs } from "../agent-sandbox/web.js";
 import { resolveWorkspaceId, serverUrl, workspaceToolHeaders } from "./office-plugin-shared.js";
 import { isBrowserTool, requireBrowserNetwork } from "./browser-network-policy.js";
 import { nativeTool, nativeToolSignal } from "./native-tool.js";
+// 🟡 LAWOSS #573: shell and web tools named by the guidance are offered directly, not only inside Code Mode.
+import { directTool } from "./lawoss-direct-tool.js";
 import { registerAppStateReminders } from "./native-app-state-reminders.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
 import { nativeHostExecutionActions } from "../agent-sandbox/engine-policy.js";
@@ -82,7 +84,7 @@ export const LegalWorkSandbox = Plugin.define({
         },
       }));
       for (const kind of webKinds) {
-        editor.add(nativeTool(ctx, {
+        editor.add(directTool(nativeTool(ctx, {
           name: kind === "fetch" ? "legalwork_webfetch" : "legalwork_websearch",
           description: kind === "fetch" ? "Read a web page using this chat's network setting and web permissions. Approval appears in the chat before contacting the website. Redirects require separate approval." : "Search the web using Exa, following this chat's network setting and web permissions. The query is sent only after any required approval.",
           schema: kind === "fetch" ? webFetchArgs : webSearchArgs,
@@ -100,9 +102,9 @@ export const LegalWorkSandbox = Plugin.define({
             return { output: result, metadata: { ...result.metadata, title: result.title },
               content: [{ type: "text", text: result.output }, ...(result.attachments ?? []).map(file => ({ type: file.type, mime: file.mime, uri: file.url }))] };
           },
-        }));
+        })));
       }
-      editor.add(nativeTool(ctx, {
+      editor.add(directTool(nativeTool(ctx, {
         name: "legalwork_shell",
         description: "Execute commands using this chat's sandbox setting and the user's shell and file permissions. Supply both command and description. With sandboxing on, Linux commands have isolated files and controlled network access, with no host fallback. In project chats with sandboxing off, commands use the local shell and host paths. " + wikiCommandGuidance,
         schema: args,
@@ -120,7 +122,7 @@ export const LegalWorkSandbox = Plugin.define({
           const result = shellResult.parse(await response.json());
           return { content: result.output, output: result, metadata: { title: input.description, exit: result.exitCode, truncated: result.truncated, sandbox: result.sandbox } };
         },
-      }));
+      })));
     });
     return reminders;
   },

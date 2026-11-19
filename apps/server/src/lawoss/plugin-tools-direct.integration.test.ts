@@ -15,12 +15,16 @@ import { scriptedCompletion, startScriptedEngine } from "./test-support/scripted
  * offers a plugin tool to the model by name only when it opts out of Code Mode; otherwise it exists only inside
  * `execute` and a direct call ends with "No tool named … is currently available". Unlike the other engine tests, the
  * plugins keep their own registration here (no test plugin that offers every tool directly).
+ * #573: the same holds for legalwork_shell, legalwork_webfetch and legalwork_websearch (sandbox guidance, OKF skill
+ * commands), lawoss_documents_* (linked folders, roztried-spis) and the view tools (LAWOSS visual reports).
  * Synthetic data only; the model is scripted.
  * Opt-in: pnpm --filter legalwork-server build
  *   LEGALWORK_TEST_OPENCODE_BIN=<engine> pnpm --filter legalwork-server exec bun test src/lawoss/plugin-tools-direct.integration.test.ts
  */
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-const NAMED_IN_SYSTEM_TEXT = ["lawoss_files", "lawoss_integrations", "lawoss_memory", "lawoss_memory_deadline", "lawoss_memory_write", "lawoss_new_client"];
+const NAMED_IN_SYSTEM_TEXT = ["lawoss_files", "lawoss_integrations", "lawoss_memory", "lawoss_memory_deadline", "lawoss_memory_write", "lawoss_new_client",
+  "legalwork_shell", "legalwork_webfetch", "legalwork_websearch", "lawoss_documents_export", "lawoss_documents_list", "lawoss_documents_prepare",
+  "lawoss_documents_read", "lawoss_documents_validate", "view_catalog", "view_create", "view_list", "view_read", "view_update"];
 const requestSchema = z.object({
   messages: z.array(z.object({ role: z.string(), content: z.unknown() })),
   tools: z.array(z.object({ function: z.object({ name: z.string() }) })).optional(),
@@ -48,18 +52,23 @@ test.skipIf(!binary)("a real engine offers the LAWOSS tools its system texts nam
     if (path === WIKI_AGENT_TICKET_PATH) return Response.json({ secret: "fixture" });
     if (path === "/workspaces") return Response.json({ items: [{ id: workspace.id, path: client }] });
     if (path === "/workspace/client/lawoss/memory/read") return Response.json(await readMatterMemoryForChat(config, workspace, await request.json()));
+    if (path === "/workspace/client/sandbox/execute") return Response.json({ output: "SYN shell 5813\n", exitCode: 0, truncated: false, sandbox: "host" });
     if (!path.endsWith("/chat/completions")) return Response.json({ code: "not_found" }, { status: 404 });
     const input = requestSchema.parse(await request.json());
     advertised = (input.tools ?? []).map(tool => tool.function.name);
     const last = input.messages.at(-1);
-    if (last?.role !== "tool") return scriptedCompletion({ name: "lawoss_memory", args: { action: "read", matter: "Spisy/M001" }, id: "call_direct_memory" });
+    const prompt = JSON.stringify(input.messages.filter(message => message.role === "user").at(-1)?.content ?? "");
+    if (last?.role !== "tool") return scriptedCompletion(prompt.includes("node --version")
+      ? { name: "legalwork_shell", args: { command: "node --version", description: "Verzia Node" }, id: "call_direct_shell" }
+      : { name: "lawoss_memory", args: { action: "read", matter: "Spisy/M001" }, id: "call_direct_memory" });
     toolResults.push(typeof last.content === "string" ? last.content : JSON.stringify(last.content));
     return scriptedCompletion(undefined);
   } });
   const cleanups: (() => Promise<unknown> | unknown)[] = [];
   try {
     const { chat } = await startScriptedEngine({ binary, config, workspaceId: workspace.id, home: join(root, "engine"), cleanups, directTools: false,
-      plugins: ["lawoss-memory-tools", "lawoss-file-operations"], pluginIds: ["lawoss.memory-tools", "lawoss.file-operations"],
+      plugins: ["lawoss-memory-tools", "lawoss-file-operations", "legalwork-sandbox", "legalwork-project-tools", "lawoss-view-tools"],
+      pluginIds: ["lawoss.memory-tools", "lawoss.file-operations", "legalwork.sandbox", "legalwork.project", "lawoss.view-tools"],
       serverUrl: fixture.url.origin, modelUrl: fixture.url.origin + "/v1" });
     const session = await chat(client);
     await session.turn("Čo je v pamäti spisu M001?");
@@ -68,6 +77,10 @@ test.skipIf(!binary)("a real engine offers the LAWOSS tools its system texts nam
     expect(toolResults).toHaveLength(1);
     expect(toolResults[0]).not.toContain("No tool named");
     expect(toolResults[0]).toContain("SYN fakt 4721");
+    await session.turn("Spusti node --version.");
+    expect(toolResults).toHaveLength(2);
+    expect(toolResults[1]).not.toContain("No tool named");
+    expect(toolResults[1]).toContain("SYN shell 5813");
   } finally {
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
     fixture.stop(true);

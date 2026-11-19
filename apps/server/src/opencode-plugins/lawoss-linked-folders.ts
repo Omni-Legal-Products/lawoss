@@ -159,6 +159,15 @@ const REFUSALS = {
 /** Pevná veta systémového promptu (nemení sa počas konverzácie). */
 const LINKED_FOLDERS_SYSTEM = "A linked-folders reminder, when present, lists folders the user linked to this client. They belong to this client: read them like the client's own folder, without asking, and pass absolute file paths from them to lawoss_documents_prepare. Open folders of other clients only when the user asks for them; the user then decides on an approval card.";
 
+/** Pevné vety pripomienky pripojených priečinkov (pred zoznamom priečinkov). */
+export const LINKED_FOLDERS_REMINDER_RULES = [
+  "Linked folders of this client (linked by the user; they belong to this client, also in its cases' chats).",
+  "Read and list them without asking, like the client's own folder. For PDF, EML, Office or scanned files call lawoss_documents_prepare with the absolute file path, then lawoss_documents_list and lawoss_documents_read. Only read; change files there only when the user asks.",
+  // N-A7-5: glob bez `path` hľadá len v priečinku chatu (v chate prípadu len v prípade), legalwork_review_files len v klientovi;
+  // pripojené priečinky nepokrýva ani jeden. Priečinok sa nepripravuje.
+  "glob without a path searches only this chat's folder, and legalwork_review_files only this client's folder; neither covers linked folders. To find a file in a linked folder, run glob with that folder's absolute path as path. lawoss_documents_prepare takes file paths only, never a folder.",
+] as const;
+
 /** Pripojené priečinky klienta tohto chatu ako text pripomienky; "" bez nich, `null` pri nečitateľnej mape. */
 async function linkedFoldersState(directory: string | undefined): Promise<string | null> {
   if (!directory) return "";
@@ -169,11 +178,7 @@ async function linkedFoldersState(directory: string | undefined): Promise<string
   const folders = allowedFolders(read.map, chat, [read.appData]).filter((folder) => folder !== owner?.root);
   if (folders.length === 0) return "";
   return [
-    "Linked folders of this client (linked by the user; they belong to this client, also in its cases' chats).",
-    "Read and list them without asking, like the client's own folder. For PDF, EML, Office or scanned files call lawoss_documents_prepare with the absolute file path, then lawoss_documents_list and lawoss_documents_read. Only read; change files there only when the user asks.",
-    // N-A7-5: glob bez `path` hľadá len v priečinku chatu (v chate prípadu len v prípade), legalwork_review_files len v klientovi;
-    // pripojené priečinky nepokrýva ani jeden. Priečinok sa nepripravuje.
-    "glob without a path searches only this chat's folder, and legalwork_review_files only this client's folder; neither covers linked folders. To find a file in a linked folder, run glob with that folder's absolute path as path. lawoss_documents_prepare takes file paths only, never a folder.",
+    ...LINKED_FOLDERS_REMINDER_RULES,
     ...folders.map((folder) => `- ${basename(folder)}: ${folder}`),
   ].join("\n");
 }

@@ -9,6 +9,8 @@ import { listWorkspaces, serverConnected, serverUrl, workspaceToolHeaders, type 
 import { findProjectForDirectory } from "../workspace-path-match.js";
 import { registerAppStateReminders } from "./native-app-state-reminders.js";
 import { recordingTools, RECORDING_GUIDANCE } from "./recording-tools.js";
+// 🟡 LAWOSS #573: lawoss_documents_* are named by LAWOSS texts and OKF skills, so they are offered directly.
+import { directTool } from "./lawoss-direct-tool.js";
 
 const kinds = z.enum(["tasks", "notes", "files", "recordings", "sessions"]);
 const listArgs = z.object({
@@ -128,7 +130,7 @@ execute: (args: unknown, context: OpenCodeContext) => {
 } }),
 // The model sees the exact UUID schema; a call that misses it still gets the actionable text above.
 input: z.toJSONSchema(documentsReadArgs, { io: "input" }) },
-]; }
+].map(directTool); }
 
 function tools(ctx: Plugin.Context) { return [
 ...lawossDocumentTools(ctx),
