@@ -44,3 +44,32 @@ test("window destruction aborts outstanding headers and completed IDs can be reu
   for (let i = 0; i < 2; i++) assert.equal((await fast.fetch(owner, "https://example.test", { requestId: "reused" })).body, "done");
   await assert.rejects(fast.fetch(owner, "file:///tmp/private"), /HTTP URL/);
 });
+
+// LAWOSS #561: requests still in flight when the app quits end before the embedded server closes their sockets.
+test("app quit settles in-flight and later requests without an IPC error; a mid-run socket close still rejects (#561)", async () => {
+  const connections = [];
+  const server = createServer((_request, response) => { response.writeHead(200); response.write("partial"); connections.push(response); });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", () => resolve(undefined)));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("No test port");
+  const url = `http://127.0.0.1:${address.port}`;
+  const owner = new Owner();
+  try {
+    const running = createHttpRequests();
+    const cut = running.fetch(owner, url);
+    while (connections.length < 1) await new Promise(resolve => setTimeout(resolve, 1));
+    server.closeAllConnections();
+    await assert.rejects(cut, /terminated/);
+
+    const quitting = createHttpRequests();
+    const pending = quitting.fetch(owner, url);
+    while (connections.length < 2) await new Promise(resolve => setTimeout(resolve, 1));
+    quitting.closeAll();
+    server.closeAllConnections();
+    assert.equal(await pending, null);
+    assert.equal(await quitting.fetch(owner, url), null);
+  } finally {
+    owner.emit("destroyed"); server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
