@@ -108,3 +108,34 @@ test("prax s viacerými klientmi: na konci je vybraný a aktívny hlavný klient
   expect(store.selected).toBe("ws-alfa");
   expect(store.runtime).toBe("ws-alfa");
 });
+
+test("#581 desktop: hlavný aj ostatní klienti dávky sa natívne zapíšu menom zo servera (z karty klienta), nie menom priečinka", async () => {
+  const named = (id: string, path: string, name: string): OnboardingApplyResult => ({ result: "applied", clientRoot: path, workspace: { id, path, name } });
+  const clients = [
+    named("ws-hron", "/p/C002-syn-hron-technologie-a-s", "SYN Hron Technológie, a. s."),
+    named("ws-gemer", "/p/C010-syn-gemer-stavby-s-r-o", "SYN Gemer Stavby, s. r. o."),
+  ];
+  const names = new Map<string, string>();
+  const natives: { id: string; path: string }[] = [];
+  const deps: RegisterWorkspaceDeps<{ id: string; path: string }, string> = {
+    desktop: true,
+    listWorkspaces: async () => ({ items: [] }),
+    registerWorkingFolder: async (path) => ({ id: path, path }),
+    createNative: async (input) => {
+      names.set(input.folderPath, input.name);
+      const id = clients.find(item => item.workspace?.path === input.folderPath)!.workspace!.id;
+      natives.push({ id, path: input.folderPath });
+      return { workspaces: [...natives] };
+    },
+    selectNative: async () => undefined,
+    runtimeActive: async () => undefined,
+    ensureConnection: async () => undefined,
+    activate: async (id) => id,
+    remember: () => undefined,
+  };
+  await registerOnboardedWorkspace(deps, clients[0], { clients });
+  expect(Object.fromEntries(names)).toEqual({
+    "/p/C002-syn-hron-technologie-a-s": "SYN Hron Technológie, a. s.",
+    "/p/C010-syn-gemer-stavby-s-r-o": "SYN Gemer Stavby, s. r. o.",
+  });
+});
