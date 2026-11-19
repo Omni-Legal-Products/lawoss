@@ -6,6 +6,13 @@
 |---|---|
 | `apps/app/src/react-app/domains/session/panel/document-processing-panel.tsx`, nový `apps/app/src/lawoss/domains/documents/profile-polling.ts` (LAWOSS, + test `tests/lawoss-profily-dokumentov-563.test.ts`) | #563: panel „Spracovanie dokumentov“ volal `GET …/lawoss/documents/profiles` každých 5 s (`refetchInterval: 5000`) aj pri trvalej `409 protected_ai_provider_unsupported` (Ollama, OpenRouter): 11 požiadaviek za 30 s, každá s chybou v konzole a WARN v `main.log`. `profilesRefetchInterval`/`profilesRetry` pri tomto kóde neopakujú; zmena modelu je nový kľúč dotazu, takže sa znova načíta. Ostatné chyby a bežné obnovovanie bez zmeny. |
 
+## Verejný text v oddelenom prostredí v jazyku rozhrania (#552) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `packages/types/src/desktop-ipc.ts`, `apps/desktop/electron/host-approvals.mjs`, `apps/desktop/electron/native-locale.mjs` (+ testy `host-approvals.test.mjs`, `scripts/host-review-regression.mjs`), `apps/server/src/lawoss/ai-public-context.ts`, `lawoss/host-decision.ts` (LAWOSS, + test `lawoss/ai-public-review-552.test.ts`) | #552: okno hostiteľa pri „Verejný text v oddelenom prostredí“ ukazovalo anglický súhrn a nadpisy zo servera („Public text only → …“, „Target: …“, „Complete serialized … context“) a riadok „Pracovný priestor: `__host_public_ai__`“ s interným ID. Server teraz posiela cieľ štruktúrovane v novom poli `HostApprovalRequest.publicAi` (pôvod, adresa, poskytovateľ, model) a `description` je len presne serializovaný kontext (bez zmeny obsahu). Hostiteľ pri akcii `ai.public.synthetic` skladá súhrn, „Cieľ“ a nadpis kontextu z `nativeCopy` (sk, cs, en, de, nové kľúče `publicSummary`, `publicTarget`, `publicContext`) a riadok pracovného priestoru vynechá. Anglický `summary` ostáva pre audit a iné zobrazenia. |
+| `apps/app/src/lawoss/domains/ai/guidance.tsx`, nový `apps/app/src/lawoss/domains/ai/public-ai-error.ts` (LAWOSS, + test `apps/app/tests/lawoss-verejna-ai-chyby-552.test.ts`) | #552: po „Odmietnuť“ sekcia ukázala anglickú správu servera („The public transmission was denied; …“). `runPublic` teraz zobrazí vetu v jazyku rozhrania podľa kódu chyby (`public_ai_denied`, `public_ai_engine_unavailable`, `public_ai_engine_version`, `public_ai_provider_unsupported`, `public_ai_target_invalid`, `org_policy_denied`, `invalid_public_prompt`, `read_only`, `public_ai_model_failed`, `public_ai_empty_reply`); neznámy kód dostane všeobecnú vetu s kódom, chyba bez kódu servera doterajšiu vetu o nedostupnosti. |
+
 ## Poškodené nastavenia klienta: varovanie pri klientovi a obnova (#554) (2026-11-18)
 
 | Súbor | Zmena |

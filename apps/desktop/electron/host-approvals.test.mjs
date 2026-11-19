@@ -144,3 +144,26 @@ test("Czech native approval localizes only host copy and keeps denial defaults a
   assert.ok(shown.detail.includes(request.summary));
   assert.ok(shown.detail.includes(request.paths[0]));
 });
+
+test("#552: verejná požiadavka AI je v okne hostiteľa v jazyku rozhrania, bez interného ID a s nezmeneným kontextom", async () => {
+  const context = JSON.stringify({model: "qwen", messages: [{role: "user", content: "PUBLIC-CANARY"}]}, null, 2);
+  const publicRequest = {...request, workspaceId: "__host_public_ai__", action: "ai.public.synthetic", actor: {type: "host"}, paths: [],
+    summary: "Public text only → http://localhost:11434 — ollama/qwen. No client files, tools, shell or legal approval.", description: context,
+    publicAi: {origin: "http://localhost:11434", endpoint: "http://localhost:11434/v1/chat/completions", providerId: "ollama", modelId: "qwen"}};
+  const expected = {
+    sk: ["Iba verejný text → http://localhost:11434 — ollama/qwen. Žiadne súbory klienta, nástroje, shell ani právne schválenie.", "Cieľ: http://localhost:11434/v1/chat/completions", "Úplný serializovaný systémový a správový kontext, ktorý sa odošle:"],
+    cs: ["Pouze veřejný text → http://localhost:11434 — ollama/qwen. Žádné soubory klienta, nástroje, shell ani právní schválení.", "Cíl: http://localhost:11434/v1/chat/completions", "Úplný serializovaný systémový a zprávový kontext, který bude odeslán:"],
+    en: ["Public text only → http://localhost:11434 — ollama/qwen. No client files, tools, shell or legal approval.", "Target: http://localhost:11434/v1/chat/completions", "Complete serialized system and message context to be sent:"],
+    de: ["Nur öffentlicher Text → http://localhost:11434 — ollama/qwen. Keine Mandantendateien, Tools, Shell oder rechtliche Freigabe.", "Ziel: http://localhost:11434/v1/chat/completions", "Vollständiger serialisierter System- und Nachrichtenkontext, der gesendet wird:"],
+  };
+  for (const [locale, lines] of Object.entries(expected)) {
+    let detail = "";
+    const handler = createHostApprovalHandler({getWindow: hostWindow, getLocale: () => locale,
+      showMessageBox: async () => assert.fail("Public context needs the review window"),
+      showContextReview: async (_parent, options) => {detail = options.detail; return {response: 0};}});
+    assert.equal(await handler(publicRequest, new AbortController().signal), "deny");
+    assert.ok(detail.endsWith(`${lines.join("\n")}\n${context}`), `${locale}: ${detail}`);
+    assert.ok(!detail.includes("__host_public_ai__"), locale);
+    if (locale !== "en") assert.ok(!detail.includes(publicRequest.summary), locale);
+  }
+});
