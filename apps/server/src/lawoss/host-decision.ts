@@ -5,6 +5,7 @@ import { initializeSqlite, type SqliteHandle } from "../runtime-db.js";
 import { runtimeDbResource, withRuntimeDb } from "../runtime-db-lifecycle.js";
 import type { ServerConfig } from "../types.js";
 import { randomUUID } from "node:crypto";
+import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
 import type { ApprovalService } from "../approvals.js";
 import { ApiError } from "../errors.js";
 
@@ -28,6 +29,8 @@ export type HostDecisionRequest = {
   summary: string;
   description?: string;
   paths?: string[];
+  /** #552: cieľ verejnej požiadavky AI; text kontroly skladá natívny hostiteľ v jazyku rozhrania. */
+  publicAi?: HostApprovalRequest["publicAi"];
   /** Host-owned domain reader, never supplied by the HTTP client. */
   readCurrentBindingHash: () => Promise<string>;
 };
@@ -65,6 +68,7 @@ export function createHostDecisionPort(approvals: ApprovalService, config: Serve
         summary: input.summary,
         ...(input.description ? {description: input.description} : {}),
         paths: input.paths ?? [],
+        ...(input.publicAi ? {publicAi: input.publicAi} : {}),
         actor: { type: "host" },
         nativeOnly: true,
       }, signal, true);

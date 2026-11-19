@@ -17,6 +17,8 @@ export function createHostApprovalHandler({ getWindow, showMessageBox, showConte
         const source = request.actor.type === "host"
           ? copy.host
           : `${copy.connected}${request.actor.clientId ? `: ${request.actor.clientId}` : ""}`;
+        // 🟡 LAWOSS #552: verejnú požiadavku AI formuluje hostiteľ v jazyku rozhrania; pracovný priestor nemá.
+        const publicAi = request.action === "ai.public.synthetic" ? request.publicAi : undefined;
         const options = {
           type: "question",
           presentationKind: request.action === "ai.public.synthetic" ? "public" : "change",
@@ -25,9 +27,9 @@ export function createHostApprovalHandler({ getWindow, showMessageBox, showConte
           detail: [
             `${copy.source}: ${source}`,
             ...(request.actor.scope ? [`${copy.access}: ${request.actor.scope}`] : []),
-            `${copy.workspace}: ${request.workspaceId}`,
+            ...(publicAi ? [] : [`${copy.workspace}: ${request.workspaceId}`]),
             `${copy.action}: ${request.action}`,
-            request.summary,
+            ...(publicAi ? publicAiLines(copy, publicAi) : [request.summary]),
             ...(request.description ? [request.description] : []),
             ...(request.paths.length ? [`${copy.paths}:`, ...request.paths] : []),
           ].join("\n"),
@@ -52,4 +54,10 @@ export function createHostApprovalHandler({ getWindow, showMessageBox, showConte
     queue = result.then(() => {}, () => {});
     return result;
   };
+}
+
+/** 🟡 LAWOSS #552: za týmito riadkami nasleduje `description` bez zmeny (úplný serializovaný kontext). */
+function publicAiLines(copy, { origin, endpoint, providerId, modelId }) {
+  const summary = copy.publicSummary.replace("{origin}", origin).replace("{provider}", providerId).replace("{model}", modelId);
+  return [summary, `${copy.publicTarget}: ${endpoint}`, `${copy.publicContext}:`];
 }

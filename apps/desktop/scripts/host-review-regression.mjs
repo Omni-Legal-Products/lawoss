@@ -71,6 +71,23 @@ try {
     observations.push({action, decision: action === "allow" ? "allow" : "deny", bounds, textBytes: state.text.length, textHash, scroll: true, actionsVisible: true, sandbox: true});
   };
   for (const action of ["allow", "deny", "escape", "abort", "close", "navigation"]) await run(action);
+  phase = "public-sk";
+  const context = JSON.stringify({model: "qwen", messages: [{role: "user", content: "PUBLIC-CANARY"}]}, null, 2);
+  const slovak = createHostApprovalHandler({getWindow: () => parent, getLocale: () => "sk", showMessageBox: async () => assert.fail("unbounded native dialog"),
+    showContextReview: (window, options) => createContextReview({BrowserWindow, ipcMain, screen, getLocale: () => "sk"})(window, options)});
+  const publicDecision = slovak({workspaceId: "__host_public_ai__", action: "ai.public.synthetic", actor: {type: "host"}, paths: [], summary: "Public text only → English audit", description: context,
+    publicAi: {origin: "http://localhost:11434", endpoint: "http://localhost:11434/v1/chat/completions", providerId: "ollama", modelId: "qwen"}}, new AbortController().signal);
+  let shown;
+  for (const deadline = Date.now() + 10000; !shown && Date.now() < deadline; await new Promise(resolve => setTimeout(resolve, 25))) {
+    const review = BrowserWindow.getAllWindows().find(window => window !== parent && !window.isDestroyed());
+    shown = review && await review.webContents.executeJavaScript(`document.getElementById('context')?.textContent ? {heading: document.getElementById('heading').textContent, text: document.getElementById('context').textContent} : null`);
+    if (shown) await review.webContents.executeJavaScript("document.getElementById('deny').click()");
+  }
+  assert.equal(shown?.heading, "Verejná požiadavka AI");
+  assert.ok(shown.text.includes("Iba verejný text → http://localhost:11434 — ollama/qwen. Žiadne súbory klienta, nástroje, shell ani právne schválenie.\nCieľ: http://localhost:11434/v1/chat/completions\nÚplný serializovaný systémový a správový kontext, ktorý sa odošle:\n" + context), shown.text);
+  assert.ok(!shown.text.includes("__host_public_ai__") && !shown.text.includes("English audit"), shown.text);
+  assert.equal(await publicDecision, "deny");
+  observations.push({action: "public-sk", decision: "deny", text: shown.text.split("\n").slice(0, 6)});
   console.log(JSON.stringify({ok: true, electron: process.versions.electron, observations}));
 } catch (error) {
   console.error(error); process.exitCode = 1;
