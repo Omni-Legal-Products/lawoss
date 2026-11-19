@@ -6,6 +6,12 @@
 |---|---|
 | `apps/server/src/opencode-plugins/legalwork-sandbox.ts`, `apps/server/src/opencode-plugins/legalwork-project-tools.ts`, `lawoss-view-tools.ts` a `lawoss-linked-folders.ts` (LAWOSS, + testy `lawoss/plugin-text-direct-tools.test.ts`, `lawoss/plugin-tools-direct.integration.test.ts`) | #573, pokračovanie #484: engine 2.1.4 ponúka nástroj pluginu modelu priamo len s `codemode: false`, inak existuje iba vnútri Code Mode `execute`. Vodítko sandboxu volá menom `legalwork_shell`, `legalwork_webfetch` a `legalwork_websearch` (vstavané `shell`, `webfetch` a `websearch` sandbox odstraňuje) a OKF skilly z neho spúšťajú `okf.js` a `okf-memory`. Texty LAWOSS a skill `roztried-spis` volajú `lawoss_documents_*`, pravidlá vizuálnych prehľadov `view_catalog`/`view_create`/`view_update`. Tieto nástroje sú teraz obalené `directTool` (v upstream súboroch import s `🟡 LAWOSS #573` a obalenie volania), oprávnenia a karty sa nemenia. Nástroje, ktoré menujú len upstream texty (`legalwork_skill_*`, `storage_*`, `legalwork_task_*` a ďalšie), ostávajú v Code Mode podľa návrhu upstreamu. Test `plugin-text-direct-tools` spúšťa pluginy s ich vlastnou registráciou a zlyhá, keď text LAWOSS, vodítko sandboxu alebo pribalený OKF skill menuje nástroj, ktorý je len v Code Mode. Pevné vety pripomienky pripojených priečinkov sú vytiahnuté do exportovanej konštanty `LINKED_FOLDERS_REMINDER_RULES` (text sa nemení). |
 
+## Nedosiahnuteľný cieľ `sandbox/http` vráti typovanú chybu (#565) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/agent-sandbox/raw-http.ts`, nový `apps/server/src/lawoss/sandbox-http-failure.ts` (LAWOSS, + test `apps/server/src/lawoss/sandbox-http-unreachable.e2e.test.ts`) | #565: `POST /workspace/:id/sandbox/http` (`execute`/`fetch` agenta) pri nedosiahnuteľnom cieli padal na `500 internal_error` a server logoval „Unhandled error“ s celým `AggregateError`. `rawHttpRequest` teraz podľa kódu chyby (nie textu) mení zlyhanie spojenia, DNS a TLS na `502 sandbox_http_unreachable` a vyčerpaný 30 s rozpočet či `ETIMEDOUT`/`UND_ERR_CONNECT_TIMEOUT` na `504 sandbox_http_timeout`, so stručnou správou s hostiteľom a kódom. Zamietnutie politikou, validácia, zrušenie volajúcim a neznáme chyby ostávajú bez zmeny. |
+
 ## Profily dokumentov: trvalá 409 sa neopakuje každých 5 s (#563) (2026-11-18)
 
 | Súbor | Zmena |

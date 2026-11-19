@@ -4,6 +4,8 @@ import { isIP } from "node:net";
 import { sendPinned } from "./raw-http-hop.js";
 import { publicAddress, type OutboundRequest } from "./network.js";
 import type { RawHttpInput, RawHttpOutput } from "./raw-http-schema.js";
+// 🟡 LAWOSS #565: network failures of the target become typed 502/504 errors instead of a 500 "Unhandled error".
+import { sandboxHttpFailure, sandboxHttpTimeout } from "../lawoss/sandbox-http-failure.js";
 export { rawHttpInputSchema, rawHttpOutputSchema, rawHttpToolName, type RawHttpInput, type RawHttpOutput } from "./raw-http-schema.js";
 export type RawHttpRequest = OutboundRequest & { readonly bodyPresent: boolean };
 export type Address = { address: string; family: number };
@@ -55,10 +57,10 @@ export async function rawHttpRequest(input: RawHttpInput, authorize: (request: R
     signal.throwIfAborted();
     if (!await authorize(request)) throw new Error("HTTP access denied by LegalWork permissions.");
     signal.throwIfAborted();
-    if (remaining <= 0) throw new DOMException("HTTP request timed out.", "TimeoutError");
+    if (remaining <= 0) throw sandboxHttpTimeout(new URL(request.url).host);
     const started = performance.now();
     const timeout = new AbortController();
-    const timer = setTimeout(() => timeout.abort(new DOMException("HTTP request timed out.", "TimeoutError")), Math.max(0, remaining));
+    const timer = setTimeout(() => timeout.abort(sandboxHttpTimeout(new URL(request.url).host)), Math.max(0, remaining));
     const transportSignal = AbortSignal.any([signal, timeout.signal]);
     let response: HopResponse;
     try {
@@ -66,14 +68,14 @@ export async function rawHttpRequest(input: RawHttpInput, authorize: (request: R
       // Resolve only after exact consent; connect directly to the validated IP.
       const addresses = isIP(hostname) ? [{ address: hostname, family: isIP(hostname) }] : await aborted(network.resolve(hostname), transportSignal);
       transportSignal.throwIfAborted();
-      if (performance.now() - started >= remaining) throw new DOMException("HTTP request timed out.", "TimeoutError");
+      if (performance.now() - started >= remaining) throw sandboxHttpTimeout(new URL(request.url).host);
       if (!addresses.length || addresses.some(({ address }) => !isIP(address) || !options.allowPrivate && !publicAddress(address))) throw new TypeError("The destination resolves to a local, private or reserved address.");
       response = await network.send(request, addresses[0], transportSignal, addresses);
       transportSignal.throwIfAborted();
-      if (performance.now() - started >= remaining) throw new DOMException("HTTP request timed out.", "TimeoutError");
+      if (performance.now() - started >= remaining) throw sandboxHttpTimeout(new URL(request.url).host);
     } catch (error) {
       transportSignal.throwIfAborted();
-      throw error;
+      throw sandboxHttpFailure(error, new URL(request.url).host) ?? error;
     } finally {
       clearTimeout(timer);
       remaining -= performance.now() - started;
