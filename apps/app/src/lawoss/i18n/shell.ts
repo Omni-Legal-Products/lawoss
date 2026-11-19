@@ -988,6 +988,8 @@ export const shellEn = {
   "lawoss.provider_error.open_settings": "Open AI provider settings",
   "lawoss.provider_error.details": "Technical details",
   "lawoss.provider_error.key_rejected": "The provider rejected this API key. Check that you copied the whole key and that it is still active. The key was not saved.",
+  "lawoss.provider_key.whitespace": "An API key contains no spaces or line breaks. You probably pasted different text. Copy the key again from the provider. Nothing was saved.",
+  "lawoss.provider_key.unverified": "The key was saved, but it could not be checked right now (the provider is unreachable or gave an unexpected answer). If the first message fails, check the key in AI provider settings.",
   "lawoss.provider_method.chatgpt_sign_in": "Sign in with ChatGPT",
   "lawoss.provider_method.codex_browser": "Codex in the browser (older method)",
   "lawoss.provider_method.codex_device": "Codex with a device code (older method)"
@@ -2003,6 +2005,8 @@ export const shellCs = {
   "lawoss.provider_error.open_settings": "Otevřít nastavení poskytovatelů AI",
   "lawoss.provider_error.details": "Technické podrobnosti",
   "lawoss.provider_error.key_rejected": "Poskytovatel tento klíč API odmítl. Zkontrolujte, že jste zkopírovali celý klíč a že je stále aktivní. Klíč se neuložil.",
+  "lawoss.provider_key.whitespace": "Klíč API neobsahuje mezery ani zalomení řádku. Pravděpodobně jste vložili jiný text. Zkopírujte klíč u poskytovatele znovu. Nic se neuložilo.",
+  "lawoss.provider_key.unverified": "Klíč se uložil, ale teď se nedal ověřit (poskytovatel není dostupný nebo neodpověděl podle očekávání). Pokud první zpráva selže, zkontrolujte klíč v nastavení poskytovatelů AI.",
   "lawoss.provider_method.chatgpt_sign_in": "Přihlásit se přes ChatGPT",
   "lawoss.provider_method.codex_browser": "Codex v prohlížeči (starší způsob)",
   "lawoss.provider_method.codex_device": "Codex pomocí kódu zařízení (starší způsob)"
@@ -3015,6 +3019,8 @@ export const shellSk = {
   "lawoss.provider_error.open_settings": "Otvoriť nastavenia poskytovateľov AI",
   "lawoss.provider_error.details": "Technické podrobnosti",
   "lawoss.provider_error.key_rejected": "Poskytovateľ tento kľúč API odmietol. Skontrolujte, že ste skopírovali celý kľúč a že je stále aktívny. Kľúč sa neuložil.",
+  "lawoss.provider_key.whitespace": "Kľúč API neobsahuje medzery ani zalomenie riadka. Pravdepodobne ste vložili iný text. Skopírujte kľúč u poskytovateľa znova. Nič sa neuložilo.",
+  "lawoss.provider_key.unverified": "Kľúč sa uložil, ale teraz sa nedal overiť (poskytovateľ nie je dostupný alebo neodpovedal podľa očakávania). Ak prvá správa zlyhá, skontrolujte kľúč v nastaveniach poskytovateľov AI.",
   "lawoss.provider_method.chatgpt_sign_in": "Prihlásiť sa cez ChatGPT",
   "lawoss.provider_method.codex_browser": "Codex v prehliadači (starší spôsob)",
   "lawoss.provider_method.codex_device": "Codex pomocou kódu zariadenia (starší spôsob)"
@@ -4009,6 +4015,8 @@ export const shellDe = {
   "lawoss.provider_error.open_settings": "KI-Anbieter-Einstellungen öffnen",
   "lawoss.provider_error.details": "Technische Details",
   "lawoss.provider_error.key_rejected": "Der Anbieter hat diesen API-Schlüssel abgelehnt. Prüfen Sie, ob Sie den ganzen Schlüssel kopiert haben und ob er noch aktiv ist. Der Schlüssel wurde nicht gespeichert.",
+  "lawoss.provider_key.whitespace": "Ein API-Schlüssel enthält keine Leerzeichen oder Zeilenumbrüche. Wahrscheinlich haben Sie einen anderen Text eingefügt. Kopieren Sie den Schlüssel erneut beim Anbieter. Es wurde nichts gespeichert.",
+  "lawoss.provider_key.unverified": "Der Schlüssel wurde gespeichert, konnte aber gerade nicht geprüft werden (der Anbieter ist nicht erreichbar oder hat unerwartet geantwortet). Wenn die erste Nachricht fehlschlägt, prüfen Sie den Schlüssel in den KI-Anbieter-Einstellungen.",
   "lawoss.provider_method.chatgpt_sign_in": "Mit ChatGPT anmelden",
   "lawoss.provider_method.codex_browser": "Codex im Browser (ältere Methode)",
   "lawoss.provider_method.codex_device": "Codex mit Gerätecode (ältere Methode)"

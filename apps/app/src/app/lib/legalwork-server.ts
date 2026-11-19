@@ -2396,6 +2396,15 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
           timeoutMs: timeouts.workspaceImport,
         },
       ),
+    // 🟡 LAWOSS #574: overenie kľúča vstavaného poskytovateľa na workeri (apps/server/src/lawoss/provider-key-check.ts).
+    checkProviderKey: (workspaceId: string, input: { providerId: string; apiKey: string }) =>
+      requestJson<{ result: "valid" | "rejected" | "unverified" | "unchecked" }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/provider-key-check`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: input,
+        timeoutMs: 15_000,
+      }),
     discoverProviderModels: (workspaceId: string, input: { baseURL: string; apiKey: string; providerId?: string }) =>
       requestJson<{ models: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/provider-models`, {
         token,

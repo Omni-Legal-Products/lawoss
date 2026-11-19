@@ -12,7 +12,7 @@ import { ensureNativeCatalogReady } from "@/app/lib/opencode-catalog-ready";
 import { readConfig, disabledProvidersFromConfig } from "@/app/lib/opencode-config";
 
 import { t } from "../../../../i18n";
-import { openAiKeyRejected } from "@/lawoss/providers/openai-key-check";
+import { normalizeApiKey, unverifiedKeyNotice, verifyProviderKey, type ProviderKeyVerdict } from "@/lawoss/providers/key-check";
 import { waitForHealthy } from "../../../../app/lib/opencode";
 import type {
   Client,
@@ -644,13 +644,14 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       throw new Error(t("providers.not_connected"));
     }
 
-    const trimmed = apiKey.trim();
+    const trimmed = normalizeApiKey(apiKey); // 🟡 LAWOSS #574: kľúč s medzerou vnútri sa odmietne
     if (!trimmed) {
       throw new Error(t("providers.api_key_required"));
     }
 
-    // 🟡 LAWOSS #502: OpenAI kľúč odmietnutý zoznamom modelov (401) sa neuloží; iné zlyhanie overenia uloženie neblokuje.
-    if (await openAiKeyRejected(providerId, trimmed, fetchCustomProviderModels)) {
+    // 🟡 LAWOSS #502, #574: kľúč odmietnutý poskytovateľom (OpenAI, OpenRouter) sa neuloží; neoverený sa uloží s varovaním.
+    const verdict = await verifyProviderKey(providerId, trimmed, { listModels: fetchCustomProviderModels, checkKey: checkProviderKeyOnWorker });
+    if (verdict === "rejected") {
       const message = t("lawoss.provider_error.key_rejected");
       setStateField("providerAuthError", message);
       throw new Error(message);
@@ -660,6 +661,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       await c.integration.connect.key({ integrationID: providerIntegrationID(providerId), key: trimmed, answer, location: authLocation() });
       await refreshProviderListQueries(getReactQueryClient());
       await refreshProviders();
+      if (verdict === "unverified") return unverifiedKeyNotice(); // 🟡 LAWOSS #574
       return t("providers.connected_named", { name: providerName(providerId) });
     } catch (error) {
       const message = describeProviderError(error, t("providers.save_api_key_failed"));
@@ -782,6 +784,13 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     };
   }
 
+  // 🟡 LAWOSS #574: overenie kľúča na workeri; bez workera ostáva kľúč neoverený.
+  async function checkProviderKeyOnWorker(input: { providerId: string; apiKey: string }): Promise<ProviderKeyVerdict> {
+    const { legalworkClient, legalworkWorkspaceId } = await resolveLegalworkConfigTarget("read");
+    if (!legalworkClient || !legalworkWorkspaceId) return "unverified";
+    return (await legalworkClient.checkProviderKey(legalworkWorkspaceId, input)).result;
+  }
+
   async function fetchCustomProviderModels(input: { baseURL: string; apiKey: string; providerId?: string }): Promise<string[]> {
     const { legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } = await resolveLegalworkConfigTarget("read");
     if (!hasLegalworkTarget || !legalworkClient || !legalworkWorkspaceId) {
@@ -840,7 +849,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const providerId = input.providerId.trim();
     const baseURL = input.baseURL.trim();
     const name = input.name.trim() || providerId;
-    const apiKey = input.apiKey.trim();
+    const apiKey = normalizeApiKey(input.apiKey); // 🟡 LAWOSS #574
     const models = input.models
       .map((model) => ({ ...model, id: model.id.trim() }))
       .filter((model) => model.id);
