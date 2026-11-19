@@ -2,6 +2,9 @@
 // Chromium's shared HTTP/1 connection pool. Each read pulls just one chunk.
 export function createEventStreams(fetchImpl = fetch) {
   const owners = new Map();
+  // 🟡 LAWOSS #561: once the app quits, main ends every stream before the embedded
+  // server closes their sockets; a socket closed while the app runs still rejects.
+  let closed = false;
 
   function cancel(owner, id) {
     const streams = owners.get(owner);
@@ -15,6 +18,7 @@ export function createEventStreams(fetchImpl = fetch) {
     async open(owner, id, url, headers) {
       if (owner.isDestroyed()) throw new Error("Window is closed.");
       if (!["http:", "https:"].includes(new URL(url).protocol)) throw new Error("HTTP URL required.");
+      if (closed) return null;
       let streams = owners.get(owner);
       if (!streams) {
         streams = new Map();
@@ -43,6 +47,7 @@ export function createEventStreams(fetchImpl = fetch) {
     },
     async read(owner, id) {
       const stream = owners.get(owner)?.get(id);
+      if (!stream && closed) return null;
       if (!stream) throw new Error("Stream is closed or belongs to another window.");
       try {
         const chunk = stream.reader ? await stream.reader.read() : { done: true };
@@ -60,5 +65,9 @@ export function createEventStreams(fetchImpl = fetch) {
       }
     },
     cancel,
+    closeAll() {
+      closed = true;
+      for (const [owner, streams] of owners) for (const id of [...streams.keys()]) cancel(owner, id);
+    },
   };
 }
