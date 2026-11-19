@@ -1,14 +1,20 @@
 /** Buffered HTTP requests owned by a window, with cancellation and body deadlines. */
 export function createHttpRequests(fetchImpl = fetch) {
   const owners = new Map();
+  let closed = false; // 🟡 LAWOSS #561: see event-streams.mjs
   function cancel(owner, id) {
     owners.get(owner)?.get(id)?.abort();
   }
   return {
     cancel,
+    closeAll() {
+      closed = true;
+      for (const requests of owners.values()) for (const controller of requests.values()) controller.abort();
+    },
     async fetch(owner, url, init = {}) {
       if (owner.isDestroyed()) throw new Error("Window is closed.");
       if (!["http:", "https:"].includes(new URL(url).protocol)) throw new Error("HTTP URL required.");
+      if (closed) return null;
       let requests = owners.get(owner);
       if (!requests) {
         requests = new Map();
