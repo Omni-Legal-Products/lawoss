@@ -953,6 +953,8 @@ export interface HostApprovalRequest {
   hostWide?: boolean;
   /** LAWOSS (#264): the command names the folder of another client registered inside this client (canonical root); the card warns. */
   otherClientFolder?: string;
+  /** 🟡 LAWOSS #552: cieľ verejnej požiadavky AI; text kontroly skladá natívny hostiteľ v jazyku rozhrania. */
+  publicAi?: { origin: string; endpoint: string; providerId: string; modelId: string };
   createdAt: number;
   actor: { type: "remote" | "host"; clientId?: string; scope?: string };
   network?: {

@@ -6,6 +6,13 @@
 |---|---|
 | `apps/app/src/components/markdown/markdown.tsx`, `apps/app/src/react-app/domains/session/surface/markdown.tsx`, nový `apps/app/src/lawoss/chat/emoji-aliases.ts` (LAWOSS, + test `tests/lawoss-emoji-cisla-571.test.tsx`) | #571: `createEmojiAliases()` bral za skratku `:meno:` každé z 6 272 kľúčových slov `emojilib`, aj čísla (`1`→🕐, `2`→🕑, `9`→🕘, `100`→💯) a krátke slová (`na`, `je`, `v`). V odpovedi sa „Podíly v poměru 1:2:3“ zmenilo na „1🕑3“ a „127.0.0.1:9:80“ na „127.0.0.1🕘80“. `emojiShortcodeAliases` berie len mená: začína písmenom, aspoň 3 znaky, aspoň 2 písmená. `:smile:`, `:thumbsup:` fungujú ďalej. |
 
+## Verejný text v oddelenom prostredí v jazyku rozhrania (#552) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `packages/types/src/desktop-ipc.ts`, `apps/desktop/electron/host-approvals.mjs`, `apps/desktop/electron/native-locale.mjs` (+ testy `host-approvals.test.mjs`, `scripts/host-review-regression.mjs`), `apps/server/src/lawoss/ai-public-context.ts`, `lawoss/host-decision.ts` (LAWOSS, + test `lawoss/ai-public-review-552.test.ts`) | #552: okno hostiteľa pri „Verejný text v oddelenom prostredí“ ukazovalo anglický súhrn a nadpisy zo servera („Public text only → …“, „Target: …“, „Complete serialized … context“) a riadok „Pracovný priestor: `__host_public_ai__`“ s interným ID. Server teraz posiela cieľ štruktúrovane v novom poli `HostApprovalRequest.publicAi` (pôvod, adresa, poskytovateľ, model) a `description` je len presne serializovaný kontext (bez zmeny obsahu). Hostiteľ pri akcii `ai.public.synthetic` skladá súhrn, „Cieľ“ a nadpis kontextu z `nativeCopy` (sk, cs, en, de, nové kľúče `publicSummary`, `publicTarget`, `publicContext`) a riadok pracovného priestoru vynechá. Anglický `summary` ostáva pre audit a iné zobrazenia. |
+| `apps/app/src/lawoss/domains/ai/guidance.tsx`, nový `apps/app/src/lawoss/domains/ai/public-ai-error.ts` (LAWOSS, + test `apps/app/tests/lawoss-verejna-ai-chyby-552.test.ts`) | #552: po „Odmietnuť“ sekcia ukázala anglickú správu servera („The public transmission was denied; …“). `runPublic` teraz zobrazí vetu v jazyku rozhrania podľa kódu chyby (`public_ai_denied`, `public_ai_engine_unavailable`, `public_ai_engine_version`, `public_ai_provider_unsupported`, `public_ai_target_invalid`, `org_policy_denied`, `invalid_public_prompt`, `read_only`, `public_ai_model_failed`, `public_ai_empty_reply`); neznámy kód dostane všeobecnú vetu s kódom, chyba bez kódu servera doterajšiu vetu o nedostupnosti. |
+
 ## Poškodené nastavenia klienta: varovanie pri klientovi a obnova (#554) (2026-11-18)
 
 | Súbor | Zmena |
