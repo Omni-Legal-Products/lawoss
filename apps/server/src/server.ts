@@ -260,6 +260,7 @@ import { createCustomProviderModelRefresh, providerBaseURL, readModelRefreshSett
 // LAWOSS: provider model refresh reads only the bundled catalog (no network).
 import { bundledProviderModelCatalog } from "./lawoss/bundled-provider-catalog.js";
 import { writeLogLine } from "./lawoss/safe-log-write.js";
+import { startEngineEventsLifetime, untilEngineEventsReleased } from "./lawoss/engine-events-release.js"; // 🟡 LAWOSS #561
 import { runtimeEngineConfiguration, upgradeRuntimeConfigRecord } from "./runtime-config-upgrade.js";
 import { backupRuntimeConfigSource } from "./runtime-config-source-backup.js";
 import { Config } from "@opencode/schema/config";
@@ -844,6 +845,8 @@ export type StartedServer = ServeResult & {
   wordAddinPort: number | null;
   /** Host-only; never exposed through HTTP/configuration. */
   invalidateRawHttpTrust: () => void;
+  /** 🟡 LAWOSS #561: call before stopping the engine; ends engine event consumers as a planned end. */
+  releaseEngineEvents: () => Promise<void>;
 };
 
 const orgPolicyResource = Symbol("server-org-policy");
@@ -1446,10 +1449,12 @@ export async function startServer(config: ServerConfig, runtimeOptions: LawossSe
   producerStops.push(stopScheduledTasks);
   let originalImageCleanup: ReturnType<typeof startOriginalImageCleanup>;
   cleanups.push(() => originalImageCleanup?.close());
+  const engineEvents = startEngineEventsLifetime(config); // 🟡 LAWOSS #561
   const startedServer = {
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
     invalidateRawHttpTrust: () => rawHttpTransport?.rotate(),
+    releaseEngineEvents: async () => { engineEvents.abort(); await originalImageCleanup?.close(); }, // 🟡 LAWOSS #561
     stop,
   };
     // Bind first: a busy preferred port can move the listener. Agent tools
@@ -1591,7 +1596,7 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
       catch { return false; }
       for (const candidate of roots) if (candidate && await pathWithin(candidate, directory)) return true;
       return false;
-    }, input.request.signal, close => onSyncChange(input.config, change => { if (change === "projects" || change === "policy") close(); }));
+    }, untilEngineEventsReleased(input.config, input.request.signal), close => onSyncChange(input.config, change => { if (change === "projects" || change === "policy") close(); })); // 🟡 LAWOSS #561
   }
   if (method === "GET" && path === "/session/active") {
     const active = await client.session.active();

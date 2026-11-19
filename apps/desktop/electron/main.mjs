@@ -3344,6 +3344,9 @@ if (!app.requestSingleInstanceLock()) {
     meetingMonitor.dispose();
     appTray.destroy();
     powerSessions.releaseAll();
+    // 🟡 LAWOSS #561: windows' streams and requests end before the embedded server closes their sockets.
+    eventStreams.closeAll();
+    httpRequests.closeAll();
     void boundedShutdown(() => Promise.all([disposeRuntimeBeforeQuit(), uiControlServer.stop()]), () => {
       console.warn("[shutdown] Graceful shutdown exceeded 10 seconds; terminating owned workers.");
       try { runtimeManager.forceStopOwnedChildren(); }
