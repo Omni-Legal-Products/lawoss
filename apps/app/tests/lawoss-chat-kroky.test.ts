@@ -191,6 +191,6 @@ describe("režim kódu: kroky vo vnútri execute (test pred spustením alfy 12. 
 
   test("neznámy nástroj ostane čitateľným menom", () => {
     setLocale("sk");
-    expect(getToolHistoryLabel(execute(["browser.click"]))).toBe("Browser click");
+    expect(getToolHistoryLabel(execute(["acme.do_thing"]))).toBe("Acme do thing"); // #562: `browser.*` už má vlastný text
   });
 });
