@@ -6,6 +6,12 @@
 |---|---|
 | `apps/server/src/opencode-plugins/legalwork-sandbox.ts`, `apps/server/src/opencode-plugins/legalwork-project-tools.ts`, `lawoss-view-tools.ts` a `lawoss-linked-folders.ts` (LAWOSS, + testy `lawoss/plugin-text-direct-tools.test.ts`, `lawoss/plugin-tools-direct.integration.test.ts`) | #573, pokračovanie #484: engine 2.1.4 ponúka nástroj pluginu modelu priamo len s `codemode: false`, inak existuje iba vnútri Code Mode `execute`. Vodítko sandboxu volá menom `legalwork_shell`, `legalwork_webfetch` a `legalwork_websearch` (vstavané `shell`, `webfetch` a `websearch` sandbox odstraňuje) a OKF skilly z neho spúšťajú `okf.js` a `okf-memory`. Texty LAWOSS a skill `roztried-spis` volajú `lawoss_documents_*`, pravidlá vizuálnych prehľadov `view_catalog`/`view_create`/`view_update`. Tieto nástroje sú teraz obalené `directTool` (v upstream súboroch import s `🟡 LAWOSS #573` a obalenie volania), oprávnenia a karty sa nemenia. Nástroje, ktoré menujú len upstream texty (`legalwork_skill_*`, `storage_*`, `legalwork_task_*` a ďalšie), ostávajú v Code Mode podľa návrhu upstreamu. Test `plugin-text-direct-tools` spúšťa pluginy s ich vlastnou registráciou a zlyhá, keď text LAWOSS, vodítko sandboxu alebo pribalený OKF skill menuje nástroj, ktorý je len v Code Mode. Pevné vety pripomienky pripojených priečinkov sú vytiahnuté do exportovanej konštanty `LINKED_FOLDERS_REMINDER_RULES` (text sa nemení). |
 
+## Skratky emoji len pre skutočné mená (#571) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/components/markdown/markdown.tsx`, `apps/app/src/react-app/domains/session/surface/markdown.tsx`, nový `apps/app/src/lawoss/chat/emoji-aliases.ts` (LAWOSS, + test `tests/lawoss-emoji-cisla-571.test.tsx`) | #571: `createEmojiAliases()` bral za skratku `:meno:` každé z 6 272 kľúčových slov `emojilib`, aj čísla (`1`→🕐, `2`→🕑, `9`→🕘, `100`→💯) a krátke slová (`na`, `je`, `v`). V odpovedi sa „Podíly v poměru 1:2:3“ zmenilo na „1🕑3“ a „127.0.0.1:9:80“ na „127.0.0.1🕘80“. `emojiShortcodeAliases` berie len mená: začína písmenom, aspoň 3 znaky, aspoň 2 písmená. `:smile:`, `:thumbsup:` fungujú ďalej. |
+
 ## Nedosiahnuteľný cieľ `sandbox/http` vráti typovanú chybu (#565) (2026-11-18)
 
 | Súbor | Zmena |

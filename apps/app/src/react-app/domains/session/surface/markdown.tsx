@@ -4,6 +4,7 @@ import { Marked, type Tokens } from "marked";
 import { markedEmoji } from "marked-emoji";
 import markedShiki from "marked-shiki";
 import emojiKeywords from "emojilib";
+import { emojiShortcodeAliases } from "@/lawoss/chat/emoji-aliases"; // 🟡 LAWOSS #571
 import {
   transformerMetaHighlight,
   transformerMetaWordHighlight,
@@ -56,14 +57,9 @@ function codeLanguageClass(lang: string | undefined) {
   return normalized ? ` class="language-${escapeAttribute(normalized)}"` : "";
 }
 
+// 🟡 LAWOSS #571: len skutočné mená emoji, nie čísla a krátke slová („1:2:3“ → „1🕑3“).
 function createEmojiAliases() {
-  const aliases: Record<string, string> = {};
-  for (const [emoji, names] of Object.entries(emojiKeywords)) {
-    for (const name of names) {
-      if (aliases[name] === undefined) aliases[name] = emoji;
-    }
-  }
-  return aliases;
+  return emojiShortcodeAliases(emojiKeywords);
 }
 
 const emojiAliases = createEmojiAliases();
