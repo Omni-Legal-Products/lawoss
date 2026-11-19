@@ -4,7 +4,9 @@ import { usePanelTabStore } from "../src/react-app/domains/session/panel/panel-t
 
 function fixture() {
   const runtime = createDocumentRuntime(() => ({ className: "" }));
-  const clients = { a: { baseUrl: "http://a" }, b: { baseUrl: "http://b" } };
+  // 🟡 LAWOSS #577: po odovzdaní editora runtime overí, či súbor ešte existuje.
+  const exists = async (_workspace, path) => ({ path, exists: true, kind: "file", size: 1, updatedAt: 1 });
+  const clients = { a: { baseUrl: "http://a", statWorkspaceFile: exists }, b: { baseUrl: "http://b", statWorkspaceFile: exists } };
   const projects = { left: "a", right: "a", elsewhere: "b" };
   runtime.setResolver(session => {
     const project = projects[session];
@@ -395,4 +397,19 @@ test("a shell handoff with no open editor needs no document import",async()=>{
   const {runtime}=fixture();
   expect(await runtime.beginFileEdit({sessionId:"left",operationId:"headless"})).toEqual({ok:true,operationId:"headless"});
   expect(await runtime.endFileEdit({sessionId:"left",operationId:"headless"})).toEqual({ok:true,reloaded:true});
+});
+
+// 🟡 LAWOSS #577: po presune súboru otvoreného v editore sa editor nikdy znova nenačíta (stará cesta vráti 404).
+test("súbor presunutý počas odovzdania editor zavrie a end_file_edit nečaká na jeho načítanie", async () => {
+  const { runtime, document, clients } = fixture();
+  const entry = document("a", "povodny.docx", async () => ({ ok: true, saved: true }));
+  await runtime.select({ sessionId: "left", path: "povodny.docx" });
+  await runtime.beginFileEdit({ sessionId: "left", operationId: "presun", paths: ["povodny.docx"] });
+  expect(entry.fileEditing).toBe(true);
+  clients.a.statWorkspaceFile = async (_workspace, path) => ({ path, exists: false });
+  const started = Date.now();
+  expect(await runtime.endFileEdit({ sessionId: "left", operationId: "presun" })).toEqual({ ok: true, reloaded: true });
+  expect(Date.now() - started).toBeLessThan(1_000);
+  expect(runtime.entries.has(entry.key)).toBe(false);
+  expect((await runtime.list({ sessionId: "left" })).openFiles).toEqual([]);
 });
