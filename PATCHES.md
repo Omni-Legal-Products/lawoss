@@ -6,6 +6,12 @@
 |---|---|
 | `apps/server/src/agent-sandbox/raw-http.ts`, nový `apps/server/src/lawoss/sandbox-http-failure.ts` (LAWOSS, + test `apps/server/src/lawoss/sandbox-http-unreachable.e2e.test.ts`) | #565: `POST /workspace/:id/sandbox/http` (`execute`/`fetch` agenta) pri nedosiahnuteľnom cieli padal na `500 internal_error` a server logoval „Unhandled error“ s celým `AggregateError`. `rawHttpRequest` teraz podľa kódu chyby (nie textu) mení zlyhanie spojenia, DNS a TLS na `502 sandbox_http_unreachable` a vyčerpaný 30 s rozpočet či `ETIMEDOUT`/`UND_ERR_CONNECT_TIMEOUT` na `504 sandbox_http_timeout`, so stručnou správou s hostiteľom a kódom. Zamietnutie politikou, validácia, zrušenie volajúcim a neznáme chyby ostávajú bez zmeny. |
 
+## Chat klienta sa na hlavného asistenta pýta len raz (#564) (2026-11-18)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/opencode-plugins/legalwork-assistant-tools.ts` (+ test v `legalwork-assistant-tools.test.ts`) | Poverenie enginu `GET /assistant` nikdy neprečíta (`wiki/agent-access.ts`: trasa nie je medzi nástrojmi, 403 `wiki_agent_endpoint_denied`). Plugin v2 (`Plugin.define`) sa pritom pýtal pri každom ťahu, kroku modelu (`session.context`), povolení a výsledku nástroja cez `isAssistant` bez pamäte; skoršia oprava (test alfy 10. 11.) zapamätala odmietnutie len v nepoužívaných hookoch v1. Teraz si `isAssistant` prvé odmietnutie zapamätá na celú inštanciu pluginu: v chate klienta jedna požiadavka (pri štarte inštancie) namiesto ~10 na ťah. |
+
 ## Verejný text v oddelenom prostredí v jazyku rozhrania (#552) (2026-11-18)
 
 | Súbor | Zmena |
