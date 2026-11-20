@@ -171,6 +171,12 @@ jobs:
       !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.unit_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance)) &&
       !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
     uses: ./.github/workflows/sandbox-runtime.yml
+    with:
+      # 🟡 LAWOSS: bez darwin-* . Tip push súčasne spúšťa Desktop Package Smoke (darwin-arm64)
+      # a unit/legalwork na macos-15; LegalWork sandbox na macOS držal runner ~20 min a GitHub
+      # zrušil čakajúce joby (tip 101d991d). sandbox-engine je len ubuntu (linux-x64 artefakt);
+      # balený darwin overí Package and launch.
+      targets: linux-x64,linux-arm64,win32-x64,win32-arm64
   engine-source-build:
     needs: changes
     if: >-
@@ -605,7 +611,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-15]
+        # 🟡 LAWOSS: len ubuntu. macos-15 sandbox-engine na tip push súťažil o ten istý
+        # runner ako unit-tests/legalwork-tests a Desktop Package Smoke; balený darwin
+        # runtime overí Package and launch (macos-15).
+        os: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6

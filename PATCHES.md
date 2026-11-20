@@ -1,5 +1,12 @@
 # LAWOSS downstream patches
 
+## Tip-dev CI: menej macOS contention + nepovinný ISIR (2026-11-20)
+
+| Súbor | Zmena |
+|---|---|
+| `.github/workflows/ci-desktop-packaging.yml` (`isir-native`) | `continue-on-error: true` na jobe označenom „nepovinné“ (#384). Bez toho flaky Native ISIR zčervená celý workflow aj keď „Package and launch“ a RAM prešli (tip `404f3605`). Povinné joby bez `continue-on-error`. |
+| `.github/workflows/ci-tests.yml` (`sandbox-runtime`, `sandbox-engine`) | LegalWork Tests stavia sandbox bez `darwin-*`; `sandbox-engine` len `ubuntu-latest`. Tip `101d991d` zrušil čakajúce macos-15 joby (unit/legalwork/Package), kým LegalWork macOS sandbox držal runner. Darwin runtime stavia Desktop Package Smoke; balený darwin overí Package and launch. |
+
 ## Vlastný poskytovateľ sa zobrazí hneď po pridaní (#579) (2026-11-19)
 
 | Súbor | Zmena |
