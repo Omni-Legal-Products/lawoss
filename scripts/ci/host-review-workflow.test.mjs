@@ -10,8 +10,11 @@ test('normal macOS test job runs the real host review gate without an optional o
   const step = job.split(/^      - name: /m).find(block => /^Verify bounded native host context review in Electron\n/.test(block));
   assert.ok(step, 'The real host review command must be a normal CI step');
   assert.match(step, /^        if: runner\.os == 'macOS'$/m);
-  assert.match(step, /^        timeout-minutes: 2$/m);
-  assert.match(step, /^        run: pnpm --filter @legalwork\/desktop test:host-review$/m);
+  assert.match(step, /^        timeout-minutes: 4$/m);
+  assert.match(
+    step,
+    /^        run: \|\n          pnpm --filter @legalwork\/desktop test:host-review \|\| pnpm --filter @legalwork\/desktop test:host-review$/m,
+  );
   assert.doesNotMatch(step, /continue-on-error|workflow_dispatch|inputs\./);
   const desktop = JSON.parse(readFileSync(new URL('../../apps/desktop/package.json', import.meta.url), 'utf8'));
   assert.equal(desktop.scripts['test:host-review'], 'node scripts/run-host-review-regression.mjs');

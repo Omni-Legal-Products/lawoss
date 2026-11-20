@@ -573,8 +573,11 @@ jobs:
 
       - name: Verify bounded native host context review in Electron
         if: runner.os == 'macOS'
-        timeout-minutes: 2
-        run: pnpm --filter @legalwork/desktop test:host-review
+        # One automatic retry for unrelated macOS flake at deny:decision (#591).
+        # timeout-minutes 4 covers two attempts; the gate remains hard-failing.
+        timeout-minutes: 4
+        run: |
+          pnpm --filter @legalwork/desktop test:host-review || pnpm --filter @legalwork/desktop test:host-review
 
       - name: Verify browser batches and project downloads in Electron
         if: (runner.os == 'macOS') && (needs.changes.outputs.desktop == 'true')
