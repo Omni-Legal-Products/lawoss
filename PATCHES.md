@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Vlastný poskytovateľ sa zobrazí hneď po pridaní (#579) (2026-11-19)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/server.ts` (+ test v `apps/server/src/lawoss-global-providers.e2e.test.ts`) | #579: `readCustomProviders`, z ktorého číta obnova modelov (`POST /workspace/:id/provider-model-refresh`), videl len riadok priečinka a `opencode.jsonc`, nie globálny riadok `__global_providers__`, kam LAWOSS ukladá vlastných poskytovateľov. Po pridaní alebo úprave vlastného poskytovateľa sa preto neoznačil `pendingReload`, engine sa nenačítal, odpoveď mala `reloaded: false` a `submitCustomProvider` zoznam v nastaveniach neobnovil až do znovunačítania okna. Funkcia teraz pridá globálnych poskytovateľov (riadok priečinka má pri rovnakom id prednosť, ako pri `GET /workspace/:id/config`), 1 riadok s `🟡 LAWOSS #579`. Klientsky store sa nemení. |
+
 ## Shell, web a nástroje dokumentov volateľné priamo (#573) (2026-11-18)
 
 | Súbor | Zmena |
