@@ -6,6 +6,12 @@
 |---|---|
 | `apps/server/src/opencode-plugins/legalwork-extensions-preview.ts`, `legalwork-powerpoint-tools.ts`, `apps/server/resources/core-opencode/skills/docx-edit/SKILL.md`, `apps/server/src/core-skills.ts` (vygenerované), `lawoss-direct-tool.ts` (LAWOSS, + testy `lawoss/plugin-text-direct-tools.test.ts`, `lawoss/plugin-tools-direct.integration.test.ts`) | #578, pokračovanie #573: nástroje editora `inapp_*` boli len v Code Mode `execute`, ale vodítko, systémové texty, pripomienky a skill `docx-edit` ich volali menom, takže agent dostal „No tool named …“. Registrácia v `legalwork-extensions-preview` je obalená `editorTool` (import a obalenie s `🟡 LAWOSS #578`): priamych je 12 nástrojov jadra (`inapp_documents_open/list/select`, `inapp_docx_read_document`, `find_text`, `suggest_change`, `add_comment`, `read_comments`, `reply_comment`, `read_changes`, `accept_changes`, `reject_changes`), zoznam je v `lawoss-direct-tool.ts`. Ostatných 21 (`inapp_docx_edit`, `fill_template`, `compare_documents`, `inspect_document`, `prepare_file_edit`, `read_selection`, `inapp_documents_navigate`, `inapp_markdown_create`, `inapp_md_*`, `inapp_xlsx_*`, `inapp_office_save`, `inapp_pptx_*`) ostáva v Code Mode a texty v týchto troch upstream súboroch ich volajú ako `tools.inapp_…` vnútri `execute`; vodítko editora má na to jednu úvodnú vetu. Strážny test číta prózu každého zdroja servera, ktorý menuje `inapp_`. |
 
+## Vlastný poskytovateľ sa zobrazí hneď po pridaní (#579) (2026-11-19)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/server.ts` (+ test v `apps/server/src/lawoss-global-providers.e2e.test.ts`) | #579: `readCustomProviders`, z ktorého číta obnova modelov (`POST /workspace/:id/provider-model-refresh`), videl len riadok priečinka a `opencode.jsonc`, nie globálny riadok `__global_providers__`, kam LAWOSS ukladá vlastných poskytovateľov. Po pridaní alebo úprave vlastného poskytovateľa sa preto neoznačil `pendingReload`, engine sa nenačítal, odpoveď mala `reloaded: false` a `submitCustomProvider` zoznam v nastaveniach neobnovil až do znovunačítania okna. Funkcia teraz pridá globálnych poskytovateľov (riadok priečinka má pri rovnakom id prednosť, ako pri `GET /workspace/:id/config`), 1 riadok s `🟡 LAWOSS #579`. Klientsky store sa nemení. |
+
 ## Shell, web a nástroje dokumentov volateľné priamo (#573) (2026-11-18)
 
 | Súbor | Zmena |

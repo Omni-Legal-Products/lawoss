@@ -2168,7 +2168,8 @@ function createRoutes(
     const persisted = mergeOpencodeConfigs(await readOpencodeConfig(config, workspace), await readRuntimeOpencodeConfig(config, workspace.id));
     // Authored definitions determine editability and secret endpoint binding.
     // A runtime model catalog is not evidence that LegalWork owns its config.
-    return { ...runtimeEngineConfiguration(persisted).providers };
+    // 🟡 LAWOSS #579: aj globálni vlastní poskytovatelia, inak nový poskytovateľ nespustí načítanie enginu.
+    return { ...await readGlobalProviderMap(config), ...runtimeEngineConfiguration(persisted).providers };
   };
   const refreshCustomModels = createCustomProviderModelRefresh({
     config,
