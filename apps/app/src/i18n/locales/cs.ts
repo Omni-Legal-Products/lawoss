@@ -2662,7 +2662,7 @@ export default {
   "providers.no_models_custom": "Zatím žádné modely, vlastní endpointy nemají katalog.",
   "providers.add_or_fetch": "Přidejte ID výše nebo načtěte seznam ze svého endpointu.",
   "providers.from_endpoint": "Z endpointu, kliknutím přidáte",
-  "providers.reasoning_autodetect": "Reasoning se detekuje automaticky z ID modelu, v případě potřeby přepněte u jednotlivých modelů.",
+  "providers.reasoning_autodetect": "Uvažování se detekuje automaticky z ID modelu, v případě potřeby přepněte u jednotlivých modelů.",
   "welcome.first_launch_note": "Při prvním spuštění to může chvíli trvat.",
   "welcome.sample_prompt": "Připrav redline této NDA za kupujícího.",
   "welcome.what_it_does": "Co umí",

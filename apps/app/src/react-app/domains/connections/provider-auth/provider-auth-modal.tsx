@@ -1067,7 +1067,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const fetchCustomModels = async () => {
     const base = customBaseURL.trim().replace(/\/+$/, "");
     if (!base && !customEndpointConfigured) {
-      setLocalError("Enter a base URL first.");
+      setLocalError(t("lawoss.custom_provider.base_url_required")); // 🟡 LAWOSS #580
       return;
     }
     const request = ++customRequestRef.current;
@@ -1084,7 +1084,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         return;
       }
       if (!props.onFetchCustomModels) {
-        throw new Error("Connect to the LegalWork worker to fetch models.");
+        throw new Error(t("lawoss.custom_provider.fetch_models_no_server")); // 🟡 LAWOSS #580
       }
       const ids = await props.onFetchCustomModels({ baseURL: base, apiKey: customApiKey.trim(), providerId: customEditMode ? customFixedProviderId ?? undefined : undefined });
       if (request !== customRequestRef.current) return;
@@ -1094,8 +1094,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       if (!ids.length) setLocalError(t("providers.no_models_returned"));
     } catch (error) {
       if (request !== customRequestRef.current) return;
-      const detail = error instanceof Error ? error.message : "request failed";
-      setLocalError(`Couldn't list models — enter IDs manually. (${detail})`);
+      // 🟡 LAWOSS #580
+      const detail = error instanceof Error ? error.message : t("lawoss.custom_provider.fetch_models_request_failed");
+      setLocalError(t("lawoss.custom_provider.fetch_models_failed", { detail }));
     } finally {
       if (request === customRequestRef.current) setCustomFetching(false);
     }
@@ -1141,7 +1142,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setCustomChatCompletionsOnly(false);
     setCustomEditMode(false);
     setCustomFixedProviderId(null);
-    setCustomBrandName("Local model");
+    setCustomBrandName(t("providers.local_model_name")); // 🟡 LAWOSS #580
     setCustomShowLocalTemplates(true);
     setCustomTemplateId(null);
     setCustomName("");
@@ -1186,11 +1187,11 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     const apiKey = customApiKey.trim();
 
     if (!name) {
-      setLocalError("Name is required.");
+      setLocalError(t("lawoss.custom_provider.name_required")); // 🟡 LAWOSS #580
       return;
     }
     if (!baseURL && !customEndpointConfigured) {
-      setLocalError("Base URL is required.");
+      setLocalError(t("lawoss.custom_provider.base_url_required")); // 🟡 LAWOSS #580
       return;
     }
     if (!customModels.length) {
@@ -1640,7 +1641,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     </div>
                   ) : null}
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-[11px] text-dls-secondary">{t("providers.keys_stored_locally")}</div>
+                    <div className="text-[11px] text-dls-secondary">{t("lawoss.providers.keys_stored_locally")}{/* 🟡 LAWOSS #580: bez „OpenCode“ */}</div>
                     <Button
                       onClick={handleApiSubmit}
                       disabled={actionDisabled || !apiKeyInput.trim()}
@@ -1788,7 +1789,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     <div className="space-y-5">
                       {customShowLocalTemplates ? (
                         <div className="space-y-1.5">
-                          <div className="text-xs font-medium text-dls-secondary">Runtime</div>
+                          <div className="text-xs font-medium text-dls-secondary">{t("lawoss.custom_provider.runtime")}</div>{/* 🟡 LAWOSS #580 */}
                           <div className="flex flex-wrap gap-1.5">
                             {localRuntimeTemplates().map((template) => {
                               const active = customTemplateId === template.id;
@@ -1839,11 +1840,11 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                       />
                       {customFixedProviderId ? (
                         <div className="-mt-2 text-[11px] text-dls-secondary">
-                          Provider ID: <span className="font-mono">{customFixedProviderId}</span> (fixed)
+                          {t("lawoss.custom_provider.provider_id")} <span className="font-mono">{customFixedProviderId}</span> {t("lawoss.custom_provider.provider_id_fixed")}{/* 🟡 LAWOSS #580 */}
                         </div>
                       ) : customName.trim() ? (
                         <div className="-mt-2 text-[11px] text-dls-secondary">
-                          Provider ID: <span className="font-mono">{slugifyProviderId(customName)}</span>
+                          {t("lawoss.custom_provider.provider_id")} <span className="font-mono">{slugifyProviderId(customName)}</span>{/* 🟡 LAWOSS #580 */}
                         </div>
                       ) : null}
 
@@ -1878,7 +1879,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                               {
                                 value: "chat" as const,
                                 label: "Chat Completions",
-                                hint: "/v1/chat/completions · most endpoints",
+                                hint: t("lawoss.custom_provider.chat_completions_hint"), // 🟡 LAWOSS #580
                               },
                               {
                                 value: "responses" as const,
@@ -1917,7 +1918,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                       </div>
 
                       <TextInput
-                        label={isEditingCustomProvider ? "API key" : "API key (optional)"}
+                        label={t(isEditingCustomProvider ? "lawoss.custom_provider.api_key" : "lawoss.custom_provider.api_key_optional")} // 🟡 LAWOSS #580
                         type="password"
                         placeholder={isEditingCustomProvider ? t("provider_auth.leave_blank_key") : "sk-..."}
                         value={customApiKey}
@@ -2006,7 +2007,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                                         disabled={actionDisabled || customBusy}
                                       />
                                       <span className={`text-[11px] ${model.toolCall ? "text-dls-text" : "text-dls-secondary"}`}>
-                                        Tools
+                                        {t("lawoss.custom_provider.model_tools")}{/* 🟡 LAWOSS #580 */}
                                       </span>
                                     </label>
                                     <label className="flex cursor-pointer select-none items-center gap-2">
@@ -2017,16 +2018,16 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                                         disabled={actionDisabled || customBusy}
                                       />
                                       <span className={`text-[11px] ${model.reasoning ? "text-dls-text" : "text-dls-secondary"}`}>
-                                        Reasoning
+                                        {t("lawoss.custom_provider.model_reasoning")}{/* 🟡 LAWOSS #580 */}
                                       </span>
                                     </label>
                                     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:ml-auto">
                                       <label className="flex items-center gap-1.5">
-                                        <span className="text-[11px] text-dls-secondary">Context</span>
+                                        <span className="text-[11px] text-dls-secondary">{t("lawoss.custom_provider.model_context")}</span>{/* 🟡 LAWOSS #580 */}
                                         <input
                                           type="text"
                                           inputMode="numeric"
-                                          placeholder="auto"
+                                          placeholder={t("lawoss.custom_provider.limit_auto")} // 🟡 LAWOSS #580
                                           value={model.contextLimit}
                                           onChange={(event) =>
                                             updateCustomModel(model.id, { contextLimit: event.currentTarget.value })
@@ -2036,11 +2037,11 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                                         />
                                       </label>
                                       <label className="flex items-center gap-1.5">
-                                        <span className="text-[11px] text-dls-secondary">Output</span>
+                                        <span className="text-[11px] text-dls-secondary">{t("lawoss.custom_provider.model_output")}</span>{/* 🟡 LAWOSS #580 */}
                                         <input
                                           type="text"
                                           inputMode="numeric"
-                                          placeholder="auto"
+                                          placeholder={t("lawoss.custom_provider.limit_auto")} // 🟡 LAWOSS #580
                                           title={t("providers.output_limit_hint")}
                                           value={model.outputLimit}
                                           onChange={(event) =>
@@ -2100,7 +2101,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                             disabled={actionDisabled || customBusy || !customModelInput.trim()}
                           >
                             <Plus size={14} />
-                            Add
+                            {t("lawoss.custom_provider.add_model")}{/* 🟡 LAWOSS #580 */}
                           </Button>
                         </div>
                       </CollapsibleContent>
@@ -2128,7 +2129,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
         <DialogFooter className="shrink-0 items-center gap-3">
           {props.submitting ? <div role="status" className="text-xs text-dls-secondary">{submittingLabel()}</div> : null}
-          {resolvedView === "custom" ? <div className="text-[11px] text-dls-secondary sm:mr-auto">{t("providers.keys_stored_locally")}</div> : null}
+          {resolvedView === "custom" ? <div className="text-[11px] text-dls-secondary sm:mr-auto">{t("lawoss.providers.keys_stored_locally")}{/* 🟡 LAWOSS #580: bez „OpenCode“ */}</div> : null}
           <div className="flex w-full justify-end gap-2 sm:w-auto">
             <DialogClose
               disabled={actionDisabled || customBusy}
@@ -2149,7 +2150,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                 }
               >
                 {customBusy
-                  ? isEditingCustomProvider ? "Saving…" : "Adding…"
+                  ? t(isEditingCustomProvider ? "lawoss.custom_provider.saving" : "lawoss.custom_provider.adding") // 🟡 LAWOSS #580
                   : isEditingCustomProvider ? t("provider_auth.save_changes") : t("provider_auth.add_provider")}
               </Button>
             ) : null}
