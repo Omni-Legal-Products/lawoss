@@ -37,7 +37,7 @@ const WORD_TOOL_RULES = `Rules for word_* tools:
 const WORD_TOOLS_INSTRUCTION = `## Microsoft Word document tools
 The user may have a Word document open either in LegalWork's in-app right sidebar or in the LegalWork pane inside Microsoft Word.
 
-For an open/current document, try inapp_docx_read_document first. If it succeeds, stay in IN-APP LIVE mode and use only inapp_docx_* tools for that document. If it reports no matching in-app document, call word_read_document once. If that succeeds, stay in WORD LIVE mode and use only word_* tools. Only when both live surfaces are unavailable may you use the FILE backend for a workspace document. Never start with bash or the file pipeline for an unqualified request about the open document.
+For an open/current document, try inapp_docx_read_document first. If it succeeds, stay in IN-APP LIVE mode and use only the in-app editor tools for that document: the core ones such as inapp_docx_suggest_change by name, the others such as tools.inapp_docx_edit only inside execute. If it reports no matching in-app document, call word_read_document once. If that succeeds, stay in WORD LIVE mode and use only word_* tools. Only when both live surfaces are unavailable may you use the FILE backend for a workspace document. Never start with bash or the file pipeline for an unqualified request about the open document.
 
 ${WORD_TOOL_RULES}`;
 

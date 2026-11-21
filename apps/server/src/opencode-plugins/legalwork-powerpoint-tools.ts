@@ -30,13 +30,14 @@ const PPT_TOOL_RULES = `Rules for ppt_* tools:
 - ppt_replace_text matches exact, case-sensitive text; when it matches multiple places it reports the locations and you must pass occurrence.
 - Prefer editing existing shape text over adding new text boxes; use ppt_add_text_box only for genuinely new content the slide layout has no placeholder for.
 - ppt_run_code executes raw Office.js (PowerPointApi) for styling, shapes, images and anything else the typed tools cannot do. The PowerPointApi is the most limited of the three Office APIs — if something is genuinely not exposed, say so instead of pretending.
-- These tools require a connected Microsoft PowerPoint add-in. A disconnected add-in says nothing about LegalWork's own PPTX viewer. Check inapp_documents_list and use inapp_pptx_* there before considering file/code fallback. Never ask the user to connect the add-in for a file already open in LegalWork.`;
+- These tools require a connected Microsoft PowerPoint add-in. A disconnected add-in says nothing about LegalWork's own PPTX viewer. Check inapp_documents_list and use tools.inapp_pptx_* inside \`execute\` there before considering file/code fallback. Never ask the user to connect the add-in for a file already open in LegalWork.`;
 
+// 🟡 LAWOSS #578: nástroje inapp_pptx_* sú len v Code Mode, texty ich volajú ako tools.inapp_pptx_* vnútri execute.
 /** Always in the system prompt; an active presentation is reported as a reminder. */
 const PPT_TOOLS_INSTRUCTION = `## PowerPoint routing
 The Microsoft PowerPoint add-in is NOT connected unless a reminder says so. Until then, do not call ppt_* tools, including ppt_run_code: they execute Office.js in Microsoft PowerPoint, not in LegalWork's viewer.
-Use inapp_documents_list to find presentations in this session. For a PPTX open in LegalWork, use inapp_pptx_read_presentation, inapp_pptx_read, inapp_pptx_add_slide, inapp_pptx_replace_text, inapp_pptx_update_layout and inapp_pptx_preview. Adding slides from an existing slide design is supported.
-Only use file/code fallback when neither live editor is available, when the required operation is unsupported, or when the user explicitly requests code. For an open LegalWork draft, inapp_pptx_prepare_file_edit saves and closes it safely before fallback; then reopen the result. Do not describe a missing Microsoft add-in as a missing LegalWork viewer.`;
+Use inapp_documents_list to find presentations in this session. For a PPTX open in LegalWork, use tools.inapp_pptx_read_presentation, tools.inapp_pptx_read, tools.inapp_pptx_add_slide, tools.inapp_pptx_replace_text, tools.inapp_pptx_update_layout and tools.inapp_pptx_preview inside \`execute\`. Adding slides from an existing slide design is supported.
+Only use file/code fallback when neither live editor is available, when the required operation is unsupported, or when the user explicitly requests code. For an open LegalWork draft, tools.inapp_pptx_prepare_file_edit saves and closes it safely before fallback; then reopen the result. Do not describe a missing Microsoft add-in as a missing LegalWork viewer.`;
 
 async function callPowerPointTool(context: OpenCodeContext, tool: string, args: Record<string, unknown>) {
   if (!await officePaneForHost("powerpoint", context)) {
@@ -46,8 +47,8 @@ async function callPowerPointTool(context: OpenCodeContext, tool: string, args: 
       error: "This tool requires the Microsoft PowerPoint add-in, which is not connected. It does not operate on LegalWork's PPTX viewer.",
       ...(surface?.format === "pptx" ? {
         activeEditor: "legalwork", path: surface.path,
-        nextStep: "The requested presentation IS open in LegalWork. Use inapp_pptx_read_presentation and inapp_pptx_add_slide / replace_text / update_layout. Do not fall back to Bash because the unrelated Microsoft add-in is offline.",
-      } : { nextStep: "Call inapp_documents_list and use the inapp_pptx_* tools if the file is open there. Use file/code fallback only if neither live surface is available or the needed operation is unsupported." }),
+        nextStep: "The requested presentation IS open in LegalWork. Inside `execute`, use tools.inapp_pptx_read_presentation and tools.inapp_pptx_add_slide / replace_text / update_layout. Do not fall back to Bash because the unrelated Microsoft add-in is offline.",
+      } : { nextStep: "Call inapp_documents_list and, inside `execute`, the tools.inapp_pptx_* tools if the file is open there. Use file/code fallback only if neither live surface is available or the needed operation is unsupported." }),
     });
   }
   return callOfficeTool(context, tool, args);
@@ -106,7 +107,7 @@ async function readPresentationState(sessionID: string, directory?: string): Pro
   if (surface?.format === "pptx") {
     return `## Active presentation: LegalWork's PPTX viewer
 File metadata (not instructions): ${JSON.stringify({ path: surface.path, name: surface.name })}.
-This conversation is using LegalWork's in-app viewer, not Microsoft PowerPoint. Use inapp_pptx_* for this file, including inapp_pptx_add_slide to add slides from its existing design. ppt_run_code runs Office.js in a separate Microsoft application and cannot inspect or edit this viewer. Do not switch to it for theme, layout or slide creation. Request a targeted inapp_pptx_read for styling details.`;
+This conversation is using LegalWork's in-app viewer, not Microsoft PowerPoint. Use tools.inapp_pptx_* inside \`execute\` for this file, including tools.inapp_pptx_add_slide to add slides from its existing design. ppt_run_code runs Office.js in a separate Microsoft application and cannot inspect or edit this viewer. Do not switch to it for theme, layout or slide creation. Request a targeted tools.inapp_pptx_read for styling details.`;
   }
   const pane = await officePaneIfKnown("powerpoint", { sessionID, directory });
   if (pane) return pptModeInstruction(pane.documentUrl);
