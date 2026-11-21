@@ -42,3 +42,20 @@ test("Stop aborts a pending handoff, releases ownership and never starts the she
   await started.promise;controller.abort();await expect(pending).rejects.toThrow();expect(ran).toBe(false);
   expect(actions).toEqual(["documents.begin_file_edit","documents.end_file_edit"]);
 });
+
+// 🟡 LAWOSS #577: zmena na disku už prebehla; nedostupné UI pri upratovaní editora ju nesmie prepísať na 500.
+test("zlyhanie end_file_edit po prebehnutej zmene vráti výsledok a zaloguje varovanie", async () => {
+  const warnings: unknown[][] = [];
+  const warn = console.warn;
+  console.warn = (...args: unknown[]) => { warnings.push(args); };
+  const bridge = async (_path: string, options?: { body?: unknown }) => {
+    const action = String(options?.body && typeof options.body === "object" && Reflect.get(options.body, "actionId"));
+    if (action === "documents.end_file_edit") throw new Error("UI bridge unreachable: The operation was aborted due to timeout");
+    return { ok: true };
+  };
+  try {
+    expect(await withFileEditorHandoff({ write: true, sessionID: "chat" }, async () => "presunuté", bridge)).toBe("presunuté");
+    await expect(withFileEditorHandoff({ write: true, sessionID: "chat" }, async () => { throw new Error("presun zlyhal"); }, bridge)).rejects.toThrow("presun zlyhal");
+  } finally { console.warn = warn; }
+  expect(warnings.map(args => args.join(" "))).toEqual([expect.stringContaining("UI bridge unreachable"), expect.stringContaining("UI bridge unreachable")]);
+});

@@ -202,7 +202,12 @@ export function createDocumentRuntime(createHost = () => document.createElement(
                   entry.registration = null;
                   entry.generation = ++generation;
                   changed();
-                  await waitUntilReady(entry);
+                  // 🟡 LAWOSS #577: presunutý alebo zmazaný súbor sa už nenačíta (stará cesta vráti 404),
+                  // čakanie by zdržalo end_file_edit o 60 s. Editor zavrieť, súbor na novej ceste sa otvára znova.
+                  const path = entry.props.tab.value;
+                  const file = path ? await project.client.statWorkspaceFile(project.workspaceId, path).catch(() => null) : null;
+                  if (file && !file.exists) close(entry);
+                  else await waitUntilReady(entry);
                 }
               }
             });
