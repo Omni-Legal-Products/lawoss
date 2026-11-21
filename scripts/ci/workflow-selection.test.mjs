@@ -71,6 +71,15 @@ test('all LAWOSS package jobs retain storage checks without a duplicate six-host
   assert.equal(main.jobs['native-storage-acceptance'], undefined);
 });
 
+// LAWOSS (#384): nepovinný Native ISIR nesmie zčervenať celý Desktop Package Smoke, keď Package and launch prešlo.
+test('optional Native ISIR uses continue-on-error so package smoke stays green', () => {
+  const isir = workflow('ci-desktop-packaging').jobs['isir-native'];
+  assert.equal(isir['continue-on-error'], true);
+  assert.match(isir.name, /nepovinné/);
+  assert.equal(workflow('ci-desktop-packaging').jobs['package-smoke']['continue-on-error'], undefined);
+  assert.equal(workflow('ci-desktop-packaging').jobs['memory-budget']['continue-on-error'], undefined);
+});
+
 test('required PR workflows have job filtering, and reusable/manual workflows stay opt-in', () => {
   for (const name of ['ci-tests', 'ci-i18n', 'ci-docx', 'ci-legalwork-ui-mcp']) {
     assert.equal(workflow(name).on.pull_request.paths, undefined);
