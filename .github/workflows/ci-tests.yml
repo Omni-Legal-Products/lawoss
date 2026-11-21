@@ -176,7 +176,9 @@ jobs:
       # a unit/legalwork na macos-15; LegalWork sandbox na macOS držal runner ~20 min a GitHub
       # zrušil čakajúce joby (tip 101d991d). sandbox-engine je len ubuntu (linux-x64 artefakt);
       # balený darwin overí Package and launch.
-      targets: linux-x64,linux-arm64,win32-x64,win32-arm64
+      # Ručná diagnostika balíčkov (package_desktop) dostáva runtime od tohto volania
+      # (runtime_provided), vrátane darwin-arm64, preto ho vtedy stavia aj tu.
+      targets: ${{ github.event_name == 'workflow_dispatch' && inputs.package_desktop && 'all' || 'linux-x64,linux-arm64,win32-x64,win32-arm64' }}
   engine-source-build:
     needs: changes
     if: >-

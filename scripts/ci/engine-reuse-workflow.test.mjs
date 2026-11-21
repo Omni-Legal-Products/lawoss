@@ -87,8 +87,9 @@ test('existing required check names fail if units or a selected engine build fai
   // 🟡 LAWOSS: sandbox-engine len ubuntu; LegalWork sandbox bez darwin — uvoľní macos-15
   // na tip push (unit/legalwork + Desktop Package Smoke).
   assert.deepEqual(workflow('ci-tests').jobs['sandbox-engine'].strategy.matrix.os, ['ubuntu-latest']);
+  // Ručná diagnostika balíčkov dostáva darwin runtime od volajúceho (runtime_provided).
   assert.equal(workflow('ci-tests').jobs['sandbox-runtime'].with.targets,
-    'linux-x64,linux-arm64,win32-x64,win32-arm64');
+    "${{ github.event_name == 'workflow_dispatch' && inputs.package_desktop && 'all' || 'linux-x64,linux-arm64,win32-x64,win32-arm64' }}");
   const script = gate.steps[0].run;
   const run = (units, required, engine) => execFileSync('bash', ['-e', '-c', script], {
     env: { ...process.env, UNIT_RESULT: units, ENGINE_REQUIRED: required, ENGINE_RESULT: engine }, stdio: 'pipe',
