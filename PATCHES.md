@@ -6,6 +6,12 @@
 |---|---|
 | `apps/server/src/embedded.ts`, `apps/server/src/lawoss/server-config-recovery.ts` (LAWOSS, + test `lawoss/server-config-recovery.e2e.test.ts`), `apps/app/src/lawoss/domains/onboarding/register-clients.ts` (LAWOSS, + test `apps/app/tests/lawoss-onboarding-register-clients.test.ts`) | #581: po obnove (#553) mali klienti v hľadaní (⌘K) a zoznamoch meno priečinka (`C002-syn-hron-technologie-a-s`) namiesto mena z karty klienta. Príčina: onboarding zapisoval ostatných klientov dávky do zoznamu desktopu (`legalwork-workspaces.json`) cez `other.displayName ?? meno priečinka`, hoci server vracia meno z karty v `name`; obnova potom brala `name` aj `displayName` z tohto zoznamu. Onboarding teraz natívne zapisuje `displayName ?? name` zo servera. `restoreClientsFromHost` (teraz `async`) pre `name` aj `displayName` rovné menu priečinka vezme názov z karty klienta (`registrationName`, rovnaké pravidlo ako registrácia z onboardingu), takže sa opravia aj už uložené zoznamy. Meno zadané používateľom ostáva. V `embedded.ts` pribudol `await` k volaniu (riadok `🟡 LAWOSS #553 #581`). |
 
+## Vlastný poskytovateľ sa zobrazí hneď po pridaní (#579) (2026-11-19)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/server.ts` (+ test v `apps/server/src/lawoss-global-providers.e2e.test.ts`) | #579: `readCustomProviders`, z ktorého číta obnova modelov (`POST /workspace/:id/provider-model-refresh`), videl len riadok priečinka a `opencode.jsonc`, nie globálny riadok `__global_providers__`, kam LAWOSS ukladá vlastných poskytovateľov. Po pridaní alebo úprave vlastného poskytovateľa sa preto neoznačil `pendingReload`, engine sa nenačítal, odpoveď mala `reloaded: false` a `submitCustomProvider` zoznam v nastaveniach neobnovil až do znovunačítania okna. Funkcia teraz pridá globálnych poskytovateľov (riadok priečinka má pri rovnakom id prednosť, ako pri `GET /workspace/:id/config`), 1 riadok s `🟡 LAWOSS #579`. Klientsky store sa nemení. |
+
 ## Shell, web a nástroje dokumentov volateľné priamo (#573) (2026-11-18)
 
 | Súbor | Zmena |
