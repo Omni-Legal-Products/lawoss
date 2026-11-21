@@ -22,7 +22,10 @@ export async function beginFileEditorHandoff(sessionId: string, paths?: string[]
     await call("documents.end_file_edit").catch(() => {});
     throw error;
   }
-  return () => call("documents.end_file_edit");
+  // 🟡 LAWOSS #577: volá sa až po skončení zmeny súborov. Neodpovedajúce UI nesmie prepísať jej výsledok ani jej chybu.
+  return () => call("documents.end_file_edit").catch((error: unknown) => {
+    console.warn("[file-editor-handoff] Editory sa po zmene súborov nepodarilo obnoviť:", error instanceof Error ? error.message : String(error));
+  });
 }
 
 export async function withFileEditorHandoff<T>(command: { write: boolean; sessionID?: string; signal?: AbortSignal }, run: () => Promise<T>, request?: BridgeRequest) {
