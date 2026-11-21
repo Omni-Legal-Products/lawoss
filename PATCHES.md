@@ -10,7 +10,7 @@
 
 | Súbor | Zmena |
 |---|---|
-| `.github/workflows/ci-tests.yml` (krok workflow-editor / shutdown), `scripts/ci/shutdown-workflow.test.mjs` | #588: flaky macOS Electron `test:shutdown` (SIGKILL, `code === null` v `shutdown-regression.mjs`) — jeden automatický retry príkazu `test:shutdown` (`cmd \|\| cmd`), bez `continue-on-error`; brána ostáva povinná. Rovnaký vzor ako host-review (#591). |
+| `.github/workflows/ci-tests.yml` (krok workflow-editor / shutdown; `concurrency.group`), `scripts/ci/shutdown-workflow.test.mjs` | #588: flaky macOS Electron `test:shutdown` (SIGKILL, `code === null` v `shutdown-regression.mjs`) — jeden automatický retry príkazu `test:shutdown` (`cmd \|\| cmd`), bez `continue-on-error`; brána ostáva povinná. Rovnaký vzor ako host-review (#591). `concurrency.group` prefix `legalwork-tests-r2-` — zombie `queued` behy blokovali nové `pending` súrodence (cancel-in-progress ich nezruší; agent `gh run cancel` 403). |
 
 ## Presun súboru otvoreného v editore nehlási 500 (#577) (2026-11-19)
 
