@@ -7,6 +7,12 @@
 | `apps/server/src/file-editor-handoff.ts` (+ test `file-editor-handoff.test.ts`) | #577: funkcia na upratanie z `beginFileEditorHandoff` (`documents.end_file_edit`) už nevyhadzuje výnimku. Zmena súborov v tej chvíli prebehla, takže neodpovedajúce UI sa zaloguje ako varovanie (`console.warn`) a výsledok ostane úspech. Predtým výnimka vo `finally` prepísala výsledok `run()` a `POST /workspace/:id/lawoss/files/apply` vrátil 500, hoci presun na disku prebehol. Rovnako sa už neprepíše pôvodná chyba zlyhanej zmeny. Zlyhanie `begin_file_edit` ostáva chybou ako doteraz. Platí aj pre shell (`withFileEditorHandoff`) a natívne nástroje (`nativeFileEdits`). |
 | `apps/app/src/react-app/domains/session/artifacts/document-runtime-store.ts` (+ test `apps/app/tests/document-runtime.test.js`) | #577: po odovzdaní runtime čakal až 60 s, kým sa editor znova načíta zo starej cesty. Po presune alebo zmazaní súbor neexistuje (`GET files/raw` → 404), editor sa nenačítal a `end_file_edit` nestihol 5 s limit servera. Runtime teraz po odovzdaní overí `statWorkspaceFile`: chýbajúci súbor editor zavrie (`close`), existujúci sa načíta ako doteraz. Chyba overenia zachová pôvodné čakanie. Fixture testov dostal predvolené `statWorkspaceFile`. |
 
+## Mená klientov po obnove poškodeného server.json (#581) (2026-11-19)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/embedded.ts`, `apps/server/src/lawoss/server-config-recovery.ts` (LAWOSS, + test `lawoss/server-config-recovery.e2e.test.ts`), `apps/app/src/lawoss/domains/onboarding/register-clients.ts` (LAWOSS, + test `apps/app/tests/lawoss-onboarding-register-clients.test.ts`) | #581: po obnove (#553) mali klienti v hľadaní (⌘K) a zoznamoch meno priečinka (`C002-syn-hron-technologie-a-s`) namiesto mena z karty klienta. Príčina: onboarding zapisoval ostatných klientov dávky do zoznamu desktopu (`legalwork-workspaces.json`) cez `other.displayName ?? meno priečinka`, hoci server vracia meno z karty v `name`; obnova potom brala `name` aj `displayName` z tohto zoznamu. Onboarding teraz natívne zapisuje `displayName ?? name` zo servera. `restoreClientsFromHost` (teraz `async`) pre `name` aj `displayName` rovné menu priečinka vezme názov z karty klienta (`registrationName`, rovnaké pravidlo ako registrácia z onboardingu), takže sa opravia aj už uložené zoznamy. Meno zadané používateľom ostáva. V `embedded.ts` pribudol `await` k volaniu (riadok `🟡 LAWOSS #553 #581`). |
+
 ## legalwork-tests: check name macos-15 (#587) (2026-11-21)
 
 | Súbor | Zmena |
