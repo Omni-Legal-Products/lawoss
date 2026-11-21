@@ -69,7 +69,7 @@ remain where unit fixtures require them. Tests that declare
 `LEGALWORK_TEST_OPENCODE_BIN` skip their real-engine fixtures in this job.
 
 The existing required `legalwork-tests (ubuntu-latest)` and
-`legalwork-tests (macos-14)` names remain. They require the unit matrix and, when
+`legalwork-tests (macos-15)` names remain. They require the unit matrix and, when
 selected, the verified engine producer to succeed before executing integration
 checks. A failed producer is reported as a failed required check rather than a
 skipped check. Pure presentation changes need only the successful unit matrix.

@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## legalwork-tests: check name macos-15 (#587) (2026-11-21)
+
+| Súbor | Zmena |
+|---|---|
+| `.github/workflows/ci-tests.yml` (job `legalwork-tests`), `scripts/ci/engine-reuse-workflow.test.mjs`, `docs/ci-engine-reuse.md` | Matrix `os: macos-14` → `macos-15`, `runs-on: ${{ matrix.os }}`. Ruleset na `dev` vyžaduje status check `legalwork-tests (macos-15)`; predchádzajúci remap `macos-14`→runner `macos-15` nechal meno checku na `macos-14` a blokoval merge. |
+
 ## Tip-dev CI: menej macOS contention + nepovinný ISIR (2026-11-20)
 
 | Súbor | Zmena |
