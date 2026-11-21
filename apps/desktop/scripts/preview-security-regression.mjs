@@ -36,7 +36,18 @@ app.whenReady().then(async () => {
     protocol.handle("lw-recording", () => { requests.push("recording"); return new Response("private audio"); });
     window = new BrowserWindow({ show: false, width: 1400, height: 900, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, plugins: true } });
     guardPreviewNavigation(window.webContents);
-    await window.loadURL("data:text/html,<html><body>Preview security regression</body></html>");
+    // windows-11-arm can flake once on bare data: loadURL with ERR_FAILED (-2) (#594).
+    const bootstrapHtml = "<html><body>Preview security regression</body></html>";
+    const bootstrapUrl = `data:text/html;charset=utf-8,${encodeURIComponent(bootstrapHtml)}`;
+    const loadBootstrap = () => window.loadURL(bootstrapUrl);
+    try {
+      await loadBootstrap();
+    } catch (error) {
+      const code = error && typeof error === "object" ? error.code : undefined;
+      const errno = error && typeof error === "object" ? error.errno : undefined;
+      if (code !== "ERR_FAILED" && errno !== -2) throw error;
+      await loadBootstrap();
+    }
     const document = offlinePreviewDocument(`<html><body><button onclick="document.body.dataset.clicked='yes'">Local interaction</button>
       <script src="${origin}/remote-code"></script><img src="${origin}/image">
       <iframe src="${origin}/nested-frame"></iframe><audio autoplay src="lw-recording://audio/test"></audio>

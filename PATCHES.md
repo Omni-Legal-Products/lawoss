@@ -1,5 +1,17 @@
 # LAWOSS downstream patches
 
+## Tip-dev CI: retry flaky win-arm preview-security (#594) (2026-11-21)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/desktop/scripts/preview-security-regression.mjs`, `.github/workflows/ci-desktop-packaging.yml` (krok preview isolation) | #594: flaky `Package and launch (windows-11-arm)` — `ERR_FAILED (-2)` pri `loadURL(data:…)`. Bootstrap URL s `charset=utf-8` + `encodeURIComponent` a jeden retry pri `ERR_FAILED`/`errno -2`; CI krok `test:preview-security \|\| test:preview-security` bez `continue-on-error`. Brána ostáva povinná. |
+
+## Tip-dev CI: jeden retry pre flaky macOS test:shutdown (#588) (2026-11-21)
+
+| Súbor | Zmena |
+|---|---|
+| `.github/workflows/ci-tests.yml` (krok workflow-editor / shutdown; `concurrency.group`), `scripts/ci/shutdown-workflow.test.mjs` | #588: flaky macOS Electron `test:shutdown` (SIGKILL, `code === null` v `shutdown-regression.mjs`) — jeden automatický retry príkazu `test:shutdown` (`cmd \|\| cmd`), bez `continue-on-error`; brána ostáva povinná. Rovnaký vzor ako host-review (#591). `concurrency.group` prefix `legalwork-tests-r2-` — zombie `queued` behy blokovali nové `pending` súrodence (cancel-in-progress ich nezruší; agent `gh run cancel` 403). |
+
 ## Mená klientov po obnove poškodeného server.json (#581) (2026-11-19)
 
 | Súbor | Zmena |
