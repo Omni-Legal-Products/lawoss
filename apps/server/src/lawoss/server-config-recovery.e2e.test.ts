@@ -110,3 +110,34 @@ test("desktop: neopraviteľný server.json obnoví klientov zo zoznamu appky s i
     await rm(root, { recursive: true, force: true });
   }
 }, 15_000);
+
+test("#581 desktop: obnovený klient zapísaný v zozname appky menom priečinka dostane meno z karty klienta", async () => {
+  const { root, valid, configPath } = await office();
+  await writeFile(configPath, valid.slice(0, 40));
+  const hron = join(root, "C002-syn-hron-technologie-a-s");
+  const gemer = join(root, "C010-syn-gemer-stavby-s-r-o");
+  await mkdir(hron); await mkdir(gemer);
+  await writeFile(join(hron, "client.md"), "---\ntitle: \"SYN Hron Technológie, a. s.\"\n---\n");
+  await writeFile(join(gemer, "klient.md"), "---\ntitle: SYN Gemer Stavby, s. r. o.\n---\n");
+  const host = (id: string, path: string, name: string) => ({ id, name, displayName: name, path, preset: "starter", workspaceType: "local" as const, appFiles: "inside" as const });
+  const hostWorkspaces = [
+    host("ws_hron", hron, "C002-syn-hron-technologie-a-s"),
+    // Meno zadané používateľom (iné než priečinok) má prednosť pred kartou.
+    host("ws_gemer", gemer, "Gemer (stavby)"),
+  ];
+  const oldData = process.env.LEGALWORK_DATA_DIR; const oldConfig = process.env.XDG_CONFIG_HOME;
+  process.env.LEGALWORK_DATA_DIR = join(root, "data"); process.env.XDG_CONFIG_HOME = join(root, "xdg");
+  let server: Awaited<ReturnType<typeof startEmbeddedServer>> | undefined;
+  try {
+    server = await startEmbeddedServer({ host: "127.0.0.1", port: 0, configPath, workspaces: [], hostWorkspaces, token: "client", hostToken: "host", logRequests: false, wordAddin: false, manageOpencode: false });
+    const response = await fetch(`${server.url}/workspaces`, { headers: { Authorization: "Bearer client" } });
+    const list = await response.json() as { items: { id: string; name: string; displayName?: string }[] };
+    // Appka (`workspaceLabel` v route-workspaces.ts) berie `displayName`, potom `name`.
+    expect(list.items.map(item => [item.id, item.displayName?.trim() || item.name])).toEqual([["ws_hron", "SYN Hron Technológie, a. s."], ["ws_gemer", "Gemer (stavby)"]]);
+  } finally {
+    await server?.stop();
+    if (oldData === undefined) delete process.env.LEGALWORK_DATA_DIR; else process.env.LEGALWORK_DATA_DIR = oldData;
+    if (oldConfig === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = oldConfig;
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15_000);

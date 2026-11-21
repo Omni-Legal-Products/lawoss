@@ -133,7 +133,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     const hostEntries = buildWorkspaceInfos([...options.hostWorkspaces], process.cwd());
     config.workspaces = config.workspaces.map(entry => hostEntries.find(host => host.path === entry.path) ?? entry);
   }
-  restoreClientsFromHost(config, options.hostWorkspaces); // 🟡 LAWOSS #553: klienti zo zoznamu appky po neobnoviteľnom server.json
+  await restoreClientsFromHost(config, options.hostWorkspaces); // 🟡 LAWOSS #553 #581: klienti zo zoznamu appky po neobnoviteľnom server.json, mená z kariet
   config.reconnectHostWorkspace = options.reconnectHostWorkspace;
   applyHostWorkspaceAppFilesPolicy(config, options.hostWorkspaceAppFiles);
   config.decryptLegacyConnectorSecrets = options.decryptLegacyConnectorSecrets;
