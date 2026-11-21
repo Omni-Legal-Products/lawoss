@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Dialóg Vlastný poskytovateľ bez anglických textov a bez „OpenCode“ (#580) (2026-11-19)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/app/src/react-app/domains/connections/provider-auth/provider-auth-modal.tsx`, texty v `apps/app/src/lawoss/i18n/shell.ts` (LAWOSS, + test `apps/app/tests/lawoss-vlastny-poskytovatel-580.test.tsx`) | #580: formulár vlastného a lokálneho poskytovateľa mal natvrdo po anglicky „Runtime“, „Provider ID: … (fixed)“, „/v1/chat/completions · most endpoints“, „API key (optional)“/„API key“, „Add“, prepínače modelu „Tools“, „Reasoning“, „Context“, „Output“ so zástupným textom „auto“, „Saving…“/„Adding…“, nadpis „Local model“ a chyby „Name is required.“, „Base URL is required.“, „Enter a base URL first.“ a „Couldn't list models …“. Riadky označené `🟡 LAWOSS #580` berú texty z kľúčov `lawoss.custom_provider.*` (sk, cs, en, de); nadpis lokálneho modelu z existujúceho `providers.local_model_name`. Technické názvy (Chat Completions, Responses API, `/v1/...`) ostávajú. Pätička dialógu volá `lawoss.providers.keys_stored_locally` („Kľúče sa ukladajú len v tomto počítači.“) namiesto upstream `providers.keys_stored_locally`, ktorý spomína OpenCode; upstream `en.ts` a `de.ts` sa nemenia. V `sk.ts`/`cs.ts` je „Reasoning“ v `providers.reasoning_autodetect` nahradené slovom „Uvažovanie“/„Uvažování“ podľa nového prepínača. |
+
 ## Jadro editora dokumentov priame, ostatné `inapp_*` cez `execute` (#578) (2026-11-19)
 
 | Súbor | Zmena |
