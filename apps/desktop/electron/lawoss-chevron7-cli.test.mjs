@@ -34,9 +34,12 @@ test("only an absolute PDF inside the client root is admitted, also after resolv
     const outside = path.join(dir, "mimo.pdf");
     await writeFile(outside, "%PDF-1.4\n%%EOF");
     assert.equal(await resolveClientPdf(outside, client), null);
-    const link = path.join(client, "odkaz.pdf");
-    await symlink(outside, link);
-    assert.equal(await resolveClientPdf(link, client), null);
+    if (process.platform !== "win32") {
+      // Symlinks need extra rights on Windows; the module is macOS-only in practice.
+      const link = path.join(client, "odkaz.pdf");
+      await symlink(outside, link);
+      assert.equal(await resolveClientPdf(link, client), null);
+    }
     const disguised = path.join(client, "nie-pdf.pdf");
     await writeFile(disguised, "not a pdf");
     assert.equal(await resolveClientPdf(disguised, client), null);
