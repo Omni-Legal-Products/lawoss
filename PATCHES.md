@@ -6,6 +6,12 @@
 |---|---|
 | `apps/app/src/react-app/domains/connections/provider-auth/provider-auth-modal.tsx`, texty v `apps/app/src/lawoss/i18n/shell.ts` (LAWOSS, + test `apps/app/tests/lawoss-vlastny-poskytovatel-580.test.tsx`) | #580: formulár vlastného a lokálneho poskytovateľa mal natvrdo po anglicky „Runtime“, „Provider ID: … (fixed)“, „/v1/chat/completions · most endpoints“, „API key (optional)“/„API key“, „Add“, prepínače modelu „Tools“, „Reasoning“, „Context“, „Output“ so zástupným textom „auto“, „Saving…“/„Adding…“, nadpis „Local model“ a chyby „Name is required.“, „Base URL is required.“, „Enter a base URL first.“ a „Couldn't list models …“. Riadky označené `🟡 LAWOSS #580` berú texty z kľúčov `lawoss.custom_provider.*` (sk, cs, en, de); nadpis lokálneho modelu z existujúceho `providers.local_model_name`. Technické názvy (Chat Completions, Responses API, `/v1/...`) ostávajú. Pätička dialógu volá `lawoss.providers.keys_stored_locally` („Kľúče sa ukladajú len v tomto počítači.“) namiesto upstream `providers.keys_stored_locally`, ktorý spomína OpenCode; upstream `en.ts` a `de.ts` sa nemenia. V `sk.ts`/`cs.ts` je „Reasoning“ v `providers.reasoning_autodetect` nahradené slovom „Uvažovanie“/„Uvažování“ podľa nového prepínača. |
 
+## Vlastný poskytovateľ sa zobrazí hneď po pridaní (#579) (2026-11-19)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/server.ts` (+ test v `apps/server/src/lawoss-global-providers.e2e.test.ts`) | #579: `readCustomProviders`, z ktorého číta obnova modelov (`POST /workspace/:id/provider-model-refresh`), videl len riadok priečinka a `opencode.jsonc`, nie globálny riadok `__global_providers__`, kam LAWOSS ukladá vlastných poskytovateľov. Po pridaní alebo úprave vlastného poskytovateľa sa preto neoznačil `pendingReload`, engine sa nenačítal, odpoveď mala `reloaded: false` a `submitCustomProvider` zoznam v nastaveniach neobnovil až do znovunačítania okna. Funkcia teraz pridá globálnych poskytovateľov (riadok priečinka má pri rovnakom id prednosť, ako pri `GET /workspace/:id/config`), 1 riadok s `🟡 LAWOSS #579`. Klientsky store sa nemení. |
+
 ## Shell, web a nástroje dokumentov volateľné priamo (#573) (2026-11-18)
 
 | Súbor | Zmena |
