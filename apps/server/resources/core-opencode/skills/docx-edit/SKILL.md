@@ -68,6 +68,8 @@ For a named reference document that is not already open, inspect its saved file 
 
 ## IN-APP LIVE mode — edit the document open in LegalWork
 
+- The core tools below are called directly by name. The tools written as
+  `tools.inapp_…` exist only inside `execute` and are called there.
 - Read with `inapp_docx_read_document` or find exact text with `inapp_docx_find_text`.
   Start every new user edit request with a fresh live read. Do not reuse document
   identity, revision or paragraph handles from an earlier turn.
@@ -81,11 +83,11 @@ For a named reference document that is not already open, inspect its saved file 
 - Edit with `inapp_docx_suggest_change`. Add comments only when the user requests them.
   Replace the smallest exact phrase that needs changing; retain surrounding language and formatting.
   Negotiated text edits are tracked changes and save back to the workspace automatically.
-- For clean template population in a new output copy, use `inapp_docx_fill_template` with the exact placeholder and value. This accepts only the new replacement and preserves existing revisions.
+- For clean template population in a new output copy, use `tools.inapp_docx_fill_template` inside `execute` with the exact placeholder and value. This accepts only the new replacement and preserves existing revisions.
 - Native text controls can be filled by `controlId` or a unique `tag` through
-  `inapp_docx_fill_template`, with fresh `documentId`/`draftRevision`. Locks and
+  `tools.inapp_docx_fill_template`, with fresh `documentId`/`draftRevision`. Locks and
   protection are enforced; structured/bound controls fail safely.
-- Use `inapp_docx_edit` for typed `operations` batches: formatting, paragraph styles,
+- Use `tools.inapp_docx_edit` inside `execute` for typed `operations` batches: formatting, paragraph styles,
   bookmarks, linked cross-references, footnotes/endnotes, breaks, section numbering,
   protection and field/TOC refresh. These are direct native edits, not tracked
   proposals. Require `documentId`/`draftRevision` from a fresh live read. Operations
@@ -107,9 +109,9 @@ For a named reference document that is not already open, inspect its saved file 
   native field instruction, linked status, target range and displayed result.
   When visibility is questioned, inspect structure and a real preview before
   claiming a rendering problem; do not add a duplicate unlinked text reference.
-- `inapp_docx_compare_documents` compares the live draft with one saved returned
+- `tools.inapp_docx_compare_documents` (inside `execute`) compares the live draft with one saved returned
   project DOCX, or combines independent drafts into a new native redline copy.
-  `inapp_docx_inspect_document` reads privacy findings; explicit `fileName`/`categories`
+  `tools.inapp_docx_inspect_document` (inside `execute`) reads privacy findings; explicit `fileName`/`categories`
   create an outgoing copy. Removing revisions accepts all changes only in that
   copy. Copies preserve the live source and never overwrite files.
 - Reply to requested partner comments with `inapp_docx_reply_comment` using the parent ID from `inapp_docx_read_comments`.
@@ -120,7 +122,7 @@ For a named reference document that is not already open, inspect its saved file 
   controls or claim the live editor lacks the tool.
 - Use the live tools for supported edits. For unsupported layout/structure, use
   `legalwork_shell` with `write: true`: it saves/releases/reloads project editors
-  automatically. The explicit `inapp_docx_prepare_file_edit` remains for a manual
+  automatically. The explicit `tools.inapp_docx_prepare_file_edit` (inside `execute`) remains for a manual
   multi-step handoff; proceed only after `ok` and `saved`, then reopen and verify.
   Negotiated redlines remain in the live draft; separate comparison/outgoing copies
   are created only when requested.
