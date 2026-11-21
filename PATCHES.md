@@ -7,6 +7,12 @@
 | `apps/server/src/file-editor-handoff.ts` (+ test `file-editor-handoff.test.ts`) | #577: funkcia na upratanie z `beginFileEditorHandoff` (`documents.end_file_edit`) už nevyhadzuje výnimku. Zmena súborov v tej chvíli prebehla, takže neodpovedajúce UI sa zaloguje ako varovanie (`console.warn`) a výsledok ostane úspech. Predtým výnimka vo `finally` prepísala výsledok `run()` a `POST /workspace/:id/lawoss/files/apply` vrátil 500, hoci presun na disku prebehol. Rovnako sa už neprepíše pôvodná chyba zlyhanej zmeny. Zlyhanie `begin_file_edit` ostáva chybou ako doteraz. Platí aj pre shell (`withFileEditorHandoff`) a natívne nástroje (`nativeFileEdits`). |
 | `apps/app/src/react-app/domains/session/artifacts/document-runtime-store.ts` (+ test `apps/app/tests/document-runtime.test.js`) | #577: po odovzdaní runtime čakal až 60 s, kým sa editor znova načíta zo starej cesty. Po presune alebo zmazaní súbor neexistuje (`GET files/raw` → 404), editor sa nenačítal a `end_file_edit` nestihol 5 s limit servera. Runtime teraz po odovzdaní overí `statWorkspaceFile`: chýbajúci súbor editor zavrie (`close`), existujúci sa načíta ako doteraz. Chyba overenia zachová pôvodné čakanie. Fixture testov dostal predvolené `statWorkspaceFile`. |
 
+## Vlastný poskytovateľ sa zobrazí hneď po pridaní (#579) (2026-11-19)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/server.ts` (+ test v `apps/server/src/lawoss-global-providers.e2e.test.ts`) | #579: `readCustomProviders`, z ktorého číta obnova modelov (`POST /workspace/:id/provider-model-refresh`), videl len riadok priečinka a `opencode.jsonc`, nie globálny riadok `__global_providers__`, kam LAWOSS ukladá vlastných poskytovateľov. Po pridaní alebo úprave vlastného poskytovateľa sa preto neoznačil `pendingReload`, engine sa nenačítal, odpoveď mala `reloaded: false` a `submitCustomProvider` zoznam v nastaveniach neobnovil až do znovunačítania okna. Funkcia teraz pridá globálnych poskytovateľov (riadok priečinka má pri rovnakom id prednosť, ako pri `GET /workspace/:id/config`), 1 riadok s `🟡 LAWOSS #579`. Klientsky store sa nemení. |
+
 ## Shell, web a nástroje dokumentov volateľné priamo (#573) (2026-11-18)
 
 | Súbor | Zmena |
