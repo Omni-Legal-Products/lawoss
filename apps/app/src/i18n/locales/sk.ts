@@ -2662,7 +2662,7 @@ export default {
   "providers.no_models_custom": "Zatiaľ žiadne modely, vlastné endpointy nemajú katalóg.",
   "providers.add_or_fetch": "Pridajte ID vyššie alebo načítajte zoznam zo svojho endpointu.",
   "providers.from_endpoint": "Z endpointu, kliknutím pridáte",
-  "providers.reasoning_autodetect": "Reasoning sa deteguje automaticky z ID modelu, v prípade potreby prepnite pri jednotlivých modeloch.",
+  "providers.reasoning_autodetect": "Uvažovanie sa deteguje automaticky z ID modelu, v prípade potreby prepnite pri jednotlivých modeloch.",
   "welcome.first_launch_note": "Pri prvom spustení to môže chvíľu trvať.",
   "welcome.sample_prompt": "Priprav redline tejto NDA za kupujúceho.",
   "welcome.what_it_does": "Čo dokáže",
