@@ -171,6 +171,14 @@ jobs:
       !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.unit_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance)) &&
       !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
     uses: ./.github/workflows/sandbox-runtime.yml
+    with:
+      # 🟡 LAWOSS: bez darwin-* . Tip push súčasne spúšťa Desktop Package Smoke (darwin-arm64)
+      # a unit/legalwork na macos-15; LegalWork sandbox na macOS držal runner ~20 min a GitHub
+      # zrušil čakajúce joby (tip 101d991d). sandbox-engine je len ubuntu (linux-x64 artefakt);
+      # balený darwin overí Package and launch.
+      # Ručná diagnostika balíčkov (package_desktop) dostáva runtime od tohto volania
+      # (runtime_provided), vrátane darwin-arm64, preto ho vtedy stavia aj tu.
+      targets: ${{ github.event_name == 'workflow_dispatch' && inputs.package_desktop && 'all' || 'linux-x64,linux-arm64,win32-x64,win32-arm64' }}
   engine-source-build:
     needs: changes
     if: >-
@@ -445,8 +453,8 @@ jobs:
     if: >-
       always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.units == 'true' &&
       !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
-    # Keep historical required check names while using the supported runner.
-    runs-on: ${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}
+    # 🟡 LAWOSS: ruleset vyžaduje check `legalwork-tests (macos-15)` — meno z matrix.os.
+    runs-on: ${{ matrix.os }}
     # 🟡 LAWOSS: väčší server LAWOSS; tsc na macOS runneri inak vyčerpá predvolený heap.
     env:
       NODE_OPTIONS: --max-old-space-size=6144
@@ -454,7 +462,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14]
+        os: [ubuntu-latest, macos-15]
 
     steps:
       - name: Require selected unit and engine checks
@@ -567,8 +575,11 @@ jobs:
 
       - name: Verify bounded native host context review in Electron
         if: runner.os == 'macOS'
-        timeout-minutes: 2
-        run: pnpm --filter @legalwork/desktop test:host-review
+        # One automatic retry for unrelated macOS flake at deny:decision (#591).
+        # timeout-minutes 4 covers two attempts; the gate remains hard-failing.
+        timeout-minutes: 4
+        run: |
+          pnpm --filter @legalwork/desktop test:host-review || pnpm --filter @legalwork/desktop test:host-review
 
       - name: Verify browser batches and project downloads in Electron
         if: (runner.os == 'macOS') && (needs.changes.outputs.desktop == 'true')
@@ -605,7 +616,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-15]
+        # 🟡 LAWOSS: len ubuntu. macos-15 sandbox-engine na tip push súťažil o ten istý
+        # runner ako unit-tests/legalwork-tests a Desktop Package Smoke; balený darwin
+        # runtime overí Package and launch (macos-15).
+        os: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6

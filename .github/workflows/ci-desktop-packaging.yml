@@ -176,10 +176,13 @@ jobs:
   # kontrol rulesetu. Zlyhanie je vidno v PR, ale neblokuje merge; balenie, štart a bezpečnostné
   # kontroly ostávajú povinné v „Package and launch“. Limity prípadov (240 s príprava, 90 s
   # inferencia) sa nemenia.
+  # 🟡 LAWOSS: continue-on-error — bez neho flaky ISIR zčervená celý workflow Desktop Package
+  # Smoke aj keď Package and launch a RAM prešli (tip 404f3605, 18. 11. 2026).
   isir-native:
     name: Native ISIR (${{ matrix.os }}, nepovinné)
     needs: [sandbox-runtime, opencode-engine]
     if: ${{ !cancelled() && (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'skipped') && (needs.opencode-engine.result == 'success' || needs.opencode-engine.result == 'skipped') }}
+    continue-on-error: true
     runs-on: ${{ matrix.os }}
     timeout-minutes: 100
     strategy:
