@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Tip-dev CI: jeden retry pre flaky macOS test:shutdown (#588) (2026-11-21)
+
+| Súbor | Zmena |
+|---|---|
+| `.github/workflows/ci-tests.yml` (krok workflow-editor / shutdown), `scripts/ci/shutdown-workflow.test.mjs` | #588: flaky macOS Electron `test:shutdown` (SIGKILL, `code === null` v `shutdown-regression.mjs`) — jeden automatický retry príkazu `test:shutdown` (`cmd \|\| cmd`), bez `continue-on-error`; brána ostáva povinná. Rovnaký vzor ako host-review (#591). |
+
 ## Presun súboru otvoreného v editore nehlási 500 (#577) (2026-11-19)
 
 | Súbor | Zmena |
