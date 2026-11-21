@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Plugin } from "@opencode/plugin";
 import { readdir, readFile } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 import { nativePluginTestRuntime } from "../opencode-plugins/native-plugin-test-support.js";
 import { LINKED_FOLDERS_REMINDER_RULES } from "../opencode-plugins/lawoss-linked-folders.js";
@@ -104,7 +104,7 @@ async function inappSources() {
   const plugins = (await readdir(pluginDirectory)).filter((name) => name.endsWith(".ts") && !/\.test(-support)?\.ts$/.test(name)).map((name) => join(pluginDirectory, name));
   const resources = (await readdir(join(server, "resources", "core-opencode"), { recursive: true })).filter((name) => name.endsWith(".md")).map((name) => join(server, "resources", "core-opencode", name));
   const files = [join(server, "src", "legalwork-runtime-config.ts"), ...plugins, ...resources];
-  const read = await Promise.all(files.map(async (file) => ({ source: relative(server, file), text: await readFile(file, "utf8") })));
+  const read = await Promise.all(files.map(async (file) => ({ source: relative(server, file).split(sep).join("/"), text: await readFile(file, "utf8") })));
   return read.filter(({ text }) => text.includes("inapp_"));
 }
 
