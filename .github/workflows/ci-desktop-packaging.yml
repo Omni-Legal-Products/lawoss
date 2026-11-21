@@ -146,7 +146,9 @@ jobs:
       - name: Verify Windows and macOS preview isolation
         if: runner.os != 'Linux'
         timeout-minutes: 2
-        run: pnpm --dir apps/desktop test:preview-security
+        # One automatic retry for flaky windows-11-arm data: loadURL ERR_FAILED (#594).
+        # The gate remains hard-failing.
+        run: pnpm --dir apps/desktop test:preview-security || pnpm --dir apps/desktop test:preview-security
       - name: Verify Windows and macOS packaged startup
         if: runner.os != 'Linux'
         timeout-minutes: 3
