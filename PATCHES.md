@@ -6,6 +6,12 @@
 |---|---|
 | `apps/app/src/react-app/domains/connections/provider-auth/provider-auth-modal.tsx`, texty v `apps/app/src/lawoss/i18n/shell.ts` (LAWOSS, + test `apps/app/tests/lawoss-vlastny-poskytovatel-580.test.tsx`) | #580: formulár vlastného a lokálneho poskytovateľa mal natvrdo po anglicky „Runtime“, „Provider ID: … (fixed)“, „/v1/chat/completions · most endpoints“, „API key (optional)“/„API key“, „Add“, prepínače modelu „Tools“, „Reasoning“, „Context“, „Output“ so zástupným textom „auto“, „Saving…“/„Adding…“, nadpis „Local model“ a chyby „Name is required.“, „Base URL is required.“, „Enter a base URL first.“ a „Couldn't list models …“. Riadky označené `🟡 LAWOSS #580` berú texty z kľúčov `lawoss.custom_provider.*` (sk, cs, en, de); nadpis lokálneho modelu z existujúceho `providers.local_model_name`. Technické názvy (Chat Completions, Responses API, `/v1/...`) ostávajú. Pätička dialógu volá `lawoss.providers.keys_stored_locally` („Kľúče sa ukladajú len v tomto počítači.“) namiesto upstream `providers.keys_stored_locally`, ktorý spomína OpenCode; upstream `en.ts` a `de.ts` sa nemenia. V `sk.ts`/`cs.ts` je „Reasoning“ v `providers.reasoning_autodetect` nahradené slovom „Uvažovanie“/„Uvažování“ podľa nového prepínača. |
 
+## Mená klientov po obnove poškodeného server.json (#581) (2026-11-19)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/embedded.ts`, `apps/server/src/lawoss/server-config-recovery.ts` (LAWOSS, + test `lawoss/server-config-recovery.e2e.test.ts`), `apps/app/src/lawoss/domains/onboarding/register-clients.ts` (LAWOSS, + test `apps/app/tests/lawoss-onboarding-register-clients.test.ts`) | #581: po obnove (#553) mali klienti v hľadaní (⌘K) a zoznamoch meno priečinka (`C002-syn-hron-technologie-a-s`) namiesto mena z karty klienta. Príčina: onboarding zapisoval ostatných klientov dávky do zoznamu desktopu (`legalwork-workspaces.json`) cez `other.displayName ?? meno priečinka`, hoci server vracia meno z karty v `name`; obnova potom brala `name` aj `displayName` z tohto zoznamu. Onboarding teraz natívne zapisuje `displayName ?? name` zo servera. `restoreClientsFromHost` (teraz `async`) pre `name` aj `displayName` rovné menu priečinka vezme názov z karty klienta (`registrationName`, rovnaké pravidlo ako registrácia z onboardingu), takže sa opravia aj už uložené zoznamy. Meno zadané používateľom ostáva. V `embedded.ts` pribudol `await` k volaniu (riadok `🟡 LAWOSS #553 #581`). |
+
 ## legalwork-tests: check name macos-15 (#587) (2026-11-21)
 
 | Súbor | Zmena |

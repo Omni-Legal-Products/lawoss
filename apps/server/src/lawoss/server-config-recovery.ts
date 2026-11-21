@@ -8,6 +8,7 @@ import { constants } from "node:fs";
 import { copyFile, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import type { ServerConfig, WorkspaceConfig } from "../types.js";
 import { buildWorkspaceInfos } from "../workspaces.js";
+import { registrationName } from "./client-card-title.js";
 
 /** Formát varovania: `LAWOSS_SERVER_CONFIG_DAMAGED|<druh>|<cesta>`; cesta je posledná, môže obsahovať aj `|`. */
 export const SERVER_CONFIG_DAMAGED = "LAWOSS_SERVER_CONFIG_DAMAGED";
@@ -105,14 +106,19 @@ export async function loadServerConfigFile<T extends object>(configPath: string,
 /**
  * Desktop: keď sa server.json nedal obnoviť, klientov vráti zoznam desktopovej appky (`legalwork-workspaces.json`)
  * s ich id a kľúčmi úložiska a oprávni ich korene, takže sú použiteľní hneď pri tomto štarte. Ostatné nastavenia
- * servera ostanú predvolené.
+ * servera ostanú predvolené. #581: klient zapísaný v zozname len menom priečinka dostane meno z karty klienta,
+ * ako pri registrácii z onboardingu (`registrationName`); meno zadané používateľom ostáva.
  */
-export function restoreClientsFromHost(config: ServerConfig, hostWorkspaces: readonly WorkspaceConfig[] | undefined): void {
+export async function restoreClientsFromHost(config: ServerConfig, hostWorkspaces: readonly WorkspaceConfig[] | undefined): Promise<void> {
   const prefix = `${SERVER_CONFIG_DAMAGED}|reset|`;
   const warnings = config.workspaceWarnings ?? [];
   const reset = warnings.find(item => item.startsWith(prefix));
   if (reset === undefined || config.workspaces.length || !hostWorkspaces?.length) return;
   config.workspaces = buildWorkspaceInfos([...hostWorkspaces], process.cwd());
+  for (const workspace of config.workspaces) {
+    workspace.name = await registrationName(workspace.path, workspace.name);
+    if (workspace.displayName) workspace.displayName = await registrationName(workspace.path, workspace.displayName);
+  }
   // Ako pri bežnom seede (`resolveServerConfig` bez `authorizedRoots` v súbore): oprávnené sú práve korene klientov.
   config.authorizedRoots = [...new Set([...config.authorizedRoots, ...config.workspaces.map(workspace => workspace.path)])];
   config.workspaceWarnings = warnings.map(item => item === reset ? warning("restored", reset.slice(prefix.length)) : item);
