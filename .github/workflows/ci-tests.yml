@@ -381,9 +381,17 @@ jobs:
           LEGALWORK_EDITOR_TEST_OUTPUT: ${{ runner.temp }}/workflow-editor
         run: |
           pnpm --filter @legalwork/desktop test:workflow-editor
-          # One automatic retry for flaky macOS Electron SIGKILL (#588).
-          # The gate remains hard-failing.
-          pnpm --filter @legalwork/desktop test:shutdown || pnpm --filter @legalwork/desktop test:shutdown
+          # Up to 3 attempts with backoff for flaky macOS Electron SIGKILL (#588).
+          # Tip-only path: unit-tests matrix runs macos-15 on push/merge, not on PRs.
+          # The gate remains hard-failing after retries.
+          attempt=1
+          until pnpm --filter @legalwork/desktop test:shutdown; do
+            if [ "$attempt" -ge 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 5))
+            attempt=$((attempt + 1))
+          done
           pnpm --filter @legalwork/desktop test:updater-quit
 
       - name: Upload unsaved-change Electron evidence

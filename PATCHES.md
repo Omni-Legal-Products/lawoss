@@ -6,6 +6,12 @@
 |---|---|
 | `apps/desktop/scripts/preview-security-regression.mjs`, `.github/workflows/ci-desktop-packaging.yml` (krok preview isolation) | #594: flaky `Package and launch (windows-11-arm)` — `ERR_FAILED (-2)` pri `loadURL(data:…)`. Bootstrap URL s `charset=utf-8` + `encodeURIComponent` a jeden retry pri `ERR_FAILED`/`errno -2`; CI krok `test:preview-security \|\| test:preview-security` bez `continue-on-error`. Brána ostáva povinná. |
 
+## Tip-dev CI: 3 pokusy s backoffom pre flaky macOS test:shutdown (#588) (2026-11-21)
+
+| Súbor | Zmena |
+|---|---|
+| `.github/workflows/ci-tests.yml` (krok workflow-editor / shutdown), `scripts/ci/shutdown-workflow.test.mjs` | #588: po zlúčení #598 tip `eec6ce6a` stále padol na `unit-tests (macos-15)` — `test:shutdown` SIGKILL aj pri jednom `\|\|` retry. PR matrix `unit-tests` je len `ubuntu-latest` (macOS Electron shutdown sa na PR nespúšťa); tip push má aj `macos-15`. Teraz až 3 pokusy s backoffom `sleep $((attempt * 5))`, bez `continue-on-error`; brána ostáva povinná. |
+
 ## Tip-dev CI: jeden retry pre flaky macOS test:shutdown (#588) (2026-11-21)
 
 | Súbor | Zmena |
