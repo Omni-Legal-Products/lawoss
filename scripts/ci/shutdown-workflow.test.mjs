@@ -15,6 +15,7 @@ test('unit-tests runs macOS Electron shutdown only on tip push, with hard retrie
   const step = job.split(/^      - name: /m).find(block => /^Verify workflow editing and close\/restart decisions in Electron\n/.test(block));
   assert.ok(step, 'The real shutdown command must be a normal CI step');
   assert.match(step, /^        if: \(runner\.os == 'macOS'\) && \(needs\.changes\.outputs\.app == 'true' \|\| needs\.changes\.outputs\.desktop == 'true'\)$/m);
+  assert.match(step, /node --test apps\/desktop\/scripts\/shutdown-regression\.budget\.test\.mjs/);
   assert.match(step, /^          attempt=1$/m);
   assert.match(step, /^          until pnpm --filter @legalwork\/desktop test:shutdown; do$/m);
   assert.match(step, /^            if \[ "\$attempt" -ge 3 \]; then$/m);

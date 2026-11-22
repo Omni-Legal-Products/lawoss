@@ -381,7 +381,9 @@ jobs:
           LEGALWORK_EDITOR_TEST_OUTPUT: ${{ runner.temp }}/workflow-editor
         run: |
           pnpm --filter @legalwork/desktop test:workflow-editor
-          # Up to 3 attempts with backoff for flaky macOS Electron SIGKILL (#588).
+          # Parent budget contract for tip macos (#588); real smoke runs below.
+          node --test apps/desktop/scripts/shutdown-regression.budget.test.mjs
+          # Up to 3 attempts with backoff; budget inside shutdown-regression is 180s (#588).
           # Tip-only path: unit-tests matrix runs macos-15 on push/merge, not on PRs.
           # The gate remains hard-failing after retries.
           attempt=1
