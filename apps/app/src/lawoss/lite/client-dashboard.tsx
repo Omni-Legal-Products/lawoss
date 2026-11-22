@@ -128,28 +128,66 @@ function WaitingTile({ model, filing, todayIso, text, known, pending }: { model?
   const waiting = waitingFor(model, filing, todayIso);
   const parts = [{ count: waiting.filing, label: text("wait_filing") }, { count: waiting.overdue, label: text("wait_overdue") }, { count: waiting.verify, label: text("wait_verify") }]
     .filter((part) => part.count > 0).map((part) => `${part.count} ${part.label}`);
-  return <div className="lw-dnes-tile" data-lawoss-tile="waiting" data-gold={!pending && waiting.total > 0 || undefined}>
-    <span className="lw-dnes-tile-label">{text("tile_waiting")}</span>
-    {pending ? <Skeleton /> : waiting.total > 0 ? <>
+  const scrollToWaiting = () => {
+    const el = typeof document !== "undefined" ? document.getElementById("lw-klient-waiting") : null;
+    const motion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    el?.scrollIntoView({ block: "start", behavior: motion });
+  };
+  if (!pending && waiting.total > 0) {
+    return <button type="button" className="lw-dnes-tile" onClick={scrollToWaiting} data-lawoss-tile="waiting" data-gold>
+      <span className="lw-dnes-tile-label">{text("tile_waiting")}</span>
       <span className="lw-dnes-num" data-tone="gold">{waiting.total}</span>
       <span className="lw-dnes-tile-sub">{parts.join(" · ")}</span>
-    </> : known ? <>
+    </button>;
+  }
+  return <div className="lw-dnes-tile" data-lawoss-tile="waiting">
+    <span className="lw-dnes-tile-label">{text("tile_waiting")}</span>
+    {pending ? <Skeleton /> : known ? <>
       <span className="lw-dnes-num" data-tone="green"><Check aria-hidden size={28} /></span>
       <span className="lw-dnes-tile-sub">{text("wait_none")}</span>
     </> : <span className="lw-dnes-num" data-tone="muted">—</span>}
   </div>;
 }
 
+const isCardUrgent = (card: CaseCard, todayIso: string): boolean => {
+  const pill = cardPill(card, todayIso);
+  return pill.kind === "invalid" || pill.kind === "late" || (pill.kind === "due" && (pill.tone === "red" || pill.tone === "amber"));
+};
+
 function CaseCards({ cards, kinds, todayIso, locale, text }: { cards: readonly CaseCard[]; kinds: Readonly<Record<string, string>>; todayIso: string; locale: Language; text: Text }) {
   const [showAll, setShowAll] = useState(false);
-  const shown = showAll ? cards : cards.slice(0, CARDS_SHOWN);
+  const [query, setQuery] = useState("");
+  const [urgentOnly, setUrgentOnly] = useState(false);
+  const hasUrgent = cards.some((card) => isCardUrgent(card, todayIso));
+  const needle = query.trim().toLowerCase();
+  const filtered = cards.filter((card) => {
+    if (urgentOnly && !isCardUrgent(card, todayIso)) return false;
+    if (!needle) return true;
+    const hay = [card.matter.title, card.matter.matterRef, card.matter.court, kinds[card.matter.path], card.status.phase, card.status.nextStep].filter(Boolean).join(" ").toLowerCase();
+    return hay.includes(needle);
+  });
+  const filtering = Boolean(needle) || urgentOnly;
+  const shown = showAll || filtering ? filtered : filtered.slice(0, CARDS_SHOWN);
   const missing = phaseMissing(cards);
+  const showTools = cards.length > 3 || (cards.length > 1 && hasUrgent);
   return <section className="lw-klient-cases" aria-labelledby="lw-klient-cases">
-    <h2 id="lw-klient-cases" className="lw-dnes-h2">{text("project_matters")}<span className="lw-klient-count">{cards.length}</span></h2>
-    {cards.length === 0 ? <p className="lw-today-empty">{text("project_matters_empty")}</p> : <div className="lw-klient-grid">
-      {shown.map((card) => <CaseCardView key={card.matter.path} card={card} kind={kinds[card.matter.path]} todayIso={todayIso} locale={locale} text={text} />)}
-    </div>}
-    {!showAll && cards.length > CARDS_SHOWN ? <button type="button" className="lw-dnes-secondary lw-klient-all" onClick={() => setShowAll(true)}>{text("cards_show_all", { count: cards.length })}</button> : null}
+    <div className="lw-klient-cases-head">
+      <h2 id="lw-klient-cases" className="lw-dnes-h2">{text("project_matters")}<span className="lw-klient-count">{cards.length}</span></h2>
+      {showTools ? <div className="lw-klient-cases-tools" data-lawoss-cases-filter="">
+        {hasUrgent ? <div className="lw-mode" role="group" aria-label={text("lehoty_kind_label")}>
+          <button type="button" aria-pressed={!urgentOnly} onClick={() => setUrgentOnly(false)}>{text("lehoty_kind_all")}</button>
+          <button type="button" aria-pressed={urgentOnly} onClick={() => setUrgentOnly(true)}>{text("hot_title")}</button>
+        </div> : null}
+        {cards.length > 3 ? <input type="search" className="lw-klient-search" value={query} onChange={(event) => setQuery(event.target.value)}
+          placeholder={text("nav_search")} aria-label={text("nav_search")} data-lawoss-cases-search="" /> : null}
+      </div> : null}
+    </div>
+    {cards.length === 0 ? <p className="lw-today-empty">{text("project_matters_empty")}</p>
+      : filtered.length === 0 ? <p className="lw-today-empty">{text("lehoty_empty")}</p>
+      : <div className="lw-klient-grid">
+        {shown.map((card) => <CaseCardView key={card.matter.path} card={card} kind={kinds[card.matter.path]} todayIso={todayIso} locale={locale} text={text} />)}
+      </div>}
+    {!showAll && !filtering && cards.length > CARDS_SHOWN ? <button type="button" className="lw-dnes-secondary lw-klient-all" onClick={() => setShowAll(true)}>{text("cards_show_all", { count: cards.length })}</button> : null}
     {missing > 0 ? <p className="lw-dnes-quiet" data-lawoss-phase-missing={missing}><Info aria-hidden size={13} />{text("client_phase_missing", { count: missing })}</p> : null}
   </section>;
 }

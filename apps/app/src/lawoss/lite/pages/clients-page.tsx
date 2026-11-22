@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowUpRight, FolderOpen, MessageSquare } from "lucide-react";
 import { t, type Language } from "@/i18n";
@@ -20,6 +20,7 @@ import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import { toast } from "@/components/ui/sonner";
 import { TriageEntry } from "../../domains/roztriedenie/triage-entry";
 import { hotDeadlineCount, LiveStamp, matterUrgency, useHotTitle, useMinuteTick } from "../live";
+import { liteText } from "./today-page";
 import "./okf-glass.css";
 import "./clients.css";
 
@@ -79,10 +80,24 @@ export function ClientsView({ groups: all, meta, locale: forced, actions, choice
 }) {
   const current = useLocale();
   const locale = forced ?? current;
-  const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.lite.${key}`, locale, params);
+  const text = liteText(locale);
+  const [query, setQuery] = useState("");
+  const [urgentOnly, setUrgentOnly] = useState(false);
   const now = today();
   const focused = focus ? all.filter((group) => group.key === focus) : [];
-  const groups = focused.length > 0 ? focused : all;
+  const baseGroups = focused.length > 0 ? focused : all;
+  const isGroupHot = (group: ClientGroup) => group.matters.some((m) => {
+    const own = m.deadlines.filter((d) => !isOfficeFile(d.file));
+    return matterUrgency(own, now) === "hot" || own.some((d) => d.invalid || d.date < now);
+  });
+  const hasHot = baseGroups.some(isGroupHot);
+  const needle = query.trim().toLowerCase();
+  const groups = baseGroups.filter((group) => {
+    if (urgentOnly && !isGroupHot(group)) return false;
+    if (!needle) return true;
+    const hay = [group.client, ...group.matters.flatMap((m) => [m.title, m.matterRef, m.court])].filter(Boolean).join(" ").toLowerCase();
+    return hay.includes(needle);
+  });
   return (
     <div className="lw-clients" data-lawoss-lite="clients">
       <header className="lw-clients-hero" style={reveal(0)}>
@@ -100,13 +115,22 @@ export function ClientsView({ groups: all, meta, locale: forced, actions, choice
         </div>
       </header>
 
+      {baseGroups.length > 1 ? <div className="lw-clients-toolbar" data-lawoss-clients-filter="">
+        {hasHot ? <div className="lw-mode" role="group" aria-label={text("lehoty_kind_label")}>
+          <button type="button" aria-pressed={!urgentOnly} onClick={() => setUrgentOnly(false)}>{text("lehoty_kind_all")}</button>
+          <button type="button" aria-pressed={urgentOnly} onClick={() => setUrgentOnly(true)}>{text("hot_title")}</button>
+        </div> : null}
+        <input type="search" className="lw-clients-search" value={query} onChange={(event) => setQuery(event.target.value)}
+          placeholder={text("nav_search")} aria-label={text("nav_search")} data-lawoss-clients-search="" />
+      </div> : null}
+
       {focused.length > 0 && clientConversations ? <ClientConversations list={clientConversations} locale={locale} onOpen={onOpenConversation} /> : null}
 
-      {groups.length === 0 ? <div className="lw-clients-empty" style={reveal(1)}>
+      {baseGroups.length === 0 ? <div className="lw-clients-empty" style={reveal(1)}>
         <FolderOpen aria-hidden size={28} />
         <p>{text("clients_empty")}</p>
         <Link className="lw-today-primary" to={NEW_CLIENT_PATH}>{text("add_client")}</Link>
-      </div> : <div className="lw-clients-grid">
+      </div> : groups.length === 0 ? <p className="lw-clients-none">{text("lehoty_empty")}</p> : <div className="lw-clients-grid">
         {groups.map((group, index) => {
           const hot = group.matters.some((m) => matterUrgency(m.deadlines, now) === "hot");
           return (

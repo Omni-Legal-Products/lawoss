@@ -44,8 +44,12 @@ describe("dynamické pohľady z OKF", () => {
   });
 
   test("Čo vieme: skupiny podľa typu v poradí výskytu, aj vlastný typ agenta", () => {
-    const groups = groupFacts([fact("E-1", "dôkaz", "Faktúra"), fact("X-1", "hearing_note", "Poznámka z pojednávania"), fact("E-2", "dôkaz", "Dodací list")]);
+    const sample = [fact("E-1", "dôkaz", "Faktúra"), fact("X-1", "hearing_note", "Poznámka z pojednávania"), fact("E-2", "dôkaz", "Dodací list")];
+    const groups = groupFacts(sample);
     expect(groups.map((g) => [g.label, g.facts.length])).toEqual([["Dôkaz", 2], ["Hearing note", 1]]);
+    expect(groupFacts(sample, "cs").map((g) => g.label)).toEqual(["Důkaz", "Hearing note"]);
+    expect(groupFacts(sample, "en").map((g) => g.label)).toEqual(["Evidence", "Hearing note"]);
+    expect(groupFacts(sample, "de").map((g) => g.label)).toEqual(["Beweis", "Hearing note"]);
   });
 
   test("časová os: budúce lehoty nad dneškom, história pod ním, bez obsahu nič", () => {

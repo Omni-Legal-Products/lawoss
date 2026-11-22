@@ -4,7 +4,7 @@ import { revalidateScopeTarget } from "../../okf/scope-target";
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
-import { t } from "@/i18n";
+import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { missingScopeLevels, scopeLevels, type MatterOverview } from "../../../../../../lawoss/okf/read";
 import { buildCockpit, type Cockpit, type CockpitDeadline, type CockpitFact } from "../../../../../../lawoss/okf/cockpit";
@@ -243,7 +243,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, onAsk, 
     .sort((a, b) => Number(Boolean(b.invalid)) - Number(Boolean(a.invalid)) || a.date.localeCompare(b.date));
   // Lhůty a úkoly mají vlastní sekce; z pozornosti zbývají jen záznamy, které čekají na advokáta.
   const attention = cockpit?.attention.filter((row) => row.kind !== "lehota" && row.kind !== "úloha") ?? [];
-  const groups = groupFacts(cockpit?.facts ?? []);
+  const groups = groupFacts(cockpit?.facts ?? [], locale);
   const timeline = buildTimeline(cockpit?.events ?? [], all, now);
   const tabs = [["overview", "tab_overview"], ["known", "tab_known"]] as const;
   const [copied, setCopied] = useState<"ok" | "failed" | null>(null);
@@ -318,10 +318,14 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, onAsk, 
   return (
     <div className="lw-matter lw-pripad" data-lawoss-lite="matter" data-dragging={dragging || undefined}
       onDragOver={(event) => { if (onFiles && event.dataTransfer.types.includes("Files")) { event.preventDefault(); setDragging(true); } }}
-      onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
+      onDragLeave={(event) => {
+        const next = event.relatedTarget;
+        if (event.currentTarget === event.target || !(next instanceof Node && event.currentTarget.contains(next))) setDragging(false);
+      }}
       onDrop={(event) => {
+        setDragging(false);
         if (!onFiles || !event.dataTransfer.files.length) return;
-        event.preventDefault(); setDragging(false);
+        event.preventDefault();
         onFiles([...event.dataTransfer.files]);
       }}>
       <header className="lw-pripad-head" style={reveal(0)}>
@@ -355,7 +359,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, onAsk, 
 
       <MatterTiles matter={matter} cockpit={cockpit} views={views} readState={readState} todayIso={now} locale={locale} text={text} onReveal={showInRegister} />
       <MatterAxis timeline={timeline} eventCount={cockpit?.events?.length ?? 0} locale={locale} text={text} />
-      <MatterColumns matter={matter} cockpit={cockpit} views={views} readState={readState} todayIso={now} locale={locale} text={text} onReveal={showInRegister} onKnown={showKnown} documentsHref={documentsHref} />
+      <MatterColumns matter={matter} cockpit={cockpit} views={views} readState={readState} todayIso={now} locale={locale} text={text} onReveal={showInRegister} onKnown={showKnown} documentsHref={documentsHref} access={access} />
       <MatterChats conversations={conversations} complete={conversationsComplete} disabled={!sourceReady || busy !== null} onContinue={onContinue} locale={locale} text={text} />
 
       <div className="lw-matter-tabs" role="tablist" style={reveal(3)} onKeyDown={onTabKey}>
@@ -465,16 +469,27 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, onAsk, 
             <section key={group.kind} className="lw-matter-panel" style={reveal(4 + index)}>
               <h2 className="lw-matter-section">{group.label || text("kind_other")}<span className="lw-matter-count">{group.facts.length}</span></h2>
               <ul className="lw-matter-facts">
-                {group.facts.map((fact) => (
-                  <li key={`${fact.file}/${fact.id}`} className="lw-matter-fact">
-                    <span className="lw-matter-fact-head">
-                      <span className="lw-matter-item-title">{fact.title}</span>
-                      {fact.provenance === "overené" ? <span className="lw-matter-ok" aria-hidden>✓</span> : <span className="lw-matter-flag">{text("verify")}</span>}
-                    </span>
-                    {truths[fact.id] ? <p className="lw-matter-truth">{truths[fact.id]}</p> : null}
-                    <small>{[fact.date ? formatDay(fact.date.slice(0, 10), locale) : null, fact.source ? `${fact.source}${fact.locator ? ` · ${fact.locator}` : ""}` : null].filter(Boolean).join(" · ")}</small>
-                  </li>
-                ))}
+                {group.facts.map((fact) => {
+                  const openTarget = access && fact.source && !fact.source.endsWith("/") && access.canOpen(fact.source) ? fact.source
+                    : access && fact.file && !fact.file.endsWith("/") && access.canOpen(fact.file) ? fact.file : undefined;
+                  const metaLine = [fact.date ? formatDay(fact.date.slice(0, 10), locale) : null, fact.source ? `${fact.source}${fact.locator ? ` · ${fact.locator}` : ""}` : null].filter(Boolean).join(" · ");
+                  return (
+                    <li key={`${fact.file}/${fact.id}`} className="lw-matter-fact">
+                      <span className="lw-matter-fact-head">
+                        <span className="lw-matter-item-title">{fact.title}</span>
+                        {fact.provenance === "overené" ? <span className="lw-matter-ok" aria-hidden>✓</span> : <span className="lw-matter-flag">{text("verify")}</span>}
+                      </span>
+                      {truths[fact.id] ? <p className="lw-matter-truth">{truths[fact.id]}</p> : null}
+                      {openTarget ? (
+                        <small>
+                          <button type="button" className="lw-views-source" data-lawoss-source={openTarget} onClick={() => access?.open(openTarget)}>
+                            {metaLine || t("lawoss.lite.ov_source_short", locale)}
+                          </button>
+                        </small>
+                      ) : <small>{metaLine}</small>}
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           ))}
@@ -520,17 +535,39 @@ const dayOfMonth = (iso: string) => parseDay(iso).getUTCDate();
 const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "--lw-i": index });
 const initials = (name: string) => name.split(/\s+/).filter((part) => /\p{L}/u.test(part[0] ?? "")).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "·";
 
+const FACT_KIND_KEY: Record<string, string> = {
+  matter: "lawoss.matters.kind.matter", spis: "lawoss.matters.kind.matter",
+  decision: "lawoss.matters.kind.decision", rozhodnutie: "lawoss.matters.kind.decision",
+  subject: "lawoss.matters.kind.subject", subjekt: "lawoss.matters.kind.subject",
+  question: "lawoss.matters.kind.question", otázka: "lawoss.matters.kind.question",
+  screening: "lawoss.matters.kind.screening", preverenie: "lawoss.matters.kind.screening",
+  claim: "lawoss.matters.kind.claim", tvrdenie: "lawoss.matters.kind.claim",
+  evidence: "lawoss.matters.kind.evidence", dôkaz: "lawoss.matters.kind.evidence",
+  task: "lawoss.matters.kind.task", úloha: "lawoss.matters.kind.task",
+  rule: "lawoss.matters.kind.rule", pravidlo: "lawoss.matters.kind.rule",
+  lesson: "lawoss.matters.kind.lesson", poučenie: "lawoss.matters.kind.lesson",
+  authority: "lawoss.matters.kind.authority", prameň: "lawoss.matters.kind.authority",
+  deadline: "lawoss.matters.kind.deadline", lehota: "lawoss.matters.kind.deadline",
+  finding: "lawoss.matters.kind.finding", nález: "lawoss.matters.kind.finding",
+  record: "lawoss.matters.kind.record", záznam: "lawoss.matters.kind.record",
+  requirement: "lawoss.lite.ov_type_requirement", požiadavka: "lawoss.lite.ov_type_requirement",
+  relation: "lawoss.lite.ov_type_relation", vzťah: "lawoss.lite.ov_type_relation",
+  ip_right: "lawoss.lite.ov_type_ip_right",
+};
+
 /** Skupiny „Čo vieme" podľa typu záznamu, v poradí prvého výskytu - aj vlastné typy agenta. */
-export function groupFacts(facts: readonly CockpitFact[]): { kind: string; label: string; facts: CockpitFact[] }[] {
+export function groupFacts(facts: readonly CockpitFact[], locale?: Language): { kind: string; label: string; facts: CockpitFact[] }[] {
   const groups = new Map<string, CockpitFact[]>();
   for (const fact of facts) groups.set(fact.kind, [...(groups.get(fact.kind) ?? []), fact]);
-  return [...groups].map(([kind, items]) => ({ kind, label: kindTitle(kind) ?? "", facts: items }));
+  return [...groups].map(([kind, items]) => ({ kind, label: kindTitle(kind, locale) ?? "", facts: items }));
 }
 
-/** „hearing_note" → „Hearing note"; známa popiska len s veľkým začiatočným písmenom; prázdny typ = „ostatné". */
-function kindTitle(kind: string): string | undefined {
-  const spaced = kind.replace(/[_-]+/g, " ").trim();
-  return spaced ? spaced[0].toUpperCase() + spaced.slice(1) : undefined;
+/** „hearing_note" → „Hearing note"; známa popiska preložená podľa jazyka s veľkým začiatočným písmenom; prázdny typ = „ostatné". */
+function kindTitle(kind: string, locale?: Language): string | undefined {
+  const key = locale ? FACT_KIND_KEY[kind.trim().toLowerCase()] : undefined;
+  const translated = key && locale ? t(key, locale) : kind;
+  const spaced = translated.replace(/[_-]+/g, " ").trim();
+  return spaced ? spaced[0]!.toUpperCase() + spaced.slice(1) : undefined;
 }
 
 

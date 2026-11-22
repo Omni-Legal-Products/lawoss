@@ -85,6 +85,8 @@ describe("Na zaradenie: len dokumenty mimo prípadov", () => {
     for (const locale of ["sk", "cs", "en", "de"] as const) {
       const out = renderToStaticMarkup(<MemoryRouter><InputsView groups={inputGroups(data)} locale={locale} /></MemoryRouter>);
       expect(out).toContain('data-lawoss-lite="inputs"');
+      expect(out).toContain("lw-dnes-panel");
+      expect(out).toContain("data-lawoss-chatbar");
       expect(out).toContain(">SYN Tatran Automatika, s. r. o.<");
       expect(out).toContain("sken súd 001.pdf");
       for (const raw of ["](", "%20", "%C3", "example.invalid"]) expect(out.includes(raw) ? raw : null).toBeNull();

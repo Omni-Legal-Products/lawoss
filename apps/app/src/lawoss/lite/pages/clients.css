@@ -33,6 +33,16 @@
 .lw-triage-entry { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--td-gold) 45%, var(--td-line)); background: color-mix(in srgb, var(--td-gold) 7%, transparent); color: var(--lw-text-primary); font-size: 14px; font-weight: 500; text-decoration: none; transition: background 200ms var(--td-ease), border-color 200ms var(--td-ease); }
 .lw-triage-entry:hover { background: color-mix(in srgb, var(--td-gold) 15%, transparent); border-color: color-mix(in srgb, var(--td-gold) 75%, transparent); }
 .lw-clients .lw-h1 { margin: 0; font-size: clamp(28px, 3vw, 38px); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em; }
+.lw-clients-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
+.lw-clients-toolbar .lw-mode button { padding: 5px 12px; }
+.lw-clients-search {
+  min-width: 0; width: 220px; max-width: 100%; height: 32px; padding: 0 12px;
+  border: 1px solid var(--td-line); border-radius: var(--lw-radius-full, 9999px);
+  background: var(--td-glass), var(--lw-surface); color: var(--lw-text-primary); font: inherit; font-size: 13px;
+}
+.lw-clients-search::placeholder { color: var(--lw-text-tertiary); }
+.lw-clients-search:hover { border-color: color-mix(in srgb, var(--td-gold) 45%, transparent); }
+.lw-clients-search:focus-visible { outline: 2px solid var(--td-gold); outline-offset: 2px; }
 
 .lw-clients-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; align-items: start; }
 .lw-clients-card {
