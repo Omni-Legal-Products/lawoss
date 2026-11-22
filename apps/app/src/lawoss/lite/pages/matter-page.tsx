@@ -323,8 +323,9 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, onAsk, 
         if (event.currentTarget === event.target || !(next instanceof Node && event.currentTarget.contains(next))) setDragging(false);
       }}
       onDrop={(event) => {
+        setDragging(false);
         if (!onFiles || !event.dataTransfer.files.length) return;
-        event.preventDefault(); setDragging(false);
+        event.preventDefault();
         onFiles([...event.dataTransfer.files]);
       }}>
       <header className="lw-pripad-head" style={reveal(0)}>
