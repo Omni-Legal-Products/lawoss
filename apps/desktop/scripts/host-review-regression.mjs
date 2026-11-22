@@ -9,20 +9,29 @@ if (!userData) throw new Error("Use the owned run-host-review-regression.mjs lau
 app.setPath("userData", userData);
 app.on("window-all-closed", () => {});
 // The last entered step names where a hang stopped; it holds fixed labels only.
+// 90s covers six actions + public-sk on slow macOS CI; 45s exhausted mid-suite (#591).
+const startedAt = Date.now();
 let phase = "startup";
-const watchdog = setTimeout(() => {console.error(`Owned host review regression timed out at ${phase}`); app.exit(1);}, 45000);
+const setPhase = name => {
+  phase = name;
+  console.error(`[host-review] phase=${name} +${Date.now() - startedAt}ms`);
+};
+const watchdog = setTimeout(() => {
+  console.error(`Owned host review regression timed out at ${phase} after ${Date.now() - startedAt}ms`);
+  app.exit(1);
+}, 90000);
 let parent;
 const observations = [];
 app.whenReady().then(async () => {
 try {
-  phase = "parent";
+  setPhase("parent");
   parent = new BrowserWindow({show: false, width: 800, height: 600, webPreferences: {sandbox: true, contextIsolation: true, nodeIntegration: false}});
   await parent.loadURL("data:text/html,<html><body>Owned host review fixture</body></html>");
   const show = createContextReview({BrowserWindow, ipcMain, screen});
   const detail = "EXACT-START\n" + '<script>globalThis.unsafe=true</script>\n<img src="https://invalid.test/">\n'.repeat(180) + "EXACT-END";
   const handler = createHostApprovalHandler({getWindow: () => parent, showContextReview: show, showMessageBox: async () => assert.fail("unbounded native dialog")});
   const run = async action => {
-    phase = `${action}:context`;
+    setPhase(`${action}:context`);
     const controller = new AbortController();
     const decision = handler({workspaceId: "synthetic", action: "ai.public.synthetic", actor: {type: "host"}, summary: "Synthetic full context", description: detail, paths: []}, controller.signal);
     let review, state;
@@ -52,11 +61,11 @@ try {
     const area = screen.getDisplayMatching(parent.getBounds()).workArea, bounds = review.getBounds();
     assert.ok(bounds.width <= area.width && bounds.height <= area.height);
     assert.ok(bounds.x >= area.x && bounds.y >= area.y && bounds.x + bounds.width <= area.x + area.width && bounds.y + bounds.height <= area.y + area.height, JSON.stringify({bounds, area}));
-    phase = `${action}:window-open`;
+    setPhase(`${action}:window-open`);
     const count = BrowserWindow.getAllWindows().length;
     await review.webContents.executeJavaScript("window.open('https://invalid.test/')");
     assert.equal(BrowserWindow.getAllWindows().length, count);
-    phase = `${action}:decision`;
+    setPhase(`${action}:decision`);
     const textHash = createHash("sha256").update(state.text).digest("hex");
     if (action === "allow") await review.webContents.executeJavaScript("document.getElementById('allow').click()");
     if (action === "deny") await review.webContents.executeJavaScript("document.getElementById('deny').click()");
@@ -71,7 +80,7 @@ try {
     observations.push({action, decision: action === "allow" ? "allow" : "deny", bounds, textBytes: state.text.length, textHash, scroll: true, actionsVisible: true, sandbox: true});
   };
   for (const action of ["allow", "deny", "escape", "abort", "close", "navigation"]) await run(action);
-  phase = "public-sk";
+  setPhase("public-sk");
   const context = JSON.stringify({model: "qwen", messages: [{role: "user", content: "PUBLIC-CANARY"}]}, null, 2);
   const slovak = createHostApprovalHandler({getWindow: () => parent, getLocale: () => "sk", showMessageBox: async () => assert.fail("unbounded native dialog"),
     showContextReview: (window, options) => createContextReview({BrowserWindow, ipcMain, screen, getLocale: () => "sk"})(window, options)});
@@ -88,7 +97,7 @@ try {
   assert.ok(!shown.text.includes("__host_public_ai__") && !shown.text.includes("English audit"), shown.text);
   assert.equal(await publicDecision, "deny");
   observations.push({action: "public-sk", decision: "deny", text: shown.text.split("\n").slice(0, 6)});
-  console.log(JSON.stringify({ok: true, electron: process.versions.electron, observations}));
+  console.log(JSON.stringify({ok: true, electron: process.versions.electron, elapsedMs: Date.now() - startedAt, observations}));
 } catch (error) {
   console.error(error); process.exitCode = 1;
 } finally {

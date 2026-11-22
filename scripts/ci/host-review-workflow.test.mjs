@@ -10,14 +10,19 @@ test('normal macOS test job runs the real host review gate without an optional o
   const step = job.split(/^      - name: /m).find(block => /^Verify bounded native host context review in Electron\n/.test(block));
   assert.ok(step, 'The real host review command must be a normal CI step');
   assert.match(step, /^        if: runner\.os == 'macOS'$/m);
-  assert.match(step, /^        timeout-minutes: 4$/m);
-  assert.match(
-    step,
-    /^        run: \|\n          pnpm --filter @legalwork\/desktop test:host-review \|\| pnpm --filter @legalwork\/desktop test:host-review$/m,
-  );
+  assert.match(step, /^        timeout-minutes: 8$/m);
+  assert.match(step, /^          attempt=1$/m);
+  assert.match(step, /^          until pnpm --filter @legalwork\/desktop test:host-review; do$/m);
+  assert.match(step, /^            if \[ "\$attempt" -ge 3 \]; then$/m);
+  assert.match(step, /^            sleep \$\(\(attempt \* 5\)\)$/m);
   assert.doesNotMatch(step, /continue-on-error|workflow_dispatch|inputs\./);
   const desktop = JSON.parse(readFileSync(new URL('../../apps/desktop/package.json', import.meta.url), 'utf8'));
   assert.equal(desktop.scripts['test:host-review'], 'node scripts/run-host-review-regression.mjs');
-  assert.match(readFileSync(new URL('../../apps/desktop/scripts/run-host-review-regression.mjs', import.meta.url), 'utf8'), /new URL\("host-review-regression\.mjs"/);
-  assert.ok(readFileSync(new URL('../../apps/desktop/scripts/host-review-regression.mjs', import.meta.url), 'utf8').includes('createHostApprovalHandler'));
+  const launcher = readFileSync(new URL('../../apps/desktop/scripts/run-host-review-regression.mjs', import.meta.url), 'utf8');
+  assert.match(launcher, /new URL\("host-review-regression\.mjs"/);
+  assert.match(launcher, /timeoutMs = 120000/);
+  const regression = readFileSync(new URL('../../apps/desktop/scripts/host-review-regression.mjs', import.meta.url), 'utf8');
+  assert.ok(regression.includes('createHostApprovalHandler'));
+  assert.match(regression, /}, 90000\);/);
+  assert.match(regression, /timed out at \$\{phase\} after \$\{Date\.now\(\) - startedAt\}ms/);
 });
