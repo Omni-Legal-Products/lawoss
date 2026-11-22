@@ -162,7 +162,10 @@
 }
 .lw-today-tip span { display: grid; gap: 1px; }
 .lw-today-tip b { font-weight: 600; color: var(--lw-text-primary); }
+.lw-today-day:nth-child(-n + 2) .lw-today-tip { left: 0; transform: translate(0, 4px); }
+.lw-today-day:nth-last-child(-n + 2) .lw-today-tip { left: auto; right: 0; transform: translate(0, 4px); }
 .lw-today-day > a:hover .lw-today-tip, .lw-today-day > a:focus-visible .lw-today-tip { opacity: 1; transform: translate(-50%, 0); }
+.lw-today-day:is(:nth-child(-n + 2), :nth-last-child(-n + 2)) > a:is(:hover, :focus-visible) .lw-today-tip { transform: translate(0, 0); }
 
 .lw-today-empty { display: flex; align-items: center; gap: 8px; margin: 4px 2px 2px; font-size: 13px; color: var(--lw-text-tertiary); }
 .lw-today-empty svg { color: var(--lw-success, #7fb38a); }
@@ -246,8 +249,9 @@
   text-decoration: none;
   min-width: 0;
 }
-a.lw-dnes-tile, a.lw-dnes-card, a.lw-dnes-mini { transition: transform 160ms var(--td-ease), border-color 160ms var(--td-ease), box-shadow 160ms var(--td-ease); }
-a.lw-dnes-tile:hover, a.lw-dnes-card:hover, a.lw-dnes-mini:hover {
+a.lw-dnes-tile, button.lw-dnes-tile, a.lw-dnes-card, a.lw-dnes-mini { transition: transform 160ms var(--td-ease), border-color 160ms var(--td-ease), box-shadow 160ms var(--td-ease); }
+button.lw-dnes-tile { width: 100%; font: inherit; text-align: left; cursor: pointer; }
+a.lw-dnes-tile:hover, button.lw-dnes-tile:hover, a.lw-dnes-card:hover, a.lw-dnes-mini:hover {
   transform: translateY(-2px);
   border-color: color-mix(in srgb, var(--td-gold) 45%, transparent);
 }
@@ -419,8 +423,8 @@ a.lw-dnes-tile:hover, a.lw-dnes-card:hover, a.lw-dnes-mini:hover {
 
 @media (prefers-reduced-motion: reduce) {
   .lw-today-month { animation: none; }
-  a.lw-dnes-tile, a.lw-dnes-card, a.lw-dnes-mini, .lw-dnes-item, .lw-dnes-suggest, .lw-dnes-secondary, .lw-dnes-tasks-row { transition: none; }
-  a.lw-dnes-tile:hover, a.lw-dnes-card:hover, a.lw-dnes-mini:hover { transform: none; }
+  a.lw-dnes-tile, button.lw-dnes-tile, a.lw-dnes-card, a.lw-dnes-mini, .lw-dnes-item, .lw-dnes-suggest, .lw-dnes-secondary, .lw-dnes-tasks-row { transition: none; }
+  a.lw-dnes-tile:hover, button.lw-dnes-tile:hover, a.lw-dnes-card:hover, a.lw-dnes-mini:hover { transform: none; }
   .lw-dnes-tile[data-gold]::after { content: none; animation: none; }
   .lw-dnes-skel { animation: none; }
 }

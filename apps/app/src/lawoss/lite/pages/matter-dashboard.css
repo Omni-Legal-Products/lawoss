@@ -13,6 +13,12 @@
   gap: 18px;
   padding-bottom: 0;
 }
+.lw-matter.lw-pripad[data-dragging] {
+  outline: 2px dashed color-mix(in srgb, var(--td-gold) 65%, transparent);
+  outline-offset: 6px;
+  border-radius: var(--dn-radius);
+  background: color-mix(in srgb, var(--td-gold) 4%, transparent);
+}
 .lw-experiment-content > .lw-sheet:has(.lw-pripad-dock) { padding-bottom: 0; }
 
 /* Hlavička: drobček, názov, jeden riadok štítkov. */

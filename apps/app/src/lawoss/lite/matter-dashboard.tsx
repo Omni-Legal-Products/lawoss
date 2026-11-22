@@ -15,6 +15,7 @@ import { formatDay } from "../okf/read-model";
 import { deadlineText } from "../okf/view-rules";
 import type { MatterConversation } from "./matter-conversations";
 import type { MatterModelGap } from "./matter-model";
+import type { SourceAccess } from "./matter-views";
 import { deadlinesEmpty, dockActions, factRows, matterAxis, matterNearest, matterRows, matterStage, matterWaiting, partyRows,
   type DashboardCockpit, type DeadlineOrigin, type MatterRow, type TimelineEntry } from "./matter-dashboard-model";
 import { DayBox } from "./pages/today-page";
@@ -43,7 +44,7 @@ export function MatterTiles({ matter, cockpit, views, readState, todayIso, local
   return <section className="lw-dnes-tiles lw-pripad-tiles" aria-label={text("tiles_label")}>
     <NearestTile matter={matter} todayIso={todayIso} locale={locale} text={text} known={known} onReveal={onReveal} />
     <StageTile views={views} readState={readState} text={text} />
-    <WaitingTile cockpit={cockpit} listed={matter.deadlines} todayIso={todayIso} text={text} known={known} />
+    <WaitingTile cockpit={cockpit} listed={matter.deadlines} todayIso={todayIso} text={text} known={known} onReveal={onReveal} />
   </section>;
 }
 
@@ -83,17 +84,21 @@ function StageTile({ views, readState, text }: { views?: MatterViews; readState:
   </div>;
 }
 
-function WaitingTile({ cockpit, listed, todayIso, text, known }: { cockpit: DashboardCockpit | null; listed: MatterOverview["deadlines"]; todayIso: string; text: Text; known: boolean }) {
+function WaitingTile({ cockpit, listed, todayIso, text, known, onReveal }: { cockpit: DashboardCockpit | null; listed: MatterOverview["deadlines"]; todayIso: string; text: Text; known: boolean; onReveal: (anchor?: string) => void }) {
   const waiting = cockpit ? matterWaiting(cockpit, listed, todayIso) : null;
   const parts = waiting ? ([["filing", waiting.filing], ["overdue", waiting.overdue], ["verify", waiting.verify], ["confirm", waiting.confirm]] as const)
     .filter(([, count]) => count > 0).map(([kind, count]) => `${count} ${text(`wait_${kind}`)}`) : [];
   // Zlatá len keď niečo čaká; nula bez čerstvého čítania nie je „nič nečaká“.
-  return <div className="lw-dnes-tile" data-lawoss-tile="waiting" data-gold={waiting && waiting.total > 0 || undefined} data-lawoss-waiting-total={waiting?.total}>
-    <span className="lw-dnes-tile-label">{text("tile_waiting")}</span>
-    {waiting && waiting.total > 0 ? <>
+  if (waiting && waiting.total > 0) {
+    return <button type="button" className="lw-dnes-tile lw-pripad-tile-button" onClick={() => onReveal()} data-lawoss-tile="waiting" data-gold data-lawoss-waiting-total={waiting.total}>
+      <span className="lw-dnes-tile-label">{text("tile_waiting")}</span>
       <span className="lw-dnes-num" data-tone="gold">{waiting.total}</span>
       <span className="lw-dnes-tile-sub" title={parts.join(" · ")}>{parts.join(" · ")}</span>
-    </> : known ? <>
+    </button>;
+  }
+  return <div className="lw-dnes-tile" data-lawoss-tile="waiting" data-lawoss-waiting-total={waiting?.total}>
+    <span className="lw-dnes-tile-label">{text("tile_waiting")}</span>
+    {known ? <>
       <span className="lw-dnes-num" data-tone="green"><Check aria-hidden size={28} /></span>
       <span className="lw-dnes-tile-sub">{text("wait_none")}</span>
     </> : <span className="lw-dnes-num" data-tone="muted">—</span>}
@@ -134,16 +139,18 @@ export function TimelineList({ entries, locale, text }: { entries: readonly Time
 }
 
 /** „Lehoty a úlohy“ | „Čo vieme“ | „Strany“; bez strán dva širšie stĺpce. */
-export function MatterColumns({ matter, cockpit, views, readState, todayIso, locale, text, onReveal, onKnown, documentsHref }: { matter: Pick<MatterOverview, "deadlines">; cockpit: DashboardCockpit | null; views?: MatterViews; readState: ReadState; todayIso: string; locale: Language; text: Text;
+export function MatterColumns({ matter, cockpit, views, readState, todayIso, locale, text, onReveal, onKnown, documentsHref, access }: { matter: Pick<MatterOverview, "deadlines">; cockpit: DashboardCockpit | null; views?: MatterViews; readState: ReadState; todayIso: string; locale: Language; text: Text;
   onReveal: (anchor?: string) => void;
   /** Prepne na záložku „Čo vieme“. */
   onKnown: () => void;
   /** Dokumenty klienta prípadu (natívne Súbory); bez priečinka klienta sa odkaz neukáže. */
-  documentsHref?: string }) {
+  documentsHref?: string;
+  /** Otvorenie zdrojového súboru faktu v priečinku klienta prípadu. */
+  access?: SourceAccess }) {
   const parties = partyRows(cockpit?.parties ?? [], PARTIES);
   return <div className="lw-pripad-cols" data-cols={parties.rows.length ? 3 : 2}>
     <TermsColumn cockpit={cockpit} listed={matter.deadlines} views={views} readState={readState} todayIso={todayIso} locale={locale} text={text} onReveal={onReveal} />
-    <FactsColumn cockpit={cockpit} text={text} onKnown={onKnown} />
+    <FactsColumn cockpit={cockpit} text={text} onKnown={onKnown} access={access} />
     {parties.rows.length ? <section className="lw-dnes-panel lw-pripad-col" aria-labelledby="lw-pripad-parties" data-lawoss-matter-parties="">
       <h2 id="lw-pripad-parties" className="lw-dnes-h2">{t("lawoss.matters.parties", locale)}</h2>
       <ul className="lw-dnes-list">
@@ -187,19 +194,26 @@ function RowView({ row, locale, text, onReveal }: { row: MatterRow; locale: Lang
       <span className="lw-dnes-pill" data-tone={origin.tone}>{text(origin.key)}</span>
     </button>;
   }
-  // Úloha je len zobrazená: odškrtnutie a práca s ňou idú cez chat.
+  // Úloha je len zobrazená: klik otvorí podrobný register, odškrtnutie a práca s ňou idú cez chat.
   const { task } = row;
-  return <div className="lw-dnes-item" data-kind="task" data-invalid={row.daysLeft === null || undefined}>
+  return <button type="button" className="lw-dnes-item" data-kind="task" data-invalid={row.daysLeft === null || undefined} onClick={() => onReveal()}>
     <DayBox daysLeft={row.daysLeft} tone={row.tone} text={text} />
     <span className="lw-dnes-item-text">
       <b title={task.title}>{task.title}</b>
       <span>{row.day ? `${formatDay(row.day, locale)}${row.time ? ` ${row.time}` : ""}` : <span className="lw-today-raw">{`? ${task.due?.trim() ?? ""}`.trim()}</span>}{task.assignee ? ` · ${task.assignee}` : ""}</span>
     </span>
     <span className="lw-dnes-pill" data-tone="work">{text("origin_work")}</span>
-  </div>;
+  </button>;
 }
 
-function FactsColumn({ cockpit, text, onKnown }: { cockpit: DashboardCockpit | null; text: Text; onKnown: () => void }) {
+const openableFactSource = (fact: { file: string; source?: string }, access?: SourceAccess): string | undefined => {
+  if (!access) return undefined;
+  if (fact.source && !fact.source.endsWith("/") && access.canOpen(fact.source)) return fact.source;
+  if (fact.file && !fact.file.endsWith("/") && access.canOpen(fact.file)) return fact.file;
+  return undefined;
+};
+
+function FactsColumn({ cockpit, text, onKnown, access }: { cockpit: DashboardCockpit | null; text: Text; onKnown: () => void; access?: SourceAccess }) {
   const { rows, total } = factRows(cockpit?.facts ?? [], FACTS);
   return <section className="lw-dnes-panel lw-pripad-col" aria-labelledby="lw-pripad-facts" data-lawoss-matter-facts={total}>
     <div className="lw-pripad-head-row">
@@ -207,10 +221,17 @@ function FactsColumn({ cockpit, text, onKnown }: { cockpit: DashboardCockpit | n
       {total ? <button type="button" className="lw-dnes-more lw-pripad-link" onClick={onKnown}>{text("pripad_all")}</button> : null}
     </div>
     {rows.length === 0 ? <p className="lw-dnes-quiet lw-pripad-empty"><Info aria-hidden size={13} />{text("known_empty")}</p> : <ul className="lw-dnes-list">
-      {rows.map(({ fact, verified, source }) => <li key={`${fact.file}/${fact.id}`}><div className="lw-dnes-item" data-kind="fact">
-        <span className="lw-dnes-item-text"><b title={fact.title}>{fact.title}</b>{source ? <span title={source}>{source}</span> : null}</span>
-        <span className="lw-dnes-pill" data-tone={verified ? "green" : "amber"}>{text(verified ? "fact_verified" : "verify")}</span>
-      </div></li>)}
+      {rows.map(({ fact, verified, source }) => {
+        const target = openableFactSource(fact, access);
+        const content = <>
+          <span className="lw-dnes-item-text"><b title={fact.title}>{fact.title}</b>{source ? <span title={source}>{source}</span> : null}</span>
+          <span className="lw-dnes-pill" data-tone={verified ? "green" : "amber"}>{text(verified ? "fact_verified" : "verify")}</span>
+        </>;
+        return <li key={`${fact.file}/${fact.id}`}>
+          {target ? <button type="button" className="lw-dnes-item" data-kind="fact" data-lawoss-source={target} onClick={() => access?.open(target)}>{content}</button>
+            : <div className="lw-dnes-item" data-kind="fact">{content}</div>}
+        </li>;
+      })}
     </ul>}
   </section>;
 }

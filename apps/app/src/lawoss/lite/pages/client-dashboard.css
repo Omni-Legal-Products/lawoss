@@ -57,12 +57,23 @@
 .lw-klient .lw-today-strip[data-compact] .lw-today-dots i:nth-of-type(n + 4) { display: none; }
 .lw-klient .lw-today-strip[data-compact] .lw-today-dots i[data-kind="task"] { background: var(--td-gold); box-shadow: none; }
 .lw-klient .lw-today-strip[data-compact] .lw-today-dots-more { display: none; }
-.lw-klient .lw-today-strip[data-compact] .lw-today-tip { min-width: 180px; }
+.lw-klient .lw-today-strip[data-compact] .lw-today-tip { min-width: 180px; left: auto; right: 0; transform: translate(0, 4px); }
+.lw-klient .lw-today-strip[data-compact] .lw-today-day > a:is(:hover, :focus-visible) .lw-today-tip { transform: translate(0, 0); }
 
 /* Karty prípadov: tri v rade, pod 620 px obsahu dve, pod 400 px jedna. Bez prázdneho tela: názov najviac dva riadky,
    dole jeden nízky riadok (spisová značka · súd | úlohy), ktorý drží `margin-top: auto` na spodku karty. */
 .lw-klient-cases { display: grid; gap: 12px; }
-.lw-klient-cases > .lw-dnes-h2 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.lw-klient-cases-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.lw-klient-cases-head > .lw-dnes-h2, .lw-klient-cases > .lw-dnes-h2 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.lw-klient-cases-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lw-klient-cases-tools .lw-mode button { padding: 4px 10px; font-size: 12px; }
+.lw-klient-search {
+  min-width: 0; width: 180px; max-width: 100%; height: 30px; padding: 0 11px;
+  border: 1px solid var(--td-line); border-radius: var(--lw-radius-full, 9999px);
+  background: var(--td-glass), var(--lw-surface); color: var(--lw-text-primary); font: inherit; font-size: 12.5px;
+}
+.lw-klient-search::placeholder { color: var(--lw-text-tertiary); }
+.lw-klient-search:hover { border-color: color-mix(in srgb, var(--td-gold) 45%, transparent); }
 .lw-klient-count { padding: 1px 8px; border-radius: var(--lw-radius-full, 9999px); background: color-mix(in srgb, var(--lw-text-primary) 7%, transparent); font-size: 12px; font-weight: 500; color: var(--lw-text-secondary); font-variant-numeric: tabular-nums; }
 .lw-klient-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 @container lw-klient (width < 620px) { .lw-klient-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

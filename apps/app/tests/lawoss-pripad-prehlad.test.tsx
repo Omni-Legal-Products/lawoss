@@ -292,5 +292,7 @@ describe("stránka prípadu: prehľad hore, zachované pravidlá", () => {
     expect(page({ cockpit: { ...cockpit, events: [] } })).not.toContain('aria-labelledby="lw-pripad-axis"');
     expect(out).toMatch(/data-lawoss-matter-parties[^]*?href="\/workspace\/c1\/files"/);
     expect(page({ cockpit: { ...cockpit, parties: [] } })).toContain('class="lw-pripad-cols" data-cols="2"');
+    const withSource = page({ access: { canOpen: (file) => file === "Žaloba.pdf", open: () => {} } });
+    expect(withSource).toContain('data-kind="fact" data-lawoss-source="Žaloba.pdf"');
   });
 });
