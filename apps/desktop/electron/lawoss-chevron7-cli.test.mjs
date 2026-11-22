@@ -1,9 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, rm, realpath, symlink, chmod } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, realpath, symlink, chmod, copyFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { chevron7Session, createChevron7Cli, findChevron7Helper, resolveClientPdf, runChevron7Cli } from "./lawoss-chevron7-cli.mjs";
+import { CHEVRON7_REQUIREMENT, chevron7Session, createChevron7Cli, findChevron7Helper, resolveClientPdf, runChevron7Cli } from "./lawoss-chevron7-cli.mjs";
+
+const exec = promisify(execFile);
 
 const envelope = (result) => JSON.stringify({ apiVersion: 1, requestId: "SYN", ok: true, result });
 const failure = (code) => JSON.stringify({ apiVersion: 1, requestId: "SYN", ok: false, error: { code, message: "SYN", retryable: false } });
@@ -202,4 +206,20 @@ test("refuses files outside the client, unverified bundles, missing helper, and 
 test("unsupported platform never probes installed apps", async () => {
   const cli = createChevron7Cli({ platform: "linux", roots: ["/Applications"] });
   assert.deepEqual(await cli.inspect("/tmp/SYN.pdf", "/tmp"), { status: "unavailable" });
+});
+
+test("designated requirement rejects an ad-hoc bundle that only copies the Chevron7 bundle id", { skip: process.platform !== "darwin" }, async () => {
+  assert.match(CHEVRON7_REQUIREMENT, /identifier "app\.slovensko\.chevron7"/);
+  assert.match(CHEVRON7_REQUIREMENT, /certificate leaf\[subject\.OU\] = "Q7AU96CW7H"/);
+  const dir = await mkdtemp(path.join(tmpdir(), "lawoss-chevron7-req-"));
+  try {
+    const bundle = path.join(dir, "Chevron7.app");
+    await mkdir(path.join(bundle, "Contents", "MacOS"), { recursive: true });
+    await writeFile(path.join(bundle, "Contents", "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>app.slovensko.chevron7</string><key>CFBundleExecutable</key><string>Chevron7</string></dict></plist>`);
+    await copyFile("/bin/echo", path.join(bundle, "Contents", "MacOS", "Chevron7"));
+    await exec("/usr/bin/codesign", ["--force", "--sign", "-", "--identifier", "app.slovensko.chevron7", bundle]);
+    await exec("/usr/bin/codesign", ["--verify", "--deep", "--strict", bundle]);
+    await assert.rejects(exec("/usr/bin/codesign", ["--verify", "--deep", "--strict", "-R", CHEVRON7_REQUIREMENT, bundle]));
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });

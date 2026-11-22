@@ -13,6 +13,8 @@ import { findChevron7Signing, isSigningPdf } from "./lawoss-chevron7-signing.mjs
 const exec = promisify(execFile);
 const HELPER = "Contents/Helpers/chevron7";
 const DEFAULT_TIMEOUT = 120_000;
+// Designated requirement: the bundle id alone is not proof of origin, so pin the Developer ID team of Chevron7.
+export const CHEVRON7_REQUIREMENT = '=identifier "app.slovensko.chevron7" and anchor apple generic and certificate leaf[subject.OU] = "Q7AU96CW7H"';
 const DEFAULT_MAX_OUTPUT = 4 * 1024 * 1024;
 // API v1 exit codes that are a refusal or a failure of the call itself.
 const EXIT_STATUS = { 2: "refused", 3: "unavailable", 4: "busy", 6: "timeout", 7: "file-error", 8: "failed", 9: "failed" };
@@ -147,7 +149,7 @@ export function createChevron7Cli(options, dependencies = {}) {
     const helper = installation && await findChevron7Helper(installation.bundle);
     return helper ? { bundle: installation.bundle, helper } : null;
   });
-  const verify = dependencies.verify ?? (bundle => exec("/usr/bin/codesign", ["--verify", "--deep", "--strict", bundle], { timeout: 15_000, maxBuffer: 4096 }));
+  const verify = dependencies.verify ?? (bundle => exec("/usr/bin/codesign", ["--verify", "--deep", "--strict", "-R", CHEVRON7_REQUIREMENT, bundle], { timeout: 15_000, maxBuffer: 4096 }));
   const run = dependencies.run ?? runChevron7Cli;
   let busy = false;
   let disposed = false;
@@ -161,9 +163,11 @@ export function createChevron7Cli(options, dependencies = {}) {
     try {
       const installation = await find();
       if (!installation || disposed) return { status: "unavailable" };
+      try { await verify(installation.bundle); } catch { return { status: "unavailable" }; }
+      if (disposed) return { status: "unavailable" };
+      // Resolve right before the spawn to keep the check-to-use window short; the helper's --root is the second layer.
       const target = await resolveClientPdf(file, clientRoot);
       if (!target) return { status: "invalid-file" };
-      try { await verify(installation.bundle); } catch { return { status: "unavailable" }; }
       if (disposed) return { status: "unavailable" };
       const args = ["--session", chevron7Session(target.root), command, target.file, "--root", target.root, "--json"];
       return interpret(await run(installation.helper, args, { signal: controller.signal }));
