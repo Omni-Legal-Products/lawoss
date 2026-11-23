@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Tip-dev CI: predĺžený budget shutdown-regression (#588) (2026-11-22)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/desktop/scripts/shutdown-regression.mjs`, `apps/desktop/scripts/shutdown-regression.budget.test.mjs`, `.github/workflows/ci-tests.yml` (krok Electron close/restart) | #588: tip `eafd7bea` po #599 — všetky 3 CI pokusy SIGKILL po 60 s (`code === null`). Rodičovský budget bol príliš krátky na celý Electron suite na macos-15. Budget 180 s (`LEGALWORK_SHUTDOWN_TEST_TIMEOUT_MS`), diagnostika pred SIGKILL, jasný fail pri timeout; kratší layout delay bez screenshotov. CI spúšťa aj budget contract test; 3× retry z #599 ostáva. Bez `continue-on-error` / oslabenia Selected. |
+
 ## Tip-dev CI: retry flaky win-arm preview-security (#594) (2026-11-21)
 
 | Súbor | Zmena |

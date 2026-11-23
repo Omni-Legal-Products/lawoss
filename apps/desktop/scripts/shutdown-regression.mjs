@@ -41,8 +41,23 @@ if (!process.versions.electron) {
     const binary = process.env.LEGALWORK_ELECTRON_BINARY ?? (await import("electron")).default;
     const child = spawn(binary, [script], { env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined, LEGALWORK_SHUTDOWN_PROFILE: root, LEGALWORK_SHUTDOWN_FIXTURE_URL: `http://127.0.0.1:${server.address().port}` }, stdio: ["ignore", "pipe", "pipe"] });
     let log = ""; child.stdout.on("data", chunk => { log += chunk; }); child.stderr.on("data", chunk => { log += chunk; });
-    const timeout = setTimeout(() => child.kill("SIGKILL"), 60_000);
+    // Tip macos-15 CI under load needs well over 60s for the full dialog/layout/quit suite;
+    // a short parent budget looks like flaky SIGKILL (code === null). Override via env if needed.
+    const budgetMs = Number(process.env.LEGALWORK_SHUTDOWN_TEST_TIMEOUT_MS || 180_000);
+    assert.ok(Number.isFinite(budgetMs) && budgetMs >= 30_000, "LEGALWORK_SHUTDOWN_TEST_TIMEOUT_MS must be >= 30000");
+    const started = Date.now();
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      const tail = log.trim().slice(-2000);
+      console.error(`shutdown-regression: parent budget ${budgetMs}ms expired after ${Date.now() - started}ms; SIGKILL Electron child`);
+      if (tail) console.error(`shutdown-regression: last child output:\n${tail}`);
+      child.kill("SIGKILL");
+    }, budgetMs);
     const [code, signal] = await once(child, "exit"); clearTimeout(timeout);
+    if (timedOut || signal === "SIGKILL") {
+      assert.fail(`Electron shutdown regression hit parent timeout (${budgetMs}ms, signal=${signal ?? "none"}): ${log.trim() || "(no child output)"}`);
+    }
     assert.equal(code, 0, `Electron regression failed (${signal ?? code}): ${log}`);
     console.log(log.trim());
   } finally { server.close(); await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
@@ -110,7 +125,9 @@ if (!process.versions.electron) {
 
     for (const width of [640, 440]) {
       item = await fixture({ language: "de", width }); decision = item.restart(); await item.modal();
-      await delay(250);
+      // Layout assertions need a paint; screenshot path already waits above when output is set.
+      if (output) await delay(250);
+      else await delay(50);
       const layout = await item.window.webContents.executeJavaScript(`(() => {
         const footer = document.querySelector('[role="dialog"] [data-slot="dialog-footer"]');
         const boundary = footer.getBoundingClientRect();
