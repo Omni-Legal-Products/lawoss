@@ -122,6 +122,7 @@ if (!process.versions.electron) {
     if (output) await writeFile(path.join(output, "restart-unsaved-de.png"), (await item.window.webContents.capturePage()).toPNG());
     await item.click("Verwerfen und neu starten"); assert.equal(await decision, true); saved = await item.state(); assert.equal(saved.writes, 0); assert.ok(!saved.disk.includes("Unsaved test edits."));
     await item.install(true); results.push("discard restarts without saving; German labels render");
+    console.log("shutdown-regression: phase after-de-discard");
 
     for (const width of [640, 440]) {
       item = await fixture({ language: "de", width }); decision = item.restart(); await item.modal();
@@ -168,12 +169,17 @@ if (!process.versions.electron) {
       uiControlServer: { stop: async () => {} }, runtimeManager: { forceStopOwnedChildren() {} },
       // LAWOSS: before-quit also releases the Chevron7 signing helper.
       chevron7Signing: { dispose: () => {} },
+      // LAWOSS #561: production before-quit closes window streams/requests before the server stops.
+      // Without these stubs, preventDefault already ran and ReferenceError leaves quit cancelled → parent SIGKILL.
+      eventStreams: { closeAll() {} },
+      httpRequests: { closeAll() {} },
       disposeRuntimeBeforeQuit: async () => {
         const saved = await item.state();
         assert.equal(saved.writes, 1); assert.deepEqual(saved.dirty, []);
         disposed.push("runtime"); context.runtimeDisposedForQuit = true;
       },
     };
+    console.log("shutdown-regression: phase before-quit");
     runInNewContext(source.slice(from, to), context);
     app.quit(); await item.modal(); assert.deepEqual(disposed, []);
     await item.window.webContents.executeJavaScript('document.querySelector("[role=dialog] button[data-slot=dialog-close]").click()', true);
@@ -185,6 +191,7 @@ if (!process.versions.electron) {
         results.push("normal app Quit waits for consent, survives cancellation, and saves before disposal");
         for (const result of results) console.log(`PASS ${result}`);
         if (output) writeFileSync(path.join(output, "results.json"), JSON.stringify({ electron: process.versions.electron, results }, null, 2));
+        app.exit(0);
       } catch (error) { console.error(error.stack); app.exit(1); }
     });
     app.quit(); await item.modal(); await item.click("Save and close");

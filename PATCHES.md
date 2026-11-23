@@ -1,10 +1,16 @@
 # LAWOSS downstream patches
 
+## Tip-dev CI: before-quit stub eventStreams/httpRequests (#588) (2026-11-23)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/desktop/scripts/shutdown-regression.mjs`, `apps/desktop/scripts/updater-quit-regression.mjs`, `apps/desktop/scripts/shutdown-regression.budget.test.mjs` | #588: tip `d710aaee` po #601 — `test:shutdown` ×3 SIGKILL pod 180 s. Po DE screenshotoch chýba `results.json`/`PASS`. Od #561 production `before-quit` volá `eventStreams.closeAll()` / `httpRequests.closeAll()`; syntetický vm kontext ich nemal → `preventDefault` + ReferenceError → quit nikdy nepokračuje. Stub `closeAll`, `app.exit(0)` po úspešnom `will-quit`, fázy logy; source contract. Nezávislé od #603 (`install`/`closed`). Bez `continue-on-error` / oslabenia Selected. |
+
 ## Tip-dev CI: 3 pokusy + dlhší watchdog pre flaky macOS host-review (#591) (2026-11-22)
 
 | Súbor | Zmena |
 |---|---|
-| `.github/workflows/ci-tests.yml` (krok host-review), `scripts/ci/host-review-workflow.test.mjs`, `apps/desktop/scripts/{host-review-regression,run-host-review-regression}.mjs` | #591: flaky macOS `Owned host review regression timed out at deny:decision` / `public-sk` — jeden `\|\|` retry nestačil (oba pokusy vyčerpali 45 s watchdog). Teraz až 3 pokusy s backoffom `sleep $((attempt * 5))`, `timeout-minutes: 8`, watchdog 90 s + parent SIGKILL 120 s, fázové diagnostiky s elapsed ms; bez `continue-on-error`; brána ostáva povinná. Rovnaký CI vzor ako shutdown (#588). |
+| `.github/workflows/ci-tests.yml` (krok host-review), `scripts/ci/host-review-workflow.test.mjs`, `apps/desktop/scripts/{host-review-regression,run-host-review-regression}.mjs` | #591: flaky macOS `Owned host review regression timed out at deny:decision` / `public-sk` — jeden `||` retry nestačil (oba pokusy vyčerpali 45 s watchdog). Teraz až 3 pokusy s backoffom `sleep $((attempt * 5))`, `timeout-minutes: 8`, watchdog 90 s + parent SIGKILL 120 s, fázové diagnostiky s elapsed ms; bez `continue-on-error`; brána ostáva povinná. Rovnaký CI vzor ako shutdown (#588). |
 
 ## Tip-dev CI: predĺžený budget shutdown-regression (#588) (2026-11-22)
 
