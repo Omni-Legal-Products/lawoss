@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Tip-dev CI: 3 pokusy + dlhší watchdog pre flaky macOS host-review (#591) (2026-11-22)
+
+| Súbor | Zmena |
+|---|---|
+| `.github/workflows/ci-tests.yml` (krok host-review), `scripts/ci/host-review-workflow.test.mjs`, `apps/desktop/scripts/{host-review-regression,run-host-review-regression}.mjs` | #591: flaky macOS `Owned host review regression timed out at deny:decision` / `public-sk` — jeden `\|\|` retry nestačil (oba pokusy vyčerpali 45 s watchdog). Teraz až 3 pokusy s backoffom `sleep $((attempt * 5))`, `timeout-minutes: 8`, watchdog 90 s + parent SIGKILL 120 s, fázové diagnostiky s elapsed ms; bez `continue-on-error`; brána ostáva povinná. Rovnaký CI vzor ako shutdown (#588). |
+
 ## Tip-dev CI: predĺžený budget shutdown-regression (#588) (2026-11-22)
 
 | Súbor | Zmena |
@@ -1167,7 +1173,7 @@ Implementation lives in `apps/server/src/lawoss/protected-ai/`. Its four scoped 
 | `apps/desktop/electron/{host-approvals.mjs,runtime.mjs,host-context-review.mjs,host-review-preload.cjs}` | Public AI and long approvals use a work-area-bounded scrollable native-owned BrowserWindow, retaining complete context as immutable textContent. Isolated sandboxed preload exposes no application API; main accepts only its own main frame and request nonce. Deny gets focus; Escape, close, cancellation, navigation and renderer failure deny. Short ordinary native approvals and the existing approval queue/receipt/binding remain unchanged. |
 | `apps/desktop/electron/{host-approvals.test.mjs,host-context-review.test.mjs}`, `apps/desktop/scripts/host-review-regression.mjs`, `apps/desktop/package.json` | Node guards and actual Electron renderer smoke verify complete long payload, inert markup, scroll/buttons within work area, sender binding and Allow/Deny/Escape/abort/close/navigation. Root actual application/native screenshot and final desktop suite remain separate gates. |
 
-The normal macOS `ci-tests.yml` job runs `test:host-review` beside the existing Electron preview/browser gates with a four-minute bound (one automatic retry for the unrelated `#591` flake at `deny:decision`) and no soft-failure option. `scripts/ci/host-review-workflow.test.mjs` verifies actual command wiring; it does not replace the renderer test.
+The normal macOS `ci-tests.yml` job runs `test:host-review` beside the existing Electron preview/browser gates with an eight-minute bound (up to three attempts with backoff for the unrelated `#591` flake; owned smoke watchdog 90 s) and no soft-failure option. `scripts/ci/host-review-workflow.test.mjs` verifies actual command wiring; it does not replace the renderer test.
 
 The host-review smoke uses a Node-owned temporary profile and launcher, following the preview-security fixture. Electron quits before the parent removes Chromium Session Storage with bounded retries; nonzero child exit, timeout and cleanup failure remain failures. No production review/receipt code changes.
 

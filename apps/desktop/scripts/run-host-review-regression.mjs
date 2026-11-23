@@ -7,7 +7,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import electron from "electron";
 
-export async function runHostReviewSmoke({binary = electron, script = fileURLToPath(new URL("host-review-regression.mjs", import.meta.url)), timeoutMs = 60000} = {}) {
+// Parent SIGKILL must outlive the owned Electron 90s watchdog (#591).
+export async function runHostReviewSmoke({binary = electron, script = fileURLToPath(new URL("host-review-regression.mjs", import.meta.url)), timeoutMs = 120000} = {}) {
   const userData = await mkdtemp(path.join(tmpdir(), "legalwork-host-review-"));
   let primary, timer;
   try {
