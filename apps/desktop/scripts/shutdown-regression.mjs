@@ -86,7 +86,15 @@ if (!process.versions.electron) {
       const click = label => window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[role="dialog"] button')).find(button => button.textContent === ${JSON.stringify(label)}).click()`, true);
       const state = () => window.webContents.executeJavaScript("window.shutdownFixture.state()");
       const restart = () => guard.confirm("restart");
-      const install = async approved => { if (approved) { quitting = true; window.close(); await delay(80); assert.ok(window.isDestroyed()); } };
+      const install = async approved => {
+        if (!approved) return;
+        quitting = true;
+        // Fixed 80ms is too short under loaded macos-15 CI; wait for the real closed event.
+        const closed = once(window, "closed");
+        window.close();
+        await Promise.race([closed, delay(5_000).then(() => { throw new Error("Timed out waiting for window closed"); })]);
+        assert.ok(window.isDestroyed());
+      };
       const modal = () => waitFor(window, 'Boolean(document.querySelector("[role=dialog]"))');
       return { window, guard, click, state, restart, install, modal, blocked: () => blocked, setQuitting: value => { quitting = value; } };
     };
