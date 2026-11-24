@@ -49,7 +49,7 @@ if (!process.versions.electron) {
     let timedOut = false;
     const timeout = setTimeout(() => {
       timedOut = true;
-      const tail = log.trim().slice(-2000);
+      const tail = log.split("\n").filter(line => !line.includes("XPC error for connection")).join("\n").trim().slice(-4000);
       console.error(`shutdown-regression: parent budget ${budgetMs}ms expired after ${Date.now() - started}ms; SIGKILL Electron child`);
       if (tail) console.error(`shutdown-regression: last child output:\n${tail}`);
       child.kill("SIGKILL");
@@ -67,12 +67,18 @@ if (!process.versions.electron) {
   if (process.platform === "darwin") app.setActivationPolicy("accessory");
   app.on("window-all-closed", () => {});
   const results = [];
+  // A throw inside a quit listener otherwise leaves the quit pending until the parent budget (#588).
+  const startedAt = Date.now();
+  let phase = "startup";
+  const step = name => { phase = name; console.error(`[shutdown] phase=${name} +${Date.now() - startedAt}ms`); };
+  for (const kind of ["uncaughtException", "unhandledRejection"]) process.on(kind, error => { console.error(`[shutdown] ${kind} at ${phase}: ${error?.stack ?? error}`); app.exit(1); });
   app.whenReady().then(async () => {
     const waitFor = async (window, expression) => {
       for (let i = 0; i < 150; i++) { if (await window.webContents.executeJavaScript(expression)) return; await delay(20); }
       throw new Error(`Timed out: ${expression}`);
     };
     const fixture = async (options = {}) => {
+      step(`fixture ${JSON.stringify(options)}`);
       const window = new BrowserWindow({ show: false, focusable: false, width: options.width ?? 1000, height: 680, webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false } });
       window.webContents.on("console-message", event => { if (event.level === "error") console.error(event.message); });
       window.show = () => {}; window.focus = () => {};
@@ -83,11 +89,16 @@ if (!process.versions.electron) {
       await window.loadURL(process.env.LEGALWORK_SHUTDOWN_FIXTURE_URL);
       await waitFor(window, "Boolean(window.shutdownFixture)");
       await window.webContents.executeJavaScript(`window.shutdownFixture.setup(${JSON.stringify(options)})`);
-      const click = label => window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[role="dialog"] button')).find(button => button.textContent === ${JSON.stringify(label)}).click()`, true);
+      const click = label => (step(`click ${label}`), window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[role="dialog"] button')).find(button => button.textContent === ${JSON.stringify(label)}).click()`, true));
       const state = () => window.webContents.executeJavaScript("window.shutdownFixture.state()");
-      const restart = () => guard.confirm("restart");
-      const install = async approved => { if (approved) { quitting = true; window.close(); await delay(80); assert.ok(window.isDestroyed()); } };
-      const modal = () => waitFor(window, 'Boolean(document.querySelector("[role=dialog]"))');
+      const restart = () => (step("restart"), guard.confirm("restart"));
+      const install = async approved => {
+        if (!approved) return;
+        step("install"); quitting = true;
+        const closed = window.isDestroyed() ? Promise.resolve() : once(window, "closed");
+        window.close(); await Promise.race([closed, delay(5000)]); assert.ok(window.isDestroyed(), "Window did not close within 5 s");
+      };
+      const modal = () => (step("modal"), waitFor(window, 'Boolean(document.querySelector("[role=dialog]"))'));
       return { window, guard, click, state, restart, install, modal, blocked: () => blocked, setQuitting: value => { quitting = value; } };
     };
     let item = await fixture({ baseline: true });
@@ -168,6 +179,8 @@ if (!process.versions.electron) {
       uiControlServer: { stop: async () => {} }, runtimeManager: { forceStopOwnedChildren() {} },
       // LAWOSS: before-quit also releases the Chevron7 signing helper.
       chevron7Signing: { dispose: () => {} },
+      // LAWOSS #561/#568: before-quit ends window streams and requests before the server closes.
+      eventStreams: { closeAll: () => disposed.push("event-streams") }, httpRequests: { closeAll: () => disposed.push("http-requests") },
       disposeRuntimeBeforeQuit: async () => {
         const saved = await item.state();
         assert.equal(saved.writes, 1); assert.deepEqual(saved.dirty, []);
@@ -175,13 +188,14 @@ if (!process.versions.electron) {
       },
     };
     runInNewContext(source.slice(from, to), context);
+    step("app-quit");
     app.quit(); await item.modal(); assert.deepEqual(disposed, []);
     await item.window.webContents.executeJavaScript('document.querySelector("[role=dialog] button[data-slot=dialog-close]").click()', true);
     await delay(50); assert.deepEqual(disposed, []); assert.equal(item.window.isDestroyed(), false);
     app.on("will-quit", () => {
       try {
         assert.equal(item.window.isDestroyed(), true);
-        assert.deepEqual(disposed, ["shutdown-screen", "recorder", "runtime"]);
+        assert.deepEqual(disposed, ["shutdown-screen", "recorder", "event-streams", "http-requests", "runtime"]);
         results.push("normal app Quit waits for consent, survives cancellation, and saves before disposal");
         for (const result of results) console.log(`PASS ${result}`);
         if (output) writeFileSync(path.join(output, "results.json"), JSON.stringify({ electron: process.versions.electron, results }, null, 2));
