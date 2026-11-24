@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Tip-dev CI: updater-quit visel na rovnakých chýbajúcich zástupných objektoch (#588) (2026-11-24)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/desktop/scripts/updater-quit-regression.mjs` | Rovnaká príčina ako pri teste vypnutia: izolovaný kontext `before-quit` nemal `eventStreams` a `httpRequests` z #568, takže ukončenie po aktualizácii visí do SIGKILL po 20 s. Po oprave testu vypnutia (#605) sa ukázalo ako ďalší krok toho istého CI kroku. Doplnené zástupné objekty a overenie, že sa uzavrú pred uvoľnením runtime. Výnimka v posluchovači test hneď ukončí. |
+
 ## Tip-dev CI: test vypnutia visel na chýbajúcich zástupných objektoch (#588) (2026-11-24)
 
 | Súbor | Zmena |

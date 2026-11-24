@@ -59,6 +59,8 @@ if (!process.versions.electron) {
   const report = () => ({ electron: process.versions.electron, pid: process.pid, expectedBlocked: blocked, normalClosePrevented, focused, events, disposed });
   const save = () => writeFileSync(process.env.LEGALWORK_QUIT_TEST_REPORT, JSON.stringify(report()));
   const fail = error => { console.error(error); app.exit(1); };
+  // A throw inside a quit listener otherwise leaves the quit pending until the parent SIGKILL (#588).
+  for (const kind of ["uncaughtException", "unhandledRejection"]) process.on(kind, error => { console.error(`[updater-quit] ${kind}: ${error?.stack ?? error}`); app.exit(1); });
   app.whenReady().then(async () => {
     const server = createServer((_request, response) => response.end('<!doctype html><title>Update quit verification</title><button id="install" onclick="window.verification.install()">Install</button>'));
     server.listen(0, "127.0.0.1");
@@ -92,6 +94,8 @@ if (!process.versions.electron) {
       uiControlServer: { stop: async () => disposed.push("control-server") },
       // LAWOSS: before-quit also releases the Chevron7 signing helper.
       chevron7Signing: { dispose: () => {} },
+      // LAWOSS #561/#568: before-quit ends window streams and requests before the server closes.
+      eventStreams: { closeAll: () => disposed.push("event-streams") }, httpRequests: { closeAll: () => disposed.push("http-requests") },
       disposeRuntimeBeforeQuit: async () => {
         context.runtimeDisposeInProgress = true;
         await delay(10);
@@ -141,6 +145,8 @@ if (!process.versions.electron) {
           events.push("will-quit");
           assert.equal(disposed.filter(value => value === "runtime").length, 1);
           assert.equal(disposed.filter(value => value === "recorder").length, 1);
+          assert.ok(disposed.indexOf("event-streams") >= 0 && disposed.indexOf("event-streams") < disposed.indexOf("runtime"), JSON.stringify(disposed));
+          assert.ok(disposed.indexOf("http-requests") >= 0 && disposed.indexOf("http-requests") < disposed.indexOf("runtime"), JSON.stringify(disposed));
           assert.ok(events.indexOf("window-closed") < events.indexOf("before-quit"));
           save();
           server.close();
