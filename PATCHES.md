@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Tip-dev CI: test vypnutia visel na chýbajúcich zástupných objektoch (#588) (2026-11-24)
+
+| Súbor | Zmena |
+|---|---|
+| `apps/desktop/scripts/shutdown-regression.mjs` | #588: od #568 (19. 11.) volá `before-quit` v `main.mjs` aj `eventStreams.closeAll()` a `httpRequests.closeAll()`. Test spúšťa tento kód v izolovanom kontexte, kde tieto objekty chýbali. ReferenceError vznikol až po `preventDefault()`, takže ukončenie sa nikdy nedokončilo a test na macOS visel až do limitu rodiča (na každom tipe od 7fac245). Doplnené zástupné objekty, poradie uvoľnenia sa overuje. Výnimka v posluchovači teraz test hneď ukončí s fázou. Pribudli výpisy fáz `[shutdown] phase=…`. `install` čaká na udalosť `closed` (najviac 5 s) namiesto pevných 80 ms. Rodič vo výpise vynecháva šum `XPC error`. |
+
 ## Tip-dev CI: 3 pokusy + dlhší watchdog pre flaky macOS host-review (#591) (2026-11-22)
 
 | Súbor | Zmena |
