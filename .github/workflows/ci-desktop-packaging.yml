@@ -55,7 +55,14 @@ jobs:
     name: Package and launch (${{ matrix.os }})
     needs: [sandbox-runtime, opencode-engine]
     if: ${{ !cancelled() && (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'skipped') && (needs.opencode-engine.result == 'success' || needs.opencode-engine.result == 'skipped') }}
-    runs-on: ${{ matrix.os }}
+    # An operator provisions one isolated VM for this exact PR merge commit and job attempt.
+    runs-on: >-
+      ${{ matrix.os == 'macos-15' && github.event_name == 'pull_request' &&
+          github.repository == 'Omni-Legal-Products/lawoss' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          vars.LAWOSS_LOCAL_MAC_SHA == github.sha &&
+          fromJSON(format('{{"group":"lawoss-macos-isolated","labels":"lawoss-{0}-{1}-{2}-package"}}',
+          github.sha, github.run_id, github.run_attempt)) || matrix.os }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
