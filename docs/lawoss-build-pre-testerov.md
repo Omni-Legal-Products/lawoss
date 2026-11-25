@@ -5,6 +5,8 @@
 
 Tento návod je pre právnikov, ktorí skúšajú alfu. Technické časti sú až na konci, v časti „Pre technických testerov“.
 
+Ak vám pomáha vlastný AI agent, dajte mu [postup pre agenta testera](tester-agent.md). Pripraví samostatný testovací spis a koncept hlásenia.
+
 ## 1. Alfa, nie hotový produkt
 
 - Appka sa môže zmeniť alebo spadnúť. Chyby sú očakávané a hlásenie je presne to, čo od vás chceme.

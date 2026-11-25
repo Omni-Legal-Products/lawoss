@@ -4,6 +4,10 @@ LAWOSS is a Czech and Slovak legal practice fork of LegalWork. It helps lawyers 
 
 This file is the single source of truth for people and AI agents working in this repository. `CLAUDE.md` must always contain identical instructions.
 
+## When a lawyer asks you to try LAWOSS
+
+Start with [the tester agent guide](docs/tester-agent.md). It covers an invitation or a source build, a disposable client, a guided task and a feedback draft. Use this path when the lawyer gives you only the repository URL and wants to try the app.
+
 ## Synthetic OKF test dataset
 
 A complete prebuilt Slovak synthetic office is available for testing. **Download and reuse it; do not regenerate it for routine tests.** Read [the dataset guide](SYNTHETIC_DATA.md) for the pinned download, SHA-256, setup commands and coverage limits. The machine-readable catalog is [synthetic-dataset.json](synthetic-dataset.json).
