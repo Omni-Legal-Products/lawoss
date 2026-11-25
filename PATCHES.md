@@ -2677,3 +2677,12 @@ Logika je v nových LAWOSS súboroch `apps/app/src/lawoss/chat/provider-error.ts
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
 | `apps/desktop/electron/lawoss-chevron7-cli.mjs` (nový, + test `lawoss-chevron7-cli.test.mjs`), `apps/desktop/package.json` (+1 testový súbor v príkaze `test`) | Prvý krok [specu 0022](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/main/specs/0022-pdfcraft-uprava-pdf-pred-podpisom.md) (#592): hlavný proces volá `chevron7 inspect` a `validate` (API v1) pre PDF vnútri koreňa klienta, s profilom podľa hashu koreňa, poľom argumentov, minimálnym prostredím, obmedzeným stdout a bez stderr. `unsigned` len pri nulovom počte podpisov aj neoverených dokumentov. Zatiaľ bez volajúceho a bez UI; doterajší podpis cez Quick Action sa nemení. |
+
+## Natívny test ISIR a ukončenie chráneného spracovania (#384)
+
+| Súbory | Dôvod |
+| --- | --- |
+| `apps/server/src/lawoss/protected-ai/bundle.ts` | Po uvoľnení hosťovského procesu obnoví zápis do jeho súkromného priečinka pluginu. POSIX inak odmietne odstrániť obsah pri výmene pracovníka pre tretí spis. |
+| `scripts/test-isir-native.mjs` | Test vyberá angličtinu vo vlastnom profile, používa skutočnú veľkosť okna a pri poslednom ukončení na macOS žiada aplikáciu o riadne ukončenie. Pri opätovnom pripojení kontroluje odpoveď výberu a uloženia priečinka. |
+| `apps/server/src/engine-client.ts`, `apps/server/src/lawoss/workspace-history-sessions.ts`, `apps/server/src/lawoss/workspace-session-rebind.ts` | Transakcia obnovenia potrebuje prečítať zoznam konverzácií a presunúť ich uložené umiestnenia, kým pôvodný priečinok chýba. Výnimka z kontroly pripravenosti priečinka platí iba pre tieto dve operácie lokálneho enginu v hostiteľskej transakcii. |
+| `apps/server/src/engine-project.ts`, `apps/server/src/routes/workspaces.ts` | Pri opätovnom pripojení presunie súkromný záznam o pôvode nastavení spolu s transakciou. Rozpozná len pôvodný názov a totožný obsah v kanonickom priečinku. |

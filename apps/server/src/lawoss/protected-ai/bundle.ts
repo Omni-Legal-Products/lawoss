@@ -35,6 +35,15 @@ function measuredFile(path: string) {
 export function protectedGuestBundleFactory(config: ServerConfig, options: {runtimeDirectory?: string; pluginPath?: string} = {}) {
   return async (input: {modelId: string; operationId: string; checkpoint?: {path: string; sha256: string}}): Promise<ProtectedGuestBundle> => {
     let scratch: string | undefined;
+    let sealedPluginDirectory: string | undefined;
+    async function dispose() {
+      if (!scratch) return;
+      // POSIX requires write permission on the parent to unlink its children.
+      // Restore it only after the guest releases this operation's private bundle.
+      if (sealedPluginDirectory) await chmod(sealedPluginDirectory, 0o700);
+      await rm(scratch, {recursive: true, force: true});
+      scratch = undefined;
+    }
     try {
       const directory = options.runtimeDirectory ?? sandboxResources();
       const manifestPath = join(directory, "manifest.json");
@@ -75,6 +84,7 @@ export function protectedGuestBundleFactory(config: ServerConfig, options: {runt
       await writeFile(join(bundleDirectory, "config.json"), JSON.stringify({...(input.checkpoint ? {checkpointSha256: input.checkpoint.sha256} : {}), engineVersion: pins.engineVersion, model: {id: input.modelId, context: 100000, output: 8000, variants: {high: {}}}}), {mode: 0o400});
       for (const name of ["opencode", "protected-engine.mjs", join("plugin", "index.js")]) await chmod(join(bundleDirectory, name), 0o400);
       await chmod(join(bundleDirectory, "plugin"), 0o500);
+      sealedPluginDirectory = join(bundleDirectory, "plugin");
       const readers = { engineSha256: measuredFile(join(bundleDirectory, "opencode")), runtimeManifestSha256: measuredFile(manifestPath),
         pluginSha256: measuredFile(join(bundleDirectory, "plugin", "index.js")), configSha256: measuredFile(join(bundleDirectory, "config.json")),
         launcherSha256: measuredFile(join(bundleDirectory, "protected-engine.mjs")) };
@@ -84,10 +94,9 @@ export function protectedGuestBundleFactory(config: ServerConfig, options: {runt
       const measurements = await currentBinding();
       if (measurements.engineSha256 !== pin.binarySha256 || measurements.pluginSha256 !== pluginHash || measurements.launcherSha256 !== manifest.files["protected-engine.mjs"])
         throw new Error("The private guest bundle changed while it was copied.");
-      const owned = scratch;
-      return {directory: bundleDirectory, emptyDirectory, measurements, currentBinding, dispose: () => rm(owned, {recursive: true, force: true})};
+      return {directory: bundleDirectory, emptyDirectory, measurements, currentBinding, dispose};
     } catch {
-      if (scratch) await rm(scratch, {recursive: true, force: true});
+      await dispose();
       throw new ApiError(409, "protected_runtime_unavailable", "The measured protected document runtime is unavailable. Repair the installed package; no host-engine fallback is permitted.");
     }
   };

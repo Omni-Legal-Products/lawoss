@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { until } from './cdp.mjs';
+import { nativePostResponse, until } from './cdp.mjs';
 import { errorMetadata } from './diagnostics.mjs';
 
 test('until own expiry keeps the Error and adds only the fixed diagnostic code',async()=>{
@@ -92,4 +92,15 @@ test('owned renderer connection keeps the page active for foreground-only UI pol
     await new Promise(resolve => sockets.close(resolve));
     await new Promise(resolve => server.close(resolve));
   }
+});
+
+test('native folder transaction reports the real POST status after a successful preflight', () => {
+  const url = 'http://127.0.0.1:6500/workspaces/pick-folder';
+  const request = (requestId, method) => ({method: 'Network.requestWillBeSent', params: {requestId, request: {method, url}}});
+  const response = (requestId, status) => ({method: 'Network.responseReceived', params: {requestId, response: {url, status}}});
+  const events = [request('previous', 'POST'), response('previous', 200), request('preflight', 'OPTIONS'), request('current', 'POST'), response('preflight', 204)];
+  assert.equal(nativePostResponse(events, 2, url), undefined);
+  const actual = response('current', 422);
+  events.push(actual);
+  assert.equal(nativePostResponse(events, 2, url), actual);
 });

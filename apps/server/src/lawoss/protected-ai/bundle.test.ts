@@ -20,7 +20,7 @@ test("protected generation refuses a missing or self-declared runtime before cre
 // exercise only the installed bundle loader, never claim boot/package acceptance.
 test.skipIf(!process.env.LAWOSS_PROTECTED_TEST_ENGINE)("restored document bundles bind the exact private checkpoint and refuse changed snapshot bytes", async () => {
   const {createHash} = await import("node:crypto");
-  const {copyFile, mkdir, readFile} = await import("node:fs/promises");
+  const {copyFile, mkdir, readFile, stat} = await import("node:fs/promises");
   const {default: pins} = await import("./engine-pins.json", {with: {type: "json"}});
   const {root, config} = await syntheticHostConfig();
   const runtime = join(root, "runtime"); await mkdir(runtime);
@@ -45,6 +45,10 @@ test.skipIf(!process.env.LAWOSS_PROTECTED_TEST_ENGINE)("restored document bundle
     expect(await readFile(join(bundle.directory, "snapshot.sqlite"))).toEqual(checkpointBytes);
     expect(JSON.parse(await readFile(join(bundle.directory, "config.json"), "utf8")).checkpointSha256).toBe(checkpoint.sha256);
     expect(await bundle.currentBinding!()).toMatchObject({checkpointSha256: checkpoint.sha256});
+    if (process.platform !== "win32") expect((await stat(join(bundle.directory, "plugin"))).mode & 0o777).toBe(0o500);
+    await bundle.dispose!();
+    await expect(stat(bundle.directory)).rejects.toMatchObject({code: "ENOENT"});
+    await bundle.dispose!();
     await writeFile(snapshot, "CHANGED");
     await expect(create({modelId: "synthetic", operationId: "synthetic", checkpoint})).rejects.toMatchObject({code: "protected_runtime_unavailable"});
   } finally {await bundle?.dispose?.(); await rm(root, {recursive: true});}

@@ -12,7 +12,7 @@ export async function rebindWorkspaceSessions(config: ServerConfig, previous: Wo
   if (!sessions.length) return async () => {};
   if (!connection.baseUrl) throw new ApiError(422, "workspace_session_rebind_failed", "Project chat engine is unavailable");
   if (!["localhost", "127.0.0.1", "[::1]"].includes(new URL(connection.baseUrl).hostname)) throw new ApiError(422, "workspace_session_rebind_failed", "Project chat recovery requires a local engine");
-  const client = createEngineClient(config, previous);
+  const client = createEngineClient(config, previous, { folderRecovery: "move" });
   const moved: Array<{ id: string; directory: string }> = [];
   // Engine v2 supported move: rebinds the chat's location; source files are never transferred.
   const move = async (id: string, directory: string) => {

@@ -14,7 +14,7 @@ export async function historicalWorkspaceSessions(config: ServerConfig, workspac
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   if (!connection.baseUrl) return [];
   if (captureRoot && !["localhost", "127.0.0.1", "[::1]"].includes(new URL(connection.baseUrl).hostname)) throw new ApiError(422, "workspace_session_rebind_failed", "Project chat recovery requires a local engine");
-  const client = createEngineClient(config, workspace);
+  const client = createEngineClient(config, workspace, captureRoot ? { folderRecovery: "list" } : {});
   const sessions = new Map<string, SessionInfoReadModel>();
   let cursor: string | undefined;
   const owned = (session: SessionInfoReadModel) => {
