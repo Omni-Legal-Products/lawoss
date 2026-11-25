@@ -89,9 +89,13 @@ test('required PR workflows have job filtering, and reusable/manual workflows st
     assert.deepEqual(Object.keys(workflow(name).on), ['workflow_call']);
   }
   // LAWOSS: balenie beží aj samostatne na PR a pushi do dev („Package and launch“ sú povinné kontroly rulesetu).
+  // workflow_dispatch: operátor môže tip Package Smoke spustiť ručne (agenti majú 403 na rerun).
   const packaging = workflow('ci-desktop-packaging').on;
-  assert.deepEqual(Object.keys(packaging).sort(), ['pull_request', 'push', 'workflow_call']);
+  assert.deepEqual(Object.keys(packaging).sort(), ['pull_request', 'push', 'workflow_call', 'workflow_dispatch']);
   assert.deepEqual([packaging.pull_request.branches, packaging.push.branches], [['dev'], ['dev']]);
+  // Tip docs-only push nesmie znova spustiť Package Smoke; PR spúšťanie ostáva bez paths-ignore.
+  assert.deepEqual(packaging.push['paths-ignore'], ['docs/**', 'progress.txt']);
+  assert.equal(packaging.pull_request['paths-ignore'], undefined);
   for (const file of readdirSync(new URL('../../.github/workflows/', import.meta.url))) {
     const config = workflow(file.slice(0, -4));
     for (const job of Object.values(config.jobs)) {
