@@ -42,6 +42,10 @@ test('Windows runtimes install the reviewed QEMU package by SHA-256, never the r
   assert.doesNotMatch(workflow, /pacman -S[^\n]*-qemu\b/);
   // Upstream v0.3.9 (#363): the workflow installs every QEMU package from the reviewed pin list.
   assert.match(workflow, /bash scripts\/sandbox\/install-windows-qemu\.sh \$\{\{ matrix\.prefix \}\}/);
+  // LAWOSS: ARM64 must re-populate the keyring before -Syuu (setup-msys2#615) and keep pacman-contrib.
+  assert.match(workflow, /pacman-key --populate msys2/);
+  assert.match(workflow, /pacman-contrib/);
+  assert.match(workflow, /update: \$\{\{ matrix\.arch != 'arm64' \}\}/);
   const pins = readFileSync(new URL('../sandbox/qemu-windows.sha256', import.meta.url), 'utf8');
   for (const { qemuPackage, qemuSha256 } of windows) assert.ok(pins.includes(`${qemuSha256}  ${qemuPackage}`), qemuPackage);
 });
