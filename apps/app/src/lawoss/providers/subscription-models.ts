@@ -38,6 +38,15 @@ export function filterSubscriptionModels(value: ProviderListResponse): ProviderL
   return { ...value, all, default: defaults };
 }
 
+/** Return the base only when the native catalog offers both selectable routes. */
+export function subscriptionSpeedBase(provider: Provider, key: string): string | undefined {
+  if (!isChatgptSubscription(provider)) return;
+  const base = provider.models[key]?.modelID;
+  if (!base || (key !== base && key !== `${base}-fast`)) return;
+  const fast = provider.models[`${base}-fast`];
+  return provider.models[base]?.modelID === base && fast?.modelID === base && fast.body?.service_tier === "priority" ? base : undefined;
+}
+
 type ErrorRecord = Record<string, unknown>;
 
 const isRecord = (value: unknown): value is ErrorRecord => typeof value === "object" && value !== null;

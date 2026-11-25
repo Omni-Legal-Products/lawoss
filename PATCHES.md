@@ -1,4 +1,15 @@
 # LAWOSS downstream patches
+## Pilotná spätná väzba k macOS (2026-11-25)
+
+Cesty v zložených zátvorkách majú spoločný prefix. Samostatné moduly v adresároch `lawoss/` obsahujú aplikačné pravidlá.
+
+| Miesto úpravy | Čo zachovať pri synchronizácii s upstreamom |
+|---|---|
+| `apps/server/src/{native-client-projection.ts,opencode-plugins/legalwork-model-catalog.ts}`, `packages/types/src/native-model-display.ts`, `apps/app/src/{app/types.ts,components/model-select.tsx}`, `apps/app/src/react-app/{shell/session-route.tsx,domains/session/chat/workspace-chat.tsx,domains/session/surface/{session-surface,composer/composer}.tsx}` | Inventár modelov a rýchlostí aktívneho pripojenia ChatGPT. Blesk v editore správy prepína prioritu v konkrétnom chate pri zachovaní úrovne uvažovania. Úložisko chatov je v `apps/app/src/react-app/domains/session/chat/session-model-store.ts`. |
+| `apps/app/src/react-app/domains/connections/provider-auth/{provider-auth-modal.tsx,store.ts}` | Po návrate z autorizácie sa spoločná výzva na pripojenie cez ChatGPT zobrazí raz. |
+| `apps/app/src/react-app/domains/{session/panel/workspace-entry-menu.tsx,settings/pages/{connector-browser,extensions-view,general-view,plugin-import-dialog,workflows-view}.tsx,settings/shell/settings-page.tsx}`, `apps/app/src/react-app/shell/{settings-route.tsx,workspace-routes.ts}`, `apps/server/src/core-skills.ts`, `docs/user-guide/screens.json` | Sekcie katalógu v natívnych Integráciách, vlastné MCP, Google Workspace, knižnica a import lokálnych skills. Pri zmene klienta zachovať otvorenú sekciu. Generované podklady príručky držať v zhode so zdrojmi. |
+| `apps/app/src/react-app/domains/session/artifacts/artifact-panel.tsx`, `apps/desktop/electron/{main,native-locale,lawoss-chevron7,lawoss-chevron7-cli,lawoss-chevron7-signing}.mjs`, `packages/types/src/desktop-ipc.ts` | Podpis presne vybraného lokálneho PDF s natívnym potvrdením v zdrojovom projekte. Stav inštalácie a odkaz na stiahnutie sú dostupné pred podpisovaním. |
+| `apps/app/src/components/chat/{message-list,tool-run}.tsx`, `apps/app/src/react-app/domains/session/sync/parse-tool-parts.ts`, `apps/server/src/{legalwork-runtime-config,server}.ts`, `apps/server/src/opencode-plugins/legalwork-{assistant-tools,capabilities-knowledge,extensions-preview}.ts` | V overenom podriadenom chate zobraziť zadanie pod značkou LAWOSS. V súhrne akcií používať identifikovaný zdroj zo skutočného volania a rozlíšiť neúspech. Technické identifikátory nástrojov ostávajú súčasťou protokolu. |
 
 ## Tip Package Smoke: workflow_dispatch + docs push ignore (2026-11-25)
 

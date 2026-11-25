@@ -32,10 +32,19 @@ export function useNativeIntegrations(options: {
     ...importedPluginsQuery(client, options.endpoint, workspaceId),
     enabled: options.enabled && Boolean(client && workspaceId),
   });
+  const skills = useQuery({
+    queryKey: ["marketplace-available-skills", options.endpoint, workspaceId],
+    enabled: options.enabled && Boolean(client && workspaceId),
+    queryFn: async () => {
+      if (!client || !workspaceId) throw new Error(t("lawoss.integrations.catalog.select_available"));
+      return (await client.listSkills(workspaceId, { includeGlobal: true })).items;
+    },
+    retry: false,
+  });
   const refresh = async () => {
     await refreshIntegrationState([
       () => imports.refetch({ throwOnError: true }),
-      options.refreshSkills, options.refreshPlugins, options.refreshMcp,
+      () => skills.refetch({ throwOnError: true }), options.refreshSkills, options.refreshPlugins, options.refreshMcp,
     ]);
   };
   const installOkf = async (): Promise<InstallResult> => {
@@ -47,7 +56,7 @@ export function useNativeIntegrations(options: {
     if (!client || !workspaceId) throw new Error(t("lawoss.integrations.catalog.select_available"));
     await removeImportedPlugin(client, workspaceId, pluginId, options.canRemove, refresh);
   };
-  return { plugins: imports.data ?? [], loading: imports.isPending, error: imports.error, refresh, installOkf, removePlugin };
+  return { availableSkills: skills.isError ? undefined : skills.data, plugins: imports.data ?? [], loading: imports.isPending, error: imports.error, refresh, installOkf, removePlugin };
 }
 
 /** Shared native install action; each resource follows its skill in the captured workspace. */

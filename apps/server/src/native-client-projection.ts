@@ -1,3 +1,4 @@
+import { NATIVE_SUBSCRIPTION_MARKER } from "../../../lawoss/providers/chatgpt-subscription.mjs";
 import { Agent } from "@opencode/schema/agent";
 import { Config } from "@opencode/schema/config";
 import { Location } from "@opencode/schema/location";
@@ -25,8 +26,9 @@ export function publicGenerationControls(input: unknown): Record<string, JsonVal
     if (typeof source[name] === "boolean") result[name] = source[name];
   }
   const enums: Record<string, string[]> = {
-    reasoningEffort: ["none", "minimal", "low", "medium", "high", "xhigh", "max"], reasoning_effort: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
-    effort: ["none", "minimal", "low", "medium", "high", "xhigh", "max"], textVerbosity: ["low", "medium", "high"], verbosity: ["low", "medium", "high"],
+    service_tier: ["priority", "default"],
+    reasoningEffort: ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"], reasoning_effort: ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
+    effort: ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"], textVerbosity: ["low", "medium", "high"], verbosity: ["low", "medium", "high"],
     type: ["enabled", "disabled", "adaptive"], summary: ["auto", "concise", "detailed"], thinkingLevel: ["minimal", "low", "medium", "high"],
   };
   for (const [name, values] of Object.entries(enums)) if (typeof source[name] === "string" && values.includes(source[name])) result[name] = source[name];
@@ -52,7 +54,9 @@ export function publicNativeModel(model: typeof Model.Info.Type): typeof Model.I
   const { settings, headers, body, variants, ...metadata } = model;
   return { ...metadata, settings: publicSettings(settings), body: publicGenerationControls(body),
     variants: variants.map(({ settings, headers, body, ...variant }) => ({ ...variant, settings: publicSettings(settings), body: publicGenerationControls(body) })),
-    legalwork: { defaultVariantID: inferNativeDefaultVariant(model) ?? null },
+    legalwork: { defaultVariantID: inferNativeDefaultVariant(model) ?? null,
+      ...(model.providerID === "openai" && settings?.[NATIVE_SUBSCRIPTION_MARKER] === true ? { subscriptionModel: true } : {}),
+    },
   };
 }
 

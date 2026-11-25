@@ -52,6 +52,7 @@ export type ExtensionsViewProps = {
   storageWorkspaceId: string | null;
   /** 🟡 LAWOSS: AI hranice, zdroje integrácií, katalóg LAWOSS a pamäť priečinka nad katalógom (`lawoss/domains/integrations`). */
   lawossIntro?: ReactNode;
+  lawossMarketplace?: (googleOnly: boolean) => ReactNode;
   onRefresh: () => void;
   initialSection?: ExtensionsSection;
 };

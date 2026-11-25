@@ -13,7 +13,9 @@ import { flushSync } from "react-dom";
 /** @jsxImportSource react */
 import { type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, ExternalLink, FolderOpen, X } from "lucide-react";
+import { useMatch, useNavigate } from "react-router-dom";
+import { chevron7SourceAction, useChevron7FileAction } from "@/lawoss/domains/integrations/chevron7-file-action";
+import { Download, ExternalLink, FileSignature, FolderOpen, X } from "lucide-react";
 
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { getDesktopFileIcon, openDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
@@ -236,6 +238,11 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
   const isBinaryEditor = target.preview === "word" || isOfficeEditor;
   const [documentSaving, setDocumentSaving] = useState(false);
   const writableFile = target.kind === "file" && !localReadOnly;
+  const navigate = useNavigate();
+  const windowProject = useMatch("/workspace/:workspaceId/*")?.params.workspaceId;
+  const signing = useChevron7FileAction(target.kind === "file" && target.preview === "pdf" && target.exists !== false &&
+    !loadFile && !saveActions && !isRemoteWorkspace ? { workspaceId, serverUrl: client.baseUrl, relativePath: target.value } : null,
+    chevron7SourceAction(windowProject, workspaceId, target.value, target.name, navigate));
   const isEditableDocument = isBinaryEditor && writableFile && !isRemoteWorkspace;
   const autosaveKey = JSON.stringify([workspaceId, target.value]);
   const canAutosaveText = writableFile && target.preview === "text" && !hasSaveActions;
@@ -727,6 +734,9 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
           </span>}
         </>}
         actions={<>
+          {signing && <Button variant="outline" size="sm" disabled={signing.disabled} onClick={signing.onClick} aria-label={signing.label} title={signing.label}>
+            <FileSignature /><span className="hidden sm:inline">{signing.label}</span>
+          </Button>}
           {canAutosave && access.editable && !unreadable && <label className="me-3 flex shrink-0 items-center gap-1.5 text-xs" title={t("artifact.autosave_description")}>
             <Switch size="sm" checked={autosave} onCheckedChange={(enabled) => useDocumentPreferences.getState().setAutosave(autosaveKey, enabled)} />
             {t("artifact.autosave")}

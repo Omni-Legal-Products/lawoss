@@ -2990,6 +2990,7 @@ export function SessionRoute() {
         connectedProviderIds: providerConnectedIds,
         authMethods: sessionProviderAuthSnapshot.providerAuthMethods,
         onSelect: sessionProviderAuthStore.startProviderAuth,
+        onCancelAuth: sessionProviderAuthStore.cancelProviderAuth,
         onSubmitApiKey: async (providerId, apiKey, answer) => {
           const result = await sessionProviderAuthStore.submitProviderApiKey(providerId, apiKey, answer);
           if (onboardingStage === "done") {

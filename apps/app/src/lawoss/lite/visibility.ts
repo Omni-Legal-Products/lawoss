@@ -6,7 +6,7 @@ import type { UiMode } from "./ui-mode";
 import { LITE_TODAY_PATH } from "./links";
 
 /** Keep native integrations and permission controls accessible in both modes. */
-const LITE_SETTINGS_TABS: ReadonlySet<string> = new Set(["general", "ai", "extensions", "permissions", "personalisation", "appearance", "updates"]);
+const LITE_SETTINGS_TABS: ReadonlySet<string> = new Set(["general", "ai", "extensions", "skills", "permissions", "personalisation", "appearance", "updates"]);
 
 /** V pro vrací `tabs` beze změny (stejné pole). */
 export const liteSettingsTabs = <T extends string>(tabs: T[], mode: UiMode): T[] =>

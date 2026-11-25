@@ -10,6 +10,8 @@ Připojený poskytovatel má v seznamu nabídku, přes kterou ho upravíte nebo 
 
 Model vyberete při prvním spuštění v kroku **AI asistent** (**Model asistenta**) nebo přímo v chatu. Pokud poskytovatel nabízí jen bezplatné modely, LAWOSS upozorní: s podklady klientů je nepoužíváme, připojte placený nebo vlastní model.
 
+Pokud připojený účet ChatGPT nabízí pro zvolený model režim **Fast**, kliknutím na blesk vedle úrovně uvažování ho zapnete pro aktuální chat. Dalším kliknutím se vrátíte ke standardní rychlosti. Úroveň uvažování si nastavujete samostatně. Prioritní zpracování může čerpat více z limitu předplatného.
+
 Vzdálený poskytovatel dostane obsah dokumentů, se kterými agent pracuje. Před použitím s údaji klientů posuďte konkrétní službu, účel a údaje; přihlášení ani placený tarif takové posouzení nenahrazují.
 
 ## Hranice AI

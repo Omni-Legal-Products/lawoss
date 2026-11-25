@@ -229,7 +229,7 @@ export function WorkflowsView(props: WorkflowsViewProps) {
     <WorkflowsWorkspace active={props.active} workspaceId={workspaceId} client={props.reviewClient}><IntegrationLibraryPage>
     <div className="@container/workflow-library flex min-h-0 w-full flex-1 flex-col gap-5 overflow-hidden">
     <header className="flex shrink-0 flex-wrap items-center justify-between gap-4">
-      <SectionHeading size="page" title={t("skills.workflows_title")} />
+      <SectionHeading size="page" title={t(section === "skills" ? "skills.title" : "skills.workflows_title")} description={section === "skills" ? t("lawoss.integrations.skills_description") : undefined} />
       <div className="flex max-w-full flex-wrap items-center gap-2">
         {props.onManagePlugins ? <Button variant="outline" onClick={props.onManagePlugins}>{t("catalog.manage_integrations")}<ArrowUpRight /></Button> : null}
         <div ref={setActionsTarget} className="flex flex-wrap items-center gap-2 empty:hidden" />

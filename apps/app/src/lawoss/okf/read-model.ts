@@ -87,6 +87,8 @@ const MAX_DISCOVERY_DEPTH = 16;
 const SKIP_DIRECTORIES = new Set(["memory", "Office", "_kancelaria", "node_modules", "vendor", "dist", "build", "target", "coverage"]);
 const childPath = (dir: string, name: string): string => dir ? `${dir}/${name}` : name;
 const MEMORY_DIR = "memory";
+// A display card can annotate a discovered folder without turning it into a discovery boundary.
+export const DISPLAY_CARD = "lawoss-title.md";
 const CARD_FILES = ["matter.md", "spis.md", "project.md", "projekt.md"];
 const CLIENT_CARDS = ["client.md", "klient.md"];
 /** Klient ve tvaru kanceláře `AK/<písmeno>/<klient>` (vault bez karet a bez `Spisy/`). */
@@ -234,7 +236,7 @@ export async function readWorkspaceMemory(
     if (hasClientCard) clientPaths.push(path);
     if (AK_CLIENT.test(path) && !hasClientCard && !entries.some((e) => e.kind === "dir" && isMattersDirName(e.name))) {
       const matters = entries.filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name) && !isWorkDir(e.name));
-      const ownFiles = entries.some((e) => e.kind === "file" && !e.name.startsWith("."));
+      const ownFiles = entries.some((e) => e.kind === "file" && e.name !== DISPLAY_CARD && !e.name.startsWith("."));
       if (matters.length === 0 || ownFiles) paths.push(path);
       for (const matter of matters) {
         if (paths.length >= MAX_MATTERS) { truncated = true; break; }
@@ -380,7 +382,7 @@ export async function readWorkspaceMemory(
     const entries = await list(path);
     const cards = CARD_FILES.filter((name) => entries.some((e) => e.kind === "file" && e.name === name));
     if (cards.length > 1) problems.push({ path, message: `Viac kariet prípadu: ${cards.join(", ")}. Zosúlaď ich obsah; prehľad používa ${cards[0]}.`, code: "okf.multiple_cards", params: { cards: cards.join(", "), selected: cards[0] } });
-    const card = cards[0];
+    const card = cards[0] ?? entries.find(e => e.kind === "file" && e.name === DISPLAY_CARD)?.name;
     if (card) {
       input.cardPath = childPath(path, card);
       try {

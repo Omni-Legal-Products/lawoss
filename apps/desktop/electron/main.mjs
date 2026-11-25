@@ -68,7 +68,7 @@ import { resolveBrowserProject } from "./browser-project.mjs";
 import { requireBrowserNetwork } from "./browser-network-policy.mjs";
 import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
 import { createSafeOpen } from "./safe-open.mjs";
-import { createChevron7Signing } from "./lawoss-chevron7-signing.mjs";
+import { createChevron7Signing, signingWorkspaceRoot } from "./lawoss-chevron7-signing.mjs";
 import { getApplicationsForFile } from "./file-applications.mjs";
 import { composeAppleMailDraft, composeOutlookDraft } from "./mail-draft.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
@@ -2967,21 +2967,26 @@ const desktopCommandHandlers = {
       return applicationMenu.setVisible(args[0]);
   },
   "chevron7Status": async () => chevron7Signing.status(),
-  "chevron7SignPdf": async (event) => {
+  "chevron7SignPdf": async (event, request) => {
       const window = BrowserWindow.fromWebContents(event.sender);
-      if (!window || window.isDestroyed() || !(window === mainWindow || secondaryWindows.has(window))
-          || event.senderFrame !== event.sender.mainFrame || !isAppUrl(event.senderFrame?.url)) return { status: "unavailable" };
+      const frame = event.senderFrame;
+      const trustedWindow = () => window && !window.isDestroyed() && (window === mainWindow || secondaryWindows.has(window)) &&
+        frame && frame === window.webContents.mainFrame && isAppUrl(frame.url);
+      if (!trustedWindow()) return { status: "unavailable" };
       const copy = nativeCopy(uiLocales.forWindow(window));
       return chevron7Signing.sign({
-        chooseFile: async () => {
-          const result = await dialog.showOpenDialog(window, { title: copy.chevron7Choose, properties: ["openFile"], filters: [{ name: "PDF", extensions: ["pdf"] }] });
-          return result.canceled || window.isDestroyed() ? null : result.filePaths[0];
+        relativePath: request?.relativePath,
+        resolveWorkspace: async () => {
+          const [state, server] = await Promise.all([workspaceStore.readWorkspaceState(), runtimeManager.legalworkServerInfo()]);
+          const url = trustedWindow() ? frame.url : null;
+          const root = await signingWorkspaceRoot(request, url, state, server);
+          return trustedWindow() && frame.url === url ? root : null;
         },
-        confirmFile: async (name) => {
-          if (window.isDestroyed()) return false;
+        confirmFile: async (file) => {
+          if (!trustedWindow()) return false;
           const result = await dialog.showMessageBox(window, { type: "question", title: "Chevron7", message: copy.chevron7Confirm,
-            detail: `${name}\n\n${copy.chevron7Detail}`, buttons: [copy.close, copy.chevron7Continue], defaultId: 0, cancelId: 0, noLink: true });
-          return result.response === 1 && !window.isDestroyed();
+            detail: `${file}\n\n${copy.chevron7Detail}`, buttons: [copy.close, copy.chevron7Continue], defaultId: 0, cancelId: 0, noLink: true });
+          return result.response === 1 && Boolean(trustedWindow());
         },
       });
   },

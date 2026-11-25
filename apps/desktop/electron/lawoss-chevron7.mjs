@@ -7,6 +7,8 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 export const CHEVRON7_BUNDLE_ID = "app.slovensko.chevron7";
+// Pin the Developer ID team for both the signing handoff and the inspection helper.
+export const CHEVRON7_REQUIREMENT = '=identifier "app.slovensko.chevron7" and anchor apple generic and certificate leaf[subject.OU] = "Q7AU96CW7H"';
 
 const XML_BUNDLE_ID = /<key>\s*CFBundleIdentifier\s*<\/key>\s*<string>\s*([^<\s]+)\s*<\/string>/;
 

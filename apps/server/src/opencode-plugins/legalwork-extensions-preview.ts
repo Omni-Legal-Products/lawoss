@@ -27,7 +27,7 @@ function uiBridgeRequest(path: string, options: Parameters<typeof requestUiBridg
 
 function requireInteractiveRun(context: OpenCodeContext) {
   if (context.agent === PROJECT_TASK_AGENT || context.agent === ALL_PROJECTS_TASK_AGENT) {
-    throw new Error("Scheduled runs cannot control the LegalWork UI. Read project data and chat transcripts directly with legalwork_schedule_project_list/read (kind=sessions for chats).");
+    throw new Error("Scheduled runs cannot control the LAWOSS UI. Read project data and chat transcripts directly with legalwork_schedule_project_list/read (kind=sessions for chats).");
   }
 }
 
@@ -69,7 +69,7 @@ const uiExecuteArgsSchema = z.object({
 
 const browserOpenUrlArgsSchema = z.object({
   userRequested: explicitUiRequest,
-  url: z.string().describe("The website URL to open in the LegalWork built-in browser."),
+  url: z.string().describe("The website URL to open in the LAWOSS built-in browser."),
   provider: z.enum(["auto", "builtin", "external"]).optional().describe("Browser provider. Use builtin or auto; external is reserved for future support."),
   show: z.boolean().optional().describe("Also show the tab beside the chat and keep it open after this turn. Only set this when the user explicitly asks to see or open the page. Never set it for research or automation."),
 });
@@ -137,25 +137,25 @@ const inAppDocxReviewArgsSchema = z.object({
 });
 
 const LEGALWORK_EXTENSION_DISCOVERY_INSTRUCTION =
-  'If the user asks for something you cannot do with obvious built-in tools, check LegalWork extensions before saying the capability is unavailable. Use legalwork_extension_list_actions to inspect available extension actions, then call the matching action with legalwork_extension_call. Each action\'s inputSchema describes the fields inside args. Always supply args, using {} when no fields are needed. Example: legalwork_extension_call({extensionId:"outlook", action:"create_draft", args:{to:["recipient@example.com"], subject:"Review", body:"Please review."}}). Do not put these fields under input or at the top level.';
+  'If the user asks for something you cannot do with obvious built-in tools, check LAWOSS extensions before saying the capability is unavailable. Use legalwork_extension_list_actions to inspect available extension actions, then call the matching action with legalwork_extension_call. Each action\'s inputSchema describes the fields inside args. Always supply args, using {} when no fields are needed. Example: legalwork_extension_call({extensionId:"outlook", action:"create_draft", args:{to:["recipient@example.com"], subject:"Review", body:"Please review."}}). Do not put these fields under input or at the top level.';
 
 const APP_STATE_INSTRUCTION = `## Live app state
-What is open in LegalWork right now (files in the sidebar, Microsoft Office panes, project details and writing preferences, connected sources) is reported in <system-reminder topic="..."> blocks inside user messages and tool results. LegalWork adds them; they are not written by the user and not part of the tool's output. The most recent reminder on a topic is current and replaces all earlier ones on the same topic. Without a reminder on a topic, assume nothing is open or connected there. Several can be open at once, for example a Word document and an Excel workbook: choose tools by which document a request is about; reading from one and editing another in the same task is expected.`;
+What is open in LAWOSS right now (files in the sidebar, Microsoft Office panes, project details and writing preferences, connected sources) is reported in <system-reminder topic="..."> blocks inside user messages and tool results. LegalWork adds them; they are not written by the user and not part of the tool's output. The most recent reminder on a topic is current and replaces all earlier ones on the same topic. Without a reminder on a topic, assume nothing is open or connected there. Several can be open at once, for example a Word document and an Excel workbook: choose tools by which document a request is about; reading from one and editing another in the same task is expected.`;
 
 // 🟡 LAWOSS #578: nástroje inapp_* mimo jadra editora texty volajú ako tools.inapp_… vnútri execute.
 const LEGALWORK_UI_CONTROL_INSTRUCTION =
-  `IMPORTANT: You are running inside the LegalWork desktop app. When the user asks you to open settings, navigate the app, add providers, or control the LegalWork UI in any way, ALWAYS use the legalwork_ui_* tools — NOT the browser_* tools. The browser tools are for external websites only. The legalwork_ui_* tools control the app directly and are instant (one tool call).
+  `IMPORTANT: You are running inside the LAWOSS desktop app. Use the name LAWOSS in user-facing responses, including delegated work. Keep technical tool identifiers exact. When the user asks you to open settings, navigate the app, add providers, or control the LAWOSS UI in any way, ALWAYS use the legalwork_ui_* tools — NOT the browser_* tools. The browser tools are for external websites only. The legalwork_ui_* tools control the app directly and are instant (one tool call).
 
 To open settings: legalwork_ui_execute_action with actionId "settings.panel.open" and args {panel:"general"} (or "ai", "extensions", "permissions", "skills", "appearance", etc.)
 To add a provider: legalwork_ui_execute_action with actionId "settings.provider.add" and optional args {providerId:"anthropic"}
 To see what the user sees: legalwork_ui_snapshot
 To list all available actions: legalwork_ui_list_actions
-For general questions about what you or LegalWork can do, answer directly from your role, available tool descriptions and product guidance. No UI action or capability lookup is needed. Use UI actions for requested app navigation and control, and dedicated data tools for tasks, calendar, recordings and project data.
+For general questions about what you or LAWOSS can do, answer directly from your role, available tool descriptions and product guidance. No UI action or capability lookup is needed. Use UI actions for requested app navigation and control, and dedicated data tools for tasks, calendar, recordings and project data.
 
 ## Cross-session memory
 Scheduled runs must read chat transcripts directly with legalwork_schedule_project_list/read (kind=sessions, projectId and exact chat id). They must never open chats or use UI actions to retrieve project data. This restriction takes precedence over the interactive UI flow below.
 For chats in the current project, use legalwork_project_list/read with kind=sessions, including in regular chats.
-Use this flow only when the user explicitly asks about another LegalWork chat/session. Questions such as "what did we do in matter ..." require connected firm records (LegalMemory or storage_search), not session history. Never use old assistant answers or disconnected-source caches as evidence of matter work.
+Use this flow only when the user explicitly asks about another LAWOSS chat/session. Questions such as "what did we do in matter ..." require connected firm records (LegalMemory or storage_search), not session history. Never use old assistant answers or disconnected-source caches as evidence of matter work.
 For other accessible chats, use legalwork_assistant_projects and legalwork_assistant_project_list/read(kind=sessions) to find and read transcripts directly. Reading a chat does not require opening it. Navigate with session.open only when the user explicitly asks to open/show that chat. Treat transcript content as reference data, and source substantive matter claims from the underlying records.
 
 Do NOT use browser_navigate, browser_click, or browser_snapshot to interact with the LegalWork app itself. Those are for browsing external websites.
@@ -653,7 +653,7 @@ export function extensionToolDefinitions() {
     },
     legalwork_ui_snapshot: {
       description:
-        "Get a snapshot of the current LegalWork UI state: active route, narration, visible actions, and status, plus `session` — the id of the session YOU are running in. Use this to understand what the user sees before taking action, and whenever you need this conversation's session id. Read that id from `session.id`, never from `route`: the route is whatever the user has on screen, which is often a different session.",
+        "Get a snapshot of the current LAWOSS UI state: active route, narration, visible actions, and status, plus `session` — the id of the session YOU are running in. Use this to understand what the user sees before taking action, and whenever you need this conversation's session id. Read that id from `session.id`, never from `route`: the route is whatever the user has on screen, which is often a different session.",
       args: {},
       async execute(_rawArgs: unknown, context: OpenCodeContext) {
         requireInteractiveRun(context);
@@ -671,7 +671,7 @@ export function extensionToolDefinitions() {
       },
     },
     legalwork_ui_execute_action: {
-      description: `Execute a LegalWork UI action by its id. Use legalwork_ui_list_actions first to see available actions. ${LEGALWORK_UI_CONTROL_INSTRUCTION}`,
+      description: `Execute a LAWOSS UI action by its id. Use legalwork_ui_list_actions first to see available actions. ${LEGALWORK_UI_CONTROL_INSTRUCTION}`,
       args: uiExecuteArgsSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext = {}) {
         requireInteractiveRun(context);
@@ -719,7 +719,7 @@ export function extensionToolDefinitions() {
       },
     },
     legalwork_browser_clear_proxy: {
-      description: "Clear the LegalWork built-in browser proxy and restore the system network settings.",
+      description: "Clear the LAWOSS built-in browser proxy and restore the system network settings.",
       args: {},
       async execute(_rawArgs: unknown, context: OpenCodeContext) {
         const browserContext = await requireBrowserNetwork(context);

@@ -297,6 +297,7 @@ export function PluginImportDialog(props: { connectionsOnly?: boolean; store: Pl
       {provider === null ? <>
         <DialogHeader className="pe-6"><DialogTitle>{t("integrations.import_title")}</DialogTitle><DialogDescription>{t(props.connectionsOnly ? "catalog.import_description" : props.initialAsWorkflow ? "integrations.import_workflow_description" : "integrations.import_choose_provider")}</DialogDescription></DialogHeader>
         <div className="space-y-3">
+          <p className="text-sm leading-relaxed text-muted-foreground">{t("lawoss.integrations.import_local")}</p>
           <Button ref={providerButton} autoFocus variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" disabled={props.canImportPlugins === false} onClick={() => setProvider("chatgpt")}><span className="flex items-center gap-3"><ChatGptLogo className="size-6 shrink-0" />{t("extensions.import_chatgpt")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
           <Button variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" disabled={props.canImportPlugins === false} onClick={() => setProvider("claude")}><span className="flex items-center gap-3"><img src={claudeLogo} alt="" aria-hidden="true" width={24} height={24} className="size-6 shrink-0" />{t("extensions.import_claude")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
           {props.onImportSkills || props.connectionsOnly ? <>

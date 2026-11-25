@@ -507,11 +507,13 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (!client) throw new Error(t("providers.not_connected"));
     const resolved = providerId?.trim();
     if (!resolved) throw new Error(t("providers.provider_id_required"));
+    const cancelling = cancelProviderAuth();
+    const generation = authGeneration;
+    await cancelling;
     const methods = await loadProviderAuthMethods(getProviderAuthWorkerType());
+    if (generation !== authGeneration) throw new Error("Sign-in was canceled.");
     const selected = methods[resolved]?.find(method => methodIndex === undefined ? method.type === "oauth" : method.methodIndex === methodIndex);
     if (!selected || selected.methodIndex === undefined || !selected.methodID) throw new Error(t("providers.oauth_method_required"));
-    await cancelProviderAuth();
-    const generation = authGeneration;
     const integrationID = selected.integrationID ?? providerIntegrationID(resolved);
     const location = authLocation();
     if (selected.type === "external") {
@@ -615,6 +617,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const client = options.client();
     if (!client) throw new Error(t("providers.not_connected"));
     const key = `${providerId}:${methodIndex}`;
+    const generation = authGeneration;
     const attempt = attempts.get(key);
     if (!attempt) {
       const value = await refreshProviders();
@@ -625,6 +628,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       const status = attempt.type === "oauth"
         ? (await client.integration.oauth.status(attempt)).data
         : (await client.integration.command.status(attempt)).data;
+      if (generation !== authGeneration) return { connected: false, pending: false };
       if (status.status === "pending") return { connected: false, pending: true, message: "message" in status ? status.message : undefined };
       attempts.delete(key);
       if (status.status !== "complete") throw new Error("message" in status ? status.message : t("providers.oauth_failed"));
@@ -632,6 +636,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       const value = await refreshProviders();
       return { connected: value?.connected.includes(providerId) === true, pending: false, message: t("providers.connected_named", { name: providerName(providerId) }) };
     } catch (error) {
+      if (generation !== authGeneration) return { connected: false, pending: false };
       setStateField("providerAuthError", describeProviderError(error, t("providers.oauth_failed")));
       throw error;
     }

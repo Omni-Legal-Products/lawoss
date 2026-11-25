@@ -1,10 +1,9 @@
 /** @jsxImportSource react */
-import { useState, type MouseEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUpRight, Check } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { desktopBridge, openDesktopUrl } from "@/app/lib/desktop";
+import { openDesktopUrl } from "@/app/lib/desktop";
 import { isDesktopRuntime, isMacPlatform } from "@/app/utils";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
@@ -12,48 +11,37 @@ import { Surface } from "@/react-app/design-system/surface";
 
 import chevron7Icon from "../../../../../../lawoss/brand/chevron7-icon.png";
 import {
+  CHEVRON7_INSTALL_URL,
   CHEVRON7_NAME,
   CHEVRON7_WEB_URL,
   shouldCheckChevron7Installed,
   shouldShowChevron7Card,
 } from "./chevron7-card";
 
-const CHEVRON7_STATUS_QUERY_KEY = ["lawoss", "chevron7", "status"] as const;
+import { chevron7StatusQuery } from "./chevron7-file-action";
 
-/** Native PDF picker and installed Chevron7 own the signing flow. */
+/** Shows the installed version and the installation link. */
 export function Chevron7IntegrationCard() {
   const locale = useLocale();
   const isMac = isMacPlatform();
+  const checkInstalled = shouldCheckChevron7Installed({ desktopRuntime: isDesktopRuntime(), isMac });
   const statusQuery = useQuery({
-    queryKey: CHEVRON7_STATUS_QUERY_KEY,
-    queryFn: () => desktopBridge.chevron7Status(),
-    enabled: shouldCheckChevron7Installed({ desktopRuntime: isDesktopRuntime(), isMac }),
-    staleTime: 30_000,
-    retry: false,
+    ...chevron7StatusQuery,
+    enabled: checkInstalled,
   });
   if (!shouldShowChevron7Card({ isMac })) return null;
-  return <Chevron7CardContent locale={locale} installed={statusQuery.data?.installed === true}
-    version={statusQuery.data?.version} available={statusQuery.data?.signingAvailable === true} />;
-}
-
-function openChevron7Web(event: MouseEvent<HTMLAnchorElement>) {
-  event.preventDefault();
-  void openDesktopUrl(CHEVRON7_WEB_URL);
+  const status = checkInstalled && !statusQuery.isError ? statusQuery.data : undefined;
+  return <Chevron7CardContent locale={locale} installed={status?.installed} checking={checkInstalled && statusQuery.isPending}
+    version={status?.version} available={status?.signingAvailable} />;
 }
 
 /** Ungated card body, exported for tests (navigator is absent under bun). */
-export function Chevron7CardContent({ locale, installed = false, available = false, version }: { locale: Language; installed?: boolean; available?: boolean; version?: string }) {
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<"returned" | "failed" | "interrupted" | null>(null);
-  const sign = async () => {
-    if (busy) return;
-    setBusy(true); setOutcome(null);
-    try {
-      const result = await desktopBridge.chevron7SignPdf();
-      if (result.status !== "cancelled") setOutcome(result.status === "returned" || result.status === "interrupted" ? result.status : "failed");
-    } catch { setOutcome("failed"); }
-    finally { setBusy(false); }
-  };
+export function Chevron7CardContent({ locale, installed, available, version, checking = false }: {
+  locale: Language; installed?: boolean; available?: boolean; version?: string; checking?: boolean;
+}) {
+  const install = installed === false;
+  const url = install ? CHEVRON7_INSTALL_URL : CHEVRON7_WEB_URL;
+  const note = checking ? "checking" : installed === undefined ? "unknown" : install ? "note" : available === false ? "unsupported" : null;
   return (
     <Surface className="p-5" aria-label={t("lawoss.integrations.chevron7.aria", locale)}>
       <div className="flex items-start gap-4">
@@ -87,30 +75,26 @@ export function Chevron7CardContent({ locale, installed = false, available = fal
               {version ? ` · ${version}` : null}
             </span>
           ) : null}
-          {!available ? <span>{t("lawoss.integrations.chevron7.note", locale)}</span> : null}
+          {note && <span>{t(`lawoss.integrations.chevron7.${note}`, locale)}</span>}
         </p>
-        {available ? <Button size="sm" disabled={busy} onClick={() => void sign()}>
-          {t(busy ? "lawoss.integrations.chevron7.busy" : "lawoss.integrations.chevron7.sign", locale)}
-        </Button> : null}
         <Button
           size="sm"
           variant="ghost"
           nativeButton={false}
           render={
             <a
-              href={CHEVRON7_WEB_URL}
+              href={url}
               target="_blank"
               rel="noopener noreferrer"
-              aria-label={t("lawoss.integrations.chevron7.link_aria", locale)}
-              onClick={openChevron7Web}
+              aria-label={t(install ? "lawoss.integrations.chevron7.install" : "lawoss.integrations.chevron7.link_aria", locale)}
+              onClick={event => { event.preventDefault(); void openDesktopUrl(url); }}
             />
           }
         >
-          {t("lawoss.integrations.chevron7.link", locale)}
+          {t(install ? "lawoss.integrations.chevron7.install" : "lawoss.integrations.chevron7.link", locale)}
           <ArrowUpRight />
         </Button>
       </div>
-      {outcome ? <p role="status" className="mt-3 text-sm text-dls-secondary">{t(`lawoss.integrations.chevron7.${outcome}`, locale)}</p> : null}
     </Surface>
   );
 }
