@@ -47,7 +47,15 @@ const nativeTurn=(messages,matchUser)=>{
 const requireDesktop = createRequire(path.join(repo, "apps/desktop/package.json"));
 const requireApp = createRequire(path.join(repo, "apps/app/package.json"));
 const electron = process.env.LAWOSS_ISIR_NATIVE_ELECTRON ?? requireDesktop("electron");
-await access(path.join(repo, "apps/server/dist/embedded.js"));
+const receiptFiles = [
+  "apps/server/dist/embedded.js",
+  "apps/server/dist/lawoss/documents/export.js",
+  "apps/server/dist/lawoss/workspace-history-sessions.js",
+  "apps/server/dist/opencode-plugins/legalwork-project-tools/index.js",
+  "apps/desktop/electron/runtime.mjs",
+  "apps/app/src/react-app/domains/session/sync/session-sync.ts",
+];
+await Promise.all(receiptFiles.map(file => access(path.join(repo, file))));
 const corpus = await loadNativeCorpus(process.env.LAWOSS_ISIR_CORPUS);
 assert.ok(!requestedEndpointRefresh || (process.env.CI && corpus.mode==='synthetic' && !debugPair),'Explicit controlled route refresh requires the complete isolated synthetic CI gate');
 // Ordinary complete synthetic native runs always cover metadata refresh. An
@@ -823,7 +831,7 @@ try {
   await writeFile(path.join(root,'engine-identity-receipts.json'),JSON.stringify(engineIdentities,null,2),{mode:0o600});
   diagnostics.recoveryStage('receipt-write');
   const artifacts={};
-  for(const file of ['apps/server/dist/embedded.js','apps/server/dist/lawoss/documents/export.js','apps/server/dist/lawoss/workspace-history-sessions.js','apps/server/dist/opencode-plugins/legalwork-project-tools.js','apps/desktop/electron/runtime.mjs','apps/app/src/react-app/domains/session/sync/session-sync.ts'])artifacts[file]=sha256(await readFile(path.join(repo,file)));
+  for(const file of receiptFiles) artifacts[file]=sha256(await readFile(path.join(repo,file)));
   extraEvidence.artifactHashes=artifacts;extraEvidence.relaunchedEngineVersion=relaunchedHealth.version;
   evidence[0].recoveredPath=moved;
   await writeFile(path.join(root,'native-receipts.json'),JSON.stringify({mode:corpus.mode,fullMatrix:!debugPair,engineVersion:health.version,engineIdentities,applicationRelaunch:true,nativeReconnect:true,cases:evidence,extras:extraEvidence},null,2),{mode:0o600});
