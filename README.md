@@ -19,6 +19,9 @@
 
 </div>
 
+**Chcem vyskúšať LAWOSS s vlastným AI agentom.** Dajte mu odkaz na tento repozitár a pokyn „Pomôž mi vyskúšať LAWOSS na mojom počítači.“ [Postup pre agenta aj testera](docs/tester-agent.md) zahŕňa inštaláciu alebo kompiláciu, syntetický spis a formulár spätnej väzby.
+
+
 > [!IMPORTANT]
 > LAWOSS je v aktívnom vývoji. Stav zdrojového kandidáta nižšie nepreukazuje dostupnosť ani akceptáciu verejného inštalátora. Testovacie scenáre vykonávajte so syntetickými alebo verejnými údajmi.
 
@@ -147,7 +150,7 @@ Pracujeme v troch zónach:
 
 ## Vývoj
 
-Použite Node.js 24, `pnpm@11.4.0` a Bun `1.4.2`, ktorý je pripnutý v aktuálnych hlavných CI workflowoch. Požiadavky konkrétnej platformy a spravovaného OpenCode enginu overte podľa príslušného build workflowu a [návodu pre testerov](docs/lawoss-build-pre-testerov.md).
+Použite Node.js 24.22.1, `pnpm@11.4.0` a Bun `1.4.4`, ktorý je pripnutý v aktuálnych hlavných CI workflowoch. Požiadavky konkrétnej platformy a spravovaného OpenCode enginu overte podľa príslušného build workflowu a [návodu pre testerov](docs/lawoss-build-pre-testerov.md).
 
 ```bash
 pnpm install
