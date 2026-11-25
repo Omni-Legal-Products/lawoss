@@ -163,6 +163,7 @@ def work(job_id, sha):
             canary.bind(("0.0.0.0", 0))
             canary.listen()
             guest(vm, "/bin/bash", "-c", PREPARE, "guest", str(canary.getsockname()[1]), timeout=450)
+        run = api(f"repos/{REPO}/actions/runs/{job['run_id']}")
         require(admit(api(job_path), run, sha) == label, "Job changed during provisioning")
         jit = api(f"orgs/{ORG}/actions/runners/generate-jitconfig",
                   {"name": vm, "runner_group_id": group_id, "labels": [label], "work_folder": "_work"})
@@ -171,7 +172,12 @@ def work(job_id, sha):
         # The host GitHub credential never enters the guest. Only the one-job configuration crosses stdin.
         subprocess.run([TART, "exec", "-i", vm, "/bin/bash", "-c", START],
                        input=jit.pop("encoded_jit_config") + "\n", text=True, check=True, timeout=TIMEOUT)
+        # Runner exit can precede publication of its final GitHub job receipt.
+        end = time.monotonic() + 60
         result = api(job_path)
+        while result["status"] != "completed" and time.monotonic() < end:
+            time.sleep(3)
+            result = api(job_path)
         require(result["runner_id"] == runner and result["conclusion"] == "success",
                 f"Check job outcome on GitHub: {result['html_url']}")
     finally:
@@ -200,4 +206,7 @@ if __name__ == "__main__":
     state.mkdir(mode=0o700, parents=True, exist_ok=True)
     with (state / "worker.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        work(args.job_id, args.approved_sha)
+        try:
+            work(args.job_id, args.approved_sha)
+        except RuntimeError as error:
+            sys.exit(str(error))

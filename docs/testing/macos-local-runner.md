@@ -13,6 +13,13 @@ tart pull ghcr.io/cirruslabs/macos-sequoia-base@sha256:8386ef670c04b38e57bd0e97f
 
 Skupina organizácie `lawoss-macos-isolated` povoľuje len repozitár LAWOSS a konkrétne skontrolované workflow súbory. V zozname povolených workflow použi úplný názov `Omni-Legal-Products/lawoss/.github/workflows/<súbor>@<presná revízia workflow>`. Pre opakovane volané workflow rozhoduje súbor, v ktorom je priamo definovaný job. Schválenie zdrojového kódu aj definície jobu skontroluj pred vytvorením runnera. Pri zmene definície treba preveriť novú revíziu. Predvolené oprávnenia ostatných runnerov spravuj samostatne.
 
+Po každej zmene povolených workflow načítaj späť **obe** nastavenia skupiny. GitHub pri úprave skupiny môže vyprázdniť výber repozitárov. Prvý príkaz má ukázať schválené revízie, druhý jediný repozitár `Omni-Legal-Products/lawoss`.
+
+```sh
+gh api "orgs/Omni-Legal-Products/actions/runner-groups/$GROUP_ID" --jq '{visibility,restricted_to_workflows,selected_workflows}'
+gh api "orgs/Omni-Legal-Products/actions/runner-groups/$GROUP_ID/repositories" --jq '{total_count,selected:[.repositories[].full_name]}'
+```
+
 ## Prvá skúška
 
 Po zaradení workflow do predvolenej vetvy spusti ručný workflow `macos-local-probe.yml` so vstupom `revision` nastaveným na celú skontrolovanú SHA. Pre prvú skúšku pred zlúčením môže existujúci ručný workflow na samostatnej vetve zavolať tú istú definíciu cez `uses` s jej presnou SHA. V oboch prípadoch porovnaj definíciu a referenciu na GitHube. V schválenej lokálnej kópii spusti:
