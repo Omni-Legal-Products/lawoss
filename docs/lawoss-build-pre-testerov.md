@@ -81,6 +81,20 @@ Podrobný postup je v [D1, časť Klienti, veci a skilly](lawoss-d1-zabalena-app
 2. Opýtajte sa na konkrétnu vec z dokumentu, napríklad na sumu, dátum alebo strany zmluvy.
 3. Skontrolujte, či odpoveď sedí s dokumentom a či ukazuje, z ktorého dokumentu je. Odpovede nie sú právne stanovisko a overujete ich vy.
 
+### Overenie kandidáta na Windows
+
+Pred plánovaným spustením v piatok **27. novembra 2026** má Igor Ribár vyskúšať inštalátor kandidáta na svojom Windows. Stav ručnej skúšky je otvorený. Použite kandidátsky inštalátor od tímu a v Nastaveniach porovnajte verziu a commit s jeho odovzdávacím záznamom. Osobná pozvánka na alfu 20 slúži na skúšanie staršej zostavy.
+
+| Krok | Čo má tester vidieť |
+|---|---|
+| Overte architektúru počítača a SHA-256 inštalátora. Spustite ho na čistom testovacom profile. | Aplikácia sa otvorí, zobrazí svoju verziu a dovolí pripojiť syntetického klienta. V PowerShelli získate odtlačok príkazom `Get-FileHash -Algorithm SHA256 "cesta-k-instalatoru.exe"`. |
+| Prejdite tri cesty z časti 5 a kontroly pilotnej zostavy nižšie. | Prípady, premenovanie, model, Fast a použité registre zodpovedajú zvolenému klientovi a chatu. |
+| Otvorte nepodpísané PDF a kópiu s dvoma podpismi. Prepnite nástroje čítačky, rozšírte panel a vráťte sa do chatu. | Pri podpísanom PDF sa zobrazia obe osoby. Pri origináli sa zobrazí výsledok bez podpisu. Podpisovanie cez Chevron7 je dostupné na macOS. |
+| Na x64 vyskúšajte aj spracovanie série syntetických spisov ISIR vrátane tretieho. | Zaznamenajte, pri ktorom spise sa spracovanie dokončilo alebo zastavilo. Známe pozorovanie a výsledky podľa architektúry sú v [issue 384](https://github.com/Omni-Legal-Products/lawoss/issues/384#issuecomment-7162641392). |
+| Úplne ukončite LAWOSS, otvorte ho znova a potom vyskúšajte aktualizáciu na kópii staršieho testovacieho profilu. | Po reštarte ostávajú dostupné klient, prípad, názov aj dokumenty. Zaznamenajte osobitne výsledok čistej inštalácie a aktualizácie. |
+
+Do odovzdávacieho záznamu uveďte **Windows a architektúru, verziu, commit, SHA-256, výsledok každého kroku a prípadný blokátor**. Pri chybe pridajte prvý neúspešný krok, očakávaný a skutočný výsledok a snímku zo syntetického spisu. Tím rozhodne o piatkovom spustení po vyhodnotení tejto skúšky.
+
 ### Kontroly pilotnej zostavy
 
 Tieto kontroly patria k zostave s úpravami z 25. novembra 2026 a s kontrolou podpisov v náhľade PDF. Pozvánka na staršiu alfu `0.2.1-alpha.20.g875852c` ponúka iný kód. Zapíšte verziu, pri vlastnom builde aj commit. Vyberte si riadok, ktorý skúšate. Podrobné návody k ovládaniu sú v [slovenčine](../lawoss/user-guide/sk/index.md) aj [češtine](../lawoss/user-guide/cs/index.md).
