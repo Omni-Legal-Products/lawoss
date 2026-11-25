@@ -695,7 +695,7 @@ try {
   await openFiles(first,'reconnect');
   const recoveryStart=cdp.events.length;
   await click('Reconnect client folder');
-  for (const route of ['/workspaces/pick-folder', '/workspace/'+first.id+'/reconnect', '/workspaces/'+first.id+'/activate']) {
+  for (const route of ['/workspaces/pick-folder', '/workspace/'+first.id+'/reconnect', '/workspaces/'+first.id+'/activate?persist=true']) {
     const url=new URL(route,serverInfo.baseUrl).href;
     const response=await until(()=>nativePostResponse(cdp.events,recoveryStart,url), 'native POST '+route+' response',90000);
     const status=response.params.response.status;
