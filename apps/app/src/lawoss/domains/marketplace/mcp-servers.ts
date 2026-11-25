@@ -32,6 +32,12 @@ const SERVER_PLUGINS: Readonly<Record<string, string>> = {
   "cz_eu-registry": "cz-agents",
 };
 
+const REGISTER_NAMES: Readonly<Record<string, string>> = {
+  cz_ares: "ARES", cz_cnb: "ČNB", cz_adis: "ADIS", cz_isir: "ISIR",
+  cz_sanctions: "CZ Sanctions", cz_dd: "CZ Due Diligence",
+  cz_realestate: "CZ Real Estate", "cz_eu-registry": "EU Registry",
+};
+
 export const MARKETPLACE_MCP_SERVERS: readonly string[] = Object.keys(SERVER_PLUGINS);
 
 export type MarketplaceConnector = { plugin: string; title: string; summary: string };
@@ -44,9 +50,10 @@ export function marketplaceConnector(server: string, locale: Language = currentL
 }
 
 /** Engine pomenúva nástroje MCP `<server>_<nástroj>`; najdlhší zhodný server vyhrá. */
-export function marketplaceToolConnector(toolName: string, locale: Language = currentLocale()): MarketplaceConnector | null {
+export function marketplaceToolConnector(toolName: string, locale: Language = currentLocale()): (MarketplaceConnector & { server: string }) | null {
   const server = MARKETPLACE_MCP_SERVERS
-    .filter((name) => toolName.startsWith(`${name}_`))
+    .filter((name) => toolName.startsWith(`${name}_`) || toolName.startsWith(`${name}.`))
     .sort((left, right) => right.length - left.length)[0];
-  return server ? marketplaceConnector(server, locale) : null;
+  const connector = server && marketplaceConnector(server, locale);
+  return server && connector ? { ...connector, server, title: REGISTER_NAMES[server] ?? connector.title } : null;
 }

@@ -229,6 +229,9 @@ importers:
       ai:
         specifier: ^6.0.146
         version: 6.0.146(zod@4.6.7)
+      asn1js:
+        specifier: 3.0.10
+        version: 3.0.10
       boring-avatars:
         specifier: ^2.0.4
         version: 2.0.4(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -289,6 +292,12 @@ importers:
       motion:
         specifier: ^12.38.0
         version: 12.38.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      pdf-lib:
+        specifier: 1.17.1
+        version: 1.17.1
+      pkijs:
+        specifier: 3.4.0
+        version: 3.4.0
       pptx-react-viewer:
         specifier: 3.5.4
         version: 3.5.4(patch_hash=ae71f58f97e49015c0b4704b0cc5e00a5f8c955a5005b6858407adee07e9e70b)(@ai-sdk/react@3.0.148(react@19.2.4)(zod@4.6.7))(@xmldom/xmldom@0.9.12)(ai@6.0.146(zod@4.6.7))(fast-xml-parser@5.11.1)(framer-motion@12.38.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(i18next@26.4.2(typescript@5.9.3))(jspdf@4.2.1)(jszip@3.10.1)(lucide-react@0.577.0(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react-i18next@17.0.13(i18next@26.4.2(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(react-icons@5.7.0(react@19.2.4))(react@19.2.4)

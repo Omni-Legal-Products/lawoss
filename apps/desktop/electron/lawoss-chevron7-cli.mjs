@@ -8,13 +8,14 @@ import { createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
+import { CHEVRON7_REQUIREMENT } from "./lawoss-chevron7.mjs";
 import { findChevron7Signing, isSigningPdf } from "./lawoss-chevron7-signing.mjs";
+
+export { CHEVRON7_REQUIREMENT };
 
 const exec = promisify(execFile);
 const HELPER = "Contents/Helpers/chevron7";
 const DEFAULT_TIMEOUT = 120_000;
-// Designated requirement: the bundle id alone is not proof of origin, so pin the Developer ID team of Chevron7.
-export const CHEVRON7_REQUIREMENT = '=identifier "app.slovensko.chevron7" and anchor apple generic and certificate leaf[subject.OU] = "Q7AU96CW7H"';
 const DEFAULT_MAX_OUTPUT = 4 * 1024 * 1024;
 // API v1 exit codes that are a refusal or a failure of the call itself.
 const EXIT_STATUS = { 2: "refused", 3: "unavailable", 4: "busy", 6: "timeout", 7: "file-error", 8: "failed", 9: "failed" };

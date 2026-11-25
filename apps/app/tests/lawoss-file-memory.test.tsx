@@ -73,8 +73,7 @@ test("native card refuses disconnected, absent and remote workspaces", async () 
     expect(html).toContain("Select a connected local case workspace"); expect(html).not.toContain("Save mapping");
   }
 });
-test("native Integrations entry renders file memory on the catalogue overview and preserves the native catalogue", async () => {
-  // Upstream v0.3.9: integrations by category (ConnectorBrowser); LAWOSS cards go through `lawossIntro` on the overview only.
+test("native Integrations exposes file memory through Office tools and keeps connector details separate", async () => {
   const { ExtensionsView } = await import("../src/react-app/domains/settings/pages/extensions-view");
   const { McpView } = await import("../src/react-app/domains/settings/pages/mcp-view");
   const { PlatformProvider, createDefaultPlatform } = await import("../src/react-app/kernel/platform");
@@ -84,9 +83,13 @@ test("native Integrations entry renders file memory on the catalogue overview an
     pluginScope: "project", setPluginScope: noop, refreshPlugins: noop, pluginConfigPath: () => null, pluginConfig: () => null, pluginList: () => [], pluginInput: () => "", setPluginInput: noop, pluginStatus: () => null, addPlugin: noop, removePlugin: noop, isPluginInstalledByName: () => false, activePluginGuide: () => null, setActivePluginGuide: noop,
   }, mcpView: <McpView busy={false} selectedWorkspaceRoot="" isRemoteWorkspace={false} mcpServers={[]} mcpStatus={null} mcpStatuses={{}} mcpConnectingName={null} selectedMcp={null} setSelectedMcp={noop} quickConnect={[]} connectMcp={noop} authorizeMcp={noop} logoutMcpAuth={noop} removeMcp={noop} />,
   lawossIntro: <FileMemoryIntegrationCard client={null} workspaceId={null} workspacePath="" workspaceName="" /> };
-  const render = (connection?: string) => renderToStaticMarkup(<MemoryRouter initialEntries={[`/settings/extensions${connection ? `?connection=${connection}` : ""}`]}><QueryClientProvider client={new QueryClient()}><PlatformProvider value={createDefaultPlatform()}><ExtensionsView {...props} /></PlatformProvider></QueryClientProvider></MemoryRouter>);
-  const html = render(); expect(html).toContain("Case file memory"); expect(html).toContain('data-testid="connector-browser"');
-  expect(render("native:gmail")).not.toContain("Case file memory");
+  const render = (query = "") => renderToStaticMarkup(<MemoryRouter initialEntries={[`/settings/extensions${query}`]}><QueryClientProvider client={new QueryClient()}><PlatformProvider value={createDefaultPlatform()}><ExtensionsView {...props} /></PlatformProvider></QueryClientProvider></MemoryRouter>);
+  setLocale("en");
+  expect(render()).toContain("Office tools</button>");
+  const office = render("?library=office");
+  expect(office).toContain("Case file memory");
+  expect(office).toContain('data-testid="connector-browser"');
+  expect(render("?library=office&connection=native:gmail")).not.toContain("Case file memory");
 });
 
 test("oversized draft is rejected before native CAS writes any profile bytes", async () => {

@@ -74,9 +74,7 @@ selected, the verified engine producer to succeed before executing integration
 checks. A failed producer is reported as a failed required check rather than a
 skipped check. Pure presentation changes need only the successful unit matrix.
 
-`scripts/ci/run-engine-tests.mjs` collects every server test file declaring the
-real-engine fixture variable, including newly added files. It refuses to run
-without the verified engine. Desktop runtime tests import the generated engine selection and therefore stay
+`scripts/ci/run-engine-tests.mjs` discovers server test files declaring the real-engine fixture variable and runs the explicit selection in `LAWOSS_CI_ENGINE_TESTS`. The ChatGPT pilot regression introduces a previously unknown model in a synthetic account catalog and checks the outgoing Fast priority and reasoning effort against a loopback receiver. It requires the verified engine and uses no live subscription. Desktop runtime tests import the generated engine selection and therefore stay
 in this gated job too. These tests, browser/e2e checks and prompt-cache
 acceptance remain behind engine setup. The final selected-check summary also
 includes the unit matrix. Sandbox skip labels and manual acceptance modes keep

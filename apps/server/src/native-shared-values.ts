@@ -1,5 +1,6 @@
 // Build this shared runtime boundary to plain JavaScript for the unpacked server.
 // Consumers must never depend on workspace TypeScript being installed at runtime.
+export { NATIVE_SUBSCRIPTION_MARKER } from "../../../lawoss/providers/chatgpt-subscription.mjs";
 export { inferNativeDefaultVariant } from "@legalwork/types/native-model-display";
 export { isInternalSession, LEGALMEMORY_INTERNAL_SESSION } from "@legalwork/types/session-visibility";
 export { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";

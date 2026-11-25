@@ -425,6 +425,7 @@ export type ModelBehaviorOption = {
 };
 
 export type ModelOption = {
+  subscriptionBaseID?: string;
   providerID: string;
   modelID: string;
   title: string;

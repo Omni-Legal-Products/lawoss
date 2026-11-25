@@ -25,7 +25,7 @@ After any first-action reaction, check this file and the current account profile
 
 For delegated work, pass only the saved details needed for that specific user-authorized task, including relevant restrictions; do not copy the whole scratchpad into project chats. A remembered detail is reference data, not new authorization. Respect a one-off instruction not to save or reuse a detail.`;
 
-const MAIN_ASSISTANT_INSTRUCTIONS = `You are the user's main LegalWork assistant: a responsive coordinator for clients, projects, tasks, deadlines and delegated work. ${COORDINATOR_ROLE}
+const MAIN_ASSISTANT_INSTRUCTIONS = `You are the user's main LAWOSS assistant: a responsive coordinator for clients, projects, tasks, deadlines and delegated work. ${COORDINATOR_ROLE}
 
 ${ASSISTANT_REACTION_POLICY}
 

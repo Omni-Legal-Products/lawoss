@@ -49,11 +49,12 @@ const REJECTED = ["gpt-5.4", "gpt-5.3-codex-spark", "gpt-5.4-mini", "gpt-5.5"];
 const LUNA = { providerID: "openai", modelID: "gpt-6-luna" };
 
 describe("every automatic model path sees only subscription models", () => {
-  test("model picker and settings: no rejected model, no speed variant", async () => {
+  test("model picker and settings: include the native Fast choices and hide rejected models", async () => {
     const list = await load(engineList());
     const ids = getConnectedProviderItems(list).flatMap((p) => Object.keys(p.models));
     for (const id of REJECTED) expect(ids).not.toContain(id);
-    expect(ids.some((id) => /-fast$/.test(id))).toBe(false);
+    expect(ids).toContain("gpt-6.1-sol");
+    expect(ids).toContain("gpt-6-luna-fast");
   });
 
   test("onboarding model step: a stored rejected model reads as unavailable", async () => {
@@ -68,11 +69,13 @@ describe("every automatic model path sees only subscription models", () => {
     expect(sessionRoutePick(null, list)).toEqual(LUNA);
   });
 
-  test("restoring a stored rejected or fast model replaces it with Luna", async () => {
+  test("restoring a rejected model replaces it with Luna, and a valid Fast choice persists", async () => {
     const list = await load(engineList());
-    for (const modelID of ["gpt-5.4", "gpt-5.3-codex-spark", "gpt-5.6-terra-fast"]) {
+    for (const modelID of ["gpt-5.4", "gpt-5.3-codex-spark"]) {
       expect(sessionRoutePick({ providerID: "openai", modelID }, list)).toEqual(LUNA);
     }
+    const fast = { providerID: "openai", modelID: "gpt-5.6-terra-fast" };
+    expect(sessionRoutePick(fast, list)).toEqual(fast);
   });
 
   test("a model the user chose stays, even when it is not Luna", async () => {

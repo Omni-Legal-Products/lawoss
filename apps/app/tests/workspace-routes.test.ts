@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isSessionIndexRoute, parseWorkspaceSessionLink, sessionMainPage, wikiWorkspaceRoute } from "../src/react-app/shell/workspace-routes";
+import { isSessionIndexRoute, parseWorkspaceSessionLink, sessionMainPage, settingsPathForRoute, workspaceSettingsRoute, wikiWorkspaceRoute } from "../src/react-app/shell/workspace-routes";
 
 test("returned chat links navigate internally and reject external or non-chat destinations", () => {
   const route = "/workspace/ws_project-1/session/ses_review-1";
@@ -7,6 +7,15 @@ test("returned chat links navigate internally and reject external or non-chat de
   expect(parseWorkspaceSessionLink(`#${route}`)).toBe(route);
   for (const href of ["https://example.com" + route, "//example.com" + route, "/workspace/a/settings", "/workspace/a/session/../settings", "javascript:alert(1)", route + "?redirect=https://example.com", "/workspace/%2e%2e/session/x"])
     expect(parseWorkspaceSessionLink(href)).toBeNull();
+});
+
+test("scoping settings to a selected workspace preserves the Skills and Prompts libraries", () => {
+  for (const section of ["skills", "prompts"] as const) {
+    const path = settingsPathForRoute({ tab: "workflows", workflowsSection: section });
+    expect(workspaceSettingsRoute("client A", path)).toBe(`/workspace/client%20A/settings/workflows/${section}`);
+    expect(workspaceSettingsRoute("client B", path)).toBe(`/workspace/client%20B/settings/workflows/${section}`);
+  }
+  expect(settingsPathForRoute({ tab: "workflows", workflowsSection: "workflows" })).toBe("workflows");
 });
 
 describe("main page navigation", () => {

@@ -216,6 +216,7 @@ export type SessionSurfaceProps = {
   modelVariant: string | null;
   modelBehaviorOptions?: { value: string | null; label: string }[];
   onModelVariantChange: (value: string | null) => void;
+  subscriptionSpeed?: { fast: boolean; toggle: () => void };
   agentLabel: string;
   selectedAgent: string | null;
   listAgents: () => Promise<import("@opencode/client").AgentInfo[]>;
@@ -2236,6 +2237,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         modelVariant={props.modelVariant}
         modelBehaviorOptions={props.modelBehaviorOptions}
         onModelVariantChange={props.onModelVariantChange}
+        subscriptionSpeed={props.subscriptionSpeed}
         agentLabel={props.agentLabel}
         selectedAgent={props.selectedAgent}
         listAgents={props.listAgents}

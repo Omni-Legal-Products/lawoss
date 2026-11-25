@@ -18,6 +18,14 @@ describe("PDF preview opening", () => {
     expect(params.get("zoom")).toBe("150");
   });
 
+  it("opens the reading view at page width and can expose PDF tools at a cited page", () => {
+    for (const [reading, toolbar] of [[true, "0"], [false, "1"]] as const) {
+      const params = new URLSearchParams(new URL(pdfPreviewUrl("blob:http://localhost/document#page=3", undefined, reading)).hash.slice(1));
+      expect(Object.fromEntries(params)).toEqual({ page: "3", navpanes: "0", view: "FitH", toolbar });
+    }
+    expect(pdfPreviewUrl("blob:http://localhost/document#zoom=150", 7, true)).not.toContain("FitH");
+  });
+
   it("keeps the sidebar closed on programmatic page navigation", () => {
     const url = new URL(pdfPreviewUrl("blob:http://localhost/document#page=3&navpanes=1", 7));
     const params = new URLSearchParams(url.hash.slice(1));

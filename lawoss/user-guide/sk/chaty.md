@@ -12,6 +12,10 @@ Ak napíšete `/`, zobrazí sa zoznam skillov a príkazov. Pribalené skilly OKF
 
 Odpoveď chatu nie je dôkaz, že sa súbor uložil. Skontrolujte odkaz na výstup a prípadné chyby nástrojov.
 
+Pri kroku, v ktorom agent použil podporovaný register, vidíte jeho názov pri ikone knihy. **Neúspešné volanie zdroja** ukazuje, ktorý register vrátil chybu. Register uvedený iba v texte odpovede agent nemusel otvoriť. Pri rešerši si vypýtajte aj odkaz na konkrétny výsledok.
+
+Ak asistent rozdelí prácu, v chate podriadenej úlohy nájdete označenie **Úloha od asistenta LAWOSS**. Cez **Zobraziť zadanie** otvoríte text úlohy.
+
 ## Schvaľovanie zmien
 
 Agent smie čítať dokumenty klienta a pamäť prípadu bez pýtania. Pred zmenou sa vás spýta kartou, ktorá ukazuje presne, čo sa stane:

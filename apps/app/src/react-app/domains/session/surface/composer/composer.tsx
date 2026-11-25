@@ -90,6 +90,7 @@ type ComposerProps = {
   attachmentsEnabled: boolean;
   uploading?: boolean;
   attachmentsDisabledReason: string | null;
+  subscriptionSpeed?: { fast: boolean; toggle: () => void };
   modelVariantLabel: string;
   modelVariant: string | null;
   modelBehaviorOptions?: { value: string | null; label: string }[];
@@ -1138,7 +1139,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                   </PopoverContent>
                 </Popover>
 
-                <ModelSelect
+                <ModelSelect groupSubscriptionTiers
                   open={props.modelPickerOpen}
                   value={props.selectedModel}
                   onOpenChange={props.onModelPickerOpenChange}
@@ -1157,6 +1158,17 @@ export function ReactSessionComposer(props: ComposerProps) {
                   onChange={props.onModelVariantChange}
                   disabled={props.busy}
                 />
+                {props.subscriptionSpeed && <button
+                  type="button"
+                  aria-label={t("lawoss.models.speed")}
+                  aria-pressed={props.subscriptionSpeed.fast}
+                  title={t("lawoss.models.speed_hint")}
+                  disabled={props.busy || props.modelLocked}
+                  className="lw-composer-control inline-flex size-9 shrink-0 items-center justify-center rounded-md text-gray-10 hover:bg-gray-3 aria-pressed:bg-amber-3 aria-pressed:text-amber-11 disabled:opacity-60"
+                  onClick={props.subscriptionSpeed.toggle}
+                >
+                  <Zap size={16} fill={props.subscriptionSpeed.fast ? "currentColor" : "none"} />
+                </button>}
                 <YoloBadge />
 
                 {props.onToggleFusion ? (

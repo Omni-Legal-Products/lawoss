@@ -9,12 +9,13 @@ import {
   filterSubscriptionModels,
   isChatgptSubscription,
   subscriptionModelErrorKey,
+  subscriptionSpeedBase,
 } from "../src/lawoss/providers/subscription-models";
+import { chatModelKey, useSessionModelStore } from "../src/react-app/domains/session/chat/session-model-store";
 import { modelReadiness } from "../src/lawoss/shell/model-readiness";
 import { describeOpencodeSessionError } from "../src/react-app/domains/session/sync/usechat-adapter";
 import {
   fetchProviderList,
-  getConnectedProviderItems,
   getDefaultModelForSingleConnectedProvider,
 } from "../src/react-app/infra/provider-list-query";
 
@@ -30,6 +31,7 @@ const OAUTH_KEYS = [
 const OAUTH_KEYS_REFRESHED = [
   ...OAUTH_KEYS, "gpt-5.4-mini-flex", "gpt-6-astra-ultrafast", "gpt-6-luna", "gpt-6-luna-fast",
   "gpt-6-sol", "gpt-6-sol-fast", "gpt-6.1-sol", "gpt-6.1-sol-fast",
+  "gpt-6.1-terra", "gpt-6.1-terra-fast", "gpt-6.2-sol", "gpt-6.2-sol-fast", "gpt-6.2-astra", "gpt-6.2-astra-fast",
 ];
 const apiId = (key: string) => key.replace(/-(fast|flex|ultrafast)$/, "");
 
@@ -55,17 +57,42 @@ describe("ChatGPT subscription models", () => {
     expect(isChatgptSubscription({ id: "anthropic", source: "custom" })).toBe(false);
   });
 
-  test("the picker keeps only models the subscription accepts, without speed variants", () => {
-    const filtered = filterSubscriptionModels(list([provider("openai", "custom", OAUTH_KEYS)]));
-    expect(openaiModels(filtered)).toEqual(["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-6-astra"]);
+  test("the picker offers the subscription catalog and native priority aliases", () => {
     const refreshed = filterSubscriptionModels(list([provider("openai", "custom", OAUTH_KEYS_REFRESHED)]));
-    expect(openaiModels(refreshed)).toEqual([
-      "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol",
-    ]);
-    expect(openaiModels(refreshed).some((id) => /-(fast|flex|ultrafast)$/.test(id))).toBe(false);
+    const expected = [...CHATGPT_SUBSCRIPTION_MODELS].flatMap(id => [id, `${id}-fast`]).sort();
+    expect(openaiModels(refreshed)).toEqual(expected);
+    expect(openaiModels(refreshed)).toContain("gpt-6.2-astra-fast");
+    expect(openaiModels(refreshed)).toContain("gpt-6.2-sol-fast");
     for (const rejected of ["gpt-5.4", "gpt-5.3-codex-spark", "gpt-5.4-mini", "gpt-5.5"]) {
       expect(CHATGPT_SUBSCRIPTION_MODELS.has(rejected)).toBe(false);
     }
+  });
+
+  test("native account inventory admits a new model and its verified Fast route", () => {
+    const fixture = list([provider("openai", "custom", ["gpt-6.2-sol", "future-model", "future-model-fast", "api-only"])]);
+    const subscription = fixture.all[0];
+    for (const key of ["future-model", "future-model-fast"]) {
+      subscription.models[key] = Object.assign(subscription.models[key], { legalwork: { defaultVariantID: null, subscriptionModel: true } });
+    }
+    const fast = subscription.models["future-model-fast"];
+    expect(subscriptionSpeedBase(subscription, "future-model")).toBeUndefined();
+    fast.body = { service_tier: "priority" };
+    expect(subscriptionSpeedBase(subscription, "future-model")).toBe("future-model");
+    expect(subscriptionSpeedBase({ ...subscription, source: "api" }, "future-model")).toBeUndefined();
+    const filtered = filterSubscriptionModels(fixture);
+    expect(openaiModels(filtered)).toEqual(["future-model", "future-model-fast", "gpt-6.2-sol"]);
+  });
+
+  test("speed belongs to the current chat and preserves its saved model and reasoning", () => {
+    const first = chatModelKey("server", "office", "first"), second = chatModelKey("server", "office", "second");
+    const selection = { model: { providerID: "openai", modelID: "gpt-6.2-astra" }, variant: "high" };
+    const store = useSessionModelStore.getState();
+    store.initialize(first, selection); store.initialize(second, selection);
+    store.setSpeed(first, selection.model.modelID, true);
+    expect(useSessionModelStore.getState().speedByChat[first]?.fast).toBe(true);
+    expect(useSessionModelStore.getState().speedByChat[second]).toBeUndefined();
+    expect(useSessionModelStore.getState().selections[first]).toEqual(selection);
+    expect(useSessionModelStore.getState().selections[second]).toEqual(selection);
   });
 
   test("an API key keeps the full catalogue and other providers are untouched", () => {
@@ -75,10 +102,11 @@ describe("ChatGPT subscription models", () => {
     expect(Object.keys(mixed.all.find((p) => p.id === "anthropic")?.models ?? {})).toEqual(["claude-sonnet"]);
   });
 
-  test("an empty intersection keeps the OpenCode list instead of hiding the provider", () => {
+  test("a connected account with no eligible models cannot select API-only models", () => {
     const filtered = filterSubscriptionModels(list([provider("openai", "custom", ["gpt-5.4", "gpt-5.3-codex-spark"])]));
-    expect(openaiModels(filtered)).toEqual(["gpt-5.3-codex-spark", "gpt-5.4"]);
-    expect(getConnectedProviderItems(filtered).map((p) => p.id)).toEqual(["openai"]);
+    expect(openaiModels(filtered)).toEqual([]);
+    expect(filtered.connected).toEqual(["openai"]);
+    expect(getDefaultModelForSingleConnectedProvider(filtered)).toBeNull();
   });
 
   test("the automatic pick prefers Luna: gpt-6-luna when the catalogue has it, else gpt-5.6-luna", () => {

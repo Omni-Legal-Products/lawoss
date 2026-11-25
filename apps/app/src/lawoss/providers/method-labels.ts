@@ -18,3 +18,9 @@ export function providerMethodLabel(method: Method) {
   if (isKnownMethodID(method.methodID)) return t(METHOD_LABEL_KEYS[method.methodID]);
   return method.label || (method.type === "oauth" ? "OAuth" : t("providers.api_key_label"));
 }
+
+/** Prefer the engine's current subscription method regardless of enumeration order. */
+export function primaryChatGptMethod<M extends Method>(methods: readonly M[]): M | undefined {
+  return methods.find(method => method.type === "oauth" && method.methodID === "chatgpt-token-sharing")
+    ?? methods.find(method => method.type === "oauth");
+}

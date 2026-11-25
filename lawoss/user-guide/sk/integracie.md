@@ -1,8 +1,8 @@
 # Integrácie: Marketplace, konektory, skilly a pluginy
 
-Otvoriť v LAWOSS: [Integrácie](legalwork://app/settings/extensions/plugins), [Skills](legalwork://app/settings/extensions/skills), [Úložisko súborov](legalwork://app/settings/extensions/storage).
+Otvoriť v LAWOSS: [Integrácie](legalwork://app/settings/extensions), [Skills](legalwork://app/settings/workflows/skills), [Úložisko súborov](legalwork://app/settings/extensions/storage).
 
-Všetko, čo agentovi pridáva nástroje, je v nastaveniach na karte **Integrácie**. Nastavenia sa týkajú klienta vybraného v hlavičke nastavení. Karta má záložky **Plugins**, **Skills** a **Úložisko súborov**, nad nimi tlačidlá **Importovať**, **Pridať** a **Ďalšie akcie**.
+V **Integráciách** nájdete dostupné pripojenia, nainštalované položky, LAWOSS Marketplace, Google Workspace cez gog a nástroje kancelárie. Tlačidlo **Pridať vlastné MCP** otvorí formulár pripojenia. Skilly majú samostatnú položku v nastaveniach.
 
 Bez doplnkov agent odpovedá z toho, čo sa naučil. S nimi overí aktuálny zdroj: firmu v Obchodnom registri, platné znenie zákona, súdne rozhodnutie.
 
@@ -15,11 +15,11 @@ Karta **Zdroje integrácií** ukazuje, odkiaľ integrácie pochádzajú:
 
 ## LAWOSS Marketplace
 
-Na záložke **Plugins** je katalóg LAWOSS Marketplace od Omni Legal Products.
+Na karte **LAWOSS Marketplace** je katalóg LAWOSS Marketplace od Omni Legal Products.
 
 - **Odporúčané balíky LAWOSS**: balík jurisdikcie vašej kancelárie (**Vaša jurisdikcia**) je predvyplnený. Položky môžete odškrtnúť alebo pridať balík inej jurisdikcie. Tlačidlo **Inštalovať pre všetkých klientov** nainštaluje zaškrtnuté balíky raz pre všetkých klientov. Stiahnu sa až po kliknutí, z verejného repozitára Omni-Legal-Products/lawoss-marketplace na GitHube.
 - **Všetky balíky**: celý katalóg bez ohľadu na jurisdikciu, s vyhľadávaním **Hľadať doplnky a skilly…**. Pri balíku zvolíte **Inštalovať pre**: **Všetkých klientov (odporúčané)** alebo len aktuálny priečinok.
-- **Pribalené v LAWOSS**: DOCX Redline, PDF Tools a skilly OKF sú súčasťou aplikácie a sú zapnuté vždy.
+- **Pribalené v LAWOSS**: Pri OKF vidíte, koľko z piatich pribalených skillov je dostupných vo vybranom pracovnom priestore. Zápis balíka uloží všetkých päť aj s ich súbormi do vybraného priečinka a nahradí rovnomenné miestne kópie.
 - **Aktualizácie**: **Skontrolovať aktualizácie**, potom **Aktualizovať** alebo **Aktualizovať všetko**. Voľba **Kontrolovať aktualizácie automaticky raz za týždeň** je jediné automatické spojenie aplikácie: ide len na repozitár LAWOSS Marketplace na GitHube, nikdy hneď pri štarte, a samo nič neinštaluje.
 
 Ak ste v plugine upravili súbor, aktualizácia ani odinštalovanie ho bez opýtania neprepíšu. Pri každom súbore vyberiete, či **Ponechať moju úpravu**, **Prevziať novú verziu a moju úpravu uložiť bokom** alebo **Prevziať novú verziu (moja úprava sa zahodí)**. Plugin odstránite zo všetkých klientov cez **Odinštalovať pre všetkých klientov**.
@@ -30,22 +30,25 @@ Doplnky nemenia dokumenty klientov; každá zmena aj naďalej potrebuje vaše sc
 
 ## MCP konektory
 
-Konektory (MCP) sú na záložke **Plugins** v časti **Konektory**. Každý konektor ukazuje stav (napríklad **Pripojené**) a po otvorení **Nastavenia pripojenia**, **Prístup k účtu** a prepínač **Používať v konverzáciách**. Konektor, ktorý potrebuje prihlásenie, má tlačidlo **Prihlásiť sa**; údaje, ktoré potrebuje, zadáte cez **Nastaviť**. Konektor vypnete tlačidlom **Zakázať**, znova zapnete **Povoliť** a odstránite **Odstrániť**.
+Pridané konektory (MCP) sú na karte **Nainštalované**. Každý konektor ukazuje stav (napríklad **Pripojené**) a po otvorení **Nastavenia pripojenia**, **Prístup k účtu** a prepínač **Používať v konverzáciách**. Konektor, ktorý potrebuje prihlásenie, má tlačidlo **Prihlásiť sa**; údaje, ktoré potrebuje, zadáte cez **Nastaviť**. Konektor vypnete tlačidlom **Zakázať**, znova zapnete **Povoliť** a odstránite **Odstrániť**.
 
 Konektory z balíkov LAWOSS Marketplace sú označené ako **Plugin: LAWOSS Marketplace**. **Prehliadať katalóg** otvorí **Katalóg konektorov**; skryté položky ukáže **Zobraziť skryté**.
 
 ## Skilly
 
-Záložka **Skills** ukazuje pribalené, nainštalované a importované skilly. Skill je návod pre agenta na opakovanú prácu; v chate ho spustíte napísaním `/` a výberom zo zoznamu. Nový skill pridáte cez **Pridať** a **Skills**, alebo ho importujete cez **Importovať**. Priečinok so skillmi otvoríte cez **Ďalšie akcie** a **Otvoriť priečinok skills**.
+V Nastaveniach otvorte **Skills**. Skill je návod pre agenta na opakovanú prácu. V chate ho vyberiete napísaním `/`. Osobný skill otvoríte kliknutím na jeho názov a zmeníte cez **Upraviť**. Tlačidlo **Pridať** vytvorí nový skill.
+
+Cez **Importovať skills** vyberiete kompatibilný balík z miestnej inštalácie ChatGPT alebo Claude, priečinok, ZIP alebo repozitár na GitHube. Pred uložením skontrolujte jeho obsah. Import neprihlasuje cloudový účet a neprenáša históriu chatov.
 
 ## Pluginy
 
-Plugin je balík skillov a konektorov.
+Plugin môže obsahovať skilly aj konektory. Na karte **LAWOSS Marketplace** môžete zobraziť všetky balíky alebo filtrovať nainštalované balíky a balíky dostupné na inštaláciu.
 
-- **Importovať** pridá plugin z priečinka (**Vybrať priečinok**), zo ZIP súboru (**Vybrať ZIP**) alebo z **URL repozitára pluginu**. Pred importom ukáže, čo plugin obsahuje a čo potrebuje (**Skontrolovať pred importom**).
-- **Vlastný** v katalógu konektorov otvorí **Nový plugin**: spojíte skilly a konektory zo svojej knižnice do jedného balíka a zvolíte **Vytvoriť plugin**. Vytvoria sa nezávislé kópie; prihlásenia ku konektorom sa nekopírujú.
+Na karte **Google Workspace** rozbaľte **Inštalovať skill**, zvoľte rozsah a potvrďte inštaláciu. Ak už je nainštalovaný, zvoľte **Spravovať inštaláciu**. Pripojený účet a stav prihlásenia overíte v termináli príkazom `gog auth list --check`.
 
-Nainštalované pluginy sú v zozname pod konektormi; filtrom **Zdroj knižnice** ich zúžite. Hľadať môžete cez **Hľadať pluginy…**.
+## Podpisovanie PDF na Macu
+
+Karta **Chevron7** v nástrojoch kancelárie ukáže stav inštalácie. Podpis spustíte pri konkrétnom PDF. Postup podpisovania aj čítania podpisov je v časti [Elektronické podpisy v PDF](klienti-a-pripady.md#elektronické-podpisy-v-pdf).
 
 ## Úložisko súborov
 

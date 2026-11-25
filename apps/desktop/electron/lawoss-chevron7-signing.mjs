@@ -1,13 +1,15 @@
 // The installed Chevron7 Quick Action owns certificate selection and PIN entry.
-// No credential, helper output, document bytes or signing path crosses renderer IPC.
+// Only the workspace identity and selected relative file path come from the renderer.
 import { access, realpath, stat, open } from "node:fs/promises";
 import { constants } from "node:fs";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
-import { CHEVRON7_BUNDLE_ID, findChevron7App } from "./lawoss-chevron7.mjs";
+import { CHEVRON7_BUNDLE_ID, CHEVRON7_REQUIREMENT, findChevron7App } from "./lawoss-chevron7.mjs";
+import { resolveProjectFolder } from "./project-file-copy.mjs";
 
 const exec = promisify(execFile);
+const pdfHeader = Buffer.from("%PDF-");
 const resources = "Contents/Resources/Chevron7 Finder Quick Action.workflow/Contents/Resources";
 
 export async function findChevron7Signing({ platform, arch = process.arch, roots }) {
@@ -44,7 +46,7 @@ export async function isSigningPdf(file) {
   try {
     const header = Buffer.alloc(5);
     await handle.read(header, 0, 5, 0);
-    return header.toString("ascii") === "%PDF-";
+    return header.equals(pdfHeader);
   } finally { await handle.close(); }
 }
 
@@ -79,9 +81,49 @@ export function runChevron7QuickAction(script, file, { timeout = 15 * 60_000, si
   });
 }
 
+/** The window route owns the current project. Unscoped session windows use the host selection. */
+export function currentSigningWorkspace(request, windowUrl, state, server) {
+  if (typeof request?.workspaceId !== "string" || !request.workspaceId || !server?.running ||
+      typeof server.baseUrl !== "string" || request.serverUrl !== server.baseUrl.replace(/\/+$/, "")) return null;
+  const endpoint = new URL(server.baseUrl);
+  if (!["http:", "https:"].includes(endpoint.protocol) || !["127.0.0.1", "localhost", "[::1]"].includes(endpoint.hostname)) return null;
+  const url = new URL(windowUrl);
+  const route = url.hash.startsWith("#/") ? url.hash.slice(1) : url.pathname;
+  const match = /^\/workspace\/([^/?#]+)(?:[/?#]|$)/.exec(route);
+  const id = match ? decodeURIComponent(match[1]) : /^\/(?:session|home)(?:[/?#]|$)/.test(route) ? state.selectedId : null;
+  if (id !== request.workspaceId || state.workspaces.some(item => item.id === id && item.workspaceType === "remote")) return null;
+  return id;
+}
+
+/** Resolve the live preview server's root and reject conflicting native registrations. */
+export async function signingWorkspaceRoot(request, windowUrl, state, server) {
+  if (!windowUrl) return null;
+  const id = currentSigningWorkspace(request, windowUrl, state, server);
+  if (!id) return null;
+  const root = await realpath(await resolveProjectFolder(id, [], server));
+  const registered = state.workspaces.find(item => item.id === id);
+  if (registered && await realpath(registered.path) !== root) return null;
+  return root;
+}
+
+async function selectedPdf(root, relativePath) {
+  if (typeof root !== "string" || !path.isAbsolute(root) || typeof relativePath !== "string" ||
+      relativePath.length > 4096 || path.extname(relativePath).toLowerCase() !== ".pdf" ||
+      /[\\\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/.test(relativePath) || /^[a-z][a-z\d+.-]*:/i.test(relativePath) ||
+      relativePath.split("/").some(part => !part || part === "." || part === "..")) return null;
+  try {
+    const directory = await realpath(root);
+    const file = await realpath(path.join(directory, relativePath));
+    const local = path.relative(directory, file);
+    if (!local || local === ".." || local.startsWith(`..${path.sep}`) || path.isAbsolute(local) || !await isSigningPdf(file)) return null;
+    const info = await stat(file, { bigint: true });
+    return { file, identity: [info.dev, info.ino, info.size, info.ctimeNs].join("/") };
+  } catch { return null; }
+}
+
 export function createChevron7Signing(options, dependencies = {}) {
   const find = dependencies.find ?? (() => findChevron7Signing(options));
-  const verify = dependencies.verify ?? (bundle => exec("/usr/bin/codesign", ["--verify", "--deep", "--strict", bundle], { timeout: 15_000, maxBuffer: 4096 }));
+  const verify = dependencies.verify ?? (bundle => exec("/usr/bin/codesign", ["--verify", "--deep", "--strict", "-R", CHEVRON7_REQUIREMENT, bundle], { timeout: 15_000, maxBuffer: 4096 }));
   const run = dependencies.run ?? runChevron7QuickAction;
   let busy = false;
   let controller;
@@ -92,7 +134,7 @@ export function createChevron7Signing(options, dependencies = {}) {
       return installation ? { installed: true, version: installation.version, signingAvailable: installation.available }
         : { ...await findChevron7App(options), signingAvailable: false };
     },
-    async sign({ chooseFile, confirmFile }) {
+    async sign({ relativePath, resolveWorkspace, confirmFile }) {
       if (disposed) return { status: "unavailable" };
       if (busy) return { status: "busy" };
       busy = true;
@@ -100,14 +142,14 @@ export function createChevron7Signing(options, dependencies = {}) {
       try {
         const installation = await find();
         if (!installation?.available || disposed) return { status: "unavailable" };
-        const selection = await chooseFile();
-        if (!selection || disposed) return { status: "cancelled" };
-        const file = await realpath(selection);
-        if (!await isSigningPdf(file)) return { status: "invalid-file" };
-        if (!await confirmFile(path.basename(file)) || disposed) return { status: "cancelled" };
+        const selected = await selectedPdf(await resolveWorkspace(), relativePath);
+        if (!selected) return { status: "invalid-file" };
+        if (disposed || !await confirmFile(selected.file)) return { status: "cancelled" };
         await verify(installation.bundle);
+        const current = await selectedPdf(await resolveWorkspace(), relativePath);
+        if (!current || current.file !== selected.file || current.identity !== selected.identity) return { status: "invalid-file" };
         if (disposed) return { status: "cancelled" };
-        return await run(installation.script, file, { signal: controller.signal });
+        return await run(installation.script, current.file, { signal: controller.signal });
       } catch { return { status: "failed" }; }
       finally { busy = false; controller = undefined; }
     },

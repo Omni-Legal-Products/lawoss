@@ -48,6 +48,7 @@ export const lawossSettingGuides = {
   general: "nastavenia.md",
   ai: "ai-a-modely.md",
   extensions: "integracie.md",
+  skills: "integracie.md",
   permissions: "nastavenia.md",
   personalisation: "nastavenia.md",
   appearance: "nastavenia.md",

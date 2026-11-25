@@ -1,5 +1,11 @@
 /** UI copy only. Portable records, paths and jurisdiction values remain unchanged. */
 export const mattersEn = {
+  "lawoss.matters.rename": "Rename case",
+  "lawoss.matters.changed": "Could not save the name. Refresh the case and try again.",
+  "lawoss.matters.delegated": "Task delegated by LAWOSS",
+  "lawoss.matters.taskDetail": "Show task instructions",
+  "lawoss.matters.usedSources": "Sources used",
+  "lawoss.matters.failedSource": "Source call failed",
   "lawoss.matters.retry": "Try again",
   "lawoss.matters.memoryError": "Could not load case memory: {error}",
   "lawoss.matters.connectionLoading": "Loading the connection and workspaces…",
@@ -170,6 +176,12 @@ export const mattersEn = {
 };
 
 export const mattersCs: Record<keyof typeof mattersEn, string> = {
+  "lawoss.matters.rename": "Přejmenovat případ",
+  "lawoss.matters.changed": "Název se nepodařilo uložit. Obnov přehled případu a zkus to znovu.",
+  "lawoss.matters.delegated": "Úloha od asistenta LAWOSS",
+  "lawoss.matters.taskDetail": "Zobrazit zadání",
+  "lawoss.matters.usedSources": "Použité zdroje",
+  "lawoss.matters.failedSource": "Neúspěšné volání zdroje",
   "lawoss.matters.retry": "Zkusit znovu",
   "lawoss.matters.memoryError": "Paměť případů se nepodařilo načíst: {error}",
   "lawoss.matters.connectionLoading": "Načítám připojení a pracovní složky…",
@@ -340,6 +352,12 @@ export const mattersCs: Record<keyof typeof mattersEn, string> = {
 };
 
 export const mattersSk: Record<keyof typeof mattersEn, string> = {
+  "lawoss.matters.rename": "Premenovať prípad",
+  "lawoss.matters.changed": "Názov sa nepodarilo uložiť. Obnov prehľad prípadu a skús to znova.",
+  "lawoss.matters.delegated": "Úloha od asistenta LAWOSS",
+  "lawoss.matters.taskDetail": "Zobraziť zadanie",
+  "lawoss.matters.usedSources": "Použité zdroje",
+  "lawoss.matters.failedSource": "Neúspešné volanie zdroja",
   "lawoss.matters.retry": "Skúsiť znova",
   "lawoss.matters.memoryError": "Pamäť prípadov sa nepodarilo načítať: {error}",
   "lawoss.matters.connectionLoading": "Načítavam pripojenie a pracovné priečinky…",
@@ -510,6 +528,12 @@ export const mattersSk: Record<keyof typeof mattersEn, string> = {
 };
 
 export const mattersDe: Record<keyof typeof mattersEn, string> = {
+  "lawoss.matters.rename": "Fall umbenennen",
+  "lawoss.matters.changed": "Der Name konnte nicht gespeichert werden. Bitte aktualisieren und erneut versuchen.",
+  "lawoss.matters.delegated": "Auftrag vom LAWOSS-Assistenten",
+  "lawoss.matters.taskDetail": "Auftrag anzeigen",
+  "lawoss.matters.usedSources": "Verwendete Quellen",
+  "lawoss.matters.failedSource": "Quellenaufruf fehlgeschlagen",
   "lawoss.matters.retry": "Erneut versuchen",
   "lawoss.matters.memoryError": "Die Fallinformationen konnten nicht geladen werden: {error}",
   "lawoss.matters.connectionLoading": "Verbindung und Arbeitsbereiche werden geladen…",

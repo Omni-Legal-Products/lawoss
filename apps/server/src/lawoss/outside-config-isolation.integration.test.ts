@@ -166,12 +166,12 @@ test.skipIf(!ready)("klient outside: príkaz, skill a konektor A len v lokáciá
       const yoloOn = chat?.permissions.some(rule => rule.action === "shell" && rule.resource === "*" && rule.effect === "allow");
       // Nové nastavenia prídu do enginu postupne (súbory, RPC pluginu, prečítanie konfigurácie); čaká sa na všetky.
       if (listed.length === wanted.length && yoloOn && listed.every(agent => agent.permissions.some(rule => rule.resource === "rm *") === ownRule
-        && (agent.system ?? "").startsWith("You are LegalWork"))) break;
+        && (agent.system ?? "").startsWith("You are LAWOSS"))) break;
       await Bun.sleep(250);
     }
     return Object.fromEntries(listed.sort((x, y) => x.id.localeCompare(y.id)).map(agent => {
       const shell = agent.permissions.filter(rule => rule.action === "shell");
-      return [agent.id, { mode: agent.mode, hidden: agent.hidden, prompt: (agent.system ?? "").startsWith("You are LegalWork"),
+      return [agent.id, { mode: agent.mode, hidden: agent.hidden, prompt: (agent.system ?? "").startsWith("You are LAWOSS"),
         // Posledné pravidlo pre `rm *` a pre ostatné príkazy (vyhráva posledná zhoda).
         rm: shell.filter(rule => rule.resource === "rm *" || rule.resource === "*").at(-1)?.effect,
         other: shell.filter(rule => rule.resource === "*").at(-1)?.effect,

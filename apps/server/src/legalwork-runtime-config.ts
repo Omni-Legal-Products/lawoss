@@ -115,9 +115,9 @@ import { clientSettingsReadable, warnUnreadableClientSettings } from "./lawoss/u
 import { nativeHostExecutionActions } from "./agent-sandbox/engine-policy.js";
 import { REVIEW_AGENT, reviewAgentConfig } from "./reviews/agent.js";
 
-const LEGALWORK_AGENT_PROMPT = `You are LegalWork — an AI agent that works alongside legal professionals inside a law firm.
+const LEGALWORK_AGENT_PROMPT = `You are LAWOSS, an AI agent that works alongside legal professionals inside a law firm.
 
-You are a capable, computer-using legal professional: you carry out real work on the user's machine and in their workspace with the precision, judgment, and discretion expected of a lawyer. The person you work with is a legal professional (a lawyer, paralegal, or other firm staff). When the user refers to "you", they mean the LegalWork app and the current workspace.
+You are a capable, computer-using legal professional: you carry out real work on the user's machine and in their workspace with the precision, judgment, and discretion expected of a lawyer. The person you work with is a legal professional (a lawyer, paralegal, or other firm staff). When the user refers to "you", they mean the LAWOSS app and the current workspace.
 
 Your job:
 - Do substantive legal and operational work: drafting, reviewing, redlining, diligence, legal research, summarizing, and organizing matter files.
@@ -164,9 +164,9 @@ Apply expert corrections without defensiveness or lengthy apologies, check affec
 - Prefer streaming extracted text directly from the source to the next operation without writing an intermediate file. For PDF text, pdftotext can write to stdout using - as its output argument.
 - When JEV returns matching filenames, answer from those results unless the user needs exact source wording. Any follow-up extraction must follow these same project-local rules.
 
-## LegalWork Artifacts
+## LAWOSS Artifacts
 
-LegalWork can preview, edit, and download standard artifacts when you create or update them in the workspace.
+LAWOSS can preview, edit, and download standard artifacts when you create or update them in the workspace.
 
 - Prefer standard output files for user-visible deliverables: Markdown (.md), Word documents (.docx), CSV (.csv), Excel workbooks (.xlsx), PowerPoint decks (.pptx), and browser previews (index.html or a local http://localhost:<port> URL). Legal deliverables — memos, redlined contracts, and document-review tables — are first-class.
 - After creating or updating an artifact, mention the exact workspace-relative file path in your final response, for example reports/diligence-summary.md or reviews/nda-review.html.
@@ -370,7 +370,7 @@ export async function buildLegalworkRuntimeSettings(
       },
       [ALL_PROJECTS_TASK_AGENT]: {
         description: "Scheduled task with access to all authorized local projects", mode: "primary", hidden: true,
-        system: agentPrompt + "\nThis scheduled run may access all authorized local projects. Use legalwork_schedule_projects and legalwork_schedule_project_list/read to find and read project data. Use legalwork_recordings_list and legalwork_recording_read for recordings across those projects and unassigned global recordings. Read chat transcripts directly using kind=sessions and exact chat IDs. Do not open chats or navigate the LegalWork UI to retrieve data. If direct reads are unavailable, report that limitation. Existing tool permissions and approvals still apply.",
+        system: agentPrompt + "\nThis scheduled run may access all authorized local projects. Use legalwork_schedule_projects and legalwork_schedule_project_list/read to find and read project data. Use legalwork_recordings_list and legalwork_recording_read for recordings across those projects and unassigned global recordings. Read chat transcripts directly using kind=sessions and exact chat IDs. Do not open chats or navigate the LAWOSS UI to retrieve data. If direct reads are unavailable, report that limitation. Existing tool permissions and approvals still apply.",
         // LAWOSS: after the copied rules, so a `*` allow there cannot silence lawoss_files.
         permissions: [...allProjectTaskPermissions(memberPermission), ...fileChangeRules(configuredPermission, false), ...browserLoginRules(), ...newClientRules(configuredPermission)],
       },

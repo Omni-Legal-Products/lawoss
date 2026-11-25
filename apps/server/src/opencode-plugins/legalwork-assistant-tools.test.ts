@@ -35,7 +35,7 @@ test("only the Assistant coordinator receives reaction tools and coordinator ins
     expect(await permission("project", "allow", "legalwork_assistant_set_name")).toBe("deny");
     expect(await permission("project", "allow", "legalwork_assistant_delegate")).toBe("deny");
     expect(await permission("project", "allow", "legalwork_task_list")).toBe("allow");
-    expect(await context("project")).not.toContain("main LegalWork assistant");
+    expect(await context("project")).not.toContain("main LAWOSS assistant");
     expect(await context("project")).not.toContain("legalwork_assistant_react");
     await expect(nativeToolBefore(runtime, "legalwork_assistant_react", { emoji: "❤️" }, "project")).rejects.toThrow("only available in the main Assistant");
 

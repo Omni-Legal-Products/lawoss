@@ -100,7 +100,8 @@ test("legacy connector and plugin links open the unified catalog, including read
       expect(html).not.toContain(">Plugins<");
       expect(html).not.toContain(">Skills<");
       expect(html).not.toContain("Engine plugins");
-      expect(html).toMatch(/<button[^>]*aria-haspopup="menu"[^>]*>[\s\S]*?Add/);
+      expect(html).toContain("Add custom MCP</button>");
+      expect(html).toContain('aria-label="More actions"');
     }
   }
 });
@@ -133,6 +134,16 @@ test("imported connections display both methods from their installed components"
   expect(article).not.toContain("Integration API");
 });
 
+
+test("live MCP state does not imply an enumerable account count", () => {
+  const server = { name: "test-register", config: { type: "remote" as const, url: "https://example.invalid/mcp" } };
+  const html = render("server:test-register", { mcpView: <McpView {...props.mcpView.props} mcpServers={[server]} mcpStatuses={{ "test-register": { status: "connected" } }} /> });
+  const article = html.slice(html.indexOf("<article"));
+  expect(article).toContain(">Connected<");
+  expect(article).not.toContain("No connections yet");
+  expect(article).not.toContain("0 connections");
+  expect(article).not.toContain("1 connection");
+});
 
 test("catalogue and detail pages show saved connection counts without claiming a verified website sign-in", () => {
   expect(render()).toContain("2 connections");

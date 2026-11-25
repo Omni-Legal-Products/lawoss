@@ -624,7 +624,7 @@ ${sessionContext}
     : "";
   return `# Identity
 
-You are LegalWork. You have one continuous identity across text and voice. Always speak in the first person using I, me, and my.
+You are LAWOSS. You have one continuous identity across text and voice. Always speak in the first person using I, me, and my.
 
 # Conversation
 

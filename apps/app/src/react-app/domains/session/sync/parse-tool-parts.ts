@@ -77,9 +77,14 @@ export function parseDynamicToolUIPart(part: ToolPart): DynamicToolUIPart | null
         call && typeof call === "object" && "tool" in call && typeof call.tool === "string"
           && "status" in call && typeof call.status === "string" && ["running", "completed", "error"].includes(call.status) ? [call.tool] : [])
     : [];
+  const failedTools = part.tool === "execute" && Array.isArray(metadata?.toolCalls)
+    ? metadata.toolCalls.flatMap((call: unknown) => call && typeof call === "object"
+      && "status" in call && call.status === "error" && "tool" in call && typeof call.tool === "string" ? [call.tool] : [])
+    : [];
   const callProviderMetadata = { opencode: {
     partId: part.id,
     ...(executedTools.length ? { executedTools } : {}),
+    ...(failedTools.length ? { failedTools } : {}),
     ...(toolNames.length ? { toolNames } : {}),
     ...((part.tool === "view_create" || part.tool === "view_update") && part.state.status === "pending" && part.state.raw ? { rawInput: part.state.raw.slice(0, 200_000) } : {}),
     ...(typeof childSessionId === "string" ? { sessionId: childSessionId } : {}),

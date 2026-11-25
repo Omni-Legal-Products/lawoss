@@ -80,7 +80,7 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)(`ordinary project sessions
     await host.appClient.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(20000) });
     expect(prompts.length).toBeGreaterThan(0);
     expect(prompts[0]).not.toContain("legalwork_assistant_");
-    expect(prompts[0]).not.toContain("main LegalWork assistant");
+    expect(prompts[0]).not.toContain("main LAWOSS assistant");
     expect(requests[0].some(name => name.startsWith("legalwork_assistant_"))).toBe(false);
     if (!directTools) {
       const history = await assistantEngineClient(host.appClient, host.directory).session.messages({ sessionID: session.id });

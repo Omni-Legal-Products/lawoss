@@ -9,7 +9,8 @@ import { ArtifactFrame } from "../../session/artifacts/artifact-frame";
 import { ArtifactIcon } from "../../session/artifacts/artifact-icon";
 import { OfficeEditorBoundary } from "../../session/artifacts/office-editor-boundary";
 import { classifyOpenTarget, type Data } from "../../session/artifacts/open-target";
-import { ImagePreview, PdfPreview, PreviewLoading, PreviewUnavailable } from "../../session/artifacts/preview";
+import { PdfSignaturePreview } from "@/lawoss/pdf/signature-preview";
+import { ImagePreview, PreviewLoading, PreviewUnavailable } from "../../session/artifacts/preview";
 import { MediaPreview } from "../../session/artifacts/media-preview";
 import type { DocxEditorApi } from "../../session/artifacts/artifact-docx-editor";
 import type { OfficeEditorApi } from "../../session/artifacts/office-editor-state";
@@ -154,7 +155,7 @@ function ResourceContent({ draft, readOnly, docxApi, officeApi, sheetApi, onSave
   if (type === "markdown") return <MarkdownEditor suppressHtmlProcessing value={draft.content} baseline={draft.baseline} readOnly={readOnly} onChange={(content) => editWorkflowResource(draft.id, { content })} imageUpload={imageUpload} imagePreview={imagePreview} />;
   if (isTextWorkflowResource(draft.name)) return <TextEditor value={draft.content} language="text" readOnly={readOnly} onChange={(content) => editWorkflowResource(draft.id, { content })} />;
   if (!url) return <PreviewLoading />;
-  if (type === "pdf") return <PdfPreview url={url} title={draft.name} />;
+  if (type === "pdf" && buffer) return <PdfSignaturePreview key={url} bytes={buffer} url={url} title={draft.name} />;
   if (type === "image") return <ImagePreview src={url} alt={draft.name} />;
   if (type === "audio" || type === "video") return <MediaPreview kind={type} src={url} title={draft.name} />;
   return <PreviewUnavailable />;

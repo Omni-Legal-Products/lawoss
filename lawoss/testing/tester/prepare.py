@@ -13,6 +13,31 @@ from urllib.parse import urlencode
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "cz-workflow-derived-v1"
 
 
+PILOT_LABELS = {
+    "sk": ("Kontrola pilotu", "Výsledok", "Pozorovanie alebo dôkaz", "Neskúšané",
+           "Modely a návrat z prihlásenia", "Blesk Fast a úroveň uvažovania", "Názov prípadu a podprípady",
+           "Integrácie, OKF a vlastné MCP", "Google Workspace cez gog", "Skills a lokálny import Codex aj Claude",
+           "Zdroje MCP a zadanie podriadeného asistenta", "Podpisovanie cez Chevron7",
+           "Prehľad elektronických podpisov v PDF"),
+    "cz": ("Kontrola pilotu", "Výsledek", "Pozorování nebo důkaz", "Nevyzkoušeno",
+           "Modely a návrat z přihlášení", "Blesk Fast a úroveň uvažování", "Název případu a podřízené případy",
+           "Integrace, OKF a vlastní MCP", "Google Workspace přes gog", "Skills a místní import Codex i Claude",
+           "Zdroje MCP a zadání podřízeného asistenta", "Podepisování přes Chevron7",
+           "Přehled elektronických podpisů v PDF"),
+    "en": ("Pilot check", "Result", "Observation or evidence", "Untested",
+           "Models and return from sign-in", "Fast toggle and reasoning effort", "Case title and child cases",
+           "Integrations, OKF and custom MCP", "Google Workspace through gog", "Skills and local Codex and Claude import",
+           "MCP sources and delegated task", "Signing through Chevron7", "PDF electronic signature details"),
+}
+
+
+def pilot_matrix(locale):
+    title, result, evidence, initial, *checks = PILOT_LABELS[locale]
+    rows = [f"| {title} | {result} | {evidence} |", "| --- | --- | --- |"]
+    rows.extend(f"| {name} | {initial} | |" for name in checks)
+    return "\n".join(rows)
+
+
 def prepare(parent, locale, system, arch, version):
     """Create a new session. The feedback draft lives outside the app workspace."""
     if version and not re.fullmatch(r"[A-Za-z0-9.+_-]{1,60}", version):
@@ -36,6 +61,7 @@ def prepare(parent, locale, system, arch, version):
             "# LAWOSS | Test / Testovanie\n\n"
             f"Verzia / Version: {version or '[Settings → Updates]'}\n"
             f"OS / CPU: {system or '?'} / {arch or '?'}\n\n"
+            f"{pilot_matrix(locale)}\n\n"
             "## Kroky / Steps\n\n## Očakávané / Expected\n\n"
             "## Pozorované / Observed\n\n## Opakovateľnosť / Reproducibility\n\n"
             "## Prílohy / Attachments\n\n"

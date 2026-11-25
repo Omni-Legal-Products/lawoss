@@ -48,6 +48,33 @@ export function isSessionIndexRoute(pathname: string) {
   return /^(?:\/workspace\/[^/]+)?\/session\/?$/.test(pathname);
 }
 
+export type SettingsPathParts = {
+  tab: SettingsTab;
+  workflowsSection?: "workflows" | "prompts" | "skills";
+  extensionsSection?: "all" | "mcp" | "skills" | "plugins" | "storage";
+  benchmarkRunId?: string;
+  benchmarkTaskId?: string;
+  benchmarkItemId?: string;
+  benchmarkItemChat?: boolean;
+};
+
+export function settingsPathForRoute(route: SettingsPathParts) {
+  if (route.tab === "workflows" && route.workflowsSection && route.workflowsSection !== "workflows") return `workflows/${route.workflowsSection}`;
+  if (route.tab === "extensions" && route.extensionsSection && route.extensionsSection !== "all") {
+    return `extensions/${route.extensionsSection}`;
+  }
+  if (route.tab === "benchmark" && route.benchmarkRunId) {
+    const base = `benchmark/runs/${encodeURIComponent(route.benchmarkRunId)}`;
+    if (!route.benchmarkItemId) return base;
+    const itemPath = `${base}/items/${encodeURIComponent(route.benchmarkItemId)}`;
+    return route.benchmarkItemChat ? `${itemPath}/chat` : itemPath;
+  }
+  if (route.tab === "benchmark" && route.benchmarkTaskId) {
+    return `benchmark/tasks/${encodeURIComponent(route.benchmarkTaskId)}`;
+  }
+  return route.tab;
+}
+
 export function workspaceSettingsRoute(
   workspaceId: string,
   tab: SettingsTab | "extensions/mcp" | "extensions/plugins" | string = "general",

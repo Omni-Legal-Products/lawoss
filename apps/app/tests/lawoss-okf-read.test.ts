@@ -1,3 +1,4 @@
+import { writeMatterTitle } from "../src/lawoss/lite/matter-title";
 import { describe, expect, test } from "bun:test";
 
 import { LAYER_OF, type RecordType } from "../../../lawoss/okf-pamat/src/schema.ts";
@@ -6,7 +7,7 @@ import { addDays, buildOverview, deadlineTier, type MatterInput } from "../../..
 import { pendingInputs } from "../../../lawoss/okf/inputs";
 import { buildCockpit } from "../../../lawoss/okf/cockpit";
 import { buildMatterViews } from "../../../lawoss/okf/views";
-import { MAX_DISCOVERY_DIRECTORIES, MAX_MATTERS, readWorkspaceMemory, type OkfReadClient } from "../src/lawoss/okf/read-model";
+import { DISPLAY_CARD, MAX_DISCOVERY_DIRECTORIES, MAX_MATTERS, readWorkspaceMemory, type OkfReadClient } from "../src/lawoss/okf/read-model";
 import { groupByClient } from "../src/lawoss/lite/today-model";
 
 const TODAY = "2026-09-12";
@@ -673,4 +674,25 @@ test("#264: vec s kartou a kódom iného klienta ostáva vecou, nie cudzím prie
   }), "ws", TODAY);
   expect(out.inputs.map((input) => input.path)).toEqual(["C002 SYN Hron/C099 SYN Vec"]);
   expect(out.foreignClientFolders).toBeUndefined();
+});
+
+test("renaming a legacy parent preserves its child cases after reloading", async () => {
+  const parent = "AK/Z/Example";
+  const child = parent + "/Lease";
+  const files: Record<string, string> = { [parent + "/notes.md"]: "parent", [child + "/contract.pdf"]: "child" };
+  const client = fakeClient(files);
+  const first = await readWorkspaceMemory(client, "ws", TODAY);
+  const selected = first.matters.find(item => item.path === parent)!;
+  expect(first.matters.map(item => item.path).sort()).toEqual([parent, child]);
+  await writeMatterTitle({
+    readWorkspaceFile: async (_, path) => ({ content: files[path]!, path, updatedAt: 1, bytes: files[path]!.length }),
+    writeWorkspaceFile: async (_, update) => {
+      expect(update.createOnly).toBe(true);
+      files[update.path] = update.content;
+      return { ok: true, path: update.path, updatedAt: 1, bytes: update.content.length };
+    },
+  }, "ws", parent + "/" + DISPLAY_CARD, selected, "New display title");
+  const second = await readWorkspaceMemory(fakeClient(files), "ws", TODAY);
+  expect(second.matters.map(item => item.path).sort()).toEqual([parent, child]);
+  expect(second.matters.find(item => item.path === parent)?.title).toBe("New display title");
 });

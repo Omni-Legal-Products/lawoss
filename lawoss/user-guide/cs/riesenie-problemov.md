@@ -9,6 +9,9 @@ Při hlášení chyby uveďte přesný text chyby a tlačítko nebo obrazovku, k
 | Běžný chat odmítá zprávy s obsahem klienta | Jsou zapnuté **Hranice AI**. Viz [AI a modely](ai-a-modely.md). |
 | Chat hlásí, že nemůže použít soubory klienta, protože LAWOSS nepotvrdil spojení se svým AI jádrem | Ukončete LAWOSS úplně, znovu ho otevřete a zprávu pošlete znovu. Nic se nepřečetlo ani nezměnilo. |
 | Agent nevidí soubor mimo složku klienta | Pokud soubor patří tomuto klientovi, připojte jeho složku v **Připojené složky**. Složky jiných klientů nepřipojujte. Viz [Klienti a případy](klienti-a-pripady.md). |
+| U PDF vidím **V PDF nebyl nalezen elektronický podpis**, přestože na stránce je obrázek podpisu | Obrázek může být součástí stránky. Otevřete podepsanou kopii a rozbalte údaje o elektronických podpisech. [Podpisy v PDF](klienti-a-pripady.md#elektronické-podpisy-v-pdf) |
+| LAWOSS hlásí **Podpisy se nepodařilo zkontrolovat** nebo zobrazí částečný výsledek | Ověřte, že máte otevřený celý správný soubor. Pokud potřebujete rozhodnout o platnosti, ověřte původní PDF ve validátoru podpisů. |
+| V chatu nevidím blesk **Fast** | Vyberte model připojeného předplatného ChatGPT, který nabízí přednostní zpracování. [AI a modely](ai-a-modely.md) |
 | Naskenované PDF se nepřečte | Zapněte **Rozpoznávání textu ze skenů (OCR)**. Pokud stahování modelu selže, zkontrolujte připojení a volné místo na disku a zvolte **Opakovat stahování**. |
 | Přehled nebo Dnes hlásí **Podklady se nepodařilo přečíst, lhůty proto nejsou známé.** nebo **Přehled praxe je neúplný. Mohou existovat další lhůty.** | Neúplný přehled neznamená, že lhůty nejsou. Zkontrolujte případy a zkuste stránku obnovit. |
 | **Chaty se nepodařilo načíst** | Zvolte **Zkusit znovu**. |

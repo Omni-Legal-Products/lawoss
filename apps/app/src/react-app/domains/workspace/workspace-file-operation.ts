@@ -16,6 +16,13 @@ export async function operateWorkspaceFile(file: WorkspaceFile, operation: Legal
   const perform = async () => {
     const [result] = await file.client.applyWorkspaceFileOperations(file.workspaceId, [operation]);
     if (!result?.ok) throw new Error(result?.message ?? t("storage.failed"));
+    if (operation.type === "delete" || operation.type === "rename") {
+      // A signed preview can outlive its file tab. Drop the old bytes as soon as the file moves.
+      void queryClient.resetQueries({
+        queryKey: ["artifact-panel", file.workspaceId],
+        predicate: query => query.queryKey[3] === file.client.baseUrl && within(query.meta?.pdfPath),
+      });
+    }
     await relink();
     if (operation.type === "rename") changePinnedPaths(file.workspaceId, "local", operation.from, operation.to);
     if (operation.type === "delete") changePinnedPaths(file.workspaceId, "local", operation.path);

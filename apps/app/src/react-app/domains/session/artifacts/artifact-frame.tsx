@@ -8,12 +8,13 @@ import { ExpandedDocumentBar } from "./expanded-document-bar";
 
 export const ArtifactOriginContext = createContext<ReactNode>(null);
 
-export function ArtifactFrame({ title, icon, meta, actions, expandable, children }: {
+export function ArtifactFrame({ title, icon, meta, actions, expandable, renderHeader, children }: {
   title: string;
   icon?: ReactNode;
   meta?: ReactNode;
   actions: ReactNode;
   expandable: boolean;
+  renderHeader?: (expanded: boolean, toggle: () => void) => ReactNode;
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -33,7 +34,7 @@ export function ArtifactFrame({ title, icon, meta, actions, expandable, children
     >
       {expanded && <ExpandedDocumentBar label={t("artifact.exit_fullscreen")} onRestore={() => setExpanded(false)} />}
       {origin}
-      <PanelHeader wrapActions title={title} icon={icon} meta={meta}>
+      {renderHeader ? renderHeader(expanded, () => setExpanded(value => !value)) : <PanelHeader wrapActions title={title} icon={icon} meta={meta}>
         {actions}
         {expandable && (
           <Tooltip>
@@ -45,7 +46,7 @@ export function ArtifactFrame({ title, icon, meta, actions, expandable, children
             <TooltipContent>{expanded ? t("artifact.restore_panel") : t("artifact.expand_document")}</TooltipContent>
           </Tooltip>
         )}
-      </PanelHeader>
+      </PanelHeader>}
       {children}
     </div>
   );

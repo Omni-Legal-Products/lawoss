@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { engineTestFiles } from './run-engine-tests.mjs';
+import { engineTestFiles, LAWOSS_CI_ENGINE_TESTS } from './run-engine-tests.mjs';
 import { sourceBuildIdentity } from '../../packages/opencode-release/build/prepare.mjs';
 import recipe from '../../packages/opencode-release/build/recipe.json' with { type: 'json' };
 
@@ -75,6 +75,7 @@ test('real engine job cannot pass by silently skipping all engine fixtures', () 
   assert.equal(serverTests.if, "needs.changes.outputs.server == 'true'");
   assert.match(serverTests.run, /run-engine-tests.mjs/);
   const files = engineTestFiles(fileURLToPath(new URL('../../apps/server/src', import.meta.url)));
+  assert.ok(LAWOSS_CI_ENGINE_TESTS.includes('lawoss/chatgpt-native-models.released.test.ts'));
   for (const suffix of ['managed-opencode.released.test.ts', 'scheduled-tasks/engine.test.ts', 'managed-opencode.search.e2e.test.ts', 'opencode-plugins/pdf-reading.integration.test.ts']) assert.ok(files.some(filename => filename.endsWith(suffix)), suffix);
 });
 

@@ -13,7 +13,7 @@ Použijte tuto mapu, když víte, co chcete udělat, ale ne kde. Seznam tras a k
 | Přehled (pod klientem) | Přehled klienta: případy, lhůty, vstupy, chaty | [Klienti a případy](klienti-a-pripady.md) |
 | Případy (pod klientem) | Stránka případu, rychlé akce, chaty případu | [Klienti a případy](klienti-a-pripady.md) |
 | Chaty (pod klientem) | Chaty klienta | [Chaty](chaty.md) |
-| Soubory (pod klientem) | Soubory ve složce klienta | [Klienti a případy](klienti-a-pripady.md) |
+| Soubory (pod klientem) | Náhled souborů a elektronické podpisy v PDF | [Klienti a případy](klienti-a-pripady.md) |
 | Připojené složky (pod klientem) | Další složky téhož klienta | [Klienti a případy](klienti-a-pripady.md) |
 | Lhůty (pod klientem) | Registr lhůt klienta, pouze ke čtení | [Dnes a lhůty](dnes-a-lehoty.md) |
 | K zařazení | Dokumenty, které ještě nejsou v žádném případu | [Dnes a lhůty](dnes-a-lehoty.md) |
@@ -26,6 +26,7 @@ Použijte tuto mapu, když víte, co chcete udělat, ale ne kde. Seznam tras a k
 | --- | --- | --- |
 | Poskytovatelé AI | Jak připojit model, hranice AI, OCR skenů? | [AI a modely](ai-a-modely.md) |
 | Integrace | Jak přidat balíček z Marketplace, konektor, skill nebo plugin? | [Integrace](integracie.md) |
+| Skills | Jak otevřít, vytvořit nebo importovat místní skill? | [Integrace](integracie.md) |
 | Oprávnění | Ke kterým složkám má agent přístup? | [Nastavení](nastavenia.md) |
 | Oprávnění nástrojů | Co smí agent dělat bez ptaní, YOLO Mode? | [Chaty](chaty.md), [Nastavení](nastavenia.md) |
 | Jazyk | Jak změnit jazyk rozhraní? | [Nastavení](nastavenia.md) |

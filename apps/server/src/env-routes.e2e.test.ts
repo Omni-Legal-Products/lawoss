@@ -524,7 +524,7 @@ describe("env routes", () => {
 
     const failureText = response.status === 200 ? "" : await response.clone().text();
     expect({ status: response.status, failureText }).toEqual({ status: 200, failureText: "" });
-    expect(realtimeInstructions).toContain("You are LegalWork. You have one continuous identity across text and voice.");
+    expect(realtimeInstructions).toContain("You are LAWOSS. You have one continuous identity across text and voice.");
     expect(realtimeInstructions).toContain("Before speaking after any user turn, choose exactly one route");
     expect(realtimeInstructions).toContain("ask one concise clarification before starting work");
     expect(realtimeInstructions).toContain("Never answer an actionable new substantive request from general knowledge in voice");

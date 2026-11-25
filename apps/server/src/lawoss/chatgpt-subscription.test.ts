@@ -6,7 +6,7 @@ import { offeredModels, providerSource } from "./chatgpt-subscription.js";
 
 // Synthetic engine 2.1.4: OpenAI signed in with a ChatGPT subscription (active OAuth connection of the openai
 // integration; v2 providers have no `source`), the subscription's catalogue as the engine's chatgpt.ts plugin leaves it
-// (it still keeps gpt-5.5 and the -fast variants, which LAWOSS does not offer) and an engine default the subscription rejects.
+// (it still keeps the retired gpt-5.5 as well as supported Fast aliases) and an engine default the subscription rejects.
 const keys = ["gpt-5.3-codex-spark", "gpt-5.4", "gpt-5.4-fast", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra-fast", "gpt-6-luna", "gpt-6-luna-fast"];
 const chat = (id: string) => ({ id, modelID: id.replace(/-fast$/, ""), providerID: "openai", name: id, enabled: true, limit: { context: 272000, output: 128000 }, capabilities: { input: ["text"], output: ["text"] } });
 type Connection = { type: "credential"; id: string; label: string; method: "oauth" | "key" } | { type: "env"; name: string };
@@ -35,7 +35,7 @@ const executor = new ReviewExecutor(config, { settings: async () => structuredCl
 test("tabular review offers only subscription models, Luna first, and never the rejected engine default", async () => {
   const found = await executor.models(workspace);
   const ids = found.models.filter(model => model.backend === "llm").map(model => model.model);
-  expect(ids).toEqual(["gpt-6-luna", "gpt-5.6-sol"]);
+  expect(ids).toEqual(["gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra-fast", "gpt-6-luna-fast"]);
   expect(found.settings.llm).toEqual({ providerId: "openai", model: "gpt-6-luna" });
 });
 

@@ -18,11 +18,15 @@ Pod **Prípady** je každý prípad klienta, pod prípadom jeho chaty a **Nový 
 
 ## Prehľad klienta
 
+V časti **Priečinok klienta** vidíte počty súborov a podpriečinkov na prvej úrovni a môžete priamo otvoriť index či poznámky. **Obnoviť z disku** načíta aktuálne údaje. Ak sú na disku dokumenty a v prehľade ešte chýbajú prípady, vyberte **Spracovať priečinok v chate**. Skontrolujte pripravenú správu a model, potom ju odošlite. Asistent má uviesť zdroje a počkať na schválenie zmien. **Náhľad štruktúry priečinka** otvorí sprievodcu evidenciou. Polia v časti **Detaily klienta** sa spravujú samostatne.
+
 **Prehľad** pod klientom ukazuje **Prehľad klienta**: jeho **Prípady** s fázou a ďalším krokom, **Najbližšie lehoty**, **Najbližší termín**, **Otvorené úlohy z prípadov**, **Vstupy klienta** a **Chaty klienta**. Odkaz **Všetky lehoty klienta** otvorí register lehôt len pre tohto klienta. Údaje sa čítajú z pomocných súborov OKF v priečinku klienta; ak sa niečo nedalo prečítať, prehľad to napíše (napríklad **Podklady sa nepodarilo prečítať, lehoty preto nie sú známe.**).
 
 ## Prípad
 
 Kliknutím na prípad otvoríte jeho stránku. Karta **Prehľad** zhŕňa prípad v blokoch (napríklad **Základ**, **Konanie**, **Korporátna agenda**, **Duševné vlastníctvo**) podľa toho, čo LAWOSS rozpozná zo súborov. Bloky zmeníte cez **Upraviť** a **Uložiť do karty prípadu**. Karta **Čo vieme** ukazuje záznamy z pamäte prípadu.
+
+Ceruzka vedľa názvu otvorí **Premenovať prípad**. Zadajte nový názov a zvoľte **Uložiť**. Zmena platí pre názov na karte prípadu. Súbory a priečinok nájdete na pôvodnej ceste. Ak sa karta medzičasom zmenila, obnovte prehľad a skúste úpravu znova.
 
 Na stránke prípadu sú aj **Rozpracované chaty** s tlačidlom **Pokračovať**, **Časová os**, **Lehoty v najbližších 14 dňoch** a **Otvorené úlohy**.
 
@@ -39,5 +43,13 @@ Pripájajte len priečinok, ktorý naozaj patrí tomuto klientovi. Ak priečinok
 ## Súbory
 
 **Súbory** pod klientom ukazujú súbory v priečinku klienta. Dokumenty z odpovedí agenta otvoríte z odkazu v chate.
+
+### Elektronické podpisy v PDF
+
+Pri čítaní vedľa chatu môžete dokument rozšíriť ikonou v pravom hornom rohu. V desktopovej čítačke zapnite **Nástroje PDF** pre výber strany, zväčšenie alebo tlač. Ponuka s tromi bodkami vedľa ikony rozšírenia obsahuje akcie súboru. Na Macu má tlačidlo **Podpísať v Chevron7** pri názve súboru ikonu pera.
+
+Otvorte PDF v **Súboroch**. Nad stranou rozbaľte **Elektronické podpisy** s uvedeným počtom. Pre každý nájdený podpis alebo časovú pečiatku si môžete pozrieť dostupné údaje, napríklad formát, uvedenú podpisujúcu osobu, vydavateľa jej certifikátu a uvedený čas. Pri nepodpísanom poli sa v detaile zobrazí **Prázdne podpisové polia** s počtom. Pri nájdenom podpise sa zobrazí **Dôveryhodnosť neoverená**. Ak chcete potvrdiť platnosť či kvalifikovanosť podpisu, dôveryhodnosť certifikátu alebo platnosť časovej pečiatky, overte súbor v nástroji na validáciu podpisov.
+
+Na Macu s Apple Silicon vyberte v náhľade alebo v ponuke lokálneho PDF **Podpísať v Chevron7**. Skontrolujte súbor v potvrdzovacom okne LAWOSS a vyberte certifikát a zadajte PIN v Chevron7. Po návrate otvorte vytvorený súbor v LAWOSS. Ak v Chevron7 úkon zrušíte, jeho zavretie samo osebe nepotvrdzuje vytvorenie podpísanej kópie.
 
 Súvisí: [Chaty](chaty.md), [Dnes a lehoty](dnes-a-lehoty.md), [Nastavenia](nastavenia.md).
