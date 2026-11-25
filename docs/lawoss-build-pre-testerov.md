@@ -1,23 +1,23 @@
 # LAWOSS: návod pre alfa testerov
 
 > [!IMPORTANT]
-> Toto je alfa verzia LAWOSS na testovanie. Skúšajte ju na syntetických dátach alebo na kópii priečinka. Vlastné spisy len na vlastné riziko.
+> Toto je alfa verzia LAWOSS na testovanie. Skúšajte ju na syntetických dátach alebo na kópii priečinka. Pri internom nepodpísanom builde používajte výlučne syntetické alebo verejné údaje.
 
 Tento návod je pre právnikov, ktorí skúšajú alfu. Technické časti sú až na konci, v časti „Pre technických testerov“.
 
 ## 1. Alfa, nie hotový produkt
 
 - Appka sa môže zmeniť alebo spadnúť. Chyby sú očakávané a hlásenie je presne to, čo od vás chceme.
-- Na skúšanie používajte syntetické dáta z časti 3. Ak chcete vyskúšať vlastný priečinok, použite jeho kópiu. Originál nechajte nedotknutý.
+- Na skúšanie používajte syntetické dáta z časti 3. Ak skúšate priečinok s povolenými údajmi, použite jeho kópiu. Originál nechajte nedotknutý.
 - Do appky nevkladajte klientske údaje, ktoré nesmiete poslať poskytovateľovi modelu. Text dokumentov, na ktoré sa pýtate, ide k poskytovateľovi, ktorého ste pripojili.
 - Kľúč od poskytovateľa nevkladajte do rozhovoru, snímok obrazovky ani hlásení.
 
 ## 2. Stiahnutie appky
 
-Hotové verzie sú v [releasoch forku](https://github.com/Omni-Legal-Products/lawoss/releases). Stiahnite si najnovšiu alfu. Sami nič neskladáte.
+Osobná pozvánka zobrazuje zverejnenú alfu pre váš systém. Verziu si môžete overiť aj v [releasoch forku](https://github.com/Omni-Legal-Products/lawoss/releases). Koncept označený „len interný tím“ je určený členom tímu na skúšanie so syntetickými alebo verejnými údajmi.
 
-- **macOS (Apple Silicon, arm64):** stiahnite alfu pre macOS (`.dmg`), otvorte ho a pretiahnite LAWOSS do priečinka Aplikácie. Pri prvom spustení ho macOS zablokuje, lebo zostava nie je podpísaná: na macOS 15 a novších okno zatvorte tlačidlom Hotovo, otvorte **Nastavenia systému → Súkromie a bezpečnosť**, prejdite nadol a pri LAWOSS zvoľte **Napriek tomu otvoriť** (potvrďte heslom alebo Touch ID). Na macOS 14 a starších stačí pravý klik na LAWOSS → **Otvoriť** → **Otvoriť**.
-- **Windows (x64):** alfa pre Windows je **nepodpísaná** a je len pre interný tím. Windows pri inštalácii varuje, že appku nepozná. Postup pri varovaní a pri inštalácii je v [Windows: inštalácia a aktualizácie](lawoss-d1-zabalena-appka-2026-10-05.md#windows-inštalácia-a-aktualizácie-pre-testerov). Ak nepatríte do interného tímu, na Windows alfu zatiaľ neinštalujte.
+- **macOS s Apple Silicon (arm64).** Otvorte súbor `.dmg` a pretiahnite LAWOSS do priečinka Aplikácie. Ak Gatekeeper zablokuje prvé spustenie očakávanej internej zostavy, na macOS 15 a novšom zatvorte okno tlačidlom Hotovo. V **Nastaveniach systému → Súkromie a bezpečnosť** nájdite LAWOSS, zvoľte **Napriek tomu otvoriť** a potvrďte heslom alebo Touch ID. Na macOS 14 a staršom použite pravý klik na LAWOSS → **Otvoriť** → **Otvoriť**.
+- **Windows x64 a ARM64.** V **Nastaveniach → Systém → Informácie** skontrolujte typ systému a stiahnite príslušný inštalátor `.exe`. Pri internom nepodpísanom builde môže SmartScreen zobraziť varovanie. Podrobný postup je v [návode na inštaláciu a aktualizácie pre Windows](lawoss-d1-zabalena-appka-2026-10-05.md#windows-inštalácia-a-aktualizácie-pre-testerov).
 
 Verziu appky nájdete v Nastaveniach, v časti Aktualizácie. Uveďte ju pri každom hlásení chyby.
 
