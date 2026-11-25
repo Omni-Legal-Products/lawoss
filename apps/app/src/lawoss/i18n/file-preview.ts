@@ -1,5 +1,7 @@
 /** LAWOSS #492: náhľad prázdneho alebo poškodeného súboru (`lawoss/domains/artifacts/unreadable-file-notice.tsx`). */
 export const filePreviewEn = {
+  "lawoss.pdf_reader.actions": "File actions",
+  "lawoss.pdf_reader.tools": "PDF tools",
   "lawoss.pdf_signatures.issuer": "Certificate issuer",
   "lawoss.pdf_signatures.no_timezone": "time zone unspecified",
   "lawoss.pdf_signatures.partial": "Some signatures could not be inspected",
@@ -28,6 +30,8 @@ export const filePreviewEn = {
   "lawoss.file_preview.open_external": "Open in another application",
 };
 export const filePreviewSk = {
+  "lawoss.pdf_reader.actions": "Možnosti súboru",
+  "lawoss.pdf_reader.tools": "Nástroje PDF",
   "lawoss.pdf_signatures.issuer": "Vydavateľ certifikátu",
   "lawoss.pdf_signatures.no_timezone": "časové pásmo neuvedené",
   "lawoss.pdf_signatures.partial": "Čiastočný výsledok",
@@ -56,6 +60,8 @@ export const filePreviewSk = {
   "lawoss.file_preview.open_external": "Otvoriť v inej aplikácii",
 };
 export const filePreviewCs = {
+  "lawoss.pdf_reader.actions": "Možnosti souboru",
+  "lawoss.pdf_reader.tools": "Nástroje PDF",
   "lawoss.pdf_signatures.issuer": "Vydavatel certifikátu",
   "lawoss.pdf_signatures.no_timezone": "časové pásmo neuvedeno",
   "lawoss.pdf_signatures.partial": "Částečný výsledek",
@@ -84,6 +90,8 @@ export const filePreviewCs = {
   "lawoss.file_preview.open_external": "Otevřít v jiné aplikaci",
 };
 export const filePreviewDe = {
+  "lawoss.pdf_reader.actions": "Dateiaktionen",
+  "lawoss.pdf_reader.tools": "PDF-Werkzeuge",
   "lawoss.pdf_signatures.issuer": "Zertifikatsaussteller",
   "lawoss.pdf_signatures.no_timezone": "Zeitzone nicht angegeben",
   "lawoss.pdf_signatures.partial": "Unvollständiges Ergebnis",

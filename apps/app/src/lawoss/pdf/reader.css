@@ -1,0 +1,165 @@
+.lawoss-pdf-header {
+  container: pdf-header / inline-size;
+  flex: none;
+  color: var(--lw-text-primary);
+  background: var(--lw-panel);
+}
+.lawoss-pdf-heading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 14px;
+}
+.lawoss-pdf-sheet {
+  position: relative;
+  display: grid;
+  align-items: end;
+  justify-items: center;
+  flex: none;
+  width: 28px;
+  height: 34px;
+  padding-bottom: 4px;
+  clip-path: polygon(0 0, 66% 0, 100% 28%, 100% 100%, 0 100%);
+  border-radius: 4px;
+  color: #773c32;
+  background: #efcfc4;
+  font: 700 9px/1.2 "IBM Plex Mono", monospace;
+}
+.lawoss-pdf-sheet::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto auto;
+  width: 34%;
+  height: 28%;
+  border-bottom-left-radius: 2px;
+  background: #c99182;
+}
+.lawoss-pdf-identity { min-width: 0; flex: 1; }
+.lawoss-pdf-identity h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+.lawoss-pdf-identity small { display: block; font-size: 11px; color: var(--lw-text-secondary); }
+.lawoss-pdf-sign {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 5px 12px;
+  border: 1px solid var(--lw-gold);
+  border-radius: 8px;
+  color: #33240d;
+  background: linear-gradient(160deg, #f5e6b6, #dfbc72);
+  box-shadow: inset 0 1px rgba(255,255,255,.7), 0 2px 4px #0002;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+.lawoss-pdf-sign:hover:enabled { background: #f2d99c; }
+.lawoss-pdf-sign:disabled { opacity: .6; cursor: default; }
+.lawoss-pdf-sign svg { width: 19px; height: 19px; stroke-width: 1.65; }
+.lawoss-pdf-utilities { display: flex; padding-inline-start: 7px; border-inline-start: 1px solid var(--lw-border); }
+.lawoss-pdf-utilities button, .lawoss-pdf-tools {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  min-width: 32px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--lw-text-secondary);
+}
+.lawoss-pdf-utilities svg, .lawoss-pdf-tools svg { width: 16px; height: 16px; }
+.lawoss-pdf-utilities button:hover, .lawoss-pdf-tools:hover, .lawoss-pdf-tools[aria-pressed=true],
+.lawoss-pdf-signatures summary:hover { background: var(--lw-surface-hover); color: var(--lw-text-primary); }
+.lawoss-pdf-header button:focus-visible, .lawoss-pdf-reader :is(button,summary):focus-visible {
+  outline: 2px solid var(--lw-gold);
+  outline-offset: 2px;
+}
+.lawoss-pdf-reader {
+  container: pdf-reader / size;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--lw-text-primary);
+  background: var(--lw-surface);
+}
+.lawoss-pdf-ribbon {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  padding: 5px 12px;
+  border-block: 1px solid var(--lw-border-subtle);
+}
+.lawoss-pdf-tools { flex: none; gap: 6px; padding: 0 6px; align-self: start; font-size: 11px; }
+.lawoss-pdf-quiet { display: flex; align-items: center; gap: 8px; align-self: center; color: var(--lw-text-secondary); font-size: 12px; }
+.lawoss-pdf-quiet svg { width: 16px; height: 16px; flex: none; }
+.lawoss-pdf-signatures { min-width: 0; }
+.lawoss-pdf-signatures summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 9px; border-radius: 6px; padding: 3px; }
+.lawoss-pdf-signatures summary::-webkit-details-marker { display: none; }
+.lawoss-pdf-seal {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  color: var(--lw-gold-glaze-text);
+  background: var(--lw-gold-glaze);
+  border: 1px solid var(--lw-gold-glaze-border);
+  border-radius: 50%;
+}
+.lawoss-pdf-seal svg { width: 19px; height: 19px; stroke-width: 1.55; }
+.lawoss-pdf-summary { display: grid; min-width: 0; }
+.lawoss-pdf-summary strong { font-size: 12px; font-weight: 600; }
+.lawoss-pdf-summary small { font-size: 11px; color: var(--lw-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lawoss-pdf-caret { flex: none; width: 14px; height: 14px; color: var(--lw-text-secondary); }
+.lawoss-pdf-signatures[open] .lawoss-pdf-caret { transform: rotate(180deg); }
+.lawoss-pdf-records {
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline-start: 12px;
+  width: min(400px, calc(100% - 24px));
+  max-height: 66cqh;
+  overflow: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+  padding: 14px 16px;
+  border: 1px solid var(--lw-border);
+  border-radius: 0 0 12px 12px;
+  background: var(--lw-surface);
+  box-shadow: 0 12px 32px #0003;
+  font-size: 12px;
+}
+.lawoss-pdf-records > p { color: var(--lw-text-secondary); }
+.lawoss-pdf-records li { padding: 12px 0; border-bottom: 1px solid var(--lw-border-subtle); }
+.lawoss-pdf-records li:first-child { padding-top: 0; }
+.lawoss-pdf-records ol + .lawoss-pdf-empty-fields { margin-top: 8px; }
+.lawoss-pdf-record-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.lawoss-pdf-record-heading > svg { flex: none; width: 24px; color: var(--lw-gold-glaze-text); }
+.lawoss-pdf-record-heading strong { display: block; font-size: 16px; font-weight: 600; }
+.lawoss-pdf-record-heading small { font-size: 11px; color: var(--lw-text-secondary); }
+.lawoss-pdf-records dl { display: grid; grid-template-columns: minmax(0, 40%) minmax(0, 1fr); gap: 4px 10px; }
+.lawoss-pdf-trust { display: flex; align-items: start; gap: 8px; padding-top: 12px; font-size: 11px; line-height: 1.5; }
+.lawoss-pdf-trust svg { flex: none; width: 14px; height: 16px; }
+.lawoss-pdf-page { display: block; width: 100%; height: 0; min-height: 0; flex: 1; border: none; }
+@container pdf-header (max-width: 490px) {
+  .lawoss-pdf-heading { gap: 8px; padding-inline: 10px; }
+  .lawoss-pdf-utilities { padding-inline-start: 4px; }
+}
+@container pdf-header (max-width: 360px) {
+  .lawoss-pdf-sign { width: 35px; padding: 5px; }
+  .lawoss-pdf-sign span { display: none; }
+}
+@container pdf-reader (max-width: 330px) {
+  .lawoss-pdf-tools span { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; }
+}

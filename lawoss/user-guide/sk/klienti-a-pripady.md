@@ -44,6 +44,8 @@ Pripájajte len priečinok, ktorý naozaj patrí tomuto klientovi. Ak priečinok
 
 ### Elektronické podpisy v PDF
 
+Pri čítaní vedľa chatu môžete dokument rozšíriť ikonou v pravom hornom rohu. V desktopovej čítačke zapnite **Nástroje PDF** pre výber strany, zväčšenie alebo tlač. Ponuka s tromi bodkami vedľa ikony rozšírenia obsahuje akcie súboru. Na Macu má tlačidlo **Podpísať v Chevron7** pri názve súboru ikonu pera.
+
 Otvorte PDF v **Súboroch**. Nad stranou rozbaľte **Elektronické podpisy** s uvedeným počtom. Pre každý nájdený podpis alebo časovú pečiatku si môžete pozrieť dostupné údaje, napríklad formát, uvedenú podpisujúcu osobu, vydavateľa jej certifikátu a uvedený čas. Pri nepodpísanom poli sa v detaile zobrazí **Prázdne podpisové polia** s počtom. Pri nájdenom podpise sa zobrazí **Dôveryhodnosť neoverená**. Ak chcete potvrdiť platnosť či kvalifikovanosť podpisu, dôveryhodnosť certifikátu alebo platnosť časovej pečiatky, overte súbor v nástroji na validáciu podpisov.
 
 Na Macu s Apple Silicon vyberte v náhľade alebo v ponuke lokálneho PDF **Podpísať v Chevron7**. Skontrolujte súbor v potvrdzovacom okne LAWOSS a vyberte certifikát a zadajte PIN v Chevron7. Po návrate otvorte vytvorený súbor v LAWOSS. Ak v Chevron7 úkon zrušíte, jeho zavretie samo osebe nepotvrdzuje vytvorenie podpísanej kópie.

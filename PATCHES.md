@@ -1,4 +1,8 @@
 # LAWOSS downstream patches
+## Čítačka PDF vedľa chatu (2026-11-25)
+
+`apps/app/src/react-app/domains/session/artifacts/{artifact-frame,artifact-panel,preview}.tsx` a `pdf-preview-url.ts` v tom istom adresári pripájajú hlavičku čítačky a režim zobrazenia PDFium. Pri aktualizácii zachovať odkaz na stranu, natívny iframe, kontrolu odtlačku dokumentu a ovládanie rozšíreného zobrazenia. Regresia je v `apps/app/tests/pdf-preview.test.tsx`.
+
 ## Elektronické podpisy v náhľade PDF a kontrola pilotu (2026-11-25)
 
 | Miesto | Čo zachovať pri aktualizácii upstreamu |

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { ChevronDown, Clock3, FileSignature } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, Clock3, Fingerprint, Info, ScanLine } from "lucide-react";
 import { currentLocale, t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { inspectPdfSignatures, type PdfSignatureReport } from "./inspect-signatures";
@@ -44,43 +44,61 @@ export function PdfSignatureBadge({ bytes, visible }: { bytes: ArrayBuffer; visi
 
 export function PdfSignatureDetails({ report }: { report: PdfSignatureReport | null }) {
   useLocale();
-  const base = "shrink-0 border-b border-border bg-muted/30 px-3 py-2 text-xs";
-  if (!report) return <div role="status" className={`${base} text-muted-foreground`}>{label("loading")}</div>;
+  const details = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const dismiss = (event: PointerEvent) => {
+      if (details.current?.open && event.target instanceof Node && !details.current.contains(event.target)) details.current.open = false;
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !details.current?.open) return;
+      details.current.open = false;
+      details.current.querySelector("summary")?.focus();
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", escape, true);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", escape, true);
+    };
+  }, []);
+  if (!report) return <div role="status" className="lawoss-pdf-quiet"><ScanLine/>{label("loading")}</div>;
   const timestamps = report.signatures.filter(item => item.kind === "timestamp").length;
   const signed = report.signatures.length - timestamps;
   const counts = [signed && label("signatures", signed), timestamps && label("timestamps", timestamps)].filter(Boolean);
   const title = counts.length ? counts.join(" · ") : label(report.status === "inspected" ? "none" : "unknown");
-  const BadgeIcon = timestamps && !signed ? Clock3 : FileSignature;
+  const BadgeIcon = timestamps && !signed ? Clock3 : Fingerprint;
   if (report.status === "inspected" && !counts.length && !report.emptyFields) {
-    return <div role="status" className={`${base} text-muted-foreground`}>{title}</div>;
+    return <div role="status" className="lawoss-pdf-quiet"><ScanLine aria-hidden="true"/>{title}</div>;
   }
-  return <details className={`${base} group max-h-[45%] overflow-auto`}>
-    <summary className="flex w-fit max-w-full cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-1 rounded-sm focus-visible:outline-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
-      <span className="inline-flex items-center gap-1.5 rounded-md border border-primary/20 bg-primary/5 px-2 py-1 font-medium">
-        <BadgeIcon aria-hidden="true" className="size-3.5 shrink-0" />{title}
+  const firstSigner = report.signatures.find(item => item.kind === "signature" && item.signer)?.signer;
+  return <details ref={details} className="lawoss-pdf-signatures">
+    <summary>
+      <span className="lawoss-pdf-seal"><BadgeIcon aria-hidden="true"/></span>
+      <span className="lawoss-pdf-summary"><strong>{title}</strong>
+        <small>{[counts.length ? label("unverified") : undefined, report.status === "partial" ? label("partial") : undefined, firstSigner].filter(Boolean).join(" · ")}</small>
       </span>
-      {!!counts.length && <span className="text-muted-foreground">{label("unverified")}</span>}
-      {!!counts.length && report.status === "partial" && <span>{label("partial")}</span>}
-      <ChevronDown aria-hidden="true" className="size-3.5 shrink-0 transition-transform group-open:rotate-180" />
+      <ChevronDown className="lawoss-pdf-caret" aria-hidden="true"/>
     </summary>
-    <div className="mt-2 space-y-2 break-words pb-1">
-      {!!counts.length && <p>{label("trust_note")}</p>}
+    <div className="lawoss-pdf-records">
       {report.status !== "inspected" && <p>{label(report.issue ?? "incomplete")}</p>}
-      {!!report.emptyFields && <p>{label("empty", report.emptyFields)}</p>}
-      {!!counts.length && <ol className="space-y-2">
+      {!!counts.length && <ol>
         {report.signatures.map((item, index) => {
-          const Icon = item.kind === "timestamp" ? Clock3 : FileSignature;
+          const Icon = item.kind === "timestamp" ? Clock3 : Fingerprint;
           const format = item.subFilter && (Object.hasOwn(formats, item.subFilter) ? formats[item.subFilter] : item.subFilter);
           const fields = [
             ["format", format, item.subFilter],
-            ["signer", item.signer],
             ["issuer", item.issuer],
             ["time", item.signedAt && displayTime(item.signedAt), item.signedAt],
             ["field", item.fieldName],
           ] as const;
-          return <li key={index} className="border-s-2 border-border ps-3">
-            <p className="mb-1 flex items-center gap-1.5 font-medium"><Icon aria-hidden="true" className="size-3.5" />{index + 1}. {label(item.kind)}</p>
-            <dl className="grid grid-cols-[minmax(0,max-content)_minmax(0,1fr)] gap-x-3 gap-y-0.5">
+          return <li key={index}>
+            <div className="lawoss-pdf-record-heading"><Icon aria-hidden="true"/>
+              <div><small>{label(item.kind)} · {index + 1}</small>
+                <strong dir="auto">{item.signer || format || item.fieldName || label(item.kind)}</strong></div>
+            </div>
+            <dl>
               {fields.map(([key, value, original]) => value ? <div key={key} className="contents">
                 <dt className="text-muted-foreground">{label(key)}</dt>
                 <dd title={original} dir="auto" className="[overflow-wrap:anywhere]">{value}</dd>
@@ -89,6 +107,8 @@ export function PdfSignatureDetails({ report }: { report: PdfSignatureReport | n
           </li>;
         })}
       </ol>}
+      {!!report.emptyFields && <p className="lawoss-pdf-empty-fields">{label("empty", report.emptyFields)}</p>}
+      {!!counts.length && <p className="lawoss-pdf-trust"><Info aria-hidden="true"/>{label("trust_note")}</p>}
     </div>
   </details>;
 }

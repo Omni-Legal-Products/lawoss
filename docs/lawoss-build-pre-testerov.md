@@ -109,6 +109,8 @@ Otvorte skúšobné PDF cez **Súbory** klienta. Na čítanie údajov o podpisoc
 | Poškodená skúšobná kópia podpísaného súboru | Očakávajte neúplný výsledok, chybu kontroly alebo chybu náhľadu. Poškodenie sa nesmie vyhodnotiť ako potvrdená neprítomnosť podpisu. |
 | Rovnaký názov PDF v dvoch klientoch | V prvom použite nepodpísaný originál, v druhom kópiu s dvomi podpismi. Otvorte ich postupne a prepnite sa späť. Počet a osoby musia zakaždým zodpovedať otvorenému súboru. |
 
+Pri otvorenom chate rozšírte čítačku PDF a vráťte ju späť. Skontrolujte meno súboru, zlaté pero Chevron7 na Macu a ponuku súboru pod tromi bodkami. V desktope zobrazte **Nástroje PDF**, zmeňte zväčšenie a otvorte náhľad tlače. Rozbaľte podpisy, porovnajte osoby v detaile a klávesom Escape sa vráťte k dokumentu. Vyskúšajte tiež úzky panel a svetlý motív. Na obrazovke Dnes zväčšite okno za šírku stĺpca s kartami a skontrolujte plynulé pozadie za pozdravom.
+
 Na prípravu sady spustite z koreňa zdrojového repozitára nasledujúci príkaz. Nahraďte posledný argument cestou do pracovnej kópie testovacieho klienta. Nástroj `uv` pri prvom behu potrebuje prístup k závislostiam. Vypíše názov nového priečinka `LAWOSS-PDF-…` so štyrmi súbormi. Pre poškodený variant vytvorte ďalšiu kópiu a skráťte ju na prvých desať bajtov.
 
 ```sh

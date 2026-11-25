@@ -8,6 +8,7 @@ import { useDocumentControlSessions } from "../../../shell/control/document-cont
 import { ProjectFilePanel } from "../../workspace/project-file-panel";
 import { keepHandoffCopy } from "./document-handoff-copy";
 import { artifactQueryKey, artifactQueryOptions, isTextContent, nextBinaryRevision, type ArtifactQueryState } from "./artifact-query";
+import { PdfReaderHeader } from "@/lawoss/pdf/reader-header";
 import { PdfSignaturePreview } from "@/lawoss/pdf/signature-preview";
 import { usePdfVisualSource } from "./use-pdf-visual-source";
 import { flushSync } from "react-dom";
@@ -16,7 +17,7 @@ import { type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMatch, useNavigate } from "react-router-dom";
 import { chevron7SourceAction, useChevron7FileAction } from "@/lawoss/domains/integrations/chevron7-file-action";
-import { Download, ExternalLink, FileSignature, FolderOpen, X } from "lucide-react";
+import { Download, ExternalLink, FolderOpen, X } from "lucide-react";
 
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { getDesktopFileIcon, openDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
@@ -277,7 +278,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
   const { data: fileIcon } = useQuery<string | null>({
     queryKey: ["desktop-file-icon", externalPath] as const,
     queryFn: async () => getDesktopFileIcon(externalPath, "small"),
-    enabled: target.kind === "file" && !isRemoteWorkspace && isElectronRuntime(),
+    enabled: target.kind === "file" && target.preview !== "pdf" && !isRemoteWorkspace && isElectronRuntime(),
     staleTime: Infinity,
     gcTime: 5 * 60 * 1000,
   });
@@ -723,6 +724,13 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
   return (
     <ArtifactFrame
         expandable={isBinaryEditor || isDirectTextEdit || target.preview === "audio" || target.preview === "video"}
+        renderHeader={target.preview === "pdf" ? (expanded, toggleExpanded) => <PdfReaderHeader
+          title={target.name} size={target.size !== undefined ? formatFileSize(target.size) : undefined}
+          signing={signing} expanded={expanded} toggleExpanded={toggleExpanded} close={onClose}
+          download={target.kind === "file" ? () => void runFileAction(download) : undefined}
+          reveal={target.kind === "file" && !isRemoteWorkspace ? () => void revealExternal() : undefined}
+          open={target.kind === "url" || !isRemoteWorkspace ? () => void runFileAction(openExternal) : undefined}
+        >{saveActions && data && access.editable ? saveActions(persistWorkingCopy, isSaving || documentSaving) : null}</PdfReaderHeader> : undefined}
         title={target.name}
         icon={fileIcon ? <img src={fileIcon} alt="" className="size-5 shrink-0 object-contain" /> : <ArtifactIcon type={target.preview} className="size-5" />}
         meta={<>
@@ -738,9 +746,6 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
           </span>}
         </>}
         actions={<>
-          {signing && <Button variant="outline" size="sm" disabled={signing.disabled} onClick={signing.onClick} aria-label={signing.label} title={signing.label}>
-            <FileSignature /><span className="hidden sm:inline">{signing.label}</span>
-          </Button>}
           {canAutosave && access.editable && !unreadable && <label className="me-3 flex shrink-0 items-center gap-1.5 text-xs" title={t("artifact.autosave_description")}>
             <Switch size="sm" checked={autosave} onCheckedChange={(enabled) => useDocumentPreferences.getState().setAutosave(autosaveKey, enabled)} />
             {t("artifact.autosave")}
