@@ -1,10 +1,16 @@
 # LAWOSS downstream patches
 
+## Gate 1: nepovinný ISIR až po Package×4 + RAM (2026-11-25)
+
+| Súbor | Zmena |
+|---|---|
+| `.github/workflows/ci-desktop-packaging.yml`, `scripts/ci/workflow-selection.test.mjs` | Tip Smoke [45660296506](https://github.com/Omni-Legal-Products/lawoss/actions/runs/45660296506) (`2940d839`): po `sandbox-runtime` štartovali naraz Package×4, RAM a nepovinný Native ISIR; macos-15 Package + RAM + ISIR ostali `queued` od 17:18Z, kým ubuntu/win Package bežali. ISIR `needs` teraz zahŕňa `package-smoke` + `memory-budget` (Gate 1 najprv), `if` povoľuje success/failure ale nie cancelled. Workflow `concurrency` + `cancel-in-progress` na tip/PR. Povinné názvy kontrol a limity ISIR nezmenené. |
+
 ## Tip Package Smoke: workflow_dispatch + docs push ignore (2026-11-25)
 
 | Súbor | Zmena |
 |---|---|
-| `.github/workflows/ci-desktop-packaging.yml`, `scripts/ci/workflow-selection.test.mjs` | Tip behy [45580688515](https://github.com/Omni-Legal-Products/lawoss/actions/runs/45580688515) (#607) a [45581609423](https://github.com/Omni-Legal-Products/lawoss/actions/runs/45581609423) (#608): macos-15 `sandbox-runtime` zrušený GitHubom (`not acquired by Runner of type hosted`, capacity notices), nie človekom ani `concurrency` (workflow ju nemá). win11-arm MSYS2 OK; Package×4/RAM skipped. Agenti `gh run rerun` 403. Pridané `workflow_dispatch:` (operátor spustí tip Package Smoke). Na `push` do `dev` `paths-ignore` pre `docs/**` a `progress.txt` — čistý docs tip (#608) by znova nespustil Package Smoke počas fronty mac po #607; `pull_request` bez ignore (povinná brána). Test `workflow-selection` aktualizovaný na nové triggery + push `paths-ignore` (CI #609 padol na starom `deepEqual` kľúčov). Žiadna produktová zmena. |
+| `.github/workflows/ci-desktop-packaging.yml`, `scripts/ci/workflow-selection.test.mjs` | Tip behy [45580688515](https://github.com/Omni-Legal-Products/lawoss/actions/runs/45580688515) (#607) a [45581609423](https://github.com/Omni-Legal-Products/lawoss/actions/runs/45581609423) (#608): macos-15 `sandbox-runtime` zrušený GitHubom (`not acquired by Runner of type hosted`, capacity notices), nie človekom ani `concurrency` (vtedy workflow ju nemal; Gate 1 riadok vyššie ju doplnil). win11-arm MSYS2 OK; Package×4/RAM skipped. Agenti `gh run rerun` 403. Pridané `workflow_dispatch:` (operátor spustí tip Package Smoke). Na `push` do `dev` `paths-ignore` pre `docs/**` a `progress.txt` — čistý docs tip (#608) by znova nespustil Package Smoke počas fronty mac po #607; `pull_request` bez ignore (povinná brána). Test `workflow-selection` aktualizovaný na nové triggery + push `paths-ignore` (CI #609 padol na starom `deepEqual` kľúčov). Žiadna produktová zmena. |
 
 ## Alpha Windows ARM64: MSYS2 keyring unknown trust pred -Syuu (2026-11-25)
 

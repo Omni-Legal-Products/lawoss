@@ -80,6 +80,21 @@ test('optional Native ISIR uses continue-on-error so package smoke stays green',
   assert.equal(workflow('ci-desktop-packaging').jobs['memory-budget']['continue-on-error'], undefined);
 });
 
+// LAWOSS Gate 1: nepovinný ISIR nesmie súťažiť o macos-15 s Package×4 + RAM.
+test('optional Native ISIR waits for Package and RAM before claiming runners', () => {
+  const packaging = workflow('ci-desktop-packaging');
+  assert.deepEqual(packaging.concurrency, {
+    group: 'desktop-package-smoke-${{ github.event.pull_request.number || github.ref }}',
+    'cancel-in-progress': true,
+  });
+  const isir = packaging.jobs['isir-native'];
+  assert.deepEqual([...isir.needs].sort(), ['memory-budget', 'opencode-engine', 'package-smoke', 'sandbox-runtime']);
+  assert.match(isir.if, /needs\.package-smoke\.result != 'cancelled'/);
+  assert.match(isir.if, /needs\.memory-budget\.result != 'cancelled'/);
+  assert.deepEqual(packaging.jobs['package-smoke'].needs, ['sandbox-runtime', 'opencode-engine']);
+  assert.deepEqual(packaging.jobs['memory-budget'].needs, ['sandbox-runtime', 'opencode-engine']);
+});
+
 test('required PR workflows have job filtering, and reusable/manual workflows stay opt-in', () => {
   for (const name of ['ci-tests', 'ci-i18n', 'ci-docx', 'ci-legalwork-ui-mcp']) {
     assert.equal(workflow(name).on.pull_request.paths, undefined);

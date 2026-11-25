@@ -32,6 +32,12 @@ on:
 permissions:
   contents: read
 
+# Gate 1 (Package×4 + RAM) needs macos-15 capacity. Cancel superseded tip/PR
+# Smoke runs so zombie or docs-branch queues do not keep claiming mac runners.
+concurrency:
+  group: desktop-package-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # 🟡 LAWOSS: pri samostatnom behu (PR, push) si balenie runtime izolovaného prostredia
   # postaví samo, len pre platformy z matice a bez sandbox testov (tie bežia v ci-tests).
@@ -187,10 +193,12 @@ jobs:
   # inferencia) sa nemenia.
   # 🟡 LAWOSS: continue-on-error — bez neho flaky ISIR zčervená celý workflow Desktop Package
   # Smoke aj keď Package and launch a RAM prešli (tip 404f3605, 18. 11. 2026).
+  # 🟡 LAWOSS Gate 1: nepovinný ISIR čaká na Package×4 + RAM, aby macos-15 runneri išli najprv
+  # povinným kontrolám (tip Smoke 45660296506: Package/RAM/ISIR macos naraz queued od 17:18Z).
   isir-native:
     name: Native ISIR (${{ matrix.os }}, nepovinné)
-    needs: [sandbox-runtime, opencode-engine]
-    if: ${{ !cancelled() && (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'skipped') && (needs.opencode-engine.result == 'success' || needs.opencode-engine.result == 'skipped') }}
+    needs: [sandbox-runtime, opencode-engine, package-smoke, memory-budget]
+    if: ${{ !cancelled() && (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'skipped') && (needs.opencode-engine.result == 'success' || needs.opencode-engine.result == 'skipped') && needs.package-smoke.result != 'cancelled' && needs.memory-budget.result != 'cancelled' }}
     continue-on-error: true
     runs-on: ${{ matrix.os }}
     timeout-minutes: 100
