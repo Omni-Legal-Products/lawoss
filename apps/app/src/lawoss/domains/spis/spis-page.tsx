@@ -509,6 +509,9 @@ function AttentionLine({ row, cockpit, now }: { row: AttentionRow; cockpit: Cock
   const { locale, text } = useMatterText();
   const copy = attentionCopy(row, cockpit, text);
   const red = row.state === "po termíne" || row.state === "neparsovateľné";
+  // Pri lehote rozhoduje potvrdenie tejto lehoty, nie overenie celého záznamu (to isté pravidlo ako prehľad).
+  const deadline = row.kind === "lehota" ? [...cockpit.deadlines.confirmed, ...cockpit.deadlines.candidates].find((d) => `lehota:${d.recordId}:${d.date}` === row.id) : undefined;
+  const trust = deadline ? text(deadline.confirmed ? "provenance.verified" : "trust.recorded") : row.provenance ? cockpitLabel(row.provenance, text) : "";
   return (
     <div className="lw-x-alert" data-tone={red ? "red" : "amber"} data-lawoss-attention-row={row.id}>
       <span className="lw-x-alert-icon">{row.kind === "lehota" || row.kind === "úloha" ? <Clock aria-hidden size={16} /> : <AlertTriangle aria-hidden size={16} />}</span>
@@ -516,7 +519,7 @@ function AttentionLine({ row, cockpit, now }: { row: AttentionRow; cockpit: Cock
         <b>{copy.title}</b>
         <span>
           {copy.detail}
-          {row.provenance ? ` · ${cockpitLabel(row.provenance, text)}` : ""}
+          {trust ? ` · ${trust}` : ""}
           {row.scope ? ` · ${t(`lawoss.lite.scope_${row.scope}`, locale)}` : ""}
         </span>
         <span className="lw-x-alert-tags">
@@ -619,7 +622,7 @@ function DeadlineGroup({ title, rows, now, empty }: { title: string; rows: reado
             </small>
           </span>
           <span className="lw-ref">{d.recordId}</span>
-          <span className={`lw-st${d.overdue ? " warn" : ""}`}>{d.overdue ? text("overdue") : cockpitLabel(d.provenance, text)}</span>
+          <span className={`lw-st${d.overdue ? " warn" : ""}`}>{d.overdue ? text("overdue") : text(d.confirmed ? "provenance.verified" : "trust.recorded")}</span>
         </div>
       ))}
     </>

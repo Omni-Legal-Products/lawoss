@@ -14,13 +14,15 @@ import {
 import { matterLink } from "../spis/spis-page";
 import { daysBetween, recordKey, type UpcomingDeadline } from "../../../../../../lawoss/okf/read";
 import { clientInitials } from "../../lite/client-cards";
-import { deadlineTone, matterCards, practiceAlerts, practiceTasks, weekDays, type MatterCard, type PracticeAlert, type PracticeTask } from "../overview-model";
+import { deadlineTone, matterCards, practiceAlerts, practiceTasks, uniqueDeadlines, weekDays, type MatterCard, type PracticeAlert, type PracticeTask } from "../overview-model";
 import { AlertBox, CalendarGrid, conclusionText, DayCount, DayItems, riskText, Trust, type MatterText } from "../overview-views";
 import "../overview.css";
 
 /** Kalendár praxe: tri týždne od pondelka; v dni najviac tri položky, zvyšok „+N ďalšie“. */
 const CALENDAR_WEEKS = 3;
 const DAY_ITEMS = 3;
+/** Upozornení najviac šesť; zvyšok odkazom do registra lehôt. */
+const ALERTS_SHOWN = 6;
 
 /** Iba skutočné údaje zo spisov; chýbajúce údaje nenahrádza ukážka. */
 export function PrehladPage() {
@@ -43,6 +45,8 @@ export function RealOverview({ data }: { data: OkfReadResult }) {
   const cards = matterCards(data, now);
   const tasks = practiceTasks(data.matters, now);
   const nextUp = data.upcomingDeadlines.find((d) => !d.invalid);
+  // „Nič nehorí“ len pri úplnom čerstvom čítaní; čiastočné čítanie nie je istota.
+  const known = !data.truncated && data.problems.length === 0 && (data.coverage?.status ?? "complete") === "complete";
 
   return (
     <div className="lw-x lw-po">
@@ -62,7 +66,11 @@ export function RealOverview({ data }: { data: OkfReadResult }) {
 
       <section className="lw-x-section" aria-label={text("alertsTitle")} data-lawoss-practice-alerts={alerts.length}>
         <div className="lw-x-alerts">
-          {alerts.length > 0 ? alerts.map((alert) => <PracticeAlertView key={alertKey(alert)} alert={alert} now={now} locale={locale} text={text} />) : <>
+          {alerts.slice(0, ALERTS_SHOWN).map((alert) => <PracticeAlertView key={alertKey(alert)} alert={alert} now={now} locale={locale} text={text} />)}
+          {alerts.length > ALERTS_SHOWN ? <Link to="/lehoty" className="lw-x-alert" data-tone="red" data-lawoss-alert="more">
+            <AlertInner icon="clock" title={text("alert.more", { count: alerts.length - ALERTS_SHOWN })} detail={text("checkRegister")} />
+          </Link> : null}
+          {alerts.length > 0 ? null : !known ? <AlertBox tone="amber" icon="task" title={text("partialRead")} data-lawoss-practice-partial="" /> : <>
             <AlertBox tone="ok" icon="ok" title={text("alert.clearTitle")} detail={text("alert.clearPractice")} data-lawoss-practice-clear="" />
             {nextUp ? <Link className="lw-x-alert" data-tone="ok" to="/lehoty" data-lawoss-next-up="">
               <AlertInner icon="clock" title={`${text("nextUp")}: ${deadlineText(nextUp)}`}
@@ -74,7 +82,7 @@ export function RealOverview({ data }: { data: OkfReadResult }) {
 
       <section className="lw-x-panel lw-x-section" aria-labelledby="lw-po-calendar">
         <h2 id="lw-po-calendar" className="lw-x-h2">{text("calendarTitle")}<small>{text("calendarNote")} · <Link to="/lehoty">{text("fullRegister")}</Link></small></h2>
-        <PracticeCalendar deadlines={[...data.overdue, ...data.upcomingDeadlines]} tasks={tasks} now={now} locale={locale} text={text} />
+        <PracticeCalendar deadlines={uniqueDeadlines([...data.overdue, ...data.upcomingDeadlines])} tasks={tasks} now={now} locale={locale} text={text} />
         <Legend text={text} keys={["hot", "soon", "later", "confirmed", "task", "weekend"]} />
       </section>
 
@@ -108,6 +116,7 @@ type Locale = ReturnType<typeof useMatterText>["locale"];
 
 const alertKey = (alert: PracticeAlert): string => alert.kind === "overdueDeadlines" ? "overdue"
   : alert.kind === "deadline" ? `d:${alert.deadline.matter.path}/${alert.deadline.recordId}/${alert.deadline.raw ?? alert.deadline.date}`
+  : alert.kind === "invalidDate" ? `i:${alert.key}`
   : alert.kind === "task" ? `t:${alert.task.key}` : `s:${alert.matter.path}/${alert.screening.id}`;
 
 function PracticeAlertView({ alert, now, locale, text }: { alert: PracticeAlert; now: string; locale: Locale; text: Text }) {
@@ -125,6 +134,11 @@ function PracticeAlertView({ alert, now, locale, text }: { alert: PracticeAlert;
           detail={<>{where(d.matter.title, alert.client)}{d.matter.matterRef ? ` · ${d.matter.matterRef}` : ""} · <Trust confirmed={Boolean(d.confirmed)} locale={locale} text={text} /></>} />
       </Link>;
     }
+    case "invalidDate":
+      return <Link to={matterLink(alert.matter.path)} className="lw-x-alert" data-tone="amber" data-lawoss-alert="invalid">
+        <AlertInner icon="task" title={text("alert.invalidDate", { title: alert.title })}
+          detail={`${where(alert.matter.title, alert.client)} · ${text(alert.task ? "legend.task" : "kind.deadline")}: „${alert.raw}“`} />
+      </Link>;
     case "task":
       return <Link to={matterLink(alert.task.matter.path)} className="lw-x-alert" data-tone="red" data-lawoss-alert="task">
         <AlertInner icon="task" title={text("alert.taskOverdue", { date: formatDay(alert.task.due, locale), title: alert.task.title })}
@@ -183,7 +197,7 @@ export function Legend({ text, keys }: { text: Text; keys: readonly LegendKey[] 
 function MatterCardView({ card, now, locale, text }: { card: MatterCard; now: string; locale: Locale; text: Text }) {
   const { matter, nearest, status, screening, client } = card;
   const tone = nearest ? deadlineTone(nearest.date, now) : undefined;
-  const urgent = card.overdueTasks > 0 || tone === "overdue" || tone === "hot";
+  const urgent = card.overdueTasks > 0 || tone === "overdue" || tone === "hot" || card.invalid !== undefined;
   const who = client ?? matter.title;
   const meta = [matter.matterRef, matter.court].filter(Boolean).join(" · ");
   return <Link to={matterLink(matter.path)} className="lw-x-panel lw-po-card" data-urgent={urgent || undefined} data-lawoss-matter-card={matter.path}>
@@ -198,7 +212,8 @@ function MatterCardView({ card, now, locale, text }: { card: MatterCard; now: st
           <b title={deadlineText(nearest)}>{deadlineText(nearest)}</b>
           <span>{formatDay(nearest.date, locale)}<Trust confirmed={Boolean(nearest.confirmed)} locale={locale} text={text} /></span>
         </span>
-      </> : <span className="lw-po-term-text"><b>{text("noDeadline")}</b></span>}
+      </> : card.invalid !== undefined ? <span className="lw-po-term-text" data-lawoss-card-invalid=""><b>? {card.invalid}</b><span><span className="lw-x-pill" data-tone="amber">{text("invalidDate")}</span></span></span>
+        : <span className="lw-po-term-text"><b>{text("noDeadline")}</b></span>}
     </span>
     {status.phase ? <span className="lw-po-phase" title={status.phase}>{status.phase}</span> : null}
     {status.nextStep ? <span className="lw-po-next"><ArrowRight aria-hidden size={13} />{status.nextStep}</span> : null}

@@ -231,6 +231,8 @@ export const mattersEn = {
   "lawoss.matters.breadcrumbMatters": "Cases",
   "lawoss.matters.caseDetailsTitle": "Case records",
   "lawoss.matters.caseDetailsNote": "every register line with its source file",
+  "lawoss.matters.alert.invalidDate": "Invalid date to check: {title}",
+  "lawoss.matters.invalidDate": "invalid date to check",
 };
 
 export const mattersCs: Record<keyof typeof mattersEn, string> = {
@@ -465,6 +467,8 @@ export const mattersCs: Record<keyof typeof mattersEn, string> = {
   "lawoss.matters.breadcrumbMatters": "Případy",
   "lawoss.matters.caseDetailsTitle": "Záznamy případu",
   "lawoss.matters.caseDetailsNote": "každý řádek registru se zdrojovým souborem",
+  "lawoss.matters.alert.invalidDate": "Neplatné datum k ověření: {title}",
+  "lawoss.matters.invalidDate": "neplatné datum k ověření",
 };
 
 export const mattersSk: Record<keyof typeof mattersEn, string> = {
@@ -699,6 +703,8 @@ export const mattersSk: Record<keyof typeof mattersEn, string> = {
   "lawoss.matters.breadcrumbMatters": "Prípady",
   "lawoss.matters.caseDetailsTitle": "Záznamy prípadu",
   "lawoss.matters.caseDetailsNote": "každý riadok registra so zdrojovým súborom",
+  "lawoss.matters.alert.invalidDate": "Neplatný dátum na overenie: {title}",
+  "lawoss.matters.invalidDate": "neplatný dátum na overenie",
 };
 
 export const mattersDe: Record<keyof typeof mattersEn, string> = {
@@ -933,6 +939,8 @@ export const mattersDe: Record<keyof typeof mattersEn, string> = {
   "lawoss.matters.breadcrumbMatters": "Fälle",
   "lawoss.matters.caseDetailsTitle": "Falleinträge",
   "lawoss.matters.caseDetailsNote": "jede Registerzeile mit Quelldatei",
+  "lawoss.matters.alert.invalidDate": "Ungültiges Datum prüfen: {title}",
+  "lawoss.matters.invalidDate": "ungültiges Datum prüfen",
 };
 
 export type MatterTextKey = keyof typeof mattersEn extends `lawoss.matters.${infer Key}` ? Key : never;

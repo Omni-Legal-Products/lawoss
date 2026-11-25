@@ -3,7 +3,7 @@
  * kalendár týždňov, upozornenia, karty prípadov a zoskupená história. Berú iba to, čo prečítal read-model;
  * nič nedopočítavajú (žiadne lehoty z predpisov, žiadne sviatky), víkend je len deň v týždni.
  */
-import { addDays, deadlineKey, deadlineTier, ISO_DAY, recordKey, taskDue, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
+import { addDays, deadlineKey, deadlineTier, ISO_DAY, isOfficeFile, recordKey, taskDue, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
 import { screeningNeedsAttention, screenings, type CockpitEvent, type CockpitScreening } from "../../../../../lawoss/okf/cockpit";
 import { buildMatterViews } from "../../../../../lawoss/okf/views";
 import { cardStatus, type CardStatus } from "../lite/client-cards";
@@ -70,25 +70,58 @@ export function practiceTasks(matters: readonly MatterOverview[], todayIso: stri
 
 type OverviewSource = { matters: readonly MatterOverview[]; inputs: readonly MatterInput[]; upcomingDeadlines: readonly UpcomingDeadline[]; overdue: readonly UpcomingDeadline[] };
 
+/** Lehota zo zdieľaného súboru (klient, kancelária) je jedna lehota, aj keď ju prehľad nesie pri každom prípade. */
+export function uniqueDeadlines(deadlines: readonly UpcomingDeadline[]): UpcomingDeadline[] {
+  const seen = new Set<string>();
+  return deadlines.filter((d) => {
+    const key = deadlineKey(d);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export type PracticeAlert =
   | { kind: "overdueDeadlines"; count: number }
   | { kind: "deadline"; deadline: UpcomingDeadline; client?: string }
+  /** Dátum lehoty alebo termín úlohy, ktorý nie je RRRR-MM-DD: nikdy sa ticho nezahodí, ide na overenie. */
+  | { kind: "invalidDate"; key: string; title: string; raw: string; task: boolean; matter: Pick<MatterOverview, "path" | "title">; client?: string }
   | { kind: "task"; task: PracticeTask; client?: string }
   | { kind: "screening"; screening: CockpitScreening; matter: Pick<MatterOverview, "path" | "title">; client?: string };
 
-/** Upozornenia praxe v poradí naliehavosti: lehoty po termíne, lehoty dnes a zajtra, úlohy po termíne, rizikové preverenia. */
+/**
+ * Upozornenia praxe v poradí naliehavosti: lehoty po termíne, lehoty dnes a zajtra, neplatné dátumy, úlohy po termíne,
+ * rizikové preverenia. Záznam zo zdieľaného súboru (klient, kancelária) je jedno upozornenie, nie jedno za prípad.
+ */
 export function practiceAlerts(data: OverviewSource, todayIso: string): PracticeAlert[] {
   const client = clientNames(data);
   const overdue = new Set(data.overdue.map(deadlineKey)).size;
-  const due = data.upcomingDeadlines.filter((d) => !d.invalid && deadlineTier(d.date, todayIso) === "today");
+  const deadlines = uniqueDeadlines(data.upcomingDeadlines);
+  const due = deadlines.filter((d) => !d.invalid && deadlineTier(d.date, todayIso) === "today");
+  const seenTasks = new Set<string>();
+  const invalid = [
+    ...deadlines.filter((d) => d.invalid).map((d) => ({ key: `d:${deadlineKey(d)}`, title: d.title, raw: d.raw ?? d.date, task: false, matter: { path: d.matter.path, title: d.matter.title } })),
+    ...data.matters.flatMap((m) => m.openTasks.filter((task) => task.invalid).flatMap((task) => {
+      const key = recordKey(m.path, task);
+      if (seenTasks.has(key)) return [];
+      seenTasks.add(key);
+      return [{ key: `t:${key}`, title: task.title, raw: task.due ?? "", task: true, matter: { path: m.path, title: m.title } }];
+    })),
+  ];
   const tasks = practiceTasks(data.matters, todayIso).filter((task) => task.overdue);
+  const seenScreenings = new Set<string>();
   const risky = data.matters.flatMap((m) => {
     const input = data.inputs.find((i) => i.path === m.path);
-    return input ? screenings(input).filter(screeningNeedsAttention).map((screening) => ({ screening, matter: { path: m.path, title: m.title } })) : [];
+    return input ? screenings(input).filter(screeningNeedsAttention).filter((screening) => {
+      if (seenScreenings.has(screening.file + screening.id)) return false;
+      seenScreenings.add(screening.file + screening.id);
+      return true;
+    }).map((screening) => ({ screening, matter: { path: m.path, title: m.title } })) : [];
   });
   return [
     ...(overdue > 0 ? [{ kind: "overdueDeadlines" as const, count: overdue }] : []),
     ...due.map((deadline) => ({ kind: "deadline" as const, deadline, ...named(client(deadline.matter.path)) })),
+    ...invalid.map((item) => ({ kind: "invalidDate" as const, ...item, ...named(client(item.matter.path)) })),
     ...tasks.map((task) => ({ kind: "task" as const, task, ...named(client(task.matter.path)) })),
     ...risky.map((item) => ({ kind: "screening" as const, ...item, ...named(client(item.matter.path)) })),
   ];
@@ -109,8 +142,10 @@ function clientNames(data: Pick<OverviewSource, "matters" | "inputs">): (path: s
 export type MatterCard = {
   matter: MatterOverview;
   client?: string;
-  /** Najbližšia lehota: najstaršia po termíne, inak najbližšia odo dneška. Neplatný dátum nie je termín. */
+  /** Najbližšia lehota: najstaršia po termíne, inak najbližšia odo dneška. Neplatný dátum ani lehota kancelárie nie je termín prípadu. */
   nearest?: MatterOverview["deadlines"][number];
+  /** Pôvodný text prvého neplatného dátumu lehoty alebo termínu úlohy prípadu (na overenie). */
+  invalid?: string;
   overdueTasks: number;
   /** Najnovšie preverenie, ktoré si pýta pozornosť. */
   screening?: CockpitScreening;
@@ -122,13 +157,16 @@ export function matterCards(data: Pick<OverviewSource, "matters" | "inputs">, to
   const client = clientNames(data);
   const cards = data.matters.map((matter): MatterCard => {
     const input = data.inputs.find((i) => i.path === matter.path);
-    const valid = matter.deadlines.filter((d) => !d.invalid);
+    const own = matter.deadlines.filter((d) => !isOfficeFile(d.file));
+    const valid = own.filter((d) => !d.invalid);
     const nearest = valid.find((d) => d.date < todayIso) ?? valid.find((d) => d.date >= todayIso);
+    const badDeadline = own.find((d) => d.invalid);
+    const invalid = badDeadline ? badDeadline.raw ?? badDeadline.date : matter.openTasks.find((task) => task.invalid)?.due;
     const screening = input ? screenings(input).find(screeningNeedsAttention) : undefined;
     const overdueTasks = matter.openTasks.filter((task) => { const day = taskDue(task.due).day; return day !== undefined && day < todayIso; }).length;
     const name = client(matter.path);
     return { matter, overdueTasks, status: input ? cardStatus(buildMatterViews(input, todayIso)) : {},
-      ...(name ? { client: name } : {}), ...(nearest ? { nearest } : {}), ...(screening ? { screening } : {}) };
+      ...(name ? { client: name } : {}), ...(nearest ? { nearest } : {}), ...(invalid !== undefined ? { invalid } : {}), ...(screening ? { screening } : {}) };
   });
   return cards.sort((a, b) => {
     const x = a.nearest?.date, y = b.nearest?.date;

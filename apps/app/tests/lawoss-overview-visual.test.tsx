@@ -142,3 +142,59 @@ describe("overview and case views", () => {
     expect(html).toContain("Up next");
   });
 });
+
+describe("honest states", () => {
+  test("an invalid deadline date and task due become a visible alert and card state, never silently dropped", () => {
+    const data = fixture();
+    data.inputs[1]!.records.push(rec({ id: "D-002", type: "decision", title: "Uznesenie", deadlines: ["do pätnástich dní"], sources: [{ id: "u", title: "Uznesenie.pdf" }] }));
+    const overview = { ...buildOverview(data.inputs, TODAY), inputs: data.inputs, problems: [], truncated: false };
+    const alerts = practiceAlerts(overview, TODAY);
+    expect(alerts.filter((a) => a.kind === "invalidDate").map((a) => a.kind === "invalidDate" ? a.raw : "")).toEqual(["do pätnástich dní"]);
+    const noDeadline = { ...horak, path: "Klienti/Horak/Spisy/C", records: [rec({ id: "T-009", type: "task", title: "Zistiť termín", state: "pending", due: "budúci týždeň" })] };
+    const inputs = [structuredClone(noDeadline)];
+    const cards = matterCards({ ...buildOverview(inputs, TODAY), inputs }, TODAY);
+    expect(cards[0]?.invalid).toBe("budúci týždeň");
+    const html = renderToStaticMarkup(<MemoryRouter><RealOverview data={{ ...buildOverview(inputs, TODAY), inputs, problems: [], truncated: false }} /></MemoryRouter>);
+    expect(html).toContain('data-lawoss-alert="invalid"');
+    expect(html).toContain('data-lawoss-card-invalid=""');
+  });
+
+  test("a truncated or partial read never shows the green all-clear", () => {
+    const quiet: MatterInput = { path: "Klienti/Q/Spisy/Q", clientTitle: "Q", scopePaths: ["Klienti/Q/Spisy/Q", "Klienti/Q"], records: [rec({ id: "M-001", type: "matter", title: "Pokojný prípad" })] };
+    const inputs = [quiet];
+    const full = renderToStaticMarkup(<MemoryRouter><RealOverview data={{ ...buildOverview(inputs, TODAY), inputs, problems: [], truncated: false }} /></MemoryRouter>);
+    expect(full).toContain('data-lawoss-practice-clear=""');
+    const truncated = renderToStaticMarkup(<MemoryRouter><RealOverview data={{ ...buildOverview(inputs, TODAY), inputs, problems: [], truncated: true }} /></MemoryRouter>);
+    expect(truncated).not.toContain('data-lawoss-practice-clear=""');
+    expect(truncated).toContain('data-lawoss-practice-partial=""');
+    const partial = renderToStaticMarkup(<MemoryRouter><RealOverview data={{ ...buildOverview(inputs, TODAY), inputs, problems: [{ path: "Klienti/Q/Spisy/Q/memory/X.md", message: "zlý záznam" }], truncated: false }} /></MemoryRouter>);
+    expect(partial).not.toContain('data-lawoss-practice-clear=""');
+  });
+
+  test("a verification made before the record changed confirms nothing, in the hero and in the attention row alike", () => {
+    const data = fixture();
+    const decision = data.inputs[0]!.records.find((r) => r.id === "D-001")!;
+    decision.deadlines = [`${day(3)} Lehota na odvolanie`];
+    decision.verified = [{ type: "human", by: "JUDr. Testovacia", at: `${day(-10)}T09:00:00Z`, deadline: `${day(3)} Lehota na odvolanie`, truth: "Syntetické." }];
+    const overview = { ...buildOverview(data.inputs, TODAY), inputs: data.inputs, problems: [], truncated: false };
+    expect(overview.upcomingDeadlines.find((d) => d.recordId === "D-001" && d.matter.path === novak.path)?.confirmed).toBeUndefined();
+    const cockpit = buildCockpit(overview, novak.path, TODAY);
+    if (!cockpit) throw new Error("cockpit missing");
+    const html = renderToStaticMarkup(<MatterCockpit cockpit={cockpit} now={TODAY} raw={{}} />);
+    const row = html.slice(html.indexOf('data-lawoss-attention-row="lehota:D-001'), html.indexOf("</div>", html.indexOf('data-lawoss-attention-row="lehota:D-001')));
+    expect(row).toContain("recorded, not verified");
+    expect(row).not.toContain("verified by a person");
+    expect(html).not.toContain("confirmed by JUDr. Testovacia");
+  });
+
+  test("a client-level deadline shared by two cases is one alert and one calendar chip", () => {
+    const shared = rec({ id: "D-050", type: "decision", title: "Klientska lehota", deadlines: [`${TODAY} Spoločná lehota`], sources: [{ id: "k", title: "Klient.pdf" }] });
+    const make = (name: string): MatterInput => ({ path: `Klienti/K/Spisy/${name}`, clientTitle: "K", scopePaths: [`Klienti/K/Spisy/${name}`, "Klienti/K"],
+      records: [structuredClone(shared)], recordFiles: { "D-050": "Klienti/K/memory/D-050.md" } });
+    const inputs = [make("A"), make("B")];
+    const overview = { ...buildOverview(inputs, TODAY), inputs, problems: [], truncated: false };
+    expect(practiceAlerts(overview, TODAY).filter((a) => a.kind === "deadline")).toHaveLength(1);
+    const html = renderToStaticMarkup(<MemoryRouter><RealOverview data={overview} /></MemoryRouter>);
+    expect(html.split('data-kind="deadline"').length - 1).toBe(1);
+  });
+});
