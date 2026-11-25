@@ -1,3 +1,4 @@
+import { rebindNativeProjectReceipt } from "../engine-project.js";
 import { isProjectTemplateLocale } from "../project-schema.js";
 import { copiesBundledCoreIntoWorkspace } from "../lawoss/bundled-core-placement.js";
 import { rebaseWorkspaceMemoryAuthority } from "../lawoss/workspace-reconnect-memory.js";
@@ -323,9 +324,11 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       let rollbackHost: (() => Promise<void>) | undefined;
       let rollbackSessions: (() => Promise<void>) | undefined;
       let rollbackMemory: (() => Promise<void>) | undefined;
+      let rollbackReceipt: (() => Promise<void>) | undefined;
       try {
         rollbackMemory = await rebaseWorkspaceMemoryAuthority(config, previous, destination);
         rollbackSessions = await rebindWorkspaceSessions(config, previous, destination, captured);
+        rollbackReceipt = await rebindNativeProjectReceipt(config, previous, workspace);
         rollbackHost = await config.reconnectHostWorkspace?.(workspace, previous);
         config.workspaces = beforeWorkspaces.map((entry) => entry.id === previous.id ? workspace : entry);
         config.authorizedRoots = Array.from(new Set([...beforeRoots.filter(root => resolve(root) !== resolve(previous.path)), destination]));
@@ -333,7 +336,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       } catch (error) {
         config.workspaces = beforeWorkspaces;
         config.authorizedRoots = beforeRoots;
-        const rollbacks = await Promise.allSettled([rollbackHost?.(), rollbackSessions?.(), rollbackMemory?.()]);
+        const rollbacks = await Promise.allSettled([rollbackHost?.(), rollbackSessions?.(), rollbackMemory?.(), rollbackReceipt?.()]);
         const failedRollback = rollbacks.find(result => result.status === "rejected");
         if (failedRollback) throw new ApiError(422, "workspace_recovery_rollback_failed", "Project recovery rollback needs attention", { reconciliationRequired: true, workspaceId: previous.id, previousPath: previous.path, destinationPath: destination, sessionIds: captured.map(session => session.id) });
         if (error instanceof ApiError && error.code === "workspace_recovery_rollback_failed") throw error;

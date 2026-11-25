@@ -10,6 +10,10 @@ import type { ServerConfig } from "./types.js";
 import { nativeRow } from "./lawoss/test-support/native-config.js";
 import { fakeEngineV2, startRealEngineV2 } from "./lawoss/test-support/fake-engine-v2.js";
 import { OpenCode } from "@opencode/client";
+import { Config } from "@opencode/schema/config";
+import { Schema } from "effect";
+import { writeNativeProjectProjection } from "./engine-project.js";
+import { readLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { while (cleanup.length) await cleanup.pop()?.(); });
 // Windows refuses renaming A while anything holds a descendant open; content created after
@@ -38,6 +42,23 @@ test("moved folder reconnect preserves ID, metadata, bytes and restart registry"
   const pdf = await fetch(`http://127.0.0.1:${restarted.port}/workspace/stable/files/raw?path=source.pdf`, { headers: { Authorization: "Bearer client" } });
   expect(pdf.status).toBe(200); expect(await pdf.text()).toBe("%PDF-original");
 });
+for (const scenario of ["unchanged", "edited", "rollback"] as const) {
+  test(`reconnect handles the generated settings receipt when ${scenario}`, async () => {
+    const f = await fixture();
+    const workspace = f.config.workspaces[0]!;
+    await writeNativeProjectProjection(f.config, workspace, Schema.decodeUnknownSync(Config.Info)({}));
+    const receipt = async () => (await readLegalworkWorkspaceConfig(f.config, workspace.id)).nativeEngineProject;
+    const original = await receipt();
+    await rename(f.a, f.b);
+    const path = join(f.b, ".opencode", "opencode.json");
+    if (scenario === "edited") await writeFile(path, "{}");
+    if (scenario === "rollback") f.config.reconnectHostWorkspace = async () => { throw new Error("synthetic host persistence failure"); };
+    expect((await f.request()).status).toBe(scenario === "rollback" ? 422 : 200);
+    if (scenario === "unchanged") expect(await receipt()).toMatchObject({ directory: f.b, projection: { path } });
+    else expect(await receipt()).toEqual(original);
+    if (scenario === "edited") expect(await readFile(path, "utf8")).toBe("{}");
+  });
+}
 test("invalid authorization, stale, intact, missing and registered targets cannot change registry", async () => {
   const f = await fixture(); await mkdir(f.b); const before = JSON.stringify(f.config.workspaces);
   for (const response of [await f.request(f.b, f.a, false), await f.request(f.b, "stale"), await f.request(), await f.request(join(f.root, "absent"))]) expect(response.ok).toBe(false);
