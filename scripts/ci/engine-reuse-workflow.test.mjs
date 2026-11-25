@@ -78,11 +78,30 @@ test('real engine job cannot pass by silently skipping all engine fixtures', () 
   for (const suffix of ['managed-opencode.released.test.ts', 'scheduled-tasks/engine.test.ts', 'managed-opencode.search.e2e.test.ts', 'opencode-plugins/pdf-reading.integration.test.ts']) assert.ok(files.some(filename => filename.endsWith(suffix)), suffix);
 });
 
+test('only reviewed same-repository macOS PR jobs use the isolated runner', () => {
+  for (const [file, job, lane] of [
+    ['ci-tests', 'legalwork-tests', 'tests'],
+    ['sandbox-runtime', 'runtime', 'runtime'],
+    ['ci-desktop-packaging', 'package-smoke', 'package'],
+  ]) {
+    const selector = workflow(file).jobs[job]['runs-on'].replace(/\s+/g, ' ').trim();
+    const expected = [
+      "${{ matrix.os == 'macos-15' && github.event_name == 'pull_request' &&",
+      "github.repository == 'Omni-Legal-Products/lawoss' &&",
+      'github.event.pull_request.head.repo.full_name == github.repository &&',
+      'vars.LAWOSS_LOCAL_MAC_SHA == github.sha &&',
+      `fromJSON(format('{{"group":"lawoss-macos-isolated","labels":"lawoss-{0}-{1}-{2}-${lane}"}}',`,
+      'github.sha, github.run_id, github.run_attempt)) || matrix.os }}',
+    ].join(' ');
+    assert.equal(selector, expected, `${file}/${job}`);
+  }
+});
+
 test('existing required check names fail if units or a selected engine build fail', () => {
   const gate = workflow('ci-tests').jobs['legalwork-tests'];
   // Ruleset vyžaduje `legalwork-tests (macos-15)`; matrix.os je meno checku.
   assert.deepEqual(gate.strategy.matrix.os, ['ubuntu-latest', 'macos-15']);
-  assert.equal(gate['runs-on'], '${{ matrix.os }}');
+
   for (const name of ['unit-tests', 'sandbox-engine']) {
     assert.equal(workflow('ci-tests').jobs[name]['runs-on'], "${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}");
   }

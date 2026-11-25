@@ -2688,3 +2688,5 @@ Logika je v nových LAWOSS súboroch `apps/app/src/lawoss/chat/provider-error.ts
 | `apps/server/src/engine-project.ts`, `apps/server/src/routes/workspaces.ts` | Pri opätovnom pripojení presunie súkromný záznam o pôvode nastavení spolu s transakciou. Rozpozná len pôvodný názov a totožný obsah v kanonickom priečinku. |
 
 The macOS ARM64 unit integration, packaging and sandbox CI lanes in `.github/workflows/ci-tests.yml`, `.github/workflows/ci-desktop-packaging.yml` and `.github/workflows/sandbox-runtime.yml` support an operator-selected isolated runner for a single reviewed PR merge commit. Preserve matrix check names and the hosted default during upstream sync. See [the runner procedure](docs/testing/macos-local-runner.md).
+
+The regression in `scripts/ci/engine-reuse-workflow.test.mjs` checks the opt-in conditions, job-specific labels and hosted fallback for all three workflows. Its separate required-check test retains the original job matrix and failure propagation.
