@@ -699,7 +699,7 @@ try {
     const response=await until(()=>cdp.events.slice(recoveryStart).find(e=>e.method==='Network.responseReceived'&&new URL(e.params.response.url).pathname===route), 'native '+route+' response',90000);
     const status=response.params.response.status;
     if(status!==200) {
-      const knownCodes=['invalid_payload','workspace_changed','project_folder_available','project_folder_unavailable','workspace_already_registered','workspace_persistence_failed','workspace_session_rebind_failed','workspace_recovery_rollback_failed','internal_error'];
+      const knownCodes=['invalid_payload','workspace_changed','project_folder_available','project_folder_unavailable','workspace_already_registered','workspace_history_unavailable','workspace_persistence_failed','workspace_session_rebind_failed','workspace_recovery_rollback_failed','internal_error'];
       const body=await cdp.send('Network.getResponseBody',{requestId:response.params.requestId}).catch(()=>null);
       let code;
       try {code=JSON.parse(body?.body).code;} catch {}

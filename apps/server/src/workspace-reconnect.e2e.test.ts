@@ -141,8 +141,10 @@ test.each(["derived", "custom"])("registering a freed path allocates distinct ID
   expect(await readFile(join(f.b, "source.pdf"), "utf8")).toBe("%PDF-original");
 });
 
-test("supported session rebind preserves subdirectories and rolls back on persistence failure", async () => {
-  const f = await fixture(a => mkdir(join(a, "sub"))); await rename(f.a, f.b);
+test("trusted desktop reconnect preserves chat subdirectories and rolls back on persistence failure", async () => {
+  const f = await fixture(a => mkdir(join(a, "sub")));
+  f.config.engineProjectTrustRequired = true;
+  await rename(f.a, f.b);
   const engine = fakeEngineV2({ sessions: [{ id: "root-chat", title: "Root", directory: f.a, created: 1, updated: 2 }, { id: "nested-chat", title: "Case", directory: join(f.a, "sub"), created: 1, updated: 1 }] });
   cleanup.push(async () => engine.stop()); f.config.opencodeBaseUrl = engine.url;
   const directory = (id: string) => engine.sessions.get(id)?.directory;

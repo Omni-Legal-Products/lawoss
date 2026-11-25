@@ -20,7 +20,7 @@ const engineClientConfigs = new WeakMap<OpenCodeClient, ServerConfig>();
  * Location is explicit on location-scoped operations; a session routes through
  * its saved location. Never change a process-global default for another project. */
 /** 🟡 LAWOSS: `duringActivation` pre požiadavky pluginu počas aktivácie lokality (routes/native-command-definitions.ts). */
-export function createEngineClient(config: ServerConfig, workspace: WorkspaceInfo, options: { duringActivation?: boolean } = {}): OpenCodeClient {
+export function createEngineClient(config: ServerConfig, workspace: WorkspaceInfo, options: { duringActivation?: boolean; folderRecovery?: "list" | "move" } = {}): OpenCodeClient {
   const { baseUrl, authHeader } = resolveWorkspaceOpencodeConnection(config, workspace);
   if (!baseUrl) throw new ApiError(503, "opencode_unavailable", "The agent engine is not available for this project.");
   // LAWOSS: a protected document chat of this client is answered by its own runtime, and its
@@ -37,7 +37,11 @@ export function createEngineClient(config: ServerConfig, workspace: WorkspaceInf
         || method === "POST" && (/^\/api\/session\/[^/]+\/interrupt$/.test(url.pathname) || /\/legalwork\.commands\/cancel$/.test(url.pathname));
       if (!passive) {
         await awaitRegisteredEngineProjects(config);
-        await assertEngineProjectReady(config, workspace);
+        // Reconnect only reads or updates existing chat location metadata. The
+        // old directory is necessarily missing until its host transaction commits.
+        const recoveryMetadata = (options.folderRecovery === "list" && method === "GET" && url.pathname === "/api/session")
+          || (options.folderRecovery === "move" && method === "POST" && /^\/api\/session\/[^/]+\/move$/.test(url.pathname));
+        if (!recoveryMetadata) await assertEngineProjectReady(config, workspace);
       }
       assertManagedHistoryReadable(config, method, url.pathname);
       let response: Response;
