@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadNativeCorpus } from "../lawoss/testing/isir/native/corpus.mjs";
 import { startProvider, decodeNativeToolOutput } from "../lawoss/testing/isir/native/provider.mjs";
 import { partialPdf } from "../lawoss/testing/isir/native/partial-pdf.mjs";
-import { connectRenderer, until as nativeUntil } from "../lawoss/testing/isir/native/cdp.mjs";
+import { connectRenderer, nativePostResponse, until as nativeUntil } from "../lawoss/testing/isir/native/cdp.mjs";
 import { createNativeProtectedApprover } from "../lawoss/testing/isir/native/protected-approvals.mjs";
 import { stopForRelaunch } from "../lawoss/testing/isir/native/relaunch-stop.mjs";
 import { readNativeQuitAcceptance } from "../lawoss/testing/isir/native/quit-acceptance.mjs";
@@ -695,8 +695,9 @@ try {
   await openFiles(first,'reconnect');
   const recoveryStart=cdp.events.length;
   await click('Reconnect client folder');
-  for (const route of ['/workspaces/pick-folder', '/workspace/'+first.id+'/reconnect']) {
-    const response=await until(()=>cdp.events.slice(recoveryStart).find(e=>e.method==='Network.responseReceived'&&new URL(e.params.response.url).pathname===route), 'native '+route+' response',90000);
+  for (const route of ['/workspaces/pick-folder', '/workspace/'+first.id+'/reconnect', '/workspaces/'+first.id+'/activate']) {
+    const url=new URL(route,serverInfo.baseUrl).href;
+    const response=await until(()=>nativePostResponse(cdp.events,recoveryStart,url), 'native POST '+route+' response',90000);
     const status=response.params.response.status;
     if(status!==200) {
       const knownCodes=['invalid_payload','workspace_changed','project_folder_available','project_folder_unavailable','workspace_already_registered','workspace_history_unavailable','workspace_persistence_failed','workspace_session_rebind_failed','workspace_recovery_rollback_failed','internal_error'];
@@ -707,7 +708,6 @@ try {
     }
   }
   await until(async()=>{const saved=JSON.parse(await readFile(path.join(profile,'legalwork-workspaces.json'),'utf8'));const found=saved.workspaces.find(w=>w.id===first.id);return found?.path===moved},'production native chooser canonical reconnect transaction',90000);
-  await until(()=>['/workspace/'+first.id+'/reconnect','/workspaces/'+first.id+'/activate'].every(path=>cdp.events.slice(recoveryStart).some(e=>e.method==='Network.responseReceived'&&new URL(e.params.response.url).pathname.endsWith(path)&&e.params.response.status===200)),'actual native reconnect and activation200');
   if (corpus.mode === "synthetic") {
     protectedApprovals = createNativeProtectedApprover({mode: corpus.mode, root, profile, cdpOrigin: `http://127.0.0.1:${cdpPort}`, providerEndpoint: provider.url, request: nativeFetch});
     for (const [workspaceId, expectation] of approvalScopes) protectedApprovals.expectOperation({...expectation, hostDirectory: workspaceId === first.id ? moved : expectation.hostDirectory});

@@ -10,6 +10,16 @@ export async function until(read, description, timeout = 30_000) {
   throw Object.assign(new Error(`Timed out: ${description}; last=${String(last)}`), { code: "ISIR_NATIVE_WAIT_EXPIRED" });
 }
 
+/** Match the submitted transaction, even if its CORS preflight finishes first. */
+export function nativePostResponse(events, start, url) {
+  const recent = events.slice(start);
+  const request = recent.find(event => event.method === "Network.requestWillBeSent"
+    && event.params.request.method === "POST" && event.params.request.url === url);
+  if (!request) return undefined;
+  return recent.find(event => event.method === "Network.responseReceived"
+    && event.params.requestId === request.params.requestId);
+}
+
 export async function connectRenderer(url, request = fetch, observeEvent) {
   const parsed = new URL(url);
   if (parsed.hostname !== "127.0.0.1" || parsed.protocol !== "http:" || !parsed.port) throw new Error("Explicit loopback CDP URL required");
