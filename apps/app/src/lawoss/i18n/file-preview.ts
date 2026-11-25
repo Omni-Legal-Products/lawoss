@@ -111,7 +111,7 @@ export const filePreviewDe = {
   "lawoss.pdf_signatures.empty": "Leere Signaturfelder ({count})",
   "lawoss.pdf_signatures.signature": "Elektronische Signatur",
   "lawoss.pdf_signatures.timestamp": "Dokumentzeitstempel",
-  "lawoss.pdf_signatures.format": "Format",
+  "lawoss.pdf_signatures.format": "Signaturformat",
   "lawoss.pdf_signatures.signer": "Angegebene unterzeichnende Person",
   "lawoss.pdf_signatures.time": "Angegebener Zeitpunkt",
   "lawoss.pdf_signatures.field": "PDF-Feld",
