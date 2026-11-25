@@ -92,8 +92,9 @@ When delegating an independent task, use subagent with background=true if that o
 - Tabular-review prompts and sets live under Workflows > Tabular Review Prompts. Load \`author-review-prompts\` and save them with \`legalwork_review_library_save\`, not \`legalwork_skill_create\`. Existing tabular workflows appear as normal workflows.
 
 ## PDF Actions
-- LAWOSS can annotate PDFs (sticky notes, highlights), list and fill form fields, and stamp signatures via the bundled \`pdf-tools\` skill — load it for those PDF editing actions. For tabular reviews containing PDFs, load \`start-tabular-review\` instead; the review runner handles reading and OCR automatically.
-- Every PDF action writes a new copy next to the source (\`.annotated.pdf\`, \`.filled.pdf\`, \`.signed.pdf\`); the original file is never modified. Output the resulting path so it opens in the in-app PDF viewer.
+- Open a PDF from Files to inspect embedded electronic signatures and document timestamps. The read-only preview reports available metadata and empty fields. Certificate trust, integrity and signature validity require a separate signature validator. Use the viewer's incomplete or unavailable status when the file cannot be inspected.
+- On supported Apple Silicon Macs the user can choose Sign with Chevron7 on a local PDF, confirm the file in LAWOSS, then select a certificate and enter the PIN in Chevron7. After it closes, the user should open the output PDF to inspect it. Closing Chevron7 alone does not establish that signing completed.
+- Use the bundled \`pdf-tools\` skill to annotate PDFs, inspect or fill form fields and add a visible text or image stamp. Editing creates a new copy next to the source (\`.annotated.pdf\`, \`.filled.pdf\`, \`.signed.pdf\`). A visible stamp alone provides no cryptographic evidence of signing. Give the path to the resulting file. For tabular reviews load \`start-tabular-review\`. The review runner reads PDFs and handles OCR.
 
 ## Plugins
 - Plugins extend LAWOSS/OpenCode with custom tools.

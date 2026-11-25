@@ -1,6 +1,6 @@
 import { documentNavigationSchema } from "@legalwork/types/office-editor";
 import { suggestionIdFromFile } from "@legalwork/types/wiki-suggestions";
-import { PersistentArtifactPanel, useDocumentAgentControl, useDocumentRuntimeEntry, useDocumentTaskActive } from "./document-runtime";
+import { PersistentArtifactPanel, useDocumentVisibility, useDocumentAgentControl, useDocumentRuntimeEntry, useDocumentTaskActive } from "./document-runtime";
 import { executeWordCopy } from "./docx-agent-copy";
 import { checkDocumentTask } from "./document-task-queue";
 import { isDocumentReadTool } from "./document-agent-read";
@@ -8,6 +8,7 @@ import { useDocumentControlSessions } from "../../../shell/control/document-cont
 import { ProjectFilePanel } from "../../workspace/project-file-panel";
 import { keepHandoffCopy } from "./document-handoff-copy";
 import { artifactQueryKey, artifactQueryOptions, isTextContent, nextBinaryRevision, type ArtifactQueryState } from "./artifact-query";
+import { PdfSignaturePreview } from "@/lawoss/pdf/signature-preview";
 import { usePdfVisualSource } from "./use-pdf-visual-source";
 import { flushSync } from "react-dom";
 /** @jsxImportSource react */
@@ -38,7 +39,7 @@ import { openUnsavedArtifact } from "./document-shutdown-navigation";
 import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
 import { isCollectibleArtifactTarget, type Data, type OpenTarget } from "./open-target";
 import { MediaPreview } from "./media-preview";
-import { type PdfPreviewApi, HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable } from "./preview";
+import { type PdfPreviewApi, HTMLPreview, ImagePreview, MarkdownPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable } from "./preview";
 import { t } from "@/i18n";
 import { Switch } from "@/components/ui/switch";
 import { DocumentAccessBanner, useDocumentOwnership } from "./use-document-ownership";
@@ -209,6 +210,7 @@ function stringProperty(value: Record<string, unknown>, key: string) {
 export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false, saveActions, sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
   const local = useLocal();
   const taskActive = useDocumentTaskActive();
+  const documentVisible = useDocumentVisibility();
   const runtimeEntry = useDocumentRuntimeEntry();
   const controlSessionIds = useDocumentControlSessions(sessionId);
   const queryClient = useQueryClient();
@@ -281,9 +283,10 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
   });
 
   const artifactKey = artifactQueryKey(workspaceId, target, client.baseUrl, runtimeEntry?.generation);
-  const { data, error, isError, isLoading, refetch } = useQuery(artifactQueryOptions({
-    queryClient, client, workspaceId, target, generation: runtimeEntry?.generation, localReadOnly, isReader: () => reader.current, loadFile,
-  }));
+  const { data, error, isError, isLoading, refetch } = useQuery({
+    ...artifactQueryOptions({ queryClient, client, workspaceId, target, generation: runtimeEntry?.generation, localReadOnly, isReader: () => reader.current, loadFile }),
+    meta: !loadFile && target.preview === "pdf" ? { pdfPath: target.value } : undefined,
+  });
   // 🟡 LAWOSS #492: prázdny/poškodený súbor (alebo DOCX, ktorý editor nenačítal) = hláška a žiadne uloženie.
   const [failedDocument, setFailedDocument] = useState<DocxSnapshot | null>(null);
   const unreadable = useMemo(() => data?.kind === "binary" && unreadableFile(target.value, data.data), [data, target.value])
@@ -344,7 +347,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
     },
   });
 
-  const [binaryObjectUrl, setBinaryObjectUrl] = useState<string | null>(null);
+  const [binarySource, setBinarySource] = useState<{ url: string; bytes: ArrayBuffer } | null>(null);
   reader.current = access.status === "reader";
   useEffect(() => {
     if (access.status !== "reader" || localReadOnly) return;
@@ -357,6 +360,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
     return () => clearInterval(timer);
   }, [access.status, localReadOnly, refetch]);
   const binaryContent = data?.kind === "binary" ? data.data : null;
+  const binaryObjectUrl = binarySource && binarySource.bytes === binaryContent ? binarySource.url : null;
   const binaryContentType = data?.kind === "binary" ? data.contentType : null;
   const visualSource = usePdfVisualSource({ client, workspaceId, path: target.value, enabled: target.preview === "pdf", refresh: async accept => {
     const result = await client.downloadWorkspaceFile(workspaceId, target.value);
@@ -374,7 +378,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
 
   useEffect(() => {
     if (!binaryContent) {
-      setBinaryObjectUrl(null);
+      setBinarySource(null);
 
       return;
     }
@@ -386,7 +390,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
     const url = URL.createObjectURL(blob);
     if (target.preview === "pdf") visualSource.prepared(url, blob, binaryContent);
 
-    setBinaryObjectUrl(url);
+    setBinarySource({ url, bytes: binaryContent });
 
     return () => { visualSource.cleared(url); URL.revokeObjectURL(url); };
   }, [binaryContent, binaryContentType, target.preview, visualSource.prepared, visualSource.cleared]);
@@ -857,7 +861,9 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
         </div>
       ) : null}
       <div className="min-h-0 flex-1 overflow-hidden" inert={access.status === "offering" || access.status === "releasing"}>
-        {isLoading || (!unreadable && (access.status === "checking" || (data?.kind === "binary" && (!binaryObjectUrl || (isBinaryEditor && !documentSnapshot))))) ? (
+        {target.preview === "pdf" && target.exists === false ? (
+          <PreviewError message={t("artifact.file_not_found")} />
+        ) : isLoading || (!unreadable && (access.status === "checking" || (data?.kind === "binary" && (!binaryObjectUrl || (isBinaryEditor && !documentSnapshot))))) ? (
           <PreviewLoading />
         ) : isError ? (
           <PreviewError message={error instanceof Error ? error.message : t("artifact.load_failed") } />
@@ -922,7 +928,9 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
         ) : target.preview === "image" && data?.kind === "binary" && binaryObjectUrl ? (
           <ImagePreview src={binaryObjectUrl} alt={target.name} />
         ) : target.preview === "pdf" && data?.kind === "binary" && binaryObjectUrl ? (
-          <PdfPreview apiRef={pdfApi} url={sourcePage ? `${binaryObjectUrl}#page=${sourcePage}` : binaryObjectUrl} title={target.name} onLoad={(url, frame) => visualSource.loaded(url.split("#")[0], frame)} />
+          <PdfSignaturePreview key={binaryObjectUrl} bytes={data.data} visible={documentVisible} apiRef={pdfApi}
+            url={sourcePage ? `${binaryObjectUrl}#page=${sourcePage}` : binaryObjectUrl} title={target.name}
+            onLoad={(url, frame) => visualSource.loaded(url.split("#")[0], frame)} />
         ) : data?.kind === "binary" && binaryObjectUrl && target.preview === "html" ? (
           <HTMLPreview type="binary" title={target.name} url={binaryObjectUrl} />
         ) : data?.kind === "text" ? (

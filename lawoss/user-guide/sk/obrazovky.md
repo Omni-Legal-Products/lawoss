@@ -13,7 +13,7 @@ Použite túto mapu, keď viete, čo chcete urobiť, ale nie kde. Zoznam trás a
 | Prehľad (pod klientom) | Prehľad klienta: prípady, lehoty, vstupy, chaty | [Klienti a prípady](klienti-a-pripady.md) |
 | Prípady (pod klientom) | Stránka prípadu, rýchle akcie, chaty prípadu | [Klienti a prípady](klienti-a-pripady.md) |
 | Chaty (pod klientom) | Chaty klienta | [Chaty](chaty.md) |
-| Súbory (pod klientom) | Súbory v priečinku klienta | [Klienti a prípady](klienti-a-pripady.md) |
+| Súbory (pod klientom) | Náhľad súborov a elektronické podpisy v PDF | [Klienti a prípady](klienti-a-pripady.md) |
 | Pripojené priečinky (pod klientom) | Ďalšie priečinky toho istého klienta | [Klienti a prípady](klienti-a-pripady.md) |
 | Lehoty (pod klientom) | Register lehôt klienta, iba na čítanie | [Dnes a lehoty](dnes-a-lehoty.md) |
 | Na zaradenie | Dokumenty, ktoré ešte nie sú v žiadnom prípade | [Dnes a lehoty](dnes-a-lehoty.md) |
@@ -26,6 +26,7 @@ Použite túto mapu, keď viete, čo chcete urobiť, ale nie kde. Zoznam trás a
 | --- | --- | --- |
 | Poskytovatelia AI | Ako pripojiť model, AI hranice, OCR skenov? | [AI a modely](ai-a-modely.md) |
 | Integrácie | Ako pridať balík z Marketplace, konektor, skill alebo plugin? | [Integrácie](integracie.md) |
+| Skills | Ako otvoriť, vytvoriť alebo importovať miestny skill? | [Integrácie](integracie.md) |
 | Oprávnenia | Ku ktorým priečinkom má agent prístup? | [Nastavenia](nastavenia.md) |
 | Oprávnenia nástrojov | Čo smie agent robiť bez pýtania, YOLO Mode? | [Chaty](chaty.md), [Nastavenia](nastavenia.md) |
 | Jazyk | Ako zmeniť jazyk rozhrania? | [Nastavenia](nastavenia.md) |

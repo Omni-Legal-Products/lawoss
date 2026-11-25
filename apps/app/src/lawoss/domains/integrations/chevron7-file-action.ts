@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { desktopBridge, openDesktopUrl } from "@/app/lib/desktop";
 import { isLoopbackLegalworkServerUrl } from "@/app/lib/legalwork-server";
 import { isDesktopRuntime, isMacPlatform } from "@/app/utils";
@@ -34,7 +34,17 @@ export function chevron7SourceAction(windowProject: string | undefined, workspac
   };
 }
 
+/** A native return may mean the original changed or a separate copy was saved. */
+export function refreshChevron7Files(cache: QueryClient, selection: Selection) {
+  void cache.invalidateQueries({
+    queryKey: ["artifact-panel", selection.workspaceId],
+    predicate: query => query.meta?.pdfPath === selection.relativePath && query.queryKey[3] === selection.serverUrl,
+  });
+  void cache.invalidateQueries({ queryKey: ["workspace-files", selection.workspaceId, selection.serverUrl] });
+}
+
 export function useChevron7FileAction(selection: Selection | null, openInSource?: () => void) {
+  const cache = useQueryClient();
   const enabled = isChevron7FileSelection(selection, isDesktopRuntime() && isMacPlatform());
   const statusQuery = useQuery({ ...chevron7StatusQuery, enabled: enabled && !openInSource });
   const [busy, setBusy] = useState(false);
@@ -66,6 +76,7 @@ export function useChevron7FileAction(selection: Selection | null, openInSource?
           toast.error(t(fresh.isError ? "lawoss.integrations.chevron7.unknown" : "lawoss.integrations.chevron7.failed"));
         }
       } else if (status === "busy" || status === "returned" || status === "interrupted") {
+        if (status === "returned" || status === "interrupted") refreshChevron7Files(cache, selection);
         toast.info(t(`lawoss.integrations.chevron7.${status}`));
       } else {
         toast.error(t(status === "invalid-file" ? "lawoss.integrations.chevron7.invalid" : "lawoss.integrations.chevron7.failed"));

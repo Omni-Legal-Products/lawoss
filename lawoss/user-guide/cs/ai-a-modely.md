@@ -10,6 +10,10 @@ Připojený poskytovatel má v seznamu nabídku, přes kterou ho upravíte nebo 
 
 Model vyberete při prvním spuštění v kroku **AI asistent** (**Model asistenta**) nebo přímo v chatu. Pokud poskytovatel nabízí jen bezplatné modely, LAWOSS upozorní: s podklady klientů je nepoužíváme, připojte placený nebo vlastní model.
 
+Karta předplatného ChatGPT otevře přihlášení přímo. Pokud se vrátíte zpět nebo zavřete dialog, pokus se zruší. Další přihlášení zahajte znovu z karty poskytovatele.
+
+U předplatného ChatGPT se výběr modelů řídí nabídkou připojeného účtu, pokud ji poskytne. Nový model se pak může objevit i po vydání této verze LAWOSS. Při použití vestavěného katalogu bez údajů účtu má tato verze náhradní seznam deseti základních modelů. Engine 2.1.4 nový seznam předplatného samostatně nestahuje. Při použití náhradního seznamu se další modely doplní aktualizací LAWOSS. Dostupnost pro svůj účet ověříte odesláním krátké zprávy.
+
 Pokud připojený účet ChatGPT nabízí pro zvolený model režim **Fast**, kliknutím na blesk vedle úrovně uvažování ho zapnete pro aktuální chat. Dalším kliknutím se vrátíte ke standardní rychlosti. Úroveň uvažování si nastavujete samostatně. Prioritní zpracování může čerpat více z limitu předplatného.
 
 Vzdálený poskytovatel dostane obsah dokumentů, se kterými agent pracuje. Před použitím s údaji klientů posuďte konkrétní službu, účel a údaje; přihlášení ani placený tarif takové posouzení nenahrazují.

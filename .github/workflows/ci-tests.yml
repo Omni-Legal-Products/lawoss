@@ -347,6 +347,10 @@ jobs:
       - name: Verify private desktop engine authentication after server build
         run: node --test apps/desktop/electron/runtime-embedded-auth.node.test.mjs
 
+      - name: Verify disposable pilot setup and feedback template
+        if: runner.os == 'Linux'
+        run: python3 -m unittest discover -s lawoss/testing/tester -p 'test_*.py'
+
       - name: Verify native ISIR bootstrap, diagnostics and owned resources
         run: node --test lawoss/testing/isir/native/*.test.mjs apps/app/scripts/word-addin-watch.test.mjs
 

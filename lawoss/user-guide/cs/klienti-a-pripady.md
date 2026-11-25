@@ -24,6 +24,8 @@ Pod **Případy** je každý případ klienta, pod případem jeho chaty a **Nov
 
 Kliknutím na případ otevřete jeho stránku. Karta **Přehled** shrnuje případ v blocích (například **Základ**, **Řízení**, **Korporátní agenda**, **Duševní vlastnictví**) podle toho, co LAWOSS rozpozná ze souborů. Bloky změníte přes **Upravit** a **Uložit do karty případu**. Karta **Co víme** ukazuje záznamy z paměti případu.
 
+Tužka vedle názvu otevře **Přejmenovat případ**. Zadejte nový název a zvolte **Uložit**. Změna se týká názvu na kartě případu. Soubory a složku najdete na původní cestě. Pokud se karta mezitím změnila, obnovte přehled a zkuste úpravu znovu.
+
 Na stránce případu jsou také **Rozpracované chaty** s tlačítkem **Pokračovat**, **Časová osa**, **Lhůty v příštích 14 dnech** a **Otevřené úkoly**.
 
 Rychlé akce otevřou chat k případu s připraveným úkolem: **Shrň případ**, **Zkontroluj lhůty**, **Připrav odpověď**, **Přidat dokument** a **Ověř klienta**. Pod **Další práce na případu** jsou **Příprava na jednání**, **Rešerše**, **Strategie**, **Revize dokumentu**, **Dopis klientovi** a **Vyhotovit dokument (Word/PDF)**. Rychlé akce potřebují připojený model; pokud chybí, stránka nabídne **Otevřít nastavení AI**.
@@ -39,5 +41,11 @@ Připojujte jen složku, která opravdu patří tomuto klientovi. Pokud složka 
 ## Soubory
 
 **Soubory** pod klientem ukazují soubory ve složce klienta. Dokumenty z odpovědí agenta otevřete z odkazu v chatu.
+
+### Elektronické podpisy v PDF
+
+Otevřete PDF v **Souborech**. Nad stránkou rozbalte **Elektronické podpisy** s uvedeným počtem. U každého nalezeného podpisu nebo časového razítka si můžete zobrazit dostupné údaje, například formát, uvedenou podepisující osobu, vydavatele jejího certifikátu a uvedený čas. U nepodepsaného pole se v detailu zobrazí **Prázdná podpisová pole** s počtem. U nalezeného podpisu se zobrazí **Důvěryhodnost neověřena**. Pokud potřebujete potvrdit platnost či kvalifikovanost podpisu, důvěryhodnost certifikátu nebo platnost časového razítka, ověřte soubor v nástroji pro validaci podpisů.
+
+Na Macu s Apple Silicon vyberte v náhledu nebo v nabídce místního PDF **Podepsat v Chevron7**. V potvrzovacím okně LAWOSS zkontrolujte soubor, v Chevron7 vyberte certifikát a zadejte PIN. Po návratu otevřete vytvořený soubor v LAWOSS. Pokud úkon v Chevron7 zrušíte, samotné zavření okna nepotvrzuje vytvoření podepsané kopie.
 
 Související: [Chaty](chaty.md), [Dnes a lhůty](dnes-a-lehoty.md), [Nastavení](nastavenia.md).

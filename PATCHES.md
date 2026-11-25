@@ -1,4 +1,12 @@
 # LAWOSS downstream patches
+## Elektronické podpisy v náhľade PDF a kontrola pilotu (2026-11-25)
+
+| Miesto | Čo zachovať pri aktualizácii upstreamu |
+|---|---|
+| `apps/app/src/react-app/domains/session/artifacts/artifact-panel.tsx`, `apps/app/src/react-app/domains/workspace/workspace-file-operation.ts`, `apps/app/src/react-app/domains/settings/pages/workflow-resource-editor-panel.tsx`, `apps/app/package.json`, `pnpm-lock.yaml` | Panel vyhodnocuje presné bajty zobrazeného PDF v samostatnom lokálnom workeri. Výsledok je viazaný na otvorenú verziu súboru. Podpis a časová pečiatka majú samostatné označenie. |
+| `apps/server/src/opencode-plugins/legalwork-capabilities-knowledge.ts`, `apps/server/src/core-skills.ts` | Príručka a odpovede asistenta rozlišujú podpisovanie, zobrazenie údajov a overenie dôvery. |
+| `.github/workflows/ci-tests.yml`, `scripts/ci/{run-engine-tests.mjs,engine-reuse-workflow.test.mjs}` | V CI sa kontroluje príprava pracovnej kópie a šablóna výsledkov. Test nad skutočným enginom preberie nový identifikátor modelu z inventára syntetického účtu a kontroluje prenos priority Fast aj úrovne uvažovania. |
+
 ## Pilotná spätná väzba k macOS (2026-11-25)
 
 Cesty v zložených zátvorkách majú spoločný prefix. Samostatné moduly v adresároch `lawoss/` obsahujú aplikačné pravidlá.

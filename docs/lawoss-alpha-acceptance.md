@@ -92,6 +92,12 @@ Katalóg LAWOSS a flagy dokazujú ponuku. Pre každú integráciu zaznamenajte o
 Aktuálny zdroj skrýva upstream kalendár, wiki, dashboards a plánované úlohy cez
 `ALPHA_HIDE_UNADOPTED_UPSTREAM`; ich existencia v kóde nie je tvrdenie o dostupnosti.
 
+## Pilotné kontroly pre zostavy s úpravami z 25. novembra 2026
+
+- [ ] Prejdite [pilotné scenáre](lawoss-build-pre-testerov.md#kontroly-pilotnej-zostavy) v SK aj CZ. Ku každej zahrnutej funkcii zapíšte skutočný výsledok na presnom balíčku. Pri modeli uveďte spôsob pripojenia, základný model, Fast a úroveň uvažovania. Pri registri doložte výsledok konkrétneho volania.
+- [ ] Na každom podporovanom systéme skontrolujte [náhľad podpisov PDF](lawoss-build-pre-testerov.md#kontrola-podpisov-pdf) vrátane prázdnych polí, poškodenia a prepnutia klienta. Na Macu s Apple Silicon samostatne overte zrušenie odovzdania, skutočný podpis cez Chevron7 a otvorenie výslednej kópie.
+- [ ] Pri každom PDF rozlíšte výsledok čítania údajov, dokončenie podpisovania a prípadný samostatný výsledok validátora. Ak chýba účet alebo certifikát potrebný na daný krok, zapíšte `blocked` a konkrétnu prekážku.
+
 ## Zapíšte výsledok
 
 Záznam obsahuje build identitu, finálny digest, target, druh a vlastníka profilu,

@@ -32,6 +32,8 @@ Podporované jazyky formulára sú `sk`, `cz` a `en`. Ak už poznáš verziu z N
 3. Reštartujte appku a overte, že tester znovu nájde rovnakého klienta. Zaznamenaj, čo sa podarilo, čo zlyhalo a čo ste preskočili. Pri odpojenom modeli sa dá overiť inštalácia a otvorenie súborov. Otázka nad dokumentom potrebuje pripojený model.
 4. Bežný pilot používa syntetické alebo verejné dáta. Stav špecializovaného chráneného režimu [ISIR](https://github.com/Omni-Legal-Products/lawoss/issues/384) posudzuj podľa samostatného natívneho testu.
 
+Ak skúšate zostavu s pilotnými úpravami, vyber s testerom príslušný [scenár a očakávaný výsledok](lawoss-build-pre-testerov.md#kontroly-pilotnej-zostavy). Pre náhľad podpisov môžeš pripraviť uvedeným príkazom štyri referenčné PDF do pracovnej kópie prípadu. Porovnaj náhľad každého s očakávaním ešte pred ďalším súborom. V tabuľke v súbore `feedback.md` z poľa `feedback_draft` uveď pri skúšaných funkciách stav a dôkaz. Pre české názvy obrazoviek použi [českú príručku](../lawoss/user-guide/cs/index.md).
+
 ## 4. Odovzdaj výsledok a priprav spätnú väzbu
 
 Do `feedback.md` doplň platformu, skutočnú verziu (pri vlastnej zostave aj commit), kroky, očakávanie, pozorovanie a opakovateľnosť. Uveď len zistenia z tohto behu. Získanú odpoveď skontroluj spolu s testerom. Prípadné snímky nech skontroluje pred odoslaním. Formulár prijíma najviac tri prílohy po 10 MB. Do hlásenia patria syntetické reprodukčné údaje.

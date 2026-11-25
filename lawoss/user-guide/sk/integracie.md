@@ -42,7 +42,13 @@ Cez **Importovať skills** vyberiete kompatibilný balík z miestnej inštaláci
 
 ## Pluginy
 
-Plugin môže obsahovať skilly aj konektory. Na karte **LAWOSS Marketplace** môžete zobraziť všetky balíky alebo filtrovať nainštalované balíky a balíky dostupné na inštaláciu. Pri Google Workspace cez gog sú inštalácia skillu a prihlásenie do účtu samostatné kroky. Účet overíte v termináli príkazom `gog auth list --check`.
+Plugin môže obsahovať skilly aj konektory. Na karte **LAWOSS Marketplace** môžete zobraziť všetky balíky alebo filtrovať nainštalované balíky a balíky dostupné na inštaláciu.
+
+Na karte **Google Workspace** rozbaľte **Inštalovať skill**, zvoľte rozsah a potvrďte inštaláciu. Ak už je nainštalovaný, zvoľte **Spravovať inštaláciu**. Pripojený účet a stav prihlásenia overíte v termináli príkazom `gog auth list --check`.
+
+## Podpisovanie PDF na Macu
+
+Karta **Chevron7** v nástrojoch kancelárie ukáže stav inštalácie. Podpis spustíte pri konkrétnom PDF. Postup podpisovania aj čítania podpisov je v časti [Elektronické podpisy v PDF](klienti-a-pripady.md#elektronické-podpisy-v-pdf).
 
 ## Úložisko súborov
 
