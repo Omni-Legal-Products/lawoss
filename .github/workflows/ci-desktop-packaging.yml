@@ -3,10 +3,17 @@ name: Desktop Package Smoke Tests
 on:
   # 🟡 LAWOSS: balenie a štart zabalenej appky (ISIR native, kontrola app.asar) beží na každom PR
   # a pushe do dev; „Package and launch“ sú povinné kontroly rulesetu dev. Upstream ho spúšťa len cez workflow_call.
+  # workflow_dispatch: operátor môže znova spustiť tip Package Smoke bez UI re-run failed (agenti majú 403).
+  workflow_dispatch:
   pull_request:
     branches: [dev]
   push:
     branches: [dev]
+    # Tip docs-only push (#608) znovu spustil Package Smoke počas fronty macos-15 po #607
+    # a pridal druhý konkurujúci mac job. PR spúšťanie ostáva bez paths-ignore (povinná brána).
+    paths-ignore:
+      - 'docs/**'
+      - 'progress.txt'
   workflow_call:
     inputs:
       runtime_provided:
