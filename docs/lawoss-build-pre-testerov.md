@@ -1,7 +1,7 @@
 # LAWOSS: návod pre alfa testerov
 
 > [!IMPORTANT]
-> Toto je alfa verzia LAWOSS na testovanie. Skúšajte ju na syntetických dátach alebo na kópii priečinka. Pri internom nepodpísanom builde používajte výlučne syntetické alebo verejné údaje.
+> Toto je alfa verzia LAWOSS na testovanie. Skúšajte ju na syntetických dátach alebo na kópii priečinka. Pozvaní alfa testeri používajú výlučne syntetické alebo verejné údaje.
 
 Tento návod je pre právnikov, ktorí skúšajú alfu. Technické časti sú až na konci, v časti „Pre technických testerov“.
 
@@ -14,10 +14,12 @@ Tento návod je pre právnikov, ktorí skúšajú alfu. Technické časti sú a�
 
 ## 2. Stiahnutie appky
 
-Osobná pozvánka zobrazuje zverejnenú alfu pre váš systém. Verziu si môžete overiť aj v [releasoch forku](https://github.com/Omni-Legal-Products/lawoss/releases). Koncept označený „len interný tím“ je určený členom tímu na skúšanie so syntetickými alebo verejnými údajmi.
+Osobný odkaz z pozvánky ponúka hotový inštalátor pre váš systém. Stačí prehliadač. Na Macu vyberte súbor DMG pre Apple Silicon, na Windowse inštalátor EXE pre x64 alebo ARM64. Odkaz si nechajte pre seba. Alfa `0.2.1-alpha.20` pre pozvaných testerov má na Macu podpis ad hoc bez notarizácie a na Windowse je bez podpisu vydavateľa.
 
-- **macOS s Apple Silicon (arm64).** Otvorte súbor `.dmg` a pretiahnite LAWOSS do priečinka Aplikácie. Ak Gatekeeper zablokuje prvé spustenie očakávanej internej zostavy, na macOS 15 a novšom zatvorte okno tlačidlom Hotovo. V **Nastaveniach systému → Súkromie a bezpečnosť** nájdite LAWOSS, zvoľte **Napriek tomu otvoriť** a potvrďte heslom alebo Touch ID. Na macOS 14 a staršom použite pravý klik na LAWOSS → **Otvoriť** → **Otvoriť**.
-- **Windows x64 a ARM64.** V **Nastaveniach → Systém → Informácie** skontrolujte typ systému a stiahnite príslušný inštalátor `.exe`. Pri internom nepodpísanom builde môže SmartScreen zobraziť varovanie. Podrobný postup je v [návode na inštaláciu a aktualizácie pre Windows](lawoss-d1-zabalena-appka-2026-10-05.md#windows-inštalácia-a-aktualizácie-pre-testerov).
+- **macOS s Apple Silicon (arm64).** Otvorte súbor `.dmg` a pretiahnite LAWOSS do priečinka Aplikácie. Ak Gatekeeper zablokuje prvé spustenie zostavy stiahnutej z vašej pozvánky, na macOS 15 a novšom zatvorte okno tlačidlom Hotovo. V **Nastaveniach systému → Súkromie a bezpečnosť** nájdite LAWOSS, zvoľte **Napriek tomu otvoriť** a potvrďte heslom alebo Touch ID. Na macOS 14 a staršom použite pravý klik na LAWOSS → **Otvoriť** → **Otvoriť**.
+- **Windows x64 a ARM64.** V **Nastaveniach → Systém → Informácie** skontrolujte typ systému a stiahnite príslušný inštalátor `.exe`. Ak SmartScreen zobrazí varovanie pri inštalátore z vašej pozvánky, zvoľte **Ďalšie informácie → Spustiť aj tak**. Ak počítač spravuje organizácia a táto možnosť chýba, obráťte sa na jej správcu. Podrobný postup je v [návode na inštaláciu a aktualizácie pre Windows](lawoss-d1-zabalena-appka-2026-10-05.md#windows-inštalácia-a-aktualizácie-pre-testerov).
+
+Pri prvom otvorení vyberte testovací priečinok. Ak si systém vypýta prístup k jeho súborom, potvrďte ho. Prístup k mikrofónu alebo k nahrávaniu obrazovky povoľujte pri použití funkcie, ktorá ho potrebuje.
 
 Verziu appky nájdete v Nastaveniach, v časti Aktualizácie. Uveďte ju pri každom hlásení chyby.
 
@@ -183,52 +185,31 @@ Potom v appke pripájajte klientov z kópie `dnes\02_OKF_kancelaria\Klienti`. Vo
 
 ### Build zo zdrojov
 
-Potrebné len vtedy, keď si appku staviate sami.
+Predpripravené inštalátory z pozvánky obsahujú aplikáciu, engine aj runtime. Ak si chcete zostaviť vlastný inštalátor, zdrojom kandidáta `alpha.20` je [commit 875852c61](https://github.com/Omni-Legal-Products/lawoss/tree/875852c61ef29754171bedd6deeb8147594090a8).
 
-- Node 24: `.nvmrc` a `engines.node` v `package.json` (`>=24.0.0 <25.0.0`).
-  S nástrojmi ako `nvm` stačí `nvm use` v koreni repozitára.
-- pnpm 11.4.0, vynútené cez `packageManager`.
-- Bun 1.4.4: server sa zostavuje cez `bun build` (aj v `package:electron`) a
-  testy `apps/app` bežia v Bune.
-- macOS: Xcode Command Line Tools (`xcode-select --install`) pre prípad, že
-  natívny `better-sqlite3` treba skompilovať zo zdroja.
+**Vlastná zostava cez GitHub Actions.** Vo svojom forku povoľte Actions a vytvorte vetvu z uvedeného commitu. V karte Actions vyberte [workflow macOS](../.github/workflows/alpha-macos-aarch64.yml) alebo [workflow Windows x64 a ARM64](../.github/workflows/alpha-windows-x64.yml) a v **Run workflow** vyberte túto vetvu. Pre macOS nastavte vo forku repository variable `MACOS_NOTARIZE=false`. Pre vlastný nepodpísaný build zvoľte `allow_unsigned_internal=true`, `publish=true`, `draft=true` a základnú verziu `0.2.1`. Workflow pripraví engine zo zdrojov, zostaví sandbox runtime a zabalí aplikáciu. Po úspešnom behu nájdete svoje DMG alebo EXE v koncepte vydania vo vlastnom forku. Číslo alfy sa odvíja od poradového čísla vášho behu.
 
-Windows x64 (CI to robí na `windows-2022`; na vlastnom počítači s Windows
-*neoverené*):
+**Lokálne zostavenie na vlastnom počítači.** Použite Git, Node podľa `.nvmrc`, pnpm 11.4.0 a Bun 1.4.4. Na Macu sú pre natívne moduly potrebné Xcode Command Line Tools, na Windowse Visual Studio Build Tools s podporou C++. Na Windowse povoľte dlhé cesty pri klonovaní (`git clone -c core.longpaths=true …`).
 
-- Dlhé cesty v gite ešte pred `git clone`: `git config --global core.longpaths true`
-  (rovnako ako workflowy na `windows-2022`).
-- Node 24, `node --version` musí ukázať `v24.x`.
-- pnpm 11.4.0, napríklad `npm install -g pnpm@11.4.0`.
-- Bun 1.4.4: potrebný aj na build balíčka (server sa zostavuje cez `bun build`),
-  nielen na testy.
-- Pre prípad, že natívny modul treba skompilovať zo zdroja: Visual Studio Build
-  Tools s „Desktop development with C++“.
-
-```bash
+```sh
 git clone https://github.com/Omni-Legal-Products/lawoss.git
 cd lawoss
-pnpm install
-pnpm --filter @legalwork/desktop package:electron
+git switch --detach 875852c61ef29754171bedd6deeb8147594090a8
+pnpm install --frozen-lockfile
 ```
 
-`pnpm build` (aj `build:electron` v `apps/desktop`) zostaví len server,
-rozhranie a pomocné súbory pre Electron, balíček nevytvorí. Ten vytvorí až
-`package:electron` z `apps/desktop/package.json`: spustí ten istý build a potom
-`electron-builder` pre váš systém (macOS `.dmg` a `.zip`, Windows inštalátor
-NSIS `.exe`, Linux AppImage a `.tar.gz`). Rýchlejší `package:electron:dir`
-vytvorí len rozbalenú appku bez inštalátora. Výsledok je v
-`apps/desktop/dist-electron`.
+Pred buildom pripravte sandbox runtime pre cieľovú platformu podľa [sandbox workflowu](../.github/workflows/sandbox-runtime.yml). Rovnaký archív môžete počas jeho retencie stiahnuť cez `gh run download` po prihlásení do GitHubu. Napríklad pre Mac:
 
-Vlastný build nie je podpísaný, takže ho systém pri prvom spustení zablokuje
-alebo varuje. Na macOS ho otvoríte pravým klikom a voľbou Otvoriť, alebo v
-Nastaveniach systému, časť Súkromie a bezpečnosť. Na Windows cez SmartScreen
-More info → Run anyway (pozri časť Windows v D1).
+```sh
+gh run download 45555531440 -R Omni-Legal-Products/lawoss -n sandbox-runtime-darwin-arm64 -D .work/alpha-runtime
+mkdir -p apps/server/resources/agent-sandbox/runtime
+tar -xzf .work/alpha-runtime/sandbox-runtime.tgz -C apps/server/resources/agent-sandbox/runtime
+node scripts/sandbox/verify-runtime.mjs
+pnpm --filter @legalwork/desktop build:electron
+pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml -c.mac.identity=- --mac --arm64 --publish never
+```
 
-Vlastný build má verziu `0.0.0` a kontrolu aktualizácií zámerne preskakuje
-(`isUnstampedLocalBuild` v `apps/desktop/electron/updater.mjs`). Novú verziu
-získate novým `git pull`, `pnpm install` a
-`pnpm --filter @legalwork/desktop package:electron`.
+Na Windowse spustite príkazy v Git Bash, zvoľte beh `45555534704` a archív `sandbox-runtime-win32-x64` alebo `sandbox-runtime-win32-arm64` podľa vášho počítača. Po rozbalení, overení runtime a `build:electron` použite `pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --win --x64 --publish never` alebo zmeňte posledný prepínač architektúry na `--arm64`. Výstup je v `apps/desktop/dist-electron`. Prvá príprava enginu potrebuje sieť a používa [recept z repozitára](../packages/opencode-release/build/README.md).
 
 ### Hlásenie chýb pri vlastnom builde
 
