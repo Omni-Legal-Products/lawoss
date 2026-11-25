@@ -81,7 +81,7 @@ Podrobný postup je v [D1, časť Klienti, veci a skilly](lawoss-d1-zabalena-app
 
 ## 6. Aktualizácie
 
-Appka vám môže sama ponúknuť novú alfu. Ponuku zatiaľ nepotvrdzujte. Novú alfu nainštalujte až vtedy, keď ju oznámime v Telegram skupine testerov LAWOSS. Stiahnete ju z [releasov forku](https://github.com/Omni-Legal-Products/lawoss/releases), rovnako ako prvú.
+Appka vám môže sama ponúknuť novú alfu. Ponuku zatiaľ nepotvrdzujte. Novú alfu nainštalujte až vtedy, keď ju oznámime v Telegram skupine testerov LAWOSS. Otvorte znova svoj osobný odkaz z pozvánky a pred stiahnutím skontrolujte, že ponúka oznámenú verziu pre váš systém.
 
 ## 7. Kam hlásiť chyby
 
@@ -108,13 +108,14 @@ Postup akceptačného behu s kritériami PASS/FAIL je v [alfa akceptačnom proto
 
 ### Overenie konkrétneho desktop balíčka
 
-Vyberte presný desktop release tag a súbor pre svoj systém a architektúru.
-CLI orchestrátora má samostatné vydania. Odkaz `releases/latest` preto neurčuje správny desktop.
-Žiadny aktuálny balíček tu nie je označený za otestovaný iba na základe názvu vydania.
+Inštalátory z osobnej pozvánky pre verziu `0.2.1-alpha.20.g875852c` si môžete overiť podľa tabuľky. Na macOS použite `shasum -a 256` s cestou k DMG, na Windowse príkaz PowerShellu `Get-FileHash` s cestou k EXE a prepínačom `-Algorithm SHA256`.
 
-Stiahnite aj `release-evidence-<platform>-<arch>.json` a porovnajte názov, veľkosť a SHA-256
-inštalátora. Na macOS použite `shasum -a 256 <asset>`, na Windows
-`Get-FileHash .\<asset> -Algorithm SHA256`. Nainštalujte tieto presné bytes.
+| Inštalátor | Veľkosť v bajtoch | SHA-256 |
+| --- | ---: | --- |
+| `lawoss-mac-arm64-0.2.1-alpha.20.g875852c.dmg` | 861656429 | `5d421bcd5c839d83c1c873ff7ebd75ee62d3432b4b10ed3ec88c14badd944b8d` |
+| `lawoss-win-x64-0.2.1-alpha.20.g875852c.exe` | 811750017 | `5c5fa2dfffdc26de145335ff6166bbf27daf5ba387857271f1900d75cbddee86` |
+| `lawoss-win-arm64-0.2.1-alpha.20.g875852c.exe` | 768080247 | `fbf3c556bfb3bd7088a46da17225a2d89b090cc54b2f2e7777c7c30722f3e05a` |
+
 V Nastaveniach → Debug prečítajte verziu, celý commit, kanál, target a stav identity.
 `unavailable` znamená nedoložený pôvod staršieho balíčka. SHA z iného checkoutu ho nenahrádza.
 
@@ -189,7 +190,7 @@ Predpripravené inštalátory z pozvánky obsahujú aplikáciu, engine aj runtim
 
 **Vlastná zostava cez GitHub Actions.** Vo svojom forku povoľte Actions a vytvorte vetvu z uvedeného commitu. V karte Actions vyberte [workflow macOS](../.github/workflows/alpha-macos-aarch64.yml) alebo [workflow Windows x64 a ARM64](../.github/workflows/alpha-windows-x64.yml) a v **Run workflow** vyberte túto vetvu. Pre macOS nastavte vo forku repository variable `MACOS_NOTARIZE=false`. Pre vlastný nepodpísaný build zvoľte `allow_unsigned_internal=true`, `draft=true` a základnú verziu `0.2.1`. Vo Windows workflowe ponechajte `publish=true`, aby vytvoril koncept vydania. Workflow pripraví engine zo zdrojov, zostaví sandbox runtime a zabalí aplikáciu. Po úspešnom behu nájdete svoje DMG alebo EXE v koncepte vydania vo vlastnom forku. Číslo alfy sa odvíja od poradového čísla vášho behu.
 
-**Lokálne zostavenie na vlastnom počítači.** Použite Git, presne Node 24.22.1 podľa `.nvmrc`, pnpm 11.4.0 a Bun 1.4.4. Balík nástrojov kontroluje aj patch verziu Node. Ak používate wrapper pnpm, nastavte `LAWOSS_BUILD_PNPM_CLI` na absolútnu cestu k skutočnému súboru `pnpm/bin/pnpm.mjs` verzie 11.4.0. Na Macu sú pre natívne moduly potrebné Xcode Command Line Tools, na Windowse Visual Studio Build Tools s podporou C++. Na Windowse povoľte dlhé cesty pri klonovaní (`git clone -c core.longpaths=true …`).
+**Lokálne zostavenie na vlastnom počítači.** Použite Git, presne Node 24.22.1 podľa `.nvmrc`, pnpm 11.4.0 a Bun 1.4.4. Balík nástrojov kontroluje aj patch verziu Node. Ak používate wrapper pnpm, nastavte `LAWOSS_BUILD_PNPM_CLI` na absolútnu cestu k skutočnému súboru `pnpm/bin/pnpm.mjs` verzie 11.4.0. Na Macu sú pre natívne moduly potrebné Xcode Command Line Tools a CMake dostupný v PATH (`cmake --version`). Na Windowse potrebujete Visual Studio Build Tools s podporou C++. Na Windowse povoľte dlhé cesty pri klonovaní (`git clone -c core.longpaths=true …`).
 
 ```sh
 git clone https://github.com/Omni-Legal-Products/lawoss.git
@@ -205,8 +206,9 @@ gh run download 45555531440 -R Omni-Legal-Products/lawoss -n sandbox-runtime-dar
 mkdir -p apps/server/resources/agent-sandbox/runtime
 tar -xzf .work/alpha-runtime/sandbox-runtime.tgz -C apps/server/resources/agent-sandbox/runtime
 node scripts/sandbox/verify-runtime.mjs
+export NODE_OPTIONS=--max-old-space-size=6144
 pnpm --filter @legalwork/desktop build:electron
-pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml -c.mac.identity=- --mac --arm64 --publish never
+CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml -c.mac.identity=- --mac --arm64 --publish never
 ```
 
 Na Windowse spustite príkazy v Git Bash, zvoľte beh `45555534704` a archív `sandbox-runtime-win32-x64` alebo `sandbox-runtime-win32-arm64` podľa vášho počítača. Po rozbalení, overení runtime a `build:electron` použite `pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --win --x64 --publish never` alebo zmeňte posledný prepínač architektúry na `--arm64`. Výstup je v `apps/desktop/dist-electron`. Prvá príprava enginu potrebuje sieť a používa [recept z repozitára](../packages/opencode-release/build/README.md).

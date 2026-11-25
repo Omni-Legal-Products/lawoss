@@ -915,3 +915,8 @@ Review found first attempt cached all metadata too broadly and omitted host owne
   - arm64: `lawoss-win-arm64-0.2.1-alpha.20.g875852c.exe`, 768080247 bajtov, SHA-256 `fbf3c556bfb3bd7088a46da17225a2d89b090cc54b2f2e7777c7c30722f3e05a`.
 
 - Rozhodnutie MČ z 25. 11. 2026 po skúške kandidáta: pozvaní testeri majú dostať pripravené DMG/EXE bez notarizácie cez svoju osobnú pozvánku. Skúsenejší testeri môžu vychádzať z presného zdrojového commitu. Podpis a notarizácia pre verejnú distribúciu nasledujú neskôr. Implementácia distribúcie patrí do repozitára lawoss-web.
+
+### Distribúcia cez osobné pozvánky a vlastná zostava
+
+- [Webový PR #21](https://github.com/Omni-Legal-Products/lawoss-web/pull/21) bol nasadený na lawoss.app. Pozvánky ukazujú alfa.20 pre všetky tri platformy. Produkčný test cez jednorazovú syntetickú pozvánku skontroloval stránky SK/CZ/EN a pre každú platformu stiahol celý súbor cez HTTPS. Veľkosť aj SHA-256 zodpovedali údajom v návode. Prešli HEAD, čiastočné stiahnutie (206) aj odmietnutie rozsahu za koncom súboru (416). Po zrušení pozvánky vrátil server 404. Testovací záznam bol odstránený.
+- Na macOS arm64 vzniklo z čistého checkoutu `875852c61` vlastné DMG podľa postupu v [návode pre testerov](docs/lawoss-build-pre-testerov.md#build-zo-zdrojov). Build použil Node 24.22.1, pnpm 11.4.0, Bun 1.4.4, CMake a pribalený sandbox runtime z macOS workflowu. Skript `apps/desktop/scripts/packaged-startup-regression.mjs` overil zabalenú aplikáciu, renderer a skutočný engine na izolovanom profile. Na Windowse sa zostavenie aj štart overili na príslušných x64 a ARM64 runneroch.
