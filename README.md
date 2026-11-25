@@ -1,185 +1,97 @@
-<div align="center">
+<h1 align="center">LAWOSS</h1>
 
-<img src="https://raw.githubusercontent.com/originalmagneto/lawOSS-like-SK-CZ/main/assets/brand/logo.png" alt="LAWOSS | Czechia and Slovakia" width="200" />
+<p align="center"><strong>Open-source pracovné prostredie pre české a slovenské advokátske kancelárie.</strong><br>
+Klienti, súdne spisy, právne zdroje a AI asistent na jednom pracovnom stole.</p>
 
-# LAWOSS
+<p align="center"><a href="https://lawoss.app">Web LAWOSS</a> · <a href="docs/lawoss-build-pre-testerov.md">Vyskúšať alfu</a> · <a href="lawoss/user-guide/sk/index.md">Slovenská príručka</a> · <a href="lawoss/user-guide/cs/index.md">Česká příručka</a></p>
 
-### Czechia · Slovakia
+[![Tmavý pracovný stôl LAWOSS s prehľadom spisov a panelom autorizácie dokumentu](docs/images/brand/hero.webp)](docs/images/brand/hero.webp)
 
-**Open-source AI pracovné prostredie pre českých a slovenských advokátov**
+*Vizuálny koncept LAWOSS. Spis a jeho podklady zostávajú pred advokátom aj pri príprave výstupu.*
 
-*Poriadok v spise. Overené právo. AI pod kontrolou.*
+## Od ranného prehľadu k práci na spise
 
-[![Status](https://img.shields.io/badge/f%C3%A1za-fork%20%26%20MVP-blue)](https://github.com/originalmagneto/lawOSS-like-SK-CZ/blob/main/planning/roadmap.md)
-[![Upstream](https://img.shields.io/badge/upstream-LegalWork-brightgreen)](https://github.com/eigenweltlabs/legalwork)
-[![License](https://img.shields.io/badge/licencia-MIT-green)](LICENSE)
-[![Jurisdikcia](https://img.shields.io/badge/jurisdikcia-CZ%20%2B%20SK-red)](https://github.com/originalmagneto/lawOSS-like-SK-CZ/blob/main/docs/vision.md)
+Ráno otvoríte **Dnes** a pozriete si najbližšie evidované lehoty. Vyberiete klienta, prejdete do prípadu a otvoríte dokument vedľa rozhovoru. Keď sa k veci vrátite o týždeň, nájdete jej súbory, doterajší rozhovor aj uloženú pamäť prípadu.
 
-<img src="https://raw.githubusercontent.com/originalmagneto/lawOSS-like-SK-CZ/main/assets/brand/keyvisual-hero.png" alt="LAWOSS | AI nástroje pre moderného advokáta" width="100%" />
-
-</div>
-
-**Chcem vyskúšať LAWOSS s vlastným AI agentom.** Dajte mu odkaz na tento repozitár a pokyn „Pomôž mi vyskúšať LAWOSS na mojom počítači.“ [Postup pre agenta aj testera](docs/tester-agent.md) zahŕňa inštaláciu alebo kompiláciu, syntetický spis a formulár spätnej väzby.
-
-
-> [!IMPORTANT]
-> LAWOSS je v aktívnom vývoji. Stav zdrojového kandidáta nižšie nepreukazuje dostupnosť ani akceptáciu verejného inštalátora. Testovacie scenáre vykonávajte so syntetickými alebo verejnými údajmi.
-
-## Dostupnosť v zdrojovom kandidátovi — 18. 10. 2026
-
-Táto tabuľka opisuje lokálny implementačný kandidát nad základom `fdd10927d92aaf4c25217430cc316ef38e4e8057`. Nie je zoznamom schopností už nainštalovaného alebo verejne vydaného balíčka. Aktívny postup overovania je v [akceptačnom protokole](docs/lawoss-alpha-acceptance.md).
-
-| Oblasť | Implementované a aktuálne obmedzenia |
+| Čo chcete urobiť | Kde začať |
 |---|---|
-| **Prehľad praxe** | Agreguje klientov vo vybranom rozsahu praxe vrátane samostatne pripojených klientov. Ukazuje pokrytie a čerstvosť jednotlivých zdrojov; nedostupný zdroj sa nesmie zobraziť ako nula lehôt. Klienti mimo zvoleného rozsahu nie sú súčasťou prehľadu. |
-| **Dokument → lehota → OKF → kalendár** | Technická cesta obsahuje zdroj alebo presný ručný výňatok, dôkaz doručenia, výpočet, natívne potvrdenie hostiteľom, zápis OKF a lokálny ICS. Predvolene je vypnutá: hostiteľ musí štartovať s `LAWOSS_DEADLINE_WORKFLOW=1`, potom sa otvára cez **Settings → Pokročilý → Experimenty → Lhůty**. Pribalené CZ/SK RulePacky sú `synthetic_only`; potvrdenie a export reálnych lehôt zostávajú blokované do samostatného schválenia presného pravidla zodpovedným právnikom. Podrobnosti: [workflow lehôt](lawoss/deadlines/README.md). |
-| **Poučenie a AI** | Onboarding a nastavenia používajú jednotné poučenie; jeho prečítanie ani pripojenie poskytovateľa nie je povolenie prenosu. Samostatný verejný/syntetický text možno spracovať v prázdnom oddelenom prostredí spravovaného enginu po natívnej kontrole úplnej skutočnej požiadavky. Chránený alebo neznámy kontext v chate, prílohách, queue/Fusion, vzdialenom OCR, SystemOne a živom hlasovom režime zostáva blokovaný: test H1 nepreukázal izoláciu pri priamom shell prístupe. Platí to aj pre localhost. Ručná práca so súbormi a postup bez modelu zostávajú dostupné. |
-| **Identita buildu a distribúcia** | Kód rozlišuje vloženú identitu buildu, finálne inštalačné bytes, podpis, natívnu akceptáciu a publikáciu. Zdrojové testy tieto stavy nenahrádzajú. Vyžaduje sa overenie presného balíčka na deklarovanej platforme a čistom aj migrovanom profile; pozri [release evidence](docs/release-evidence.md). Lokálna implementácia neznamená push, merge ani verejné vydanie. |
+| Zistiť, čo treba vybaviť | **Dnes** sústreďuje úlohy, lehoty a termíny z prípadov. Agenda sa dá prepnúť z prehľadu na mesiac. [Dnes a lehoty](lawoss/user-guide/sk/dnes-a-lehoty.md) |
+| Pracovať s existujúcim spisom | Pripojte priečinok klienta a otvorte prípad. Štruktúra OKF uchováva podklady a pamäť prípadu na disku. [Klienti a prípady](lawoss/user-guide/sk/klienti-a-pripady.md) |
+| Nájsť právny podklad | V Marketplace si vyberte balík pre svoju jurisdikciu. Konektory sprístupňujú napríklad Slov-Lex, slovenskú judikatúru a obchodný register. [Integrácie a skilly](lawoss/user-guide/sk/integracie.md) |
+| Položiť otázku k dokumentu | Vyberte poskytovateľa a model, otvorte chat prípadu a pridajte konkrétny podklad. Pri práci so vzdialeným modelom záleží na tom, ktoré údaje mu sprístupníte. [Modely, AI hranice a OCR](lawoss/user-guide/sk/ai-a-modely.md) |
 
-[Odovzdanie Logo B a sidebar z 10. 9. 2026](docs/2026-09-10-logo-b-sidebar-handoff.md) je historický technický zápis.
+## Vyskúšajte LAWOSS na syntetickom spise
 
-## Čo je LAWOSS
+**Pozvaní testeri** dostanú cez osobný odkaz inštalátor alfy 20 pre **macOS s Apple Silicon**, **Windows x64** alebo **Windows ARM64**. Návod obsahuje presnú verziu, kontrolné súčty aj postup prvého spustenia. [Inštalácia pre testerov](docs/lawoss-build-pre-testerov.md)
 
-Živý Voice Mode je v tomto kandidátovi blokovaný. Vstavaný lokálny recorder a lokálna transkripcia sú samostatné cesty. Technické odlišnosti LAWOSS a zachované upstream podmienky sú oddelené v [TERMS.md](TERMS.md).
+1. Stiahnite [syntetickú kanceláriu](SYNTHETIC_DATA.md), rozbaľte ju a otvorte jeden priečinok klienta.
+2. V prehľade nájdite prípad a jeho najbližší termín. Otvorte jeden z dokumentov a porovnajte jeho obsah s údajmi v prehľade.
+3. Ak skúšate aj asistenta, položte mu otázku na konkrétny dátum alebo sumu v testovacom dokumente. Otvorte zdroj a skontrolujte odpoveď.
 
-LAWOSS je česká a slovenská open-source vrstva nad projektom [LegalWork](https://github.com/eigenweltlabs/legalwork). Spája lokálne agentické pracovné prostredie s právnymi workflowmi, otvorenými promptmi, skills a MCP konektormi pre naše jurisdikcie.
+Ak vám pri inštalácii pomáha vlastný AI agent, dajte mu odkaz na tento repozitár a pokyn **„Pomôž mi vyskúšať LAWOSS na mojom počítači.“** [Postup pre agenta](docs/tester-agent.md)
 
-Základom zostáva upstream LegalWork. Všeobecne použiteľné opravy a lokalizácie chceme ponúkať späť upstreamu. Naše právne workflowy držíme v samostatných adresároch, aby zostali prenositeľné a aby bol fork dlhodobo udržateľný.
+## Ako vyzerá pripravovaná alfa 21
 
-| | |
+Snímky pochádzajú z **interného kandidáta z 25. novembra 2026** a zobrazujú syntetické údaje. Pozvánka uvedená vyššie distribuuje alfu 20. [Zmeny a postup skúšky kandidáta](https://github.com/Omni-Legal-Products/lawoss/blob/b60fdd082864da96e0b85369a298e715e6fc918b/docs/lawoss-build-pre-testerov.md#kontroly-pilotnej-zostavy)
+
+[![Obrazovka Dnes s najbližšou lehotou, týždenným súhrnom a pásom nasledujúcich štrnástich dní](docs/screenshots/pilot/dnes.png)](docs/screenshots/pilot/dnes.png)
+
+*Dnes v širokom okne. Z prehľadu lehôt a úloh môžete prejsť k prípadu alebo pokračovať otázkou pre asistenta.*
+
+| Čítanie a podpisovanie na Macu | Čo obsahuje podpis |
 |---|---|
-| **Organizácia** | [Omni Legal Products](https://github.com/Omni-Legal-Products) |
-| **Koordinácia a rozhodnutia** | [lawOSS-like-SK-CZ](https://github.com/originalmagneto/lawOSS-like-SK-CZ) |
-| **Produktový kód** | tento repozitár |
-| **Upstream** | [eigenweltlabs/legalwork](https://github.com/eigenweltlabs/legalwork) |
-| **Licencia** | MIT, so zachovanou atribúciou Eigenwelt Labs |
+| [![PDF otvorené na šírku panela so zlatým perom pri názve dokumentu](docs/screenshots/pilot/citacka-pdf.png)](docs/screenshots/pilot/citacka-pdf.png) | [![Rozbalený zoznam dvoch testovacích podpisov s osobou, formátom, vydavateľom a časom](docs/screenshots/pilot/podpisy-pdf.png)](docs/screenshots/pilot/podpisy-pdf.png) |
+| Zlatým perom **Podpísať v Chevron7** odošlete vybrané PDF do podpisovacej aplikácie. Podpis dokončíte v Chevron7. | Kliknutím na odtlačok zobrazíte podpisy a časové pečiatky vložené v PDF. Na overenie platnosti či kvalifikovanosti podpisu použite samostatný validátor. |
 
-## Päť pilierov
+V kandidátovi sa **Fast** zapína bleskom pri modeli priamo v chate, ak ho pripojenie pre daný model ponúka. Pri dokončenom volaní registra vidíte, ktorý zdroj asistent použil. V prehľade prípadu môžete upraviť zobrazovaný názov a v nastaveniach nájdete správu osobných skillov.
 
-| | |
+## Obrazová galéria návrhov
+
+Pôvodné marketingové ilustrácie zachytávajú návrh pracovného prostredia. Kliknutím ich otvoríte v plnom rozlíšení.
+
+| Kancelária v svetlom motíve | Právna práca v šiestich detailoch |
 |---|---|
-| 📂 **Inteligentné spisy a úlohy** | OKF štruktúra, validácia a lehoty pod kontrolou |
-| 🎙️ **Transkripcia a zápisy** | Lokálne spracovanie a prepojenie so spisom |
-| ⚖️ **Overené právne zdroje CZ a SK** | Slov-Lex, judikatúra a registre cez MCP |
-| 🔓 **Otvorený prompt layer** | Žiadny black box, verzované prompty a skills |
-| 🔒 **Lokálne dáta a bezpečnostné brány** | Advokát zostáva rozhodujúcim človekom v procese |
+| [![Svetlý koncept kancelárskeho prehľadu s kartami prípadov a podpisovaním](docs/images/brand/dashboard.webp)](docs/images/brand/dashboard.webp) | [![Koncept šiestich pracovných pohľadov vrátane rešerše, prepisu a autorizácie](docs/images/brand/features.webp)](docs/images/brand/features.webp) |
+| Ako môže advokát prejsť od prehľadu kancelárie k rozpracovanému dokumentu. | Od spisového prehľadu cez výskum s citáciami a prepis až po autorizáciu výstupu. |
 
-## Čo staviame ako prvé — produktové ciele
+## Dáta, modely a lehoty
 
-LegalWork poskytuje základ pre chat, lokálneho agenta, Office add-iny, transkripciu a správu MCP serverov. Nasledujúca tabuľka vyjadruje zamýšľané ciele LAWOSS; dostupnosť v aktuálnom kandidátovi určuje tabuľka vyššie a akceptácia konkrétneho buildu.
+Súbory prípadu sú uložené v priečinku klienta. V bežnom chate s vypnutými **AI hranicami** dostáva zvolený poskytovateľ text a prílohy, ktoré odošlete. So zapnutými hranicami je bežný chat vypnutý. Aplikačná telemetria LAWOSS je vypnutá. Pre alfu používajte syntetické alebo verejné podklady. [Nastavenia modelov](lawoss/user-guide/sk/ai-a-modely.md) · [Podmienky a pôvod upstreamu](TERMS.md)
 
-| Oblasť | Cieľ |
-|---|---|
-| 🇸🇰🇨🇿 **SK a CZ lokalizácia** | Kompletné rozhranie a právne názvoslovie pre obe jurisdikcie |
-| 📁 **OKF** | Zakladanie a udržiavanie štruktúrovaných spisov |
-| 🔌 **Právne MCP konektory** | Judikatúra, Slov-Lex a ďalšie overené zdroje |
-| ⏰ **Lehoty a timeline** | Kontrolovaný výpočet a evidencia lehôt s potvrdením advokáta |
-| 📄 **OCR ingest** | Prevod dokumentov do čistého, agenticky použiteľného Markdownu |
+Evidované lehoty v prehľade sa líšia od návrhu výpočtu. Experimentálny výpočet používa syntetické české a slovenské pravidlá. Pred použitím konkrétneho pravidla na reálnu lehotu sa vyžaduje jeho odborné schválenie. [Workflow lehôt](lawoss/deadlines/README.md)
 
-Podrobný scope, ADR a špecifikácie sú v [koordinačnom repozitári](https://github.com/originalmagneto/lawOSS-like-SK-CZ).
+## Vývoj a pôvod projektu
 
-## Autogram — podpisovanie a zaručená konverzia
+LAWOSS vyvíja [Omni Legal Products](https://github.com/Omni-Legal-Products) ako fork [LegalWork](https://github.com/eigenweltlabs/legalwork). Desktopová aplikácia a lokálny server využívajú agentický engine OpenCode. České a slovenské pracovné postupy, prompty, skilly a konektory dopĺňame vo vrstve LAWOSS. [Pravidlá vývoja](AGENTS.md) · [Zásahy do upstreamu](PATCHES.md)
 
-<table>
-<tr>
-<td width="120" valign="top"><img src="lawoss/brand/autogram-icon.png" alt="Autogram" width="100"></td>
-<td valign="top">
-
-**[Autogram macOS](https://github.com/originalmagneto/autogram-macOS)** je samostatná natívna aplikácia v SwiftUI od rovnakého autora. **Funguje už dnes a používa sa nezávisle od LAWOSS** — nie je to pripravovaná funkcia tohto projektu.
-
-| Modul | Čo rieši |
-|---|---|
-| **Podpisovanie** | KEP, PAdES, ASiC-E, kvalifikovaná časová pečiatka, grafický podpis, dávkové spracovanie |
-| **Zaručená konverzia** | Postup podľa zák. č. 305/2013 Z. z. s detekciou bezpečnostných prvkov, osvedčovacou doložkou a autorizáciou mandátnym certifikátom |
-| **Štátne weby** | Rozšírenie do Safari, ktoré podpisovanie na portáloch obslúži cez aplikáciu — potvrdenie kartou alebo mobilom |
-| **Register** | Lokálna evidencia konverzií, stavy, vyhľadávanie a CSV export |
-
-</td>
-</tr>
-</table>
-
-**Čo z toho má LAWOSS dnes:** v nastaveniach v sekcii *Integrations* je karta, ktorá na macOS zistí, či máte Autogram nainštalovaný, a podľa toho ho otvorí alebo odkáže na jeho vydania. **Hlbšie prepojenie sa pripravuje** — LAWOSS zatiaľ Autogramu neodovzdáva dokumenty ani neriadi jeho beh.
-
-> [!NOTE]
-> Autogram je samostatný projekt s vlastným repozitárom a vlastným životným cyklom. Nie je súčasťou tohto forku a nevzťahuje sa naň licencia LAWOSS.
-
-## Vizuálny smer
-
-> [!NOTE]
-> Nasledujúce obrázky sú koncepty, nie snímky hotového produktu. Dáta v nich sú vymyslené.
-
-<div align="center">
-
-<img src="https://raw.githubusercontent.com/originalmagneto/lawOSS-like-SK-CZ/main/assets/brand/keyvisual-dashboard.png" alt="LAWOSS dashboard concept" width="100%" />
-
-<br><br>
-
-<img src="https://raw.githubusercontent.com/originalmagneto/lawOSS-like-SK-CZ/main/assets/brand/keyvisual-features.png" alt="LAWOSS feature concepts" width="100%" />
-
-</div>
-
-## Architektúra rozšírení
+<details>
+<summary>Architektúra aplikácie a rozšírení</summary>
 
 ```mermaid
-flowchart TD
-    L["LAWOSS doména<br/>OKF · prompty · skills · MCP · CZ/SK"]
-    W["LegalWork<br/>desktop · server · Office add-iny"]
-    O["OpenCode<br/>agentický harness"]
-    M["Model používateľa<br/>API · cloud · lokálny model"]
-    L --> W
-    W --> O
-    O --> M
+flowchart LR
+    D["Právne workflowy CZ a SK<br/>OKF, prompty, skilly a MCP"] --> W["LegalWork<br/>desktop, server a Office doplnky"]
+    W --> O["OpenCode<br/>agentický engine"]
+    O --> M["Pripojený model"]
 ```
 
-Pracujeme v troch zónach:
+Právne workflowy a lokalizácie majú vlastné adresáre. Zásahy do spoločného rozhrania evidujeme v súbore PATCHES.md, aby sa pri aktualizácii upstreamu dali preniesť a otestovať. Koordinačné rozhodnutia a špecifikácie spravuje tím v [samostatnom repozitári s obmedzeným prístupom](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ).
 
-| Zóna | Obsah | Pravidlo |
-|---|---|---|
-| 🟢 **Naše adresáre** | `lawoss/**`, CZ/SK locale a dokumentácia | Prednostné miesto pre našu prácu |
-| 🟡 **Evidované zásahy** | Branding, registrácia locale a nevyhnutné upstream úpravy | Každá zmena patrí do [`PATCHES.md`](PATCHES.md) |
-| 🔴 **Zakázaná zóna** | LegalMemory AGPL plugin, extension registry, svojvoľný bump OpenCode | Zmena iba po novom ADR |
+</details>
 
-## Tím
+Na lokálny vývoj použite Node.js 24.22.1, pnpm 11.4.0 a Bun 1.4.4.
 
-| Člen | Zameranie |
-|---|---|
-| [Marián Čuprík](https://github.com/originalmagneto) | SK jurisdikcia, integrácie a upstream sync |
-| [Vojta Říha](https://github.com/LexaurinTheDog) | CZ jurisdikcia, lokalizácia a technické návrhy |
-| [Igor Ribár](https://github.com/igorribar) | Advokátska prax a produktové overovanie |
-| [Martin Friedrich](https://github.com/BiggusDicckkus) | Lehoty, právne workflowy a bezpečnostné brány |
-
-## Vývoj
-
-Použite Node.js 24.22.1, `pnpm@11.4.0` a Bun `1.4.4`, ktorý je pripnutý v aktuálnych hlavných CI workflowoch. Požiadavky konkrétnej platformy a spravovaného OpenCode enginu overte podľa príslušného build workflowu a [návodu pre testerov](docs/lawoss-build-pre-testerov.md).
-
-```bash
-pnpm install
+```sh
+pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Pred otvorením PR spustite minimálne:
+Pred PR spustite `pnpm typecheck` a `pnpm test:e2e`. Pri zostavovaní desktopu pribaľte runtime chráneného prostredia podľa [pokynov k zostave](docs/security/agent-sandbox.md#build-and-verify). Pri overovaní inštalátora použite [akceptačný protokol](docs/lawoss-alpha-acceptance.md) a [evidenciu vydania](docs/release-evidence.md).
 
-Desktop builds also require the bundled protected-execution resources. See [the sandbox build instructions](docs/security/agent-sandbox.md#build-and-verify) to build them locally or use the platform artifacts from the **Protected execution runtime** workflow. Released installers include these resources; users do not install Docker or Python.
+| Tím | Zameranie |
+|---|---|
+| [Marián Čuprík](https://github.com/originalmagneto) | Slovenská jurisdikcia, integrácie a synchronizácia s upstreamom |
+| [Vojta Říha](https://github.com/LexaurinTheDog) | Česká jurisdikcia, lokalizácia a technické návrhy |
+| [Igor Ribár](https://github.com/igorribar) | Advokátska prax a produktové overovanie |
+| [Martin Friedrich](https://github.com/BiggusDicckkus) | Lehoty, právne workflowy a bezpečnostné brány |
 
-```bash
-pnpm typecheck
-pnpm test:e2e
-```
-
-Prečítajte si [`AGENTS.md`](AGENTS.md). Každá zmena ide cez krátku vetvu, pull request, jedno schválenie a zelené CI. Pri zásahu do upstream súboru aktualizujte v tom istom PR aj [`PATCHES.md`](PATCHES.md).
-
-- [Build pre alfa testerov](docs/lawoss-build-pre-testerov.md) — ako si aplikáciu skompilovať a čo hlásiť
-- [Akceptačný protokol pre alfu](docs/lawoss-alpha-acceptance.md) — zlatá cesta, provider matica a bezpečné hlásenie výsledku
-
-## Bezpečnosť a modely
-
-- Chránené a neznáme modelové požiadavky sú v tomto kandidátovi blokované; uložený API kľúč ani lokálna adresa túto bránu neotvoria.
-- Oddelený test verejného textu vyžaduje spravovaný engine, nakonfigurovaný kompatibilný model a natívne potvrdenie každej skutočnej požiadavky. Poskytovateľ ju dostane podľa vlastných podmienok; toto potvrdenie nie je právne schválenie poskytovateľa.
-- Telemetria aplikácie je v LAWOSS trvalo vypnutá. Zachovaný upstream text v [`TERMS.md`](TERMS.md) opisuje upstream produkt a nemení tento technický stav; prenos výslovne potvrdeného verejného textu poskytovateľovi je samostatný tok.
-- LAWOSS neposkytuje právne poradenstvo a nenahrádza odborné rozhodnutie advokáta.
-
-## Pôvod a licencia
-
-LAWOSS je fork projektu [LegalWork](https://github.com/eigenweltlabs/legalwork), pôvodne vytvoreného spoločnosťou Eigenwelt Labs. Pôvodná MIT licencia zostáva zachovaná v [`LICENSE`](LICENSE) a atribúcia je uvedená v [`NOTICE`](NOTICE).
-
-Ďakujeme tímom Eigenwelt Labs, OpenCode a Different AI za prácu, na ktorej tento projekt stavia.
+Projekt zachováva licenciu MIT a atribúciu pôvodných autorov. [Licencia](LICENSE) · [NOTICE](NOTICE). [Chevron7](https://github.com/originalmagneto/chevron7), pôvodne Autogram macOS, je samostatná podpisovacia aplikácia s vlastnou licenciou.
