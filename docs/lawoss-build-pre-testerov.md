@@ -16,7 +16,7 @@ Tento návod je pre právnikov, ktorí skúšajú alfu. Technické časti sú a�
 
 Hotové verzie sú v [releasoch forku](https://github.com/Omni-Legal-Products/lawoss/releases). Stiahnite si najnovšiu alfu. Sami nič neskladáte.
 
-- **macOS (Apple Silicon, arm64):** stiahnite alfu pre macOS. Ak ju macOS pri prvom spustení zablokuje, otvorte ju pravým klikom a voľbou Otvoriť, alebo v Nastaveniach systému v časti Súkromie a bezpečnosť.
+- **macOS (Apple Silicon, arm64):** stiahnite alfu pre macOS (`.dmg`), otvorte ho a pretiahnite LAWOSS do priečinka Aplikácie. Pri prvom spustení ho macOS zablokuje, lebo zostava nie je podpísaná: na macOS 15 a novších okno zatvorte tlačidlom Hotovo, otvorte **Nastavenia systému → Súkromie a bezpečnosť**, prejdite nadol a pri LAWOSS zvoľte **Napriek tomu otvoriť** (potvrďte heslom alebo Touch ID). Na macOS 14 a starších stačí pravý klik na LAWOSS → **Otvoriť** → **Otvoriť**.
 - **Windows (x64):** alfa pre Windows je **nepodpísaná** a je len pre interný tím. Windows pri inštalácii varuje, že appku nepozná. Postup pri varovaní a pri inštalácii je v [Windows: inštalácia a aktualizácie](lawoss-d1-zabalena-appka-2026-10-05.md#windows-inštalácia-a-aktualizácie-pre-testerov). Ak nepatríte do interného tímu, na Windows alfu zatiaľ neinštalujte.
 
 Verziu appky nájdete v Nastaveniach, v časti Aktualizácie. Uveďte ju pri každom hlásení chyby.
@@ -41,7 +41,7 @@ Kontrolný súčet balíka a posun dátumov k dnešku sú pre technických teste
 
 ### Česká sada
 
-Česká syntetická sada (`lawoss/testing/fixtures/cz-workflow-derived-v1`) bude dostupná po zlúčení [PR #172](https://github.com/Omni-Legal-Products/lawoss/pull/172).
+Česká syntetická sada pre technických testerov je v repozitári v `lawoss/testing/fixtures/cz-workflow-derived-v1`.
 
 ## 4. Pripojenie modelu
 
@@ -83,8 +83,9 @@ Appka vám môže sama ponúknuť novú alfu. Ponuku zatiaľ nepotvrdzujte. Nov�
 
 ## 7. Kam hlásiť chyby
 
-Chybu nahláste jedným z dvoch spôsobov:
+Chybu, nápad alebo otázku nahláste jedným z týchto spôsobov:
 
+- cez formulár bez účtu na [lawoss.app/sk/alfa/hlasenie](https://lawoss.app/sk/alfa/hlasenie) (CZ: [lawoss.app/cz/alfa/hlasenie](https://lawoss.app/cz/alfa/hlasenie)), kde môžete priložiť aj snímku obrazovky,
 - v [issues forku](https://github.com/Omni-Legal-Products/lawoss/issues),
 - v Telegram skupine testerov LAWOSS.
 
@@ -101,7 +102,7 @@ Do hlásenia nikdy nevkladajte API kľúče, heslá ani údaje skutočných klie
 
 Nasledujúce časti sú pre tých, ktorí si appku skladajú sami alebo ladia jej beh. Právnici ich zväčša nepotrebujú.
 
-Postup akceptačného behu s kritériami PASS/FAIL je v [alfa akceptačnom protokole](lawoss-alpha-acceptance.md); používa tok **Ty → AI (možno preskočiť) → Priečinok**. Prejdené cesty na zabalenej appke sú v [D1](lawoss-d1-zabalena-appka-2026-10-05.md). D1 zo 4. až 5. 10. 2026 je historický snapshot iného buildu, nie dôkaz nového vydania.
+Postup akceptačného behu s kritériami PASS/FAIL je v [alfa akceptačnom protokole](lawoss-alpha-acceptance.md); aktuálny sprievodca prvým spustením má šesť krokov (**Kancelária → Dokumenty → Toto sme našli → AI asistent → Ako agent pracuje → Pripravené**). Prejdené cesty na zabalenej appke sú v [D1](lawoss-d1-zabalena-appka-2026-10-05.md). D1 zo 4. až 5. 10. 2026 je historický snapshot iného buildu, nie dôkaz nového vydania.
 
 ### Overenie konkrétneho desktop balíčka
 
@@ -187,7 +188,7 @@ Potrebné len vtedy, keď si appku staviate sami.
 - Node 24: `.nvmrc` a `engines.node` v `package.json` (`>=24.0.0 <25.0.0`).
   S nástrojmi ako `nvm` stačí `nvm use` v koreni repozitára.
 - pnpm 11.4.0, vynútené cez `packageManager`.
-- Bun 1.4.2: server sa zostavuje cez `bun build` (aj v `package:electron`) a
+- Bun 1.4.4: server sa zostavuje cez `bun build` (aj v `package:electron`) a
   testy `apps/app` bežia v Bune.
 - macOS: Xcode Command Line Tools (`xcode-select --install`) pre prípad, že
   natívny `better-sqlite3` treba skompilovať zo zdroja.
@@ -199,7 +200,7 @@ Windows x64 (CI to robí na `windows-2022`; na vlastnom počítači s Windows
   (rovnako ako workflowy na `windows-2022`).
 - Node 24, `node --version` musí ukázať `v24.x`.
 - pnpm 11.4.0, napríklad `npm install -g pnpm@11.4.0`.
-- Bun 1.4.2: potrebný aj na build balíčka (server sa zostavuje cez `bun build`),
+- Bun 1.4.4: potrebný aj na build balíčka (server sa zostavuje cez `bun build`),
   nielen na testy.
 - Pre prípad, že natívny modul treba skompilovať zo zdroja: Visual Studio Build
   Tools s „Desktop development with C++“.
