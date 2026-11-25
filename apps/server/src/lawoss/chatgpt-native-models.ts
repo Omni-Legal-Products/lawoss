@@ -2,7 +2,7 @@ import type { Plugin } from "@opencode/plugin";
 import type { ProviderEditor } from "@opencode/plugin/promise/provider";
 import { Model } from "@opencode/schema/model";
 import { z } from "zod";
-import { NATIVE_SUBSCRIPTION_MARKER } from "../../../../lawoss/providers/chatgpt-subscription.mjs";
+import { NATIVE_SUBSCRIPTION_MARKER } from "../native-shared-values.js";
 
 // OpenCode 2.1.4 applies this fixed inventory before external provider plugins.
 // Match the exact fingerprint before supplementing it. A future native account

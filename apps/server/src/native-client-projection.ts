@@ -1,10 +1,9 @@
-import { NATIVE_SUBSCRIPTION_MARKER } from "../../../lawoss/providers/chatgpt-subscription.mjs";
 import { Agent } from "@opencode/schema/agent";
 import { Config } from "@opencode/schema/config";
 import { Location } from "@opencode/schema/location";
 import { Model } from "@opencode/schema/model";
 import { Provider } from "@opencode/schema/provider";
-import { inferNativeDefaultVariant } from "./native-shared-values.js";
+import { inferNativeDefaultVariant, NATIVE_SUBSCRIPTION_MARKER } from "./native-shared-values.js";
 import type { NativeModelDisplay } from "@legalwork/types/native-model-display";
 import type { JsonValue } from "@opencode/client";
 import { Schema } from "effect";
