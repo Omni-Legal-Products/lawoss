@@ -131,7 +131,7 @@ test('actual driver recovery call reaches reconnect with old root absent, then r
   const oldRoot=path.join(owned,'absent'),moved=path.join(owned,'replacement');
   const source=await readFile(new URL('../../../../scripts/test-isir-native.mjs',import.meta.url),'utf8');
   const wrapper=source.match(/  const openFiles = (async[\s\S]*?\n  };)/)[1].slice(0,-1);
-  const segment=source.slice(source.indexOf("  await until(()=>cdp.evaluate('!!window.__legalworkControl'),'relaunched native renderer',90000);"),source.indexOf("  await until(async()=>{const saved=",source.indexOf("'relaunched native renderer'")));
+  const segment=source.match(/  await openFiles\(first,'reconnect'\);[\s\S]*?await click\('Reconnect client folder'\);/)[0];
   const f=missingRootFixture();let clicks=0;
   // VM uses real navigation expressions. The registered root must still be old
   // when the existing driver click is reached; no filesystem recovery is faked.

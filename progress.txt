@@ -920,3 +920,9 @@ Review found first attempt cached all metadata too broadly and omitted host owne
 
 - [Webový PR #21](https://github.com/Omni-Legal-Products/lawoss-web/pull/21) bol nasadený na lawoss.app. Pozvánky ukazujú alfa.20 pre všetky tri platformy. Produkčný test cez jednorazovú syntetickú pozvánku skontroloval stránky SK/CZ/EN a pre každú platformu stiahol celý súbor cez HTTPS. Veľkosť aj SHA-256 zodpovedali údajom v návode. Prešli HEAD, čiastočné stiahnutie (206) aj odmietnutie rozsahu za koncom súboru (416). Po zrušení pozvánky vrátil server 404. Testovací záznam bol odstránený.
 - Na macOS arm64 vzniklo z čistého checkoutu `875852c61` vlastné DMG podľa postupu v [návode pre testerov](docs/lawoss-build-pre-testerov.md#build-zo-zdrojov). Build použil Node 24.22.1, pnpm 11.4.0, Bun 1.4.4, CMake a pribalený sandbox runtime z macOS workflowu. Skript `apps/desktop/scripts/packaged-startup-regression.mjs` overil zabalenú aplikáciu, renderer a skutočný engine na izolovanom profile. Na Windowse sa zostavenie aj štart overili na príslušných x64 a ARM64 runneroch.
+
+### ISIR, tretí spis a okno automatickej skúšky (#384)
+
+Na macOS arm64 pod bežným účtom zlyhal tretí syntetický spis. Server vrátil HTTP 500 pri odstraňovaní `bundle/plugin/index.js` z priečinka s právami 0500. Po oprave prešiel tretí spis cez skutočné nástroje a kontrolu uložených výstupov. Test s pripnutou binárkou navyše kontroluje práva počas používania aj odstránenie dočasných súborov.
+
+Diagnostické hlásenie macOS a procesný záznam tej istej skúšky potvrdili SIGTRAP pri ukončení vývojového Electronu. Skúška používala pevnú emulovanú plochu 1800 × 1400, preto pri zmene okna obsah na obrazovke nesedel. Obe nastavenia opravy sú v natívnej skúške. Matica overenia zahŕňa macOS arm64, Linux x64 a Windows x64/ARM64. Artefakty alfy.20 počkajú na novú zostavu, kým budú obsahovať zmenu servera.

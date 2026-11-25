@@ -140,7 +140,7 @@ async function shutdownNavigationFixture(t,{publish=publishNativeQuitAcceptance,
   const cdp={...connected,evaluate:expression=>connected.evaluate(expression).catch(error=>{teardown=error;throw error;})};
   child.isirNativeQuitAcceptance={root,nonce,pid:child.pid};
   const driver=await readFile(new URL('../../../../scripts/test-isir-native.mjs',import.meta.url),'utf8');
-  const caller=driver.match(/  await stopForRelaunch\(\{[\s\S]*?\n  \}\);\n  await rename\(oldPath,moved\);/)[0];
+  const caller=driver.match(/^  await stopForRelaunch\(\{[\s\S]*?\n  \}\);\n  await rename\(oldPath,moved\);/m)[0];
   const run=()=>vm.runInNewContext(`(async()=>{${caller}events.push('relaunch');})()`,{stopForRelaunch:options=>stopForRelaunch({...options,platform:'darwin'}),cdp,appChild:child,readNativeQuitAcceptance,relaunchCleanupErrors:[],events,oldPath,moved,rename:async(...args)=>{await rename(...args);events.push('rename');},
     stop:async value=>{events.push('strict-stop');if(strictError)throw strictError;await stopNativeChild(value,3000,{readTable:()=>[],now:()=>0,kill:()=>{throw new Error('No signal required after verified empty table');}});},
   });

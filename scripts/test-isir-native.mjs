@@ -134,13 +134,29 @@ const launch = (command, args, cwd, label) => {
 };
 
 const relaunchCleanupErrors=[];
-let cleanupPromise;
+let cleanupPromise, appChild;
 const cleanup = () => cleanupPromise ??= (async () => {
   const result = await settleCleanup(primaryError, [
     async () => {if (protectedApprovals) {await protectedApprovals.close(); approvalReceipts.push(...protectedApprovals.receipts); protectedApprovals = undefined;}},
     () => cdp?.evaluate('window.__isirChooserBoundary?.disconnect()'),
-    () => cdp?.close(),
-    ...[...children].reverse().map(({child}) => () => stop(child)),
+    async () => {
+      if (cdp && appChild && appChild.exitCode === null && appChild.signalCode === null) {
+        await stopForRelaunch({
+          requestQuit: () => cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('isirNativeQuit')"),
+          readQuitAcceptance: () => readNativeQuitAcceptance(appChild.isirNativeQuitAcceptance),
+          closeCdp: () => cdp.close(), child: appChild, stop,
+        });
+      } else {
+        cdp?.close();
+        if (appChild) await stop(appChild);
+      }
+    },
+    ...[...children].reverse().filter(({child}) => child !== appChild).map(({child}) => () => stop(child)),
+    () => {
+      if (process.platform === 'darwin' && children.some(({label, child}) => label.startsWith('electron') && child.signalCode === 'SIGTRAP')) {
+        throw new Error('Owned Electron crashed with SIGTRAP during native testing');
+      }
+    },
     () => engineTraces?.close(),
     () => provider.close(),
     () => preparedEngine?.cleanup(),
@@ -171,12 +187,11 @@ try {
   launch(process.execPath, [path.join(path.dirname(requireApp.resolve("vite/package.json")), "bin/vite.js"), ...renderer.args], renderer.cwd, "vite");
   await until(async () => (await nativeFetch(env.LEGALWORK_ELECTRON_START_URL)).ok, "owned Vite");
   engineLogLaunchWallMs=Date.now();
-  let appChild = launch(electron, [...(process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : []), path.join(repo, "apps/desktop/scripts/isir-native-entry.mjs")], path.join(repo, "apps/desktop"), "electron");
+  appChild = launch(electron, [...(process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : []), path.join(repo, "apps/desktop/scripts/isir-native-entry.mjs")], path.join(repo, "apps/desktop"), "electron");
   cdp = await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch, diagnostics.observeNetworkEvent);
   if (corpus.mode === "synthetic") protectedApprovals = createNativeProtectedApprover({mode: corpus.mode, root, profile, cdpOrigin: `http://127.0.0.1:${cdpPort}`, providerEndpoint: provider.url, request: nativeFetch});
   await cdp.send('Page.enable');
   assert.deepEqual(await cdp.evaluate('({visibility:document.visibilityState,focused:document.hasFocus()})'),{visibility:'visible',focused:true},'Owned native page is active for production UI polling');
-  await cdp.send('Emulation.setDeviceMetricsOverride',{width:1800,height:1400,deviceScaleFactor:1,mobile:false});
   await until(() => cdp.evaluate("!!window.__legalworkControl"), "native renderer controls", 90000);
   await until(() => cdp.evaluate("!document.body.innerText.includes('Loading your workspaces') && document.body.innerText.length > 150"), "workspace ready", 90000);
   await cdp.evaluate("window.__legalworkControl.execute('lawoss.lite.mode.set', {mode:'pro'})");
@@ -208,7 +223,8 @@ try {
   // Persisted selected-agent is fixture input, consumed by the ordinary
   // native preference loader. It does not replace any send/tool callback.
   await cdp.send('Page.enable');
-  const preferenceFixture=await cdp.send('Page.addScriptToEvaluateOnNewDocument',{source:`const prefs=JSON.parse(localStorage.getItem('legalwork.preferences')??'{}');prefs.selectedAgent='legalwork';localStorage.setItem('legalwork.preferences',JSON.stringify(prefs));`});
+  // The synthetic controls use English labels on hosts of every language.
+  const preferenceFixture=await cdp.send('Page.addScriptToEvaluateOnNewDocument',{source:`localStorage.setItem('legalwork.language','en');const prefs=JSON.parse(localStorage.getItem('legalwork.preferences')??'{}');prefs.selectedAgent='legalwork';localStorage.setItem('legalwork.preferences',JSON.stringify(prefs));`});
   const reloadStart=cdp.events.length;
   await cdp.send('Page.reload');
   await until(()=>cdp.events.slice(reloadStart).some(e=>e.method==='Page.loadEventFired'),'configured renderer document actually reloaded',60000);
@@ -673,11 +689,23 @@ try {
   cdp=await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch, diagnostics.observeNetworkEvent);
   await cdp.send('Page.enable');
   assert.deepEqual(await cdp.evaluate('({visibility:document.visibilityState,focused:document.hasFocus()})'),{visibility:'visible',focused:true},'Relaunched owned page is active for production UI polling');
-  await cdp.send('Emulation.setDeviceMetricsOverride',{width:1800,height:1400,deviceScaleFactor:1,mobile:false});
   await until(()=>cdp.evaluate('!!window.__legalworkControl'),'relaunched native renderer',90000);
+  serverInfo=await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('legalworkServerInfo')");
+  serverAuth={authorization:'Bearer '+(serverInfo.ownerToken||serverInfo.clientToken),'content-type':'application/json'};
   await openFiles(first,'reconnect');
   const recoveryStart=cdp.events.length;
   await click('Reconnect client folder');
+  for (const route of ['/workspaces/pick-folder', '/workspace/'+first.id+'/reconnect']) {
+    const response=await until(()=>cdp.events.slice(recoveryStart).find(e=>e.method==='Network.responseReceived'&&new URL(e.params.response.url).pathname===route), 'native '+route+' response',90000);
+    const status=response.params.response.status;
+    if(status!==200) {
+      const knownCodes=['invalid_payload','workspace_changed','project_folder_available','project_folder_unavailable','workspace_already_registered','workspace_persistence_failed','workspace_session_rebind_failed','workspace_recovery_rollback_failed','internal_error'];
+      const body=await cdp.send('Network.getResponseBody',{requestId:response.params.requestId}).catch(()=>null);
+      let code;
+      try {code=JSON.parse(body?.body).code;} catch {}
+      assert.fail('Native '+route+' returned '+status+' ('+(knownCodes.includes(code)?code:'unclassified')+')');
+    }
+  }
   await until(async()=>{const saved=JSON.parse(await readFile(path.join(profile,'legalwork-workspaces.json'),'utf8'));const found=saved.workspaces.find(w=>w.id===first.id);return found?.path===moved},'production native chooser canonical reconnect transaction',90000);
   await until(()=>['/workspace/'+first.id+'/reconnect','/workspaces/'+first.id+'/activate'].every(path=>cdp.events.slice(recoveryStart).some(e=>e.method==='Network.responseReceived'&&new URL(e.params.response.url).pathname.endsWith(path)&&e.params.response.status===200)),'actual native reconnect and activation200');
   if (corpus.mode === "synthetic") {
@@ -686,8 +714,6 @@ try {
   }
   first.path=moved;
   await openFiles(first);
-  serverInfo=await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('legalworkServerInfo')");
-  serverAuth={authorization:'Bearer '+(serverInfo.ownerToken||serverInfo.clientToken),'content-type':'application/json'};
   engineRequest=createNativeEngineClient(serverInfo,first.id,nativeFetch);
   const chooserReceipts=(await readFile(path.join(root,'chooser-receipts.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
   assert.ok(chooserReceipts.some(r=>r.properties.includes('openDirectory')&&r.paths[0]===moved),'Actual native recovery chooser bridge was invoked');
