@@ -4,7 +4,7 @@
 
 | Súbor | Zmena |
 |---|---|
-| `.github/workflows/sandbox-runtime.yml`, `scripts/ci/sandbox-matrix.test.mjs` | Alpha `45555534704` / `runtime windows-11-arm`: `setup-msys2@v2` po first-start vypísal „Appending keys“, ale bez „Locally signing trusted keys“, potom `pacman -Syuu` padol na `signature from "Christoph Reiter (MSYS2 development key)" is unknown trust` (setup-msys2#615). Tip Desktop Package Smoke na tom istom tipе `875852c6` ten istý krok prešiel — flaky. Na ARM64 `update`/`install` odložené; pred syncom `pacman-key --populate msys2`, dvojité `-Syuu` s `taskkill` medzi prechodmi (ako setup-msys2) a `pacman-contrib` ostáva. Cache na ARM64 vypnutá ako doteraz. |
+| `.github/workflows/sandbox-runtime.yml`, `scripts/ci/sandbox-matrix.test.mjs` | Alpha `45555534704` / `runtime windows-11-arm`: `setup-msys2@v2` po first-start vypísal „Appending keys“, ale bez „Locally signing trusted keys“, potom `pacman -Syuu` padol na `signature from "Christoph Reiter (MSYS2 development key)" is unknown trust` (setup-msys2#615). Tip Desktop Package Smoke na tom istom tipе `875852c6` ten istý krok prešiel — flaky. Na ARM64 `update`/`install` odložené; pred syncom `pacman-key --init`/`--populate msys2`, dvojité `-Syuu` s `taskkill` medzi prechodmi (ako setup-msys2) a `pacman-contrib` ostáva. Prvý `-Syuu` má `continue-on-error: true`: upgrade `pacman` ukončí MSYS2 shell skôr, než by stihlo `\|\| true` (PR #607, behy 45556983737 / 45556983910). Druhý `-Syuu` ostáva tvrdý fail. Cache na ARM64 vypnutá ako doteraz. |
 
 ## Tip-dev CI: updater-quit visel na rovnakých chýbajúcich zástupných objektoch (#588) (2026-11-24)
 

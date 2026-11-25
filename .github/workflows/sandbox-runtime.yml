@@ -122,10 +122,14 @@ jobs:
         run: |
           pacman-key --init
           pacman-key --populate msys2
+      # First -Syuu often upgrades pacman itself; MSYS2 then kills this shell
+      # before any shell soft-fail (|| true) can run. Match setup-msys2's
+      # ignoreReturnCode via continue-on-error so Restart + final Syuu still run.
       - name: Upgrade MSYS2 packages first pass (Windows ARM64)
         if: runner.os == 'Windows' && matrix.arch == 'arm64'
+        continue-on-error: true
         shell: msys2 {0}
-        run: pacman --noconfirm -Syuu --overwrite '*' || true
+        run: pacman --noconfirm -Syuu --overwrite '*'
       - name: Restart MSYS2 after core upgrade (Windows ARM64)
         if: runner.os == 'Windows' && matrix.arch == 'arm64'
         shell: cmd

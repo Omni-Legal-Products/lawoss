@@ -46,6 +46,8 @@ test('Windows runtimes install the reviewed QEMU package by SHA-256, never the r
   assert.match(workflow, /pacman-key --populate msys2/);
   assert.match(workflow, /pacman-contrib/);
   assert.match(workflow, /update: \$\{\{ matrix\.arch != 'arm64' \}\}/);
+  // First ARM64 -Syuu may kill the msys2 shell while upgrading pacman; soft-fail at Actions level.
+  assert.match(workflow, /Upgrade MSYS2 packages first pass \(Windows ARM64\)[\s\S]*?continue-on-error: true/);
   const pins = readFileSync(new URL('../sandbox/qemu-windows.sha256', import.meta.url), 'utf8');
   for (const { qemuPackage, qemuSha256 } of windows) assert.ok(pins.includes(`${qemuSha256}  ${qemuPackage}`), qemuPackage);
 });
