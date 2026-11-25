@@ -68,7 +68,7 @@ describe("9: úrovne rozsahu vec / klient / kancelária", () => {
     const out = renderToStaticMarkup(<MatterCockpit cockpit={cockpit} now={TODAY} raw={{}} scopePaths={paths} />);
     expect(out).toContain('data-lawoss-scope="client"><b>Client</b>');
     expect(out).toContain('data-lawoss-scope="office"><b>Office</b>');
-    expect(out).toMatch(/IN-7.*· Client<\/small>/);
+    expect(out).toMatch(/IN-7.*· Client<\/span>/);
   });
 });
 

@@ -19,7 +19,9 @@ import { isIsoDate, isoDay } from "../okf-pamat/src/schema.ts";
  * `deadline_basis: lawyer_instruction` a tento dátum nemá ľudské overenie. Čitatelia ju ukážu s touto poznámkou.
  */
 export type DeadlineBasis = "instruction";
-type OverviewDeadline = { date: string; title: string; recordId: string; invalid?: true; file?: string; /** Pôvodný zápis lehoty: dve lehoty toho istého záznamu v jeden deň sú dve lehoty. */ raw?: string; basis?: DeadlineBasis };
+type OverviewDeadline = { date: string; title: string; recordId: string; invalid?: true; file?: string; /** Pôvodný zápis lehoty: dve lehoty toho istého záznamu v jeden deň sú dve lehoty. */ raw?: string; basis?: DeadlineBasis;
+  /** Lehota má platné ľudské potvrdenie (rovnaké pravidlo ako cockpit, `deadlineIsConfirmed`); inak je len zapísaná. */
+  confirmed?: true };
 /** `invalid`: termín úlohy nemá tvar RRRR-MM-DD - `due` ostáva pôvodný text a UI ho ukáže k overeniu. */
 type OverviewTask = { id: string; title: string; assignee?: string; due?: string; invalid?: true; file?: string };
 
@@ -162,6 +164,11 @@ export function deadlineConfirmed(record: OkfRecord, date: string): boolean {
 }
 
 /** `instruction`: lehota záznamu je z pokynu advokáta a tento zápis (`raw`) nemá platné ľudské potvrdenie; inak `undefined`. */
+/** Lehota je potvrdená človekom: riadená lehota podľa dôvery workflow, ostatné podľa `deadlineConfirmed`. Zdieľa prehľad aj cockpit. */
+export function deadlineIsConfirmed(r: OkfRecord, raw: string, evidence?: DeadlineWorkflowEvidence): boolean {
+  return isManagedDeadline(r) ? managedDeadlineTrusted(r, evidence) : deadlineConfirmed(r, raw);
+}
+
 export function deadlineBasis(r: OkfRecord, raw: string): DeadlineBasis | undefined {
   return r.extra?.deadline_basis === "lawyer_instruction" && !deadlineConfirmed(r, raw) ? "instruction" : undefined;
 }
@@ -202,7 +209,7 @@ function matterOverview(input: MatterInput): MatterOverview {
   let lastEvent: MatterOverview["lastEvent"];
   for (const r of input.records) {
     const file = input.recordFiles?.[r.id];
-    for (const d of (isManagedDeadline(r) && !managedDeadlineTrusted(r, input.deadlineWorkflowEvidence) ? [] : recordDeadlines(r))) deadlines.push({ date: d.date, ...(d.raw !== d.date ? { raw: d.raw } : {}), title: r.title, recordId: r.id, ...(d.invalid ? { invalid: d.invalid } : {}), ...(file ? { file } : {}), ...(deadlineBasis(r, d.raw) ? { basis: "instruction" as const } : {}) });
+    for (const d of (isManagedDeadline(r) && !managedDeadlineTrusted(r, input.deadlineWorkflowEvidence) ? [] : recordDeadlines(r))) deadlines.push({ date: d.date, ...(d.raw !== d.date ? { raw: d.raw } : {}), title: r.title, recordId: r.id, ...(d.invalid ? { invalid: d.invalid } : {}), ...(file ? { file } : {}), ...(deadlineBasis(r, d.raw) ? { basis: "instruction" as const } : {}), ...(deadlineIsConfirmed(r, d.raw, input.deadlineWorkflowEvidence) ? { confirmed: true as const } : {}) });
     for (const e of r.timeline) {
       if (!lastEvent || e.date > lastEvent.date) lastEvent = { date: e.date, text: e.text };
     }
