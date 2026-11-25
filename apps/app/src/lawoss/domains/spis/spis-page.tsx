@@ -39,6 +39,7 @@ import {
 } from "../../../../../../lawoss/okf/cockpit";
 import { daysBetween, ISO_DAY, missingScopeLevels, scopeLevels, taskDue, type MatterInput, type MatterOverview } from "../../../../../../lawoss/okf/read";
 import { clientOf } from "../../lite/today-model";
+import { holidayJurisdiction } from "../../../../../../lawoss/okf/holidays";
 import { deadlineTone, groupEvents, monthDays } from "../overview-model";
 import { AlertBox, CalendarGrid, conclusionText, DayItems, eventKindText, riskText, Trust } from "../overview-views";
 import "../overview.css";
@@ -295,7 +296,8 @@ function DeadlineHero({ cockpit, now }: { cockpit: Cockpit; now: string }) {
   const nearest = valid.find((d) => d.date < now) ?? valid.find((d) => d.date >= now);
   const tasks = datedTasks(cockpit);
   const anchor = nearest?.date ?? now;
-  const days = monthDays(anchor, now);
+  const jurisdiction = holidayJurisdiction(cockpit.jurisdiction);
+  const days = monthDays(anchor, now, jurisdiction ? [jurisdiction] : []);
   const month = new Intl.DateTimeFormat(locale, { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${anchor.slice(0, 7)}-01T00:00:00Z`));
   const groups = groupEvents(cockpit.events);
   const tone = nearest ? deadlineTone(nearest.date, now) : undefined;
@@ -327,12 +329,13 @@ function DeadlineHero({ cockpit, now }: { cockpit: Cockpit; now: string }) {
       <div className="lw-sp-month-h"><b>{month.charAt(0).toLocaleUpperCase(locale) + month.slice(1)}</b>
         <div className="lw-x-legend">
           <span data-key="weekend"><i aria-hidden />{text("legend.weekend")}</span>
+          {jurisdiction ? <span data-key="holiday"><i aria-hidden />{text("legend.holiday", { jurisdictions: jurisdiction.toUpperCase() })}</span> : null}
           <span data-key="event"><i aria-hidden />{text("event")}</span>
           <span data-key="confirmed"><i aria-hidden />{text("legend.confirmed")}</span>
           <span data-key="task"><i aria-hidden />{text("legend.task")}</span>
         </div>
       </div>
-      <CalendarGrid days={days} locale={locale} todayLabel={text("today")} size="small" label={month} renderDay={(day) => <DayItems max={2}
+      <CalendarGrid days={days} locale={locale} todayLabel={text("today")} holidayLabel={text("holiday")} size="small" label={month} renderDay={(day) => <DayItems max={2}
         more={(count) => text("calendarMore", { count })}
         items={[
           ...valid.filter((d) => d.date === day.iso).map((d) => <span key={`d/${d.recordId}/${d.date}`} className="lw-x-ev" data-kind="deadline" data-tone={deadlineTone(d.date, now)}

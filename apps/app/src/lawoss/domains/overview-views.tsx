@@ -73,8 +73,11 @@ const weekdayNames = (locale: Language): string[] => {
 };
 
 /** Mriežka dní po týždňoch; obsah dňa dodá volajúci. Víkend má prerušovaný rámik, dnešok zlatý. */
-export function CalendarGrid({ days, locale, todayLabel, size = "large", label, renderDay }: { days: readonly CalendarDay[]; locale: Language; todayLabel: string; size?: "large" | "small"; label: string;
+export function CalendarGrid({ days, locale, todayLabel, holidayLabel, size = "large", label, renderDay }: { days: readonly CalendarDay[]; locale: Language; todayLabel: string;
+  /** Slovo pri dni pracovného pokoja; pri viacerých jurisdikciách sa doplní SK alebo CZ. */
+  holidayLabel: string; size?: "large" | "small"; label: string;
   renderDay: (day: CalendarDay) => ReactNode }) {
+  const mixed = new Set(days.flatMap((day) => day.holidays.map((h) => h.jurisdiction))).size > 1;
   const names = weekdayNames(locale);
   const monthName = new Intl.DateTimeFormat(locale, { month: "short", timeZone: "UTC" });
   return <div className="lw-x-cal" data-size={size} role="grid" aria-label={label}>
@@ -82,9 +85,11 @@ export function CalendarGrid({ days, locale, todayLabel, size = "large", label, 
     {days.map((day, i) => {
       const dom = Number(day.iso.slice(8, 10));
       const showMonth = size === "large" && (i === 0 || dom === 1);
+      const holiday = day.holidays.length > 0 ? `${holidayLabel}${mixed ? ` ${day.holidays.map((h) => h.jurisdiction.toUpperCase()).join("+")}` : ""}` : "";
       return <div key={day.iso} className="lw-x-cell" role="gridcell" data-weekend={day.weekend || undefined} data-past={day.past && !day.today ? "" : undefined}
-        data-today={day.today || undefined} data-outside={day.outside} data-day={day.iso}>
-        <span className="lw-x-cell-day">{dom}.{showMonth ? ` ${monthName.format(new Date(`${day.iso}T00:00:00Z`))}` : ""}{day.today ? <em>{todayLabel}</em> : null}</span>
+        data-today={day.today || undefined} data-outside={day.outside} data-holiday={holiday ? day.holidays.map((h) => h.jurisdiction).join(" ") : undefined} data-day={day.iso}
+        title={day.holidays.length ? day.holidays.map((h) => `${h.jurisdiction.toUpperCase()}: ${h.name}`).join(" · ") : undefined}>
+        <span className="lw-x-cell-day">{dom}.{showMonth ? ` ${monthName.format(new Date(`${day.iso}T00:00:00Z`))}` : ""}{day.today ? <em>{todayLabel}</em> : holiday ? <em data-holiday-label="">{holiday}</em> : null}</span>
         {renderDay(day)}
       </div>;
     })}

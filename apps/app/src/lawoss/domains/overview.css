@@ -64,6 +64,8 @@ a.lw-x-alert:hover { filter: brightness(1.12); }
 .lw-x-cell-day em { font-style: normal; font-size: 10.5px; color: var(--lw-text-tertiary); }
 .lw-x-cell[data-weekend] { border-style: dashed; background: transparent; }
 .lw-x-cell[data-weekend] .lw-x-cell-day { color: var(--lw-text-tertiary); }
+.lw-x-cell[data-holiday] { border-color: color-mix(in srgb, var(--x-gold) 24%, transparent); background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--x-gold) 7%, transparent) 0 6px, transparent 6px 12px); }
+.lw-x-cell[data-holiday] .lw-x-cell-day em[data-holiday-label] { color: var(--x-gold); }
 .lw-x-cell[data-past] { opacity: 0.55; }
 .lw-x-cell[data-outside] { opacity: 0.32; }
 .lw-x-cell[data-today] { border: 1.5px solid var(--x-gold); box-shadow: 0 0 0 3px color-mix(in srgb, var(--x-gold) 12%, transparent); opacity: 1; }
@@ -89,6 +91,7 @@ a.lw-x-ev:hover { background: color-mix(in srgb, var(--lw-text-primary) 9%, tran
 .lw-x-legend [data-key="task"] i { border: 1px dotted var(--x-gold); }
 .lw-x-legend [data-key="event"] i { background: var(--x-blue); }
 .lw-x-legend [data-key="weekend"] i { border: 1px dashed var(--lw-border-strong); }
+.lw-x-legend [data-key="holiday"] i { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--x-gold) 45%, transparent) 0 3px, transparent 3px 6px); }
 
 /* Prehľad praxe: čísla v riadku a karty prípadov */
 .lw-po-stats { display: flex; flex-wrap: wrap; gap: 10px 26px; margin-top: 14px; font-size: 13px; color: var(--lw-text-secondary); }

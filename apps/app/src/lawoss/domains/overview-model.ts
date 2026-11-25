@@ -1,11 +1,13 @@
 /**
  * Čisté odvodenia pre Prehľad praxe a detail prípadu v režime Pokročilé (variant A, MČ 25. 11. 2026):
  * kalendár týždňov, upozornenia, karty prípadov a zoskupená história. Berú iba to, čo prečítal read-model;
- * nič nedopočítavajú (žiadne lehoty z predpisov, žiadne sviatky), víkend je len deň v týždni.
+ * nič nedopočítavajú (žiadne lehoty z predpisov). Víkend je deň v týždni, sviatky sú len vyznačenie dňa
+ * podľa tabuľky SR a ČR (`lawoss/okf/holidays.ts`), nič sa podľa nich neposúva.
  */
 import { addDays, deadlineKey, deadlineTier, ISO_DAY, isOfficeFile, recordKey, taskDue, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
 import { screeningNeedsAttention, screenings, type CockpitEvent, type CockpitScreening } from "../../../../../lawoss/okf/cockpit";
 import { buildMatterViews } from "../../../../../lawoss/okf/views";
+import { holidayJurisdiction, publicHoliday, type Holiday, type HolidayJurisdiction } from "../../../../../lawoss/okf/holidays";
 import { cardStatus, type CardStatus } from "../lite/client-cards";
 import { clientOf } from "../lite/today-model";
 
@@ -19,29 +21,41 @@ export function mondayOf(iso: string): string {
   return addDays(iso, weekday === 0 ? -6 : 1 - weekday);
 }
 
-export type CalendarDay = { iso: string; weekend: boolean; past: boolean; today: boolean; outside?: true };
+/** `holidays`: dni pracovného pokoja v jurisdikciách prípadov (SR a ČR zvlášť); prázdne, keď ním deň nie je. */
+export type CalendarDay = { iso: string; weekend: boolean; past: boolean; today: boolean; outside?: true; holidays: readonly Holiday[] };
 
 /** Celé týždne od pondelka týždňa `todayIso`. */
-export function weekDays(todayIso: string, weeks: number): CalendarDay[] {
+export function weekDays(todayIso: string, weeks: number, jurisdictions: readonly HolidayJurisdiction[] = []): CalendarDay[] {
   const from = mondayOf(todayIso);
-  return Array.from({ length: weeks * 7 }, (_, i) => dayCell(addDays(from, i), todayIso));
+  return Array.from({ length: weeks * 7 }, (_, i) => dayCell(addDays(from, i), todayIso, jurisdictions));
 }
 
 /** Mesiac dňa `anchor` po celých týždňoch (pondelok až nedeľa); dni iného mesiaca nesú `outside`. */
-export function monthDays(anchor: string, todayIso: string): CalendarDay[] {
+export function monthDays(anchor: string, todayIso: string, jurisdictions: readonly HolidayJurisdiction[] = []): CalendarDay[] {
   const first = `${anchor.slice(0, 7)}-01`;
   const next = addDays(`${anchor.slice(0, 7)}-28`, 4).slice(0, 7);
   const last = addDays(`${next}-01`, -1);
   const from = mondayOf(first);
   const days: CalendarDay[] = [];
   for (let iso = from; iso <= last || days.length % 7 !== 0; iso = addDays(iso, 1)) {
-    const cell = dayCell(iso, todayIso);
+    const cell = dayCell(iso, todayIso, jurisdictions);
     days.push(iso.slice(0, 7) === anchor.slice(0, 7) ? cell : { ...cell, outside: true });
   }
   return days;
 }
 
-const dayCell = (iso: string, todayIso: string): CalendarDay => ({ iso, weekend: isWeekend(iso), past: iso < todayIso, today: iso === todayIso });
+const dayCell = (iso: string, todayIso: string, jurisdictions: readonly HolidayJurisdiction[]): CalendarDay => ({ iso, weekend: isWeekend(iso), past: iso < todayIso, today: iso === todayIso,
+  holidays: jurisdictions.flatMap((j) => publicHoliday(iso, j) ?? []) });
+
+/** Jurisdikcie prípadov (záznam typu matter, inak karta prípadu): kalendár ukáže sviatky len tých, ktoré prax naozaj má. */
+export function caseJurisdictions(inputs: readonly Pick<MatterInput, "records" | "cardFrontmatter">[]): HolidayJurisdiction[] {
+  const found = new Set<HolidayJurisdiction>();
+  for (const input of inputs) {
+    const j = holidayJurisdiction(input.records.find((r) => r.type === "matter")?.jurisdiction ?? input.cardFrontmatter?.jurisdiction);
+    if (j) found.add(j);
+  }
+  return [...found].sort();
+}
 
 /** Naliehavosť lehoty slovom pre farbu aj text: po termíne, dnes/zajtra, do 7 dní, neskôr. */
 export type DeadlineTone = "overdue" | "hot" | "soon" | "later";

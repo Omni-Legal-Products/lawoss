@@ -186,7 +186,7 @@ export const mattersEn = {
   "lawoss.matters.conclusion.enhanced_diligence": "enhanced diligence",
   "lawoss.matters.conclusion.decline": "decline",
   "lawoss.matters.calendarTitle": "Deadlines and tasks · 3 weeks",
-  "lawoss.matters.calendarNote": "weekends marked · dates as recorded, nothing calculated",
+  "lawoss.matters.calendarNote": "weekends and public holidays marked · dates as recorded, nothing calculated",
   "lawoss.matters.calendarMore": "+{count} more",
   "lawoss.matters.legend.hot": "deadline today or tomorrow",
   "lawoss.matters.legend.soon": "deadline within 7 days",
@@ -233,6 +233,8 @@ export const mattersEn = {
   "lawoss.matters.caseDetailsNote": "every register line with its source file",
   "lawoss.matters.alert.invalidDate": "Invalid date to check: {title}",
   "lawoss.matters.invalidDate": "invalid date to check",
+  "lawoss.matters.holiday": "holiday",
+  "lawoss.matters.legend.holiday": "public holiday ({jurisdictions})",
 };
 
 export const mattersCs: Record<keyof typeof mattersEn, string> = {
@@ -422,7 +424,7 @@ export const mattersCs: Record<keyof typeof mattersEn, string> = {
   "lawoss.matters.conclusion.enhanced_diligence": "zesílená kontrola",
   "lawoss.matters.conclusion.decline": "odmítnout",
   "lawoss.matters.calendarTitle": "Lhůty a úkoly · 3 týdny",
-  "lawoss.matters.calendarNote": "víkendy odlišené · data ze záznamů, nic se nedopočítává",
+  "lawoss.matters.calendarNote": "víkendy a svátky odlišené · data ze záznamů, nic se nedopočítává",
   "lawoss.matters.calendarMore": "+{count} další",
   "lawoss.matters.legend.hot": "lhůta dnes nebo zítra",
   "lawoss.matters.legend.soon": "lhůta do 7 dnů",
@@ -469,6 +471,8 @@ export const mattersCs: Record<keyof typeof mattersEn, string> = {
   "lawoss.matters.caseDetailsNote": "každý řádek registru se zdrojovým souborem",
   "lawoss.matters.alert.invalidDate": "Neplatné datum k ověření: {title}",
   "lawoss.matters.invalidDate": "neplatné datum k ověření",
+  "lawoss.matters.holiday": "svátek",
+  "lawoss.matters.legend.holiday": "den pracovního klidu ({jurisdictions})",
 };
 
 export const mattersSk: Record<keyof typeof mattersEn, string> = {
@@ -658,7 +662,7 @@ export const mattersSk: Record<keyof typeof mattersEn, string> = {
   "lawoss.matters.conclusion.enhanced_diligence": "zosilnená kontrola",
   "lawoss.matters.conclusion.decline": "odmietnuť",
   "lawoss.matters.calendarTitle": "Lehoty a úlohy · 3 týždne",
-  "lawoss.matters.calendarNote": "víkendy odlíšené · dátumy zo záznamov, nič sa nedopočítava",
+  "lawoss.matters.calendarNote": "víkendy a sviatky odlíšené · dátumy zo záznamov, nič sa nedopočítava",
   "lawoss.matters.calendarMore": "+{count} ďalšie",
   "lawoss.matters.legend.hot": "lehota dnes alebo zajtra",
   "lawoss.matters.legend.soon": "lehota do 7 dní",
@@ -705,6 +709,8 @@ export const mattersSk: Record<keyof typeof mattersEn, string> = {
   "lawoss.matters.caseDetailsNote": "každý riadok registra so zdrojovým súborom",
   "lawoss.matters.alert.invalidDate": "Neplatný dátum na overenie: {title}",
   "lawoss.matters.invalidDate": "neplatný dátum na overenie",
+  "lawoss.matters.holiday": "sviatok",
+  "lawoss.matters.legend.holiday": "deň pracovného pokoja ({jurisdictions})",
 };
 
 export const mattersDe: Record<keyof typeof mattersEn, string> = {
@@ -894,7 +900,7 @@ export const mattersDe: Record<keyof typeof mattersEn, string> = {
   "lawoss.matters.conclusion.enhanced_diligence": "verstärkte Prüfung",
   "lawoss.matters.conclusion.decline": "ablehnen",
   "lawoss.matters.calendarTitle": "Fristen und Aufgaben · 3 Wochen",
-  "lawoss.matters.calendarNote": "Wochenenden markiert · Daten wie erfasst, nichts berechnet",
+  "lawoss.matters.calendarNote": "Wochenenden und Feiertage markiert · Daten wie erfasst, nichts berechnet",
   "lawoss.matters.calendarMore": "+{count} weitere",
   "lawoss.matters.legend.hot": "Frist heute oder morgen",
   "lawoss.matters.legend.soon": "Frist innerhalb von 7 Tagen",
@@ -941,6 +947,8 @@ export const mattersDe: Record<keyof typeof mattersEn, string> = {
   "lawoss.matters.caseDetailsNote": "jede Registerzeile mit Quelldatei",
   "lawoss.matters.alert.invalidDate": "Ungültiges Datum prüfen: {title}",
   "lawoss.matters.invalidDate": "ungültiges Datum prüfen",
+  "lawoss.matters.holiday": "Feiertag",
+  "lawoss.matters.legend.holiday": "Feiertag ({jurisdictions})",
 };
 
 export type MatterTextKey = keyof typeof mattersEn extends `lawoss.matters.${infer Key}` ? Key : never;

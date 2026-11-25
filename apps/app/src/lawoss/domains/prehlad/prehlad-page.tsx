@@ -13,8 +13,9 @@ import {
 } from "../../okf/read-model";
 import { matterLink } from "../spis/spis-page";
 import { daysBetween, recordKey, type UpcomingDeadline } from "../../../../../../lawoss/okf/read";
+import type { HolidayJurisdiction } from "../../../../../../lawoss/okf/holidays";
 import { clientInitials } from "../../lite/client-cards";
-import { deadlineTone, matterCards, practiceAlerts, practiceTasks, uniqueDeadlines, weekDays, type MatterCard, type PracticeAlert, type PracticeTask } from "../overview-model";
+import { caseJurisdictions, deadlineTone, matterCards, practiceAlerts, practiceTasks, uniqueDeadlines, weekDays, type MatterCard, type PracticeAlert, type PracticeTask } from "../overview-model";
 import { AlertBox, CalendarGrid, conclusionText, DayCount, DayItems, riskText, Trust, type MatterText } from "../overview-views";
 import "../overview.css";
 
@@ -45,6 +46,7 @@ export function RealOverview({ data }: { data: OkfReadResult }) {
   const cards = matterCards(data, now);
   const tasks = practiceTasks(data.matters, now);
   const nextUp = data.upcomingDeadlines.find((d) => !d.invalid);
+  const jurisdictions = caseJurisdictions(data.inputs);
   // „Nič nehorí“ len pri úplnom čerstvom čítaní; čiastočné čítanie nie je istota.
   const known = !data.truncated && data.problems.length === 0 && (data.coverage?.status ?? "complete") === "complete";
 
@@ -82,8 +84,8 @@ export function RealOverview({ data }: { data: OkfReadResult }) {
 
       <section className="lw-x-panel lw-x-section" aria-labelledby="lw-po-calendar">
         <h2 id="lw-po-calendar" className="lw-x-h2">{text("calendarTitle")}<small>{text("calendarNote")} · <Link to="/lehoty">{text("fullRegister")}</Link></small></h2>
-        <PracticeCalendar deadlines={uniqueDeadlines([...data.overdue, ...data.upcomingDeadlines])} tasks={tasks} now={now} locale={locale} text={text} />
-        <Legend text={text} keys={["hot", "soon", "later", "confirmed", "task", "weekend"]} />
+        <PracticeCalendar deadlines={uniqueDeadlines([...data.overdue, ...data.upcomingDeadlines])} tasks={tasks} jurisdictions={jurisdictions} now={now} locale={locale} text={text} />
+        <Legend text={text} keys={["hot", "soon", "later", "confirmed", "task", "weekend"]} holidays={jurisdictions} />
       </section>
 
       <section className="lw-x-section" aria-labelledby="lw-po-cards">
@@ -164,9 +166,9 @@ function AlertInner({ icon, title, detail, tags }: { icon: "clock" | "task" | "s
   </>;
 }
 
-function PracticeCalendar({ deadlines, tasks, now, locale, text }: { deadlines: readonly UpcomingDeadline[]; tasks: readonly PracticeTask[]; now: string; locale: Locale; text: Text }) {
-  const days = weekDays(now, CALENDAR_WEEKS);
-  return <CalendarGrid days={days} locale={locale} todayLabel={text("today")} label={text("calendarTitle")} renderDay={(day) => <DayItems max={DAY_ITEMS}
+function PracticeCalendar({ deadlines, tasks, jurisdictions, now, locale, text }: { deadlines: readonly UpcomingDeadline[]; tasks: readonly PracticeTask[]; jurisdictions: readonly HolidayJurisdiction[]; now: string; locale: Locale; text: Text }) {
+  const days = weekDays(now, CALENDAR_WEEKS, jurisdictions);
+  return <CalendarGrid days={days} locale={locale} todayLabel={text("today")} holidayLabel={text("holiday")} label={text("calendarTitle")} renderDay={(day) => <DayItems max={DAY_ITEMS}
     more={(count) => text("calendarMore", { count })}
     items={[
       ...deadlines.filter((d) => !d.invalid && d.date === day.iso).map((d) => <Link key={`d/${d.matter.path}/${d.recordId}/${d.raw ?? d.date}`} to="/lehoty" className="lw-x-ev"
@@ -190,8 +192,10 @@ const withoutTitles = (name: string): string => {
 type LegendKey = "hot" | "soon" | "later" | "confirmed" | "task" | "weekend";
 const LEGEND = { hot: "legend.hot", soon: "legend.soon", later: "legend.later", confirmed: "legend.confirmed", task: "legend.task", weekend: "legend.weekend" } as const;
 
-export function Legend({ text, keys }: { text: Text; keys: readonly LegendKey[] }) {
-  return <div className="lw-x-legend">{keys.map((key) => <span key={key} data-key={key}><i aria-hidden />{text(LEGEND[key])}</span>)}</div>;
+/** Legenda kalendára; dni pracovného pokoja len pri jurisdikciách, ktorých sviatky kalendár naozaj vyznačuje. */
+export function Legend({ text, keys, holidays = [] }: { text: Text; keys: readonly LegendKey[]; holidays?: readonly HolidayJurisdiction[] }) {
+  return <div className="lw-x-legend">{keys.map((key) => <span key={key} data-key={key}><i aria-hidden />{text(LEGEND[key])}</span>)}
+    {holidays.length ? <span data-key="holiday"><i aria-hidden />{text("legend.holiday", { jurisdictions: holidays.map((j) => j.toUpperCase()).join(", ") })}</span> : null}</div>;
 }
 
 function MatterCardView({ card, now, locale, text }: { card: MatterCard; now: string; locale: Locale; text: Text }) {

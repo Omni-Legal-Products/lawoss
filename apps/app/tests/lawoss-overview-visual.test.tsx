@@ -4,8 +4,8 @@ import { MemoryRouter } from "react-router-dom";
 import { t } from "../src/i18n";
 import { RealOverview } from "../src/lawoss/domains/prehlad/prehlad-page";
 import { MatterCockpit } from "../src/lawoss/domains/spis/spis-page";
-import { groupEvents, matterCards, monthDays, practiceAlerts, weekDays } from "../src/lawoss/domains/overview-model";
-import { eventKindText, riskText } from "../src/lawoss/domains/overview-views";
+import { caseJurisdictions, groupEvents, matterCards, monthDays, practiceAlerts, weekDays } from "../src/lawoss/domains/overview-model";
+import { CalendarGrid, eventKindText, riskText } from "../src/lawoss/domains/overview-views";
 import type { MatterTextKey } from "../src/lawoss/i18n/matters";
 import { today, type OkfReadResult } from "../src/lawoss/okf/read-model";
 import { buildOverview, type MatterInput } from "../../../lawoss/okf/read";
@@ -196,5 +196,30 @@ describe("honest states", () => {
     expect(practiceAlerts(overview, TODAY).filter((a) => a.kind === "deadline")).toHaveLength(1);
     const html = renderToStaticMarkup(<MemoryRouter><RealOverview data={overview} /></MemoryRouter>);
     expect(html.split('data-kind="deadline"').length - 1).toBe(1);
+  });
+});
+
+describe("public holidays in calendars", () => {
+  test("only jurisdictions of the cases get holidays, each with its own table", () => {
+    expect(caseJurisdictions([{ records: [rec({ id: "M-1", type: "matter", title: "A" })] }, { records: [], cardFrontmatter: { jurisdiction: "cz" } }])).toEqual(["cz", "sk"]);
+    const november = monthDays("2026-11-15", "2026-11-25", ["sk", "cz"]);
+    const marked = (iso: string) => november.find((d) => d.iso === iso)?.holidays.map((h) => h.jurisdiction);
+    expect(marked("2026-11-01")).toEqual(["sk"]);
+    expect(marked("2026-11-17")).toEqual(["cz"]);
+    expect(marked("2026-11-18")).toEqual([]);
+    expect(monthDays("2026-12-28", "2026-11-25").every((d) => d.holidays.length === 0)).toBe(true);
+  });
+
+  test("the grid marks holidays with a word and the legal name, and names the jurisdiction when mixed", () => {
+    const days = monthDays("2026-11-15", "2026-11-25", ["sk", "cz"]);
+    const html = renderToStaticMarkup(<CalendarGrid days={days} locale="sk" todayLabel="dnes" holidayLabel="sviatok" label="november" renderDay={() => null} />);
+    expect(html).toContain('data-holiday="cz"');
+    expect(html).toContain("CZ: Den boje za svobodu a demokracii");
+    expect(html).toContain("sviatok CZ");
+    const sk = renderToStaticMarkup(<CalendarGrid days={monthDays("2026-12-28", "2026-11-25", ["sk"])} locale="sk" todayLabel="dnes" holidayLabel="sviatok" label="december" renderDay={() => null} />);
+    expect(sk).toContain('data-day="2026-12-24"');
+    // 24., 25. a 26. 12. a 1. 1. 2027 v poslednom týždni mriežky (deň mimo mesiaca).
+    expect(sk.match(/data-holiday="sk"/g)?.length).toBe(4);
+    expect(sk).not.toContain("sviatok SK");
   });
 });
