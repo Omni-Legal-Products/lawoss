@@ -10,7 +10,9 @@ import { applyReviewedPatch, assertBuildReady, buildCandidate, verifyCompiler, v
 import { verifyOpencodeCandidate } from "../../packages/opencode-release/candidate.mjs";
 import { developerIdRequirement, macEntitlementsSha256 } from "../../packages/opencode-release/build/mac-signing.mjs";
 
-export const macSigningIdentity = Object.freeze({ mode: "developer-id", identitySha1: "5eccdbc844b673d12b8528f6b8ea5f41f6d4e4a6", certificateSha256: "dec87895435a1392571678dfd71a8ebeea873a7e3602b372de65dd217a79a228", teamId: "9VTQ834B95" });
+import selection from "../../packages/opencode-release/selection.json" with { type: "json" };
+
+export const macSigningIdentity = Object.freeze(selection.productionMacSigner);
 export const macTargets = ["darwin-arm64", "darwin-x64", "darwin-x64-baseline"];
 const files = ["LICENSE", "NOTICE", "SHA256SUMS", "opencode", "provenance.json"];
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -133,7 +135,7 @@ async function verifySignature(binary, target, evidence) {
   await tool("/usr/bin/codesign", ["--verify", "--strict", "--all-architectures", "-R", `=${developerIdRequirement(macSigningIdentity.teamId)}`, binary]);
   const metadata = await tool("/usr/bin/codesign", ["--display", "--verbose=4", binary]);
   const details = metadata.stdout + "\n" + metadata.stderr;
-  assert.match(details, /^Authority=Developer ID Application:/m); assert.match(details, /^TeamIdentifier=9VTQ834B95$/m);
+  assert.match(details, /^Authority=Developer ID Application:/m); assert.ok(details.split(/\r?\n/).includes(`TeamIdentifier=${macSigningIdentity.teamId}`));
   assert.match(details, /^Timestamp=(?!none$|not set$).+/m);
   const flags = details.match(/^CodeDirectory .*\bflags=0x([a-fA-F0-9]+)/m); assert(flags && (parseInt(flags[1], 16) & 0x10000));
   const prefix = path.join(evidence, "public-certificate-"); await tool("/usr/bin/codesign", ["--display", `--extract-certificates=${prefix}`, binary]);

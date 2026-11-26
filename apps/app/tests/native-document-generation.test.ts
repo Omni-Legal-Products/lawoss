@@ -399,6 +399,33 @@ test("accepted native message correlation survives skew/reload, ignores tool ste
   }
 }));
 
+test("profile discovery recovers from one HTTP 503 and keeps a persistent outage or denial closed", async () => {
+  const input = {providerId: "fixture", modelId: "synthetic", caseDirectory: "case/sub"};
+  const view = {profiles: [], targetFingerprint: "b".repeat(64), syntheticReviewAvailable: true, requiresNativeCaseReview: true, legalApproval: false};
+  let responses: number[] = [];
+  const calls: string[] = [];
+  const receiver = Bun.serve({hostname: "127.0.0.1", port: 0, fetch(request) {
+    const {pathname, search} = new URL(request.url);
+    calls.push(`${request.method} ${pathname}${search}`);
+    expect(request.headers.get("authorization")).toBe("Bearer fixture-token");
+    expect(request.headers.get("x-legalwork-host-token")).toBe("fixture-host");
+    const status = responses.shift() ?? 500;
+    return Response.json(status === 200 ? view : {code: status === 503 ? "protected_ai_account_unavailable" : "forbidden"}, {status});
+  }});
+  try {
+    const client = createLegalworkServerClient({baseUrl: receiver.url.origin, token: "fixture-token", hostToken: "fixture-host"});
+    const profiles = () => client.listLawossDocumentProfiles("owner", input);
+    responses = [503, 200];
+    expect(await profiles()).toEqual(view);
+    responses = [503, 503];
+    await expect(profiles()).rejects.toMatchObject({status: 503});
+    responses = [403];
+    await expect(profiles()).rejects.toMatchObject({status: 403});
+    const path = "GET /workspace/owner/lawoss/documents/profiles?" + new URLSearchParams(input);
+    expect(calls).toEqual(Array(5).fill(path));
+  } finally { receiver.stop(true); }
+});
+
 test("profile discovery keeps both owner credentials and explicit matter choice reaches protected provisioning", async () => {
   const { selectDocumentGenerationProfile } = await import("../src/react-app/domains/session/panel/document-processing");
   const view = {profiles: [{id: "chosen-matter", revision: 3, scope: {workspaceId: "owner", matterId: "explicit-case", jurisdictions: ["CZ"]}, legalProfileId: "reviewed", legalProfileVersion: "2", evidenceRefs: ["sha256:"+"a".repeat(64)], expiresAt: null}], targetFingerprint: "b".repeat(64), syntheticReviewAvailable: false, requiresNativeCaseReview: true, legalApproval: false} as const;

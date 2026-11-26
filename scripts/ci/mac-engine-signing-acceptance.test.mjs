@@ -17,9 +17,9 @@ function fixture() {
       files: Object.fromEntries(["LICENSE", "NOTICE", "SHA256SUMS", "opencode", "provenance.json"].map(name => [name, { bytes: 1, mode: name === "opencode" ? 0o755 : 0o644, sha256: hash }])) })) };
 }
 test("acceptance retains the complete three-Mac matrix and exact independent public identity", () => {
-  assert.equal(macSigningIdentity.teamId, "9VTQ834B95");
-  assert.equal(macSigningIdentity.identitySha1, "5eccdbc844b673d12b8528f6b8ea5f41f6d4e4a6");
-  assert.equal(macSigningIdentity.certificateSha256, "dec87895435a1392571678dfd71a8ebeea873a7e3602b372de65dd217a79a228");
+  assert.equal(macSigningIdentity.teamId, "Q7AU96CW7H");
+  assert.equal(macSigningIdentity.identitySha1, "2ce7c6706fe03e930fe48d2bc14c6d7d54afd377");
+  assert.equal(macSigningIdentity.certificateSha256, "a6d3594aa915515910f10384cf9593418a1128ab671b589e1a8cf9a3a0dfe79a");
   validateMacAcceptanceManifest(fixture(), hash);
 });
 for (const [name, change] of [
