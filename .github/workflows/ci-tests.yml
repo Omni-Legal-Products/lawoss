@@ -154,6 +154,7 @@ jobs:
     uses: ./.github/workflows/ci-desktop-packaging.yml
     with:
       windows-only: true
+      runtime_provided: true
       derivative-manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
   mac-signing-acceptance:
     needs: [signing-inputs, changes]
@@ -471,7 +472,14 @@ jobs:
       always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.units == 'true' &&
       !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
     # 🟡 LAWOSS: ruleset vyžaduje check `legalwork-tests (macos-15)` — meno z matrix.os.
-    runs-on: ${{ matrix.os }}
+    # An operator provisions one isolated VM for this exact PR merge commit and job attempt.
+    runs-on: >-
+      ${{ matrix.os == 'macos-15' && github.event_name == 'pull_request' &&
+          github.repository == 'Omni-Legal-Products/lawoss' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          vars.LAWOSS_LOCAL_MAC_SHA == github.sha &&
+          fromJSON(format('{{"group":"lawoss-macos-isolated","labels":"lawoss-{0}-{1}-{2}-tests"}}',
+          github.sha, github.run_id, github.run_attempt)) || matrix.os }}
     # 🟡 LAWOSS: väčší server LAWOSS; tsc na macOS runneri inak vyčerpá predvolený heap.
     env:
       NODE_OPTIONS: --max-old-space-size=6144

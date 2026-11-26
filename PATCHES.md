@@ -2731,3 +2731,13 @@ Logika je v nových LAWOSS súboroch `apps/app/src/lawoss/chat/provider-error.ts
 ### Automatické spracovanie vybraného priečinka klienta
 
 Server v `routes/workspaces.ts` a `server.ts` spúšťa lokálne indexovanie pri registrácii. `legalwork-server.ts` pripája stav, hľadanie a evidenciu k Prehľadu. Pridanie klienta, registrácia a sprievodca používajú presnú vybranú cestu. `session-page.tsx`, `project-home.tsx`, `create-project-modal.tsx`, `welcome-route.tsx`, `session-route.tsx` a `document-processing.ts` sprístupňujú spracovanie bez prepisovania pokynov do chatu. Chránené spracovanie modelom zachováva výber konkrétnych súborov a pôvodnú kontrolu prenosu.
+
+The macOS ARM64 unit integration, packaging and sandbox CI lanes in `.github/workflows/ci-tests.yml`, `.github/workflows/ci-desktop-packaging.yml` and `.github/workflows/sandbox-runtime.yml` support an operator-selected isolated runner for a single reviewed PR merge commit. Preserve matrix check names and the hosted default during upstream sync. See [the runner procedure](docs/testing/macos-local-runner.md).
+
+The regression in `scripts/ci/engine-reuse-workflow.test.mjs` checks the opt-in conditions, job-specific labels and hosted fallback for all three workflows. Its separate required-check test retains the original job matrix and failure propagation.
+
+### Akceptácia Windows bez macOS runnera
+
+| Súbory | Zmena |
+|---|---|
+| `.github/workflows/ci-tests.yml`, `.github/workflows/ci-desktop-packaging.yml` | Akceptácia Windows používa runtime vygenerovaný v tom istom behu. Balenie a natívny ISIR majú spoločnú maticu. Režim Windows vyberá x64 a ARM64 a vynechá macOS kontrolu pamäte. Predvolený beh PR pokrýva všetky štyri platformy. |
