@@ -3,7 +3,7 @@
 ## Podpis verejnej alfy (2026-11-26)
 
 Vydavateľom macOS a Windows je the Software s.r.o. Pri synchronizácii zachovať verejné odtlačky v `packages/opencode-release/selection.json`, ich kontrolu v `scripts/ci/mac-engine-signing-acceptance{,.test}.mjs`, výber produkčného enginu v `.github/workflows/{alpha-macos-aarch64,ci-opencode-derivative}.yml` a kontrolu vydavateľa vo Windows cez `.github/workflows/alpha-windows-x64.yml` a `scripts/release/verify-windows-signature.ps1`. Podrobnosti sú v [postupe vydania](docs/release-evidence.md).
-Šablóna `scripts/release/signpath-windows-installer.xml` kontroluje názov inštalátora LAWOSS a jeho vlastnosti ProductName a ProductVersion. Postup pre projekt forku je v `docs/windows-code-signing.md`.
+Šablóna `scripts/release/signpath-windows-installer.xml` používa jedno pevné meno bez parametrov predplatného. Alfa aj stabilný workflow kontrolujú meno pre architektúru zostavy a vlastnosti ProductName a ProductVersion pomocou `scripts/release/stage-signpath-installer.ps1`. Postup pre projekt forku je v `docs/windows-code-signing.md`.
 
 ## Test uložených nastavení dokumentu (2026-11-26)
 

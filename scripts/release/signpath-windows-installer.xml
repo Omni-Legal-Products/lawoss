@@ -1,11 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
-  <parameters>
-    <parameter name="version" required="true" />
-    <parameter name="arch" required="true" />
-  </parameters>
   <zip-file>
-    <pe-file path="lawoss-win-${arch}-${version}.exe" product-name="LAWOSS" product-version="${version}">
+    <pe-file path="lawoss-installer.exe">
       <authenticode-sign />
     </pe-file>
   </zip-file>

@@ -5,7 +5,7 @@ The public Windows alpha uses Authenticode with a timestamp and the publisher **
 ## Set up the SignPath project
 
 1. In the company SignPath organization, open **Projects** and create a project named **LAWOSS**. Set the slug to `lawoss` and the repository URL to `https://github.com/Omni-Legal-Products/lawoss`.
-2. In **Artifact configurations**, create `windows-installer` using the [installer XML](../scripts/release/signpath-windows-installer.xml). Each uploaded ZIP contains one EXE. The workflow supplies the architecture and stamped package version. The XML checks the filename and both PE properties before signing.
+2. In the project form, replace the entire artifact XML with the [installer XML](../scripts/release/signpath-windows-installer.xml) and choose **Create (add signing policy later)**. Keep the resulting artifact configuration slug for GitHub. Each job uploads one ZIP containing `lawoss-installer.exe`. This configuration needs no SignPath parameters. The Windows runner checks the matrix filename and PE product name and version before upload and restores the release filename after checking the returned EXE.
 3. Link **GitHub.com** as a trusted build system. For GitHub audit verification, grant the official SignPath GitHub App access to the LAWOSS repository. [GitHub integration](https://docs.signpath.io/trusted-build-systems/github)
 4. In **Certificates**, check that the organization has a publicly trusted Windows code-signing certificate identifying **the Software s.r.o.** If it needs to be issued or imported, complete that with the organization's administrator or certificate provider.
 5. In **Signing policies**, configure `release-signing` for release signing with that certificate. Select the authorized approver and give the CI user submitter access. [Project and policy setup](https://docs.signpath.io/projects)
@@ -18,7 +18,7 @@ Once the release certificate and policy are ready, store the CI user's token in 
 | --- | --- |
 | `SIGNPATH_ORGANIZATION_ID` | ID of the company organization containing LAWOSS |
 | `SIGNPATH_SIGNING_POLICY_SLUG` | `release-signing` |
-| `SIGNPATH_ARTIFACT_CONFIGURATION_SLUG` | `windows-installer` |
+| `SIGNPATH_ARTIFACT_CONFIGURATION_SLUG` | Actual artifact configuration slug from SignPath |
 | `SIGNPATH_PROJECT_SLUG` | `lawoss` |
 
 Use the manual Windows alpha workflow in draft mode to verify signing. On Windows, verify each final installer with the repository checker.
