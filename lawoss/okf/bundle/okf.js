@@ -2674,6 +2674,13 @@ function conversionOperations(planned, existing) {
   directory("memory");
   return operations;
 }
+function conversionEntries(entries) {
+  const byPath = new Map(entries.map((entry) => [entry.path, entry]));
+  const index = entries.find((entry) => entry.path.toLowerCase() === "index.md");
+  if (index && !byPath.has("index.md"))
+    byPath.set("index.md", index);
+  return byPath;
+}
 async function planClientConversion(root, input) {
   validateInput(input);
   const inspection = await inspectOnboardingRoot(root);
@@ -2681,7 +2688,7 @@ async function planClientConversion(root, input) {
     throw new Error(incompleteInspectionMessage(UNINSPECTABLE, inspection.issues));
   if (inspection.level !== "client" && !(inspection.level === "unknown" && input.confirmUnknownClient === true))
     throw new Error(NOT_CLIENT);
-  const existing = new Map(inspection.entries.map((entry) => [entry.path, entry]));
+  const existing = conversionEntries(inspection.entries);
   const profileEntry = existing.get(PROFILE_FILE);
   const workingProfile = profileEntry ? parseWorkingProfile(await readInspectedText(inspection.root, profileEntry)) : undefined;
   const planned = planEntity({ type: "klient", dir: inspection.root, ...input, workingProfile }, LOCALIZED_TEMPLATES, (path) => existing.has(path));
@@ -2757,7 +2764,7 @@ async function planShallowClientConversion(root, input) {
   const inspection = await inspectOnboardingParent(root);
   if (!inspection.complete || !inspection.digest)
     throw new Error(incompleteInspectionMessage(UNINSPECTABLE, inspection.issues));
-  const top = new Map(inspection.entries.map((entry) => [entry.path, entry]));
+  const top = conversionEntries(inspection.entries);
   const profileText = await readTopLevelControl(inspection.root, top.get(PROFILE_FILE), "Invalid inspected control file.");
   const workingProfile = profileText === undefined ? undefined : parseWorkingProfile(profileText);
   const plan = (exists) => planEntity({ type: "klient", dir: inspection.root, ...input, workingProfile }, LOCALIZED_TEMPLATES, exists);
