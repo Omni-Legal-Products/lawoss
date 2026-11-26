@@ -3,6 +3,8 @@
 ## Podpis verejnej alfy (2026-11-26)
 
 Vydavateľom macOS a Windows je the Software s.r.o. Pri synchronizácii zachovať verejné odtlačky v `packages/opencode-release/selection.json`, ich kontrolu v `scripts/ci/mac-engine-signing-acceptance{,.test}.mjs`, výber produkčného enginu v `.github/workflows/{alpha-macos-aarch64,ci-opencode-derivative}.yml` a kontrolu vydavateľa vo Windows cez `.github/workflows/alpha-windows-x64.yml` a `scripts/release/verify-windows-signature.ps1`. Podrobnosti sú v [postupe vydania](docs/release-evidence.md).
+Šablóna `scripts/release/signpath-windows-installer.xml` kontroluje názov inštalátora LAWOSS a jeho vlastnosti ProductName a ProductVersion. Postup pre projekt forku je v `docs/windows-code-signing.md`.
+
 ## Čítačka PDF vedľa chatu (2026-11-25)
 
 `apps/app/src/react-app/domains/session/artifacts/{artifact-frame,artifact-panel,preview}.tsx` a `pdf-preview-url.ts` v tom istom adresári pripájajú hlavičku čítačky a režim zobrazenia PDFium. Pri aktualizácii zachovať odkaz na stranu, natívny iframe, kontrolu odtlačku dokumentu a ovládanie rozšíreného zobrazenia. Regresia je v `apps/app/tests/pdf-preview.test.tsx`.
