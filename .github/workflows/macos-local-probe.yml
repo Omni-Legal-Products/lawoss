@@ -1,0 +1,52 @@
+name: Isolated local macOS acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Full reviewed LAWOSS commit to check
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      revision:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  probe:
+    if: github.repository == 'Omni-Legal-Products/lawoss' && inputs.revision != ''
+    timeout-minutes: 15
+    runs-on:
+      group: lawoss-macos-isolated
+      labels: ${{ format('lawoss-{0}-{1}-{2}-probe', inputs.revision, github.run_id, github.run_attempt) }}
+    env:
+      REVISION: ${{ inputs.revision }}
+    steps:
+      - name: Check the native isolated guest
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$(uname -m)" = arm64
+          test "$(sw_vers -productVersion | cut -d. -f1)" = 15
+          if mount | grep -qi virtiofs; then exit 1; fi
+          test -z "${SSH_AUTH_SOCK:-}" || test ! -S "$SSH_AUTH_SOCK" || ! ssh-add -l >/dev/null 2>&1
+          sw_vers
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.REVISION }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+          package-manager-cache: false
+      - name: Check the source identity and run native desktop regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REVISION"
+          node --test apps/desktop/electron/shutdown-guard.test.mjs
+          if test -f apps/desktop/electron/lawoss-chevron7-signing.test.mjs; then
+            node --test apps/desktop/electron/lawoss-chevron7-signing.test.mjs
+          fi

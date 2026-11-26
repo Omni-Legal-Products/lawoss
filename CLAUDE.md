@@ -72,6 +72,10 @@ Rules:
 - Upstream sync branches use `sync/upstream-vX.Y.Z` and merge a release tag.
 - Version LAWOSS releases as `v<upstream>-lawoss.<n>`.
 
+## macOS ARM64 runner availability
+
+If a macOS job is cancelled before assignment, inspect its runner name and steps and use [the isolated macOS runner procedure](docs/testing/macos-local-runner.md). Run a reviewed SHA in a fresh guest, retain the GitHub job receipt, and require the original product checks before merging or publishing.
+
 ## Pull request expectations
 
 - Link the approved specification or ADR when the change implements a LAWOSS feature.
