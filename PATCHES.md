@@ -1,5 +1,9 @@
 # LAWOSS downstream patches
 
+## Načítanie profilov pred spracovaním dokumentov (#384)
+
+V `apps/app/src/app/lib/legalwork-server.ts` môže klient po HTTP 503 raz zopakovať čítanie profilov toho istého spisu v zostávajúcom časovom limite. Prípustnosť profilu sa posudzuje z čerstvej odpovede. Regresný test v `apps/app/tests/native-document-generation.test.ts` overuje prechodný výpadok, trvalý výpadok a odmietnutie prístupu.
+
 ## Podpis verejnej alfy (2026-11-26)
 
 Vydavateľom macOS a Windows je the Software s.r.o. Pri synchronizácii zachovať verejné odtlačky v `packages/opencode-release/selection.json`, ich kontrolu v `scripts/ci/mac-engine-signing-acceptance{,.test}.mjs`, výber produkčného enginu v `.github/workflows/{alpha-macos-aarch64,ci-opencode-derivative}.yml` a kontrolu vydavateľa vo Windows cez `.github/workflows/alpha-windows-x64.yml` a `scripts/release/verify-windows-signature.ps1`. Podrobnosti sú v [postupe vydania](docs/release-evidence.md).
