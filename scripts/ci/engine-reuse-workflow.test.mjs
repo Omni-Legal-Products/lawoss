@@ -128,3 +128,15 @@ test('a prebuilt engine is selected on ubuntu and only compilation needs the pin
   assert.match(select.run, /os=ubuntu-latest; else os=macos-15/);
   assert.match(runner.steps.find(step => step.id === 'cache-key').if, /inputs.build-mode == 'development'/);
 });
+
+test('Mac alpha selects the same signing mode for engine preparation and desktop packaging', () => {
+  const { jobs } = workflow('alpha-macos-aarch64');
+  const producer = jobs['opencode-engine'];
+  const consumer = Object.values(jobs).find(job => job.steps?.some(step => step.uses === './.github/actions/setup-opencode'));
+  const mode = "${{ needs.signing.outputs.signed == 'true' && 'production' || 'development' }}";
+  assert.equal(producer.with['build-mode'], mode);
+  assert.equal(consumer.steps.find(step => step.uses === './.github/actions/setup-opencode').with['build-mode'], mode);
+  const build = consumer.steps.find(step => step.name === 'Build Electron alpha app');
+  assert.equal(build.env.DESKTOP_BUILD_SCRIPT, "${{ needs.signing.outputs.signed == 'true' && 'build:electron:production' || 'build:electron' }}");
+  assert.ok(build.run.includes('"$DESKTOP_BUILD_SCRIPT"'));
+});

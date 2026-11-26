@@ -10,7 +10,7 @@ permissions:
   contents: read
 jobs:
   producer:
-    if: github.event_name == 'workflow_dispatch' && github.repository == 'eigenweltlabs/legalwork'
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'Omni-Legal-Products/lawoss' && github.ref == 'refs/heads/dev'
     runs-on: macos-15
     timeout-minutes: 90
     outputs:
@@ -46,7 +46,7 @@ jobs:
           security unlock-keychain -p "$password" "$keychain"
           security import "$certificate" -k "$keychain" -P "$APPLE_CODESIGN_CERT_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
-          security find-identity -v -p codesigning "$keychain" | grep -F '5ECCDBC844B673D12B8528F6B8EA5F41F6D4E4A6'
+          security find-identity -v -p codesigning "$keychain" | grep -F '2CE7C6706FE03E930FE48D2BC14C6D7D54AFD377'
           node scripts/ci/mac-engine-signing-acceptance.mjs keychain-register "$keychain" "$RUNNER_TEMP/signed-mac-search-list.json"
           node scripts/ci/mac-engine-signing-acceptance.mjs policy "$keychain" "$directory/public-policy.json"
           echo "policy=$directory/public-policy.json" >> "$GITHUB_OUTPUT"

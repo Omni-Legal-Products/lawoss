@@ -1,9 +1,7 @@
-// LAWOSS (ADR 0016, rozhodnutie MČ 8. 11. 2026): engine 2.1.4-legalwork.lawoss-project-stop.1 sa pre LAWOSS
-// pripravuje len vývojovou cestou s ad-hoc podpisom. Ostrá príprava (matica 12 cieľov, Mac podpis
-// identitou Eigenwelt z packages/opencode-release/selection.json) sa vo workflowoch forku nespúšťa.
-// Nepodpísané alfy ostávajú ručné so vstupom `allow_unsigned_internal`.
+// Internal builds use the development engine. The signed Mac alpha uses the approved LAWOSS publisher.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,7 +9,10 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const workflowsDir = path.join(root, ".github", "workflows");
 const UPSTREAM_ONLY = "github.repository == 'eigenweltlabs/legalwork'";
-// Reusable producer with its own repository assertion; it never runs production from the fork.
+const MAC_ALPHA = "alpha-macos-aarch64.yml";
+const signed = "needs.signing.outputs.signed == 'true'";
+const engineMode = "${{ " + signed + " && 'production' || 'development' }}";
+const desktopMode = "${{ " + signed + " && 'build:electron:production' || 'build:electron' }}";
 const PRODUCER = "ci-opencode-derivative.yml";
 const PRODUCTION_PATTERNS = [
   /\bbuild-mode:\s*['"]?production\b/,
@@ -46,31 +47,60 @@ function jobs(text) {
   }));
 }
 
-test("no LAWOSS workflow job selects the production engine path or the Eigenwelt signer", () => {
+test("only the signed Mac alpha selects production in LAWOSS callers", () => {
   const offenders = [];
   for (const { name, text } of workflows) {
     if (name === PRODUCER) continue;
     for (const job of jobs(text)) {
       if (job.condition.includes(UPSTREAM_ONLY)) continue;
+      let body = job.body;
+      if (name === MAC_ALPHA && ["opencode-engine", "publish-alpha-macos-aarch64"].includes(job.id)) {
+        const allowed = [`build-mode: ${engineMode}`];
+        if (job.id === "publish-alpha-macos-aarch64") allowed.push(`DESKTOP_BUILD_SCRIPT: ${desktopMode}`);
+        body = body.split("\n").filter(line => !allowed.includes(line.trim())).join("\n");
+      }
       for (const pattern of PRODUCTION_PATTERNS) {
-        if (pattern.test(job.body)) offenders.push(`${name}#${job.id}: ${pattern}`);
+        if (pattern.test(body)) offenders.push(`${name}#${job.id}: ${pattern}`);
       }
     }
   }
   assert.deepEqual(offenders, []);
 });
 
-test("the shared engine producer refuses production outside the upstream repository", () => {
+test("the producer admits only a manual LAWOSS dev build of the dispatched revision for production", () => {
   const producer = workflows.find(({ name }) => name === PRODUCER);
-  assert.ok(producer, `${PRODUCER} is missing`);
-  assert.match(producer.text,
-    /if \(process\.env\.BUILD_MODE === 'production'\) \{\s*\n\s*assert\.equal\(process\.env\.BUILD_REPOSITORY, 'eigenweltlabs\/legalwork'\);/);
-  // Every caller asks for the development path explicitly.
+  const build = jobs(producer.text).find(job => job.id === "build");
+  const guard = /node --input-type=module <<'NODE'\n([\s\S]*?)\n\s*NODE\n/.exec(build.body);
+  assert.ok(guard, "missing producer admission check");
+  const sha = "a".repeat(40);
+  const env = { BUILD_MODE: "production", BUILD_REPOSITORY: "Omni-Legal-Products/lawoss",
+    BUILD_REF: "refs/heads/dev", BUILD_EVENT: "workflow_dispatch", CHECKOUT_SHA: sha, GITHUB_SHA: sha };
+  const run = overrides => spawnSync(process.execPath, ["--input-type=module", "-e", guard[1]], { env: { ...env, ...overrides } }).status;
+  assert.equal(run({}), 0);
+  for (const overrides of [
+    { BUILD_REPOSITORY: "eigenweltlabs/legalwork" }, { BUILD_REF: "refs/heads/candidate" },
+    { BUILD_EVENT: "pull_request" }, { CHECKOUT_SHA: "b".repeat(40) },
+    { REUSE_RUN_ID: "123" }, { REUSE_MANIFEST_SHA256: "c".repeat(64) },
+  ]) assert.equal(run(overrides), 1, JSON.stringify(overrides));
+});
+
+test("engine callers restrict signing credentials to the signed Mac alpha", () => {
   for (const { name, text } of workflows) {
     for (const job of jobs(text)) {
       if (!job.body.includes(`uses: ./.github/workflows/${PRODUCER}`) || job.condition.includes(UPSTREAM_ONLY)) continue;
+      if (name === MAC_ALPHA && job.id === "opencode-engine") {
+        const lines = job.body.split("\n").map(line => line.trim());
+        assert.ok(lines.includes(`build-mode: ${engineMode}`));
+        for (const key of ["APPLE_CODESIGN_CERT_P12_BASE64", "APPLE_CODESIGN_CERT_PASSWORD"]) {
+          assert.deepEqual(lines.filter(line => line.startsWith(key + ":")), [
+            key + ": ${{ " + signed + " && secrets." + key + " || '' }}",
+          ]);
+        }
+        assert.doesNotMatch(job.body, /secrets:\s*inherit/);
+        continue;
+      }
       assert.match(job.body, /\n\s+build-mode: development\s*(\n|$)/, `${name}#${job.id} must request build-mode: development`);
-      assert.doesNotMatch(job.body, /APPLE_CODESIGN_CERT/, `${name}#${job.id} must not pass signing secrets to the engine build`);
+      assert.doesNotMatch(job.body, /APPLE_CODESIGN_CERT|secrets:\s*inherit/, `${name}#${job.id} must not pass signing secrets to the engine build`);
     }
   }
 });

@@ -113,8 +113,7 @@ jobs:
           echo "signed=false" >> "$GITHUB_OUTPUT"
           echo "draft=true" >> "$GITHUB_OUTPUT"
 
-  # 🟡 LAWOSS (ADR 0016, MČ 8. 11. 2026): engine 2.1.4-legalwork.lawoss-project-stop.1 zo zdrojov
-  # vývojovou cestou s ad-hoc podpisom. Ostrá príprava s podpisovateľom Eigenwelt sa nespúšťa.
+  # Sign the engine before generating the archive pins for a notarized build.
   opencode-engine:
     needs: signing
     permissions:
@@ -122,11 +121,14 @@ jobs:
       actions: read
     uses: ./.github/workflows/ci-opencode-derivative.yml
     with:
-      build-mode: development
+      build-mode: ${{ needs.signing.outputs.signed == 'true' && 'production' || 'development' }}
       ref: ${{ github.sha }}
       # Prevzatý engine overí ci-opencode-derivative.yml proti aktuálnemu receptu a manifestu (beh na ubuntu).
       reuse-run-id: ${{ inputs.engine_reuse_run_id }}
       reuse-manifest-sha256: ${{ inputs.engine_reuse_manifest_sha256 }}
+    secrets:
+      APPLE_CODESIGN_CERT_P12_BASE64: ${{ needs.signing.outputs.signed == 'true' && secrets.APPLE_CODESIGN_CERT_P12_BASE64 || '' }}
+      APPLE_CODESIGN_CERT_PASSWORD: ${{ needs.signing.outputs.signed == 'true' && secrets.APPLE_CODESIGN_CERT_PASSWORD || '' }}
   sandbox-runtime:
     needs: signing
     uses: ./.github/workflows/sandbox-runtime.yml
@@ -170,11 +172,10 @@ jobs:
         with:
           name: opencode-derivative-ci
           path: ${{ runner.temp }}/opencode-derivative
-      # 🟡 LAWOSS: vývojová (ad-hoc) príprava; appku podpisuje/notarizuje až electron-builder.
-      - name: Verify and prepare the development engine
+      - name: Verify and prepare the selected engine
         uses: ./.github/actions/setup-opencode
         with:
-          build-mode: development
+          build-mode: ${{ needs.signing.outputs.signed == 'true' && 'production' || 'development' }}
           archive-directory: ${{ runner.temp }}/opencode-derivative/archives
           manifest-sha256: ${{ needs.opencode-engine.outputs.manifest-sha256 }}
 
@@ -304,15 +305,17 @@ jobs:
         shell: bash
         env:
           TARGET: aarch64-apple-darwin
+          DESKTOP_BUILD_SCRIPT: ${{ needs.signing.outputs.signed == 'true' && 'build:electron:production' || 'build:electron' }}
           # The renderer bundle (vite build) peaks above Node's default heap
           # since the editors and media viewers joined it; the 7 GB runner has
           # room for this.
           NODE_OPTIONS: --max-old-space-size=6144
-        run: pnpm --filter @legalwork/desktop build:electron
+        run: pnpm --filter @legalwork/desktop "$DESKTOP_BUILD_SCRIPT"
 
       - name: Package Electron alpha (macOS, signed + notarized)
         if: env.MACOS_NOTARIZE == 'true'
         env:
+          CSC_NAME: "the Software s.r.o. (Q7AU96CW7H)"
           CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
           CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
           APPLE_API_KEY: ${{ secrets.APPLE_NOTARY_API_KEY_ID }}
@@ -325,6 +328,21 @@ jobs:
             --mac \
             --arm64 \
             --publish never
+
+      - name: Verify the notarized LAWOSS publisher before recording evidence
+        if: env.MACOS_NOTARIZE == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=apps/desktop/dist-electron/mac-arm64/LAWOSS.app
+          codesign --verify --deep --strict "$app"
+          xcrun stapler validate "$app"
+          spctl --assess --type execute "$app"
+          prefix="$RUNNER_TEMP/lawoss-app-certificate-"
+          codesign --display --extract-certificates="$prefix" "$app"
+          expected=$(node -p "require('./packages/opencode-release/selection.json').productionMacSigner.certificateSha256")
+          actual=$(shasum -a 256 "${prefix}0" | cut -d' ' -f1)
+          test "$actual" = "$expected"
 
       - name: Package Electron alpha (macOS, ad-hoc signed)
         if: env.MACOS_NOTARIZE != 'true'
