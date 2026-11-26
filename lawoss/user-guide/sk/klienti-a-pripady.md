@@ -18,6 +18,8 @@ Pod **Prípady** je každý prípad klienta, pod prípadom jeho chaty a **Nový 
 
 ## Prehľad klienta
 
+V časti **Priečinok klienta** vidíte počty súborov a podpriečinkov na prvej úrovni a môžete priamo otvoriť index či poznámky. **Obnoviť z disku** načíta aktuálne údaje. Ak sú na disku dokumenty a v prehľade ešte chýbajú prípady, vyberte **Spracovať priečinok v chate**. Skontrolujte pripravenú správu a model, potom ju odošlite. Asistent má uviesť zdroje a počkať na schválenie zmien. **Náhľad štruktúry priečinka** otvorí sprievodcu evidenciou. Polia v časti **Detaily klienta** sa spravujú samostatne.
+
 **Prehľad** pod klientom ukazuje **Prehľad klienta**: jeho **Prípady** s fázou a ďalším krokom, **Najbližšie lehoty**, **Najbližší termín**, **Otvorené úlohy z prípadov**, **Vstupy klienta** a **Chaty klienta**. Odkaz **Všetky lehoty klienta** otvorí register lehôt len pre tohto klienta. Údaje sa čítajú z pomocných súborov OKF v priečinku klienta; ak sa niečo nedalo prečítať, prehľad to napíše (napríklad **Podklady sa nepodarilo prečítať, lehoty preto nie sú známe.**).
 
 ## Prípad

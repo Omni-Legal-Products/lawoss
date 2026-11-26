@@ -40,9 +40,12 @@ import { ProjectShareButton, ProjectSyncNotice } from "./project-sync";
 import { deleteProjectNote } from "./delete-project-note";
 import { noteTitle } from "./project-note-title";
 
+import { ClientFolderPanel } from "@/lawoss/lite/client-folder-panel";
+
 export function ProjectHome(props: {
   client: LegalworkServerClient;
   workspaceId: string;
+  localFolder?: string;
   projectId: string;
   isRemoteWorkspace: boolean;
   inWorkspace: boolean;
@@ -218,6 +221,15 @@ export function ProjectHome(props: {
         </Surface> : null}
 
         <ClientSettingsWarning client={client} workspaceId={workspaceId} />{/* 🟡 LAWOSS #554 */}
+        {props.localFolder && <ClientFolderPanel root={props.localFolder} projectId={props.projectId}
+          listing={rootFiles.isError ? undefined : rootFiles.data} onOpen={props.onOpenFile} onRefresh={async () => {
+            await Promise.all([
+              rootFiles.refetch({ throwOnError: true }),
+              details.refetch({ throwOnError: true }),
+              queryClient.invalidateQueries({ queryKey: ["okf-overview"] }, { throwOnError: true }),
+              queryClient.invalidateQueries({ queryKey: ["project-notes", workspaceId] }, { throwOnError: true }),
+            ]);
+          }} />}
         {props.extra}
         <div className="grid grid-cols-1 items-stretch gap-4 @min-[640px]/project-page:grid-cols-2">
           <div className="min-w-0">{props.tasksView}</div>

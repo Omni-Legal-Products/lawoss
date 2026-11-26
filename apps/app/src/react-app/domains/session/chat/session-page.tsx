@@ -1159,6 +1159,7 @@ export function SessionPage(props: SessionPageProps) {
       tasksView={renderProjectTasks(true, inWorkspace)}
       onViewAllDeadlines={inWorkspace || isProjectViewHidden("calendar") ? undefined : () => navigate(workspaceCalendarRoute(props.selectedWorkspaceId))}
       onRename={props.onRenameProject}
+      localFolder={assistantWorkspace ? undefined : props.selectedWorkspaceRoot}
       extra={<ClientOverview workspaceId={props.selectedWorkspaceId} />}
       leading={<ClientInitials workspaceId={props.selectedWorkspaceId} name={projectName} />} // 🟡 LAWOSS
     /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>

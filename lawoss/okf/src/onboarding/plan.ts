@@ -111,13 +111,21 @@ function conversionOperations(planned: Planned, existing: ExistingKind): CreateO
   return operations;
 }
 
+// A client may bring its own INDEX.md. The transaction reserves names case-insensitively.
+function conversionEntries(entries: TreeEntry[]): Map<string, TreeEntry> {
+  const byPath = new Map(entries.map(entry => [entry.path, entry]));
+  const index = entries.find(entry => entry.path.toLowerCase() === "index.md");
+  if (index && !byPath.has("index.md")) byPath.set("index.md", index);
+  return byPath;
+}
+
 /** Additive retrofit of one existing client. It never infers a client from an office or matter. */
 export async function planClientConversion(root: string, input: ClientConversionInput): Promise<ClientConversionPreview> {
   validateInput(input);
   const inspection = await inspectOnboardingRoot(root);
   if (!inspection.complete || !inspection.digest || inspection.level === "conflict") throw new Error(incompleteInspectionMessage(UNINSPECTABLE, inspection.issues));
   if (inspection.level !== "client" && !(inspection.level === "unknown" && input.confirmUnknownClient === true)) throw new Error(NOT_CLIENT);
-  const existing = new Map(inspection.entries.map(entry => [entry.path, entry]));
+  const existing = conversionEntries(inspection.entries);
   const profileEntry = existing.get(PROFILE_FILE);
   const workingProfile = profileEntry ? parseWorkingProfile(await readInspectedText(inspection.root, profileEntry)) : undefined;
   const planned = planEntity({ type: "klient", dir: inspection.root, ...input, workingProfile }, LOCALIZED_TEMPLATES, path => existing.has(path));
@@ -197,7 +205,7 @@ export async function planShallowClientConversion(root: string, input: ClientCon
   if (offices.offices.length) throw new Error(incompleteInspectionMessage(UNINSPECTABLE, offices.offices.map(path => ({ path, code: "conflicting_identity" }))));
   const inspection = await inspectOnboardingParent(root);
   if (!inspection.complete || !inspection.digest) throw new Error(incompleteInspectionMessage(UNINSPECTABLE, inspection.issues));
-  const top = new Map(inspection.entries.map(entry => [entry.path, entry]));
+  const top = conversionEntries(inspection.entries);
   const profileText = await readTopLevelControl(inspection.root, top.get(PROFILE_FILE), "Invalid inspected control file.");
   const workingProfile = profileText === undefined ? undefined : parseWorkingProfile(profileText);
   const plan = (exists: (path: string) => boolean) => planEntity({ type: "klient", dir: inspection.root, ...input, workingProfile }, LOCALIZED_TEMPLATES, exists);
