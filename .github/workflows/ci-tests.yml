@@ -365,7 +365,7 @@ jobs:
         run: |
           node lawoss/scripts/check-no-eigenwelt.mjs
           node --test lawoss/scripts/check-no-eigenwelt.test.mjs
-          # LAWOSS (ADR 0016): engine len vývojovou (ad-hoc) cestou, bez podpisovateľa Eigenwelt.
+          # Verify development isolation and the approved LAWOSS production signing path.
           node --test lawoss/scripts/check-engine-dev-path.test.mjs
 
       - name: Run app unit tests
