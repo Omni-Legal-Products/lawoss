@@ -49,7 +49,7 @@ export function ClientFolderPanel({ root, projectId, listing, onOpen, onRefresh 
     )}</div>}
     <p className="text-xs leading-relaxed text-muted-foreground">{t("lawoss.lite.folder_hint", locale)}</p>
     <div className="flex flex-wrap gap-2">
-      <Button size="sm" variant="secondary" onClick={() => {
+      <Button size="sm" onClick={() => {
         requestHomePrefill(t("lawoss.lite.folder_draft", locale));
         navigate(homeRoute(projectId));
       }}><MessageSquare aria-hidden />{t("lawoss.lite.folder_analyze", locale)}</Button>

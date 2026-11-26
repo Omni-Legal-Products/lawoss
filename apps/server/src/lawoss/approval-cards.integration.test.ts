@@ -195,6 +195,17 @@ test.skipIf(!binary || process.env.LAWOSS_APPROVAL_ENGINE !== "1")("a real engin
       expect(document).toContain("Vážený pán Šťastný");
       expect(document).toContain('<w:b/><w:bCs/></w:rPr><w:t xml:space="preserve">1 250,00 EUR</w:t>');
       await rm(join(matter, "Vystupy"), { recursive: true });
+      await writeFile(join(matter, "INDEX.md"), "# Synthetic index\n");
+      call = { tool: "lawoss_files", args: { operations: Array.from({ length: 6 }, (_, index) => ({
+        operation: "register_case", title: `Synthetic matter ${index + 1}`, source: "INDEX.md",
+        phase: "Review", next_step: "Check the draft",
+      })) } };
+      const registerCards = await files.turn("Register the six sourced cases.", () => "once");
+      expect(registerCards.map(card => card.action)).toEqual(["lawoss_file_change"]);
+      expect(await readdir(join(matter, "Spisy"))).toHaveLength(6);
+      const repeated = await files.turn("Register these same cases again.", () => "reject");
+      expect(repeated).toHaveLength(0);
+      expect(await readdir(join(matter, "Spisy"))).toHaveLength(6);
       evidence.createFile = { declinedCards: declinedFile.map(card => ({ action: card.action, resources: card.resources, metadata: card.metadata })), createdResult: createdResult.slice(0, 500) };
     } finally { await files.stop(); }
 
@@ -233,7 +244,7 @@ test.skipIf(!binary || process.env.LAWOSS_APPROVAL_ENGINE !== "1")("a real engin
       expect(cards).toEqual([]);
       expect(hostCards).toEqual([]);
       const visible = (await readdir(matter)).filter(name => !name.startsWith(".")).sort();
-      expect(visible).toEqual(["02_Zmluva.txt", "SYN-overenie.txt", "poznamka.md"]);
+      expect(visible).toEqual(["02_Zmluva.txt", "INDEX.md", "SYN-overenie.txt", "Spisy", "poznamka.md"]);
       evidence.yolo = { cards: cards.length, hostCards: hostCards.length, files: visible };
     } finally { await yolo.stop(); }
     // The wire schema the model sees: a flat object every provider accepts (no anyOf/oneOf).

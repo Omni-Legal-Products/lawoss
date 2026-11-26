@@ -46,6 +46,8 @@ import { recordFiledInput, recordTrashedInput, type FiledInput, type RecordedInp
 import { linkableFolders, nestedClientRoots } from "./linked-folders.js";
 import { foldedPath as folded, isPathWithin } from "./path-within.js";
 
+import { planCaseRegistration, registerCaseSchema } from "./register-case.js";
+
 const path = z.string().min(1).max(4096);
 export const fileOperationSchema = z.discriminatedUnion("operation", [
   z.strictObject({ operation: z.literal("move"), from: path, to: path }),
@@ -60,7 +62,7 @@ export const MAX_FILE_OPERATIONS = 50;
 export const FOLDER_SURVEY_LIMIT = 1000;
 /** Where deleted items go when the OS Trash is unavailable; never a target of this tool. */
 export const LAWOSS_TRASH_FOLDER = ".lawoss-kos";
-const operationsSchema = z.array(fileOperationSchema).min(1).max(MAX_FILE_OPERATIONS);
+const operationsSchema = z.array(z.union([fileOperationSchema, registerCaseSchema])).min(1).max(MAX_FILE_OPERATIONS);
 
 /** One planned change, as the card shows it (`from`/`to` relative to the client or linked folder). */
 export type PublicFileOperation = {
@@ -356,9 +358,27 @@ async function sameNode(source: string, target: string): Promise<boolean> {
  */
 async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, input: unknown): Promise<Planned[]> {
   if (workspace.preset === "wiki") throw new ApiError(409, "file_operation_wiki", "Use the wiki tools to change wiki pages.");
-  const operations = operationsSchema.parse(input);
+  const requested = operationsSchema.parse(input);
   const roots = await clientRoots(config, workspace), nested = await nestedClientRoots(config, workspace);
   const created = new Map<string, "file" | "folder">(), removed = new Set<string>(), pending: Pending = { created, removed };
+  const operations: FileOperation[] = [];
+  const registered = new Set<string>();
+  for (const op of requested) {
+    if (op.operation !== "register_case") { operations.push(op); continue; }
+    const own = roots[0]!;
+    const changes = await planCaseRegistration(op, own.canonical, async path => {
+      const target = await locate([own], path, nested, null);
+      if (relative(own.canonical, target.canonical) !== relative(own.canonical, path)) {
+        throw new ApiError(403, "case_source_alias", "Case registration needs paths inside the client without redirected folders.");
+      }
+      return target.canonical;
+    });
+    for (const change of changes) {
+      if (registered.has(change.path)) continue;
+      registered.add(change.path);
+      operations.push(change);
+    }
+  }
   const exists = async (location: string) => created.has(location)
     || ![...removed].some((gone) => isPathWithin(gone, location)) && (await present(location)) !== null;
   const kindOf = async (location: string): Promise<"file" | "folder"> => created.get(location) ?? ((await lstat(location)).isDirectory() ? "folder" : "file");

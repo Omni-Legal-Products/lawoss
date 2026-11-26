@@ -17,7 +17,7 @@ test("a folder without case cards exposes source documents separately from recor
   expect(summary.documents.map(file => file.name)).toEqual(["index.md", "AGENTS.md", "notes.md"]);
   const html = renderToStaticMarkup(<MemoryRouter><ClientFolderPanel projectId="example" root="/Clients/A & B" listing={listing} onOpen={() => {}} onRefresh={async () => {}} /></MemoryRouter>);
   expect(html).toContain("Files: 4");
-  expect(html).toContain("Review folder in chat");
+  expect(html).toContain("Find and register cases");
   expect(html).toContain("root=%2FClients%2FA%20%26%20B");
   expect(html).not.toContain(".private.md");
 });

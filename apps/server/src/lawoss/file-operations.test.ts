@@ -1301,3 +1301,29 @@ test("create_file needs its folder: it exists, or an earlier create_folder of th
   expect(await readdir(client)).not.toContain("VSTUPY.md");
   expect(result.results.every((item) => item.input === undefined)).toBe(true);
 });
+
+test("folder intake registers six sourced cases on disk, and a repeat adds only new cases", async () => {
+  const { client, workspace, config } = await office();
+  const ops = Array.from({ length: 6 }, (_, i) => ({
+    operation: "register_case", title: `Synthetic case / ${i + 1}`, source: "poznamky.txt",
+    phase: "Evidence review", next_step: "Check the contract",
+  }));
+  const plan = await planFileOperations(config, workspace, ops);
+  expect(plan.operations).toHaveLength(12);
+  expect(await readdir(client)).not.toContain("Spisy");
+  const applied = await applyFileOperations(config, workspace, ops, plan.operations, plan.revision);
+  expect(applied.complete).toBe(true);
+  expect(await readdir(join(client, "Spisy"))).toHaveLength(6);
+  const target = plan.operations[1]!.to!;
+  const card = await readFile(join(client, target), "utf8");
+  expect(card).toContain('title: "Synthetic case / 1"');
+  expect(card).toContain('source: "poznamky.txt"');
+  expect(card).toContain('phase: "Evidence review"');
+  expect(card).toContain('next_step: "Check the contract"');
+  expect((await planFileOperations(config, workspace, ops)).operations).toEqual([]);
+  expect((await planFileOperations(config, workspace, [...ops, { ...ops[0], title: "Another case" }])).operations).toHaveLength(2);
+  expect(await readFile(join(client, "poznamky.txt"), "utf8")).toBe("SYN poznamky");
+  for (const source of ["../another/client.txt", "unknown.txt"]) {
+    await expect(planFileOperations(config, workspace, [{ ...ops[0], source }])).rejects.toThrow();
+  }
+});

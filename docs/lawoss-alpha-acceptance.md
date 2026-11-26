@@ -64,6 +64,10 @@ Migráciu legacy nastavení najprv zobrazte cez host-only `/lawoss/ai-governance
    nevznikol pracovný priestor ani zápis OKF. Potom ho otvorte znova a vyberte testovaciu složku.
 4. Pre obyčajný priečinok skontrolujte výsledok rozpoznania, náhľad plánovaných zmien a
    potvrdenie pred zápisom. Nehľadajte historický krok „voľba OKF“.
+   Vo fiktívnom klientovi pripravte lokálny index so šiestimi doloženými prípadmi bez kariet.
+   V Prehľade zvoľte **Nájsť a zaevidovať prípady** a odošlite pripravenú správu na skúšobný model.
+   Po potvrdení dávky skontrolujte šesť položiek v bočnom paneli aj karty s fázou a ďalším krokom.
+   Otvorte klienta znova a zopakujte spracovanie. Počet má zostať šesť a pôvodný index má mať rovnaký odtlačok.
 5. Samostatne pripojte existujúci syntetický OKF klient. Overte rozpoznanie existujúcich
    súborov, ponúknutý skúšobný klon a bezpečné doplnenie. Mapovanie bez zápisu je
    v tomto zdrojovom základe skryté flagom `ALPHA_HIDE_MAP_WITHOUT_WRITING`.

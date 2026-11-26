@@ -18,7 +18,7 @@ Pod **Případy** je každý případ klienta, pod případem jeho chaty a **Nov
 
 ## Přehled klienta
 
-V části **Složka klienta** vidíte počty souborů a podsložek na první úrovni a můžete přímo otevřít index či poznámky. **Obnovit z disku** načte aktuální údaje. Pokud jsou na disku dokumenty a v přehledu ještě chybí případy, vyberte **Zpracovat složku v chatu**. Zkontrolujte připravenou zprávu a model, potom ji odešlete. Asistent má uvést zdroje a počkat na schválení změn. **Náhled struktury složky** otevře průvodce evidencí. Pole v detailech klienta se spravují samostatně.
+V části **Složka klienta** vidíte počty souborů a podsložek na první úrovni a můžete přímo otevřít index či poznámky. **Obnovit z disku** načte aktuální údaje. Pokud jsou na disku dokumenty a v přehledu ještě chybí případy, vyberte **Najít a zaevidovat případy**. Zkontrolujte připravenou zprávu a model, potom ji odešlete. Asistent připraví případy s odkazem na zdroj a podle nastavení oprávnění zobrazí společnou kartu k potvrzení. Po zápisu se případy objeví v postranním panelu i jako karty s dostupnou fází a dalším krokem. O zaevidování případů můžete požádat i ve stávajícím chatu. **Náhled struktury složky** otevře průvodce evidencí. Pole v detailech klienta se spravují samostatně.
 
 **Přehled** pod klientem ukazuje **Přehled klienta**: jeho **Případy** s fází a dalším krokem, **Nejbližší lhůty**, **Nejbližší termín**, **Otevřené úkoly z případů**, **Vstupy klienta** a **Chaty klienta**. Odkaz **Všechny lhůty klienta** otevře registr lhůt jen pro tohoto klienta. Údaje se čtou z pomocných souborů OKF ve složce klienta; pokud se něco nedalo přečíst, přehled to napíše (například **Podklady se nepodařilo přečíst, lhůty proto nejsou známé.**).
 

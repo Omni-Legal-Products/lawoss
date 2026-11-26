@@ -696,3 +696,20 @@ test("renaming a legacy parent preserves its child cases after reloading", async
   expect(second.matters.map(item => item.path).sort()).toEqual([parent, child]);
   expect(second.matters.find(item => item.path === parent)?.title).toBe("New display title");
 });
+
+test("registered cases in an unstructured client survive reload and populate the overview cards", async () => {
+  const files: Record<string, string> = { "INDEX.md": "# Synthetic index", "STATUS.md": "Original notes" };
+  for (let i = 1; i <= 6; i++) files[`Spisy/spis-fixture-${i}/matter.md`] = [
+    "---", "type: spis", `title: Synthetic case ${i}`, `registration_id: fixture${i}`, "source: INDEX.md",
+    "phase: Evidence review", "next_step: Check the contract", "---", "",
+  ].join("\n");
+  for (let load = 0; load < 2; load++) {
+    const result = await readWorkspaceMemory(fakeClient(files), "ws", TODAY);
+    expect(result.matters.map(m => m.title).sort()).toEqual(Array.from({ length: 6 }, (_, i) => `Synthetic case ${i + 1}`));
+    for (const input of result.inputs) {
+      const strip = buildMatterViews(input, TODAY).strip;
+      expect(strip.find(section => section.id === "phase")?.items[0]?.label).toBe("Evidence review");
+      expect(strip.find(section => section.id === "next_step")?.items[0]?.label).toBe("Check the contract");
+    }
+  }
+});

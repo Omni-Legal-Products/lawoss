@@ -1,4 +1,8 @@
 # LAWOSS downstream patches
+## Evidencia prípadov zo zdrojov klienta (2026-11-26)
+
+Spracovanie priečinka a úvodné nastavenie klienta v prekladoch LAWOSS používajú dávku `lawoss_files/register_case`. Cez existujúci plán zmien vytvorí okf kartu prípadu so zdrojom, fázou a ďalším krokom v priečinku klienta. Zápis prechádza rovnakou kontrolou ciest, schválením a obnovou Prehľadu ako iné zmeny súborov. Pri synchronizácii zachovať rozšírenie v `apps/server/src/{opencode-plugins/lawoss-file-operations,lawoss/file-operations}.ts` a čítanie údajov z karty v `lawoss/okf/views.ts`.
+
 ## Čítačka PDF vedľa chatu (2026-11-25)
 
 `apps/app/src/react-app/domains/session/artifacts/{artifact-frame,artifact-panel,preview}.tsx` a `pdf-preview-url.ts` v tom istom adresári pripájajú hlavičku čítačky a režim zobrazenia PDFium. Pri aktualizácii zachovať odkaz na stranu, natívny iframe, kontrolu odtlačku dokumentu a ovládanie rozšíreného zobrazenia. Regresia je v `apps/app/tests/pdf-preview.test.tsx`.
