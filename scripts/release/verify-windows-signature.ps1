@@ -1,4 +1,4 @@
-param([Parameter(Mandatory = $true)][string]$ArtifactDirectory)
+param([Parameter(Mandatory = $true)][string]$ArtifactDirectory, [string]$ExpectedPublisher)
 
 $ErrorActionPreference = "Stop"
 $installers = @(Get-ChildItem -LiteralPath $ArtifactDirectory -Recurse -File |
@@ -44,6 +44,11 @@ if ($env:SIGNPATH_TEST -eq "true") {
     } finally { Remove-Item -LiteralPath $tamperedInstaller -ErrorAction SilentlyContinue }
 } elseif ($signature.Status -ne "Valid") {
     throw "Windows installer signature is not trusted: $($signature.Status): $($signature.StatusMessage)"
+}
+
+if ($ExpectedPublisher) {
+    $publisher = $signature.SignerCertificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)
+    if ($publisher -ne $ExpectedPublisher) { throw "Unexpected Authenticode publisher: $publisher" }
 }
 
 $report = "Verified $($installers[0].Name): $($signature.Status); signer $($signature.SignerCertificate.Subject); thumbprint $($signature.SignerCertificate.Thumbprint)."

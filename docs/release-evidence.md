@@ -211,3 +211,10 @@ Import the receipts, preserve snapshots, verify the exact uploaded payload, and 
 
 Assign release operators and supported baseline profiles. Define the Windows and Linux native adapters,
 and actual native final-artifact receipts before using public automation. The implemented CI handoff preserves their original source identity.
+
+
+## LAWOSS public alpha publisher
+
+The publisher for the public alpha is **the Software s.r.o.** Apple assigns team ID `Q7AU96CW7H`. Verify the Developer ID certificate against the SHA-256 and SHA-1 in `packages/opencode-release/selection.json`. Production signs the Mac engine before pinning its archives. The Mac alpha workflow uses this same-run production distribution when notarization is enabled. Dispatch from the reviewed `dev` revision with empty engine reuse inputs. Configure the Apple signing and notary credentials listed in the workflow and set `MACOS_NOTARIZE=true`. Private keys belong in the signing environment.
+
+On Windows configure the LAWOSS SignPath project, production policy, artifact configuration, organization ID and submitter token. The final Authenticode certificate must identify the same publisher and carry a valid timestamp. The upstream LegalWork project and test certificate have separate ownership. Follow the exact-installer acceptance and publication steps above after both signatures have been verified.
