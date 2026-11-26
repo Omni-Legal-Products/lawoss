@@ -23,6 +23,21 @@ const request = (root: string) => parseOnboardingRequest({ action: "existing", r
 const options = async () => ({ journalDirectory: await directory("okf-shallow-journal-"), externalProfileDirectory: await directory("okf-shallow-external-") });
 const exists = (path: string) => lstat(path).then(() => true, () => false);
 
+test("preserves a client-supplied uppercase index in conversion and trial previews", async () => {
+  const root = await directory("okf-existing-index-");
+  const content = "# Client index\n";
+  await writeFile(join(root, "INDEX.md"), content);
+  const full = await planClientConversion(root, input);
+  const shallow = await planOnboarding(request(root));
+  if (shallow.mode !== "new") throw new Error("Expected client conversion");
+  for (const plan of [full.plan, shallow.plan]) {
+    expect(plan.operations.some(op => op.path.toLowerCase() === "index.md")).toBe(false);
+  }
+  await applyOnboarding(shallow, await options());
+  expect(await readFile(join(root, "INDEX.md"), "utf8")).toBe(content);
+  expect(await exists(join(root, "client.md"))).toBe(true);
+});
+
 /** Priečinok klienta s dokumentom a symbolickým odkazom v podpriečinku (bežné na Windows aj macOS). */
 async function clientWithLink(): Promise<{ root: string; outside: string; linked: boolean }> {
   const root = await directory("okf-shallow-client-"), outside = await directory("okf-shallow-outside-");
