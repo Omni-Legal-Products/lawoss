@@ -29,11 +29,14 @@ WORKFLOWS = {
 BLOCK = "in 0.0.0.0/0,out @host,out @peers,out 100.64.0.0/10,out 169.254.0.0/16"
 PREPARE = r"""
 set -euo pipefail
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 test "$(uname -m)" = arm64
 test "$(sw_vers -productVersion | cut -d. -f1)" = 15
-if mount | grep -qi virtiofs; then exit 1; fi
+mounts=$(mount)
+if grep -qi virtiofs <<< "$mounts"; then exit 1; fi
 test ! -d "/Volumes/My Shared Files"
-if security find-identity -v -p codesigning | grep -q 'Developer ID Application'; then exit 1; fi
+identities=$(security find-identity -v -p codesigning)
+if grep -q 'Developer ID Application' <<< "$identities"; then exit 1; fi
 iface=$(route -n get default | awk '/interface:/{print $2}')
 service=$(networksetup -listnetworkserviceorder | awk -v d="$iface" '/^\([0-9]+\)/{sub(/^\([0-9]+\) /,"");s=$0} index($0,"Device: " d ")"){print s;exit}')
 test -n "$service"
@@ -52,6 +55,7 @@ sw_vers
 """
 START = r"""
 set -euo pipefail
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 umask 077
 cd "$HOME/lawoss-runner"
 unset SSH_AUTH_SOCK

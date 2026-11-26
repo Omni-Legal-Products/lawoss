@@ -40,3 +40,5 @@ Skript pre jeden čakajúci job vytvorí čistý klon macOS 15, skontroluje arch
 5. Do výsledku uveď URL jobu, head a testovanú SHA, pokus, priradený runner, vykonané kroky a výsledok. Úvodná skúška overí iba runner a vybrané desktopové testy. Zlúčenie vyžaduje úspech pôvodných povinných kontrol na GitHube. Pri zlyhaní produktu uchovaj prvý zlyhaný krok a oprav potvrdenú príčinu.
 
 Pri správe vykonávaj hostiteľský skript zo skontrolovanej kópie infraštruktúry. Kód kandidáta sa spúšťa v hosťovi. Klientske priečinky, hostiteľské prihlasovacie údaje a podpisové identity do VM nepatria.
+
+Pri spustení cez `tart exec` hosť používa neinteraktívny shell. Príprava aj štart runnera preto nastavujú systémovú cestu vrátane `/sbin` a `/usr/sbin`. Ak v logu chýba `mount` alebo `route`, skontroluj verziu hostiteľského skriptu. Registrácia runnera nasleduje až po kontrole zdieľaných diskov, podpisových identít a sieťovej izolácie.
