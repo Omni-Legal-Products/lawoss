@@ -83,7 +83,7 @@ export function readyPlan(connected: WizardConnected | undefined, model: AiModel
   // Chat len vtedy, keď je model pripravený v priestore tohto klienta (ten istý zoznam ako `prepareClientChat`);
   // neznáma pripravenosť klienta ponechá hlavnú akciu na prehľade, aby chat neskončil „bez modelu“.
   const workspaceId = chatWith.result.workspace?.id;
-  const primary = model.state === "ready" && workspaceId !== undefined && model.workspaceId === workspaceId ? "chat" : "overview";
+  const primary = connected.clients.length > 1 && model.state === "ready" && workspaceId !== undefined && model.workspaceId === workspaceId ? "chat" : "overview";
   return { primary, overview: connected.clients.length === 1 ? "readyOverview" : "readyOverviewClients", chatWith, offerTable: true };
 }
 

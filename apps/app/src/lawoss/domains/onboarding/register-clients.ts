@@ -4,6 +4,16 @@ import type { OnboardingCompletion } from "./lawoss-welcome-page";
 type ClientWorkspace = NonNullable<OnboardingApplyResult["workspace"]>;
 type NativeList = { workspaces: readonly { id: string; path: string }[] };
 
+/** Bind a picker result to the returned workspace by its exact canonical path. */
+export async function registerPickedFolder(client: Pick<import("./api").OnboardingApi, "createLocalWorkspace">, path: string) {
+  if (!client.createLocalWorkspace) throw new Error("Folder registration is unavailable.");
+  const name = path.split(/[\\/]/u).filter(Boolean).at(-1) ?? path;
+  const list = await client.createLocalWorkspace({folderPath: path, name, preset: "starter", registerExisting: true});
+  const workspace = list.workspaces.find(item => item.path === path);
+  if (!workspace) throw new Error("The server did not return the selected folder.");
+  return {id: workspace.id, path: workspace.path, name: workspace.displayName ?? workspace.name};
+}
+
 /**
  * Natívne zaregistruje ostatných klientov z dávky praxe (spec 2026-10-08: každý potvrdený klient je
  * samostatný pracovný priečinok). Aktívny klient sa registruje zvlášť; vráti posledný natívny zoznam.
@@ -58,7 +68,9 @@ export async function registerOnboardedWorkspace<N extends { id: string; path: s
   const list = await deps.listWorkspaces();
   // Pracovný priečinok bez výsledku klienta (celá prax ako jeden priečinok) sa zaregistruje tak, ako je.
   const plain = !result?.workspace && completion?.workingFolder ? await deps.registerWorkingFolder(completion.workingFolder) : undefined;
-  const workspace = result?.workspace ?? plain ?? list.items.find(item => item.path === deps.profileClientRoot);
+  const expected = result?.clientRoot ?? completion?.workingFolder;
+  const workspace = result?.workspace ?? plain ?? list.items.find(item => item.path === (result ? expected : deps.profileClientRoot));
+  if (workspace && expected && workspace.path !== expected) throw new Error("The server did not return the selected folder.");
   if (!workspace) return undefined;
   if (deps.desktop) {
     const existing = list.items.find(item => item.id === workspace.id);

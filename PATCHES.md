@@ -1,5 +1,9 @@
 # LAWOSS downstream patches
 
+## Evidencia prípadov zo zdrojov klienta (2026-11-26)
+
+Spracovanie priečinka a úvodné nastavenie klienta v prekladoch LAWOSS používajú dávku `lawoss_files/register_case`. Cez existujúci plán zmien vytvorí okf kartu prípadu so zdrojom, fázou a ďalším krokom v priečinku klienta. Zápis prechádza rovnakou kontrolou ciest, schválením a obnovou Prehľadu ako iné zmeny súborov. Pri synchronizácii zachovať rozšírenie v `apps/server/src/{opencode-plugins/lawoss-file-operations,lawoss/file-operations}.ts` a čítanie údajov z karty v `lawoss/okf/views.ts`.
+
 ## Načítanie profilov pred spracovaním dokumentov (#384)
 
 V `apps/app/src/app/lib/legalwork-server.ts` môže klient po HTTP 503 raz zopakovať čítanie profilov toho istého spisu v zostávajúcom časovom limite. Prípustnosť profilu sa posudzuje z čerstvej odpovede. Regresný test v `apps/app/tests/native-document-generation.test.ts` overuje prechodný výpadok, trvalý výpadok a odmietnutie prístupu.
@@ -779,7 +783,7 @@ Rozhodnutie vlastníka a rozbor hrozieb sú v koordinačnom zázname. Chat v kli
 | --- | --- |
 | `apps/server/src/wiki/agent-access.ts` | Bez `clientRoot` a `CLIENT_RUNTIME_REQUIRED`. Pribudli `issueWikiAgentTicket`, `redeemWikiAgentTicket`, `closeWikiAgentTicketWindow`. Opakovanie s tým istým nonce vráti ten istý kľúč; iné opakovanie je 403 a tajomstvo sa pritom vymení len kým je okno otvorené, najviac 10 minút od vydania lístka. `allProjects = false`, `credentialScope` a ostatné kontroly sa nemenia. `wiki_agent_unauthorized` má text pre advokáta. |
 | `apps/server/src/server.ts` | +1 import, +1 trasa `POST /engine-agent/ticket` bez inej autorizácie než lístok; odpoveď `no-store`. |
-| `apps/server/src/embedded.ts`, `apps/server/src/cli.ts` | Engine dostane `LEGALWORK_WIKI_AGENT_TICKET` namiesto `LEGALWORK_WIKI_AGENT_TOKEN`; po štarte servera beží neblokujúce `settleEngineAgentTicket`. |
+| `apps/server/src/embedded.ts`, `apps/server/src/cli.ts` | Engine dostane `LEGALWORK_WIKI_AGENT_TICKET` namiesto `LEGALWORK_WIKI_AGENT_TOKEN`; po štarte servera beží neblokujúce `settleEngineAgentTicket`. Test hraníc čaká na dokončenie sondy cez `managedEngineTicketSettled` na lokálnom handle servera. |
 | `apps/server/src/managed-opencode.ts` | `SECRET_ENV_PATTERN` skryje aj `TICKET` v `execution.env`. |
 | `.github/workflows/ci-tests.yml` | Krok so skutočným enginom spúšťa aj `lawoss/engine-agent-ticket.integration.test.ts`; test sa na Windows preskočí, kým používa `/bin/sh`. |
 | `apps/server/src/opencode-plugins/office-plugin-shared.ts`, `legalwork-wiki-tools.ts`, `provider-failure-observer.ts`, `lawoss-okf-handoff.ts`, `lawoss/okf-handoff/host-memory-grants.mjs` | Čítajú tajomstvo z helpera, nie z prostredia. `office-plugin-shared` a `lawoss-okf-handoff` čakajú na výmenu v top-level await, takže je hotová pred factory pluginu a pred MCP inštancie. Nevydarená výmena: `workspaceToolHeaders` vyhodí `ENGINE_CONNECTION_REFUSED`. Prvý plugin odstráni z prostredia enginu prihlásenie a `OPENCODE_CONFIG`; `lawoss-file-operations` cez `shell.env` skryje pre shell aj ostatné cesty a schopnosti. Pozri koordinačný záznam. |
@@ -2723,6 +2727,10 @@ Logika je v nových LAWOSS súboroch `apps/app/src/lawoss/chat/provider-error.ts
 | `scripts/test-isir-native.mjs` | Test vyberá angličtinu vo vlastnom profile, používa skutočnú veľkosť okna a pri poslednom ukončení na macOS žiada aplikáciu o riadne ukončenie. Pri opätovnom pripojení kontroluje odpoveď výberu a uloženia priečinka. |
 | `apps/server/src/engine-client.ts`, `apps/server/src/lawoss/workspace-history-sessions.ts`, `apps/server/src/lawoss/workspace-session-rebind.ts` | Transakcia obnovenia potrebuje prečítať zoznam konverzácií a presunúť ich uložené umiestnenia, kým pôvodný priečinok chýba. Výnimka z kontroly pripravenosti priečinka platí iba pre tieto dve operácie lokálneho enginu v hostiteľskej transakcii. |
 | `apps/server/src/engine-project.ts`, `apps/server/src/routes/workspaces.ts` | Pri opätovnom pripojení presunie súkromný záznam o pôvode nastavení spolu s transakciou. Rozpozná len pôvodný názov a totožný obsah v kanonickom priečinku. |
+
+### Automatické spracovanie vybraného priečinka klienta
+
+Server v `routes/workspaces.ts` a `server.ts` spúšťa lokálne indexovanie pri registrácii. `legalwork-server.ts` pripája stav, hľadanie a evidenciu k Prehľadu. Pridanie klienta, registrácia a sprievodca používajú presnú vybranú cestu. `session-page.tsx`, `project-home.tsx`, `create-project-modal.tsx`, `welcome-route.tsx`, `session-route.tsx` a `document-processing.ts` sprístupňujú spracovanie bez prepisovania pokynov do chatu. Chránené spracovanie modelom zachováva výber konkrétnych súborov a pôvodnú kontrolu prenosu.
 
 The macOS ARM64 unit integration, packaging and sandbox CI lanes in `.github/workflows/ci-tests.yml`, `.github/workflows/ci-desktop-packaging.yml` and `.github/workflows/sandbox-runtime.yml` support an operator-selected isolated runner for a single reviewed PR merge commit. Preserve matrix check names and the hosted default during upstream sync. See [the runner procedure](docs/testing/macos-local-runner.md).
 

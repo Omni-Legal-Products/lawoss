@@ -163,12 +163,6 @@ export function ClientOverviewView({ foreignFolders = [], workspaceId, locale, t
     {partial ? <p className="lw-status warn" role="alert" data-lawoss-client-overview-partial="">{t("lawoss.practice.incomplete", locale)}</p> : null}
     {foreignFolders.length ? <p className="lw-status" role="note" data-lawoss-client-overview-foreign="">{t("lawoss.lite.foreign_client_folders", { names: foreignFolders.join(", "), lng: locale })}</p> : null}
     {month && events ? <MonthCalendar events={events} todayIso={todayIso} locale={locale} variant="full" aside={<CandidatesPanel events={events} locale={locale} />} /> : <>
-      <div className="lw-client-summary">
-        {inputs !== undefined ? <InputsCard counts={inputs} failed={inputsFailed} evidence={evidence} locale={locale} /> : null}
-        <TermCard term={clientTerm(matters, todayIso)} soon={soon} todayIso={todayIso} locale={locale} />
-        <TasksCard matters={matters} locale={locale} />
-      </div>
-
       <section className="lw-client-cases" aria-label={mattersLabel}>
         <h3 className="lw-client-title"><FolderOpen aria-hidden size={16} />{mattersLabel}<span className="lw-matter-count">{matters.length}</span></h3>
         {matters.length === 0 ? <p className="lw-client-empty">{t("lawoss.lite.project_matters_empty", locale)}</p> : <div className="lw-client-grid">
@@ -176,6 +170,12 @@ export function ClientOverviewView({ foreignFolders = [], workspaceId, locale, t
         </div>}
         {!showAll && cards.length > CARDS_SHOWN ? <button type="button" className="lw-client-more" onClick={() => setShowAll(true)}>{t("lawoss.lite.cards_show_all", locale, { count: cards.length })}</button> : null}
       </section>
+
+      <div className="lw-client-summary">
+        {inputs !== undefined ? <InputsCard counts={inputs} failed={inputsFailed} evidence={evidence} locale={locale} /> : null}
+        <TermCard term={clientTerm(matters, todayIso)} soon={soon} todayIso={todayIso} locale={locale} />
+        <TasksCard matters={matters} locale={locale} />
+      </div>
 
       {todayModel ? <DeadlineStrip deadlines={todayModel.deadlines} tasks={todayModel.tasks} todayIso={todayIso} locale={locale} text={liteText(locale)} /> : null}
 

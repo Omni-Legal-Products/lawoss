@@ -24,7 +24,7 @@ const password = process.argv.includes("--service") ? (await Bun.file(process.en
 // Like the plugins: the first instance request loads them, which redeems the ticket once.
 const ticket = process.env.LEGALWORK_WIKI_AGENT_TICKET;
 delete process.env.LEGALWORK_WIKI_AGENT_TICKET;
-let redemption, settled = false;
+let redemption;
 const redeem = () => redemption ??= fetch(process.env.LEGALWORK_SERVER_URL + "/engine-agent/ticket", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticket }) }).then((response) => response.json()).then((body) => body.secret);
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
 const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
@@ -35,11 +35,8 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
     if (url.pathname === "/api/experimental/migration/v1") return Response.json({ status: "completed", progress: { completed: 0, total: 0 } });
   }
   const secret = await redeem();
-  // Engine v2: the ticket window closes after the opened client's location answers GET /api/model
-  // (plugins activated, ticket redeemed); v1 disposed a scratch instance instead.
-  if (url.pathname === "/instance/dispose" || url.pathname === "/api/model" || url.pathname === "/api/debug/location" && request.method === "DELETE") settled = true;
   if (url.pathname.startsWith("/api/")) return Response.json({ data: [] });
-  if (url.pathname === "/spent") return Response.json({ ticket, settled });
+  if (url.pathname === "/spent") return Response.json({ ticket });
   if (url.pathname !== "/probe") return Response.json({ healthy: true });
   const calls = await request.json();
   const results = [];
@@ -241,19 +238,18 @@ boundary("neither the engine credential nor a server token appears in the server
 
 boundary("a spent ticket with B's session and directory opens nothing and leaves the engine's secret working", async () => {
   const { server, b, clientB, probe, asA, a } = await twoClients();
-  const spentSchema = z.object({ ticket: z.string(), settled: z.boolean() });
-  const read = async () => spentSchema.parse(await (await fetch(`${server.config.opencodeBaseUrl}/spent`)).json());
-  let state = await read();
-  for (let attempt = 0; attempt < 200 && !state.settled; attempt++) { await Bun.sleep(25); state = await read(); }
-  expect(state.settled).toBe(true);
+  await server.managedEngineTicketSettled;
+  const { ticket } = z.object({ ticket: z.string() }).parse(
+    await (await fetch(`${server.config.opencodeBaseUrl}/spent`)).json(),
+  );
   const secret = await ensureWikiAgentToken(server.config);
   const forged = await fetch(`${server.url}/workspace/${b.id}/files/content?path=tajne.md`, { headers: {
-    "x-legalwork-wiki-agent-token": state.ticket, "x-legalwork-wiki-agent-session": "ses_klient_b", "x-legalwork-wiki-agent-directory": encodeURIComponent(clientB) } });
+    "x-legalwork-wiki-agent-token": ticket, "x-legalwork-wiki-agent-session": "ses_klient_b", "x-legalwork-wiki-agent-directory": encodeURIComponent(clientB) } });
   expect(forged.status).toBe(403);
   const body = await forged.text();
   expect(body).toContain("wiki_agent_unauthorized");
   expect(body).not.toContain("DÔVERNÉ");
-  const replay = await fetch(`${server.url}${WIKI_AGENT_TICKET_PATH}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticket: state.ticket }) });
+  const replay = await fetch(`${server.url}${WIKI_AGENT_TICKET_PATH}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticket }) });
   expect(replay.status).toBe(403);
   expect(await replay.text()).not.toContain(secret);
   expect(await ensureWikiAgentToken(server.config)).toBe(secret);

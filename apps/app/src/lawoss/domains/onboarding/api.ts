@@ -194,6 +194,7 @@ export type SuggestedClient = { path: string; name: string; title?: string };
 export type SuggestedUnit = { path: string; matters: readonly { path: string; name: string }[]; matterCount: number; files: number; exact: boolean; nestedClients?: readonly { path: string; name: string }[] };
 
 export type OnboardingApi = {
+  createLocalWorkspace?: import("@/app/lib/legalwork-server").LegalworkServerClient["createLocalWorkspace"];
   onboardingStatus(): Promise<OnboardingStatus>;
   updateOnboardingProfile(
     profile: Omit<Partial<OnboardingProfile>, "subjectRoot" | "foundRoot"> & {

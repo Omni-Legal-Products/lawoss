@@ -36,6 +36,7 @@ interface RegisterWorkspaceRoutesOptions {
   routes: Route[];
   config: ServerConfig;
   onWorkspacesChanged: () => void;
+  onClientFolderAdded?: (workspace: WorkspaceInfo) => void;
   jsonResponse: JsonResponse;
   readJsonBody: ReadJsonBody;
   readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
@@ -459,6 +460,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       timestamp: Date.now(),
     });
 
+    if (ctx.actor?.type === "host" && (body.registerExisting === true || body.folderMode === "selected") && preset === "starter") options.onClientFolderAdded?.(workspace);
     if (newProjectOnly) return jsonResponse({
       activeId: workspace.id,
       project: { id: workspace.id, name: workspace.name, localFolder: workspace.path, ...await readProjectDetails(workspace.path) },

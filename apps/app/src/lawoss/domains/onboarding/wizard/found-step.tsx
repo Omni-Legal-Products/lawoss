@@ -7,7 +7,7 @@
 import { useId, type ReactNode } from "react";
 import { Briefcase, Check, CircleAlert, FilePlus2, FileText, Folder, Landmark, ShieldCheck, UserRound } from "lucide-react";
 import type { OnboardingSuggestion, SuggestedClient, SuggestedUnit } from "../api";
-import { childPath, clientName, severalPractices, folderName, matterClientName, nestedClientWarnings, nestedClientWarningText, nestedInClient, rootClientName, type BatchItem } from "../found-flow";
+import { childPath, clientName, severalPractices, folderName, nestedInClient, nestedClientWarnings, nestedClientWarningText, rootClientName, type BatchItem } from "../found-flow";
 import type { FoundTextKey } from "../found-text";
 import { OkfNotice } from "../okf-notice";
 import type { ConnectedClient, WizardConnected } from "../onboarding-state";
@@ -143,15 +143,7 @@ export function FoundTree({ text, suggestion, level, scope, selected, busy, onTo
       </Node>
     );
   } else if (level === "matter") {
-    // N-A7-3: priečinok s kódom iného klienta nie je prípad; v strome je obyčajným priečinkom vonkajšieho klienta.
-    const nested = nestedInClient(suggestion);
-    tree = (
-      <Node icon={<UserRound className="size-4" />} kind={text("treeClient")} name={matterClientName(suggestion)}>
-        <Node icon={nested ? <Folder className="size-4" /> : <Briefcase className="size-4" />} kind={text(nested ? "treeFolder" : "treeCase")} name={name}>
-          <DocsLeaf text={text} meta={unitMeta(text, root, false)} />
-        </Node>
-      </Node>
-    );
+    tree = <Node icon={<Briefcase className="size-4" />} kind={text(nestedInClient(suggestion) ? "treeFolder" : "treeCase")} name={name}><DocsLeaf text={text} meta={unitMeta(text, root, false)} /></Node>;
   } else {
     tree = (
       <Node icon={<UserRound className="size-4" />} kind={text("treeClient")} name={rootClientName(suggestion)} meta={unitMeta(text, root)} badge={<AddedBadge text={text} item={added?.[0]} />}>
@@ -228,7 +220,7 @@ export function WizardFoundView({ text, found, busy, suggestion, headline, level
     </StepScreen>
   );
   const primary = level === "matter"
-    ? found("useParent", { name: matterClientName(suggestion) })
+    ? found("usePicked", { name: folderName(suggestion.root) })
     : practiceEach ? text("foundAddClients", { count: selected.length }) : text("foundAdd");
   return (
     <StepScreen step="found" title={text("foundTitle")} lead={<p>{headline}</p>} nav={nav} focusOnMount>
@@ -270,7 +262,7 @@ export function WizardFoundView({ text, found, busy, suggestion, headline, level
         </div>
       ) : null}
       <FoundTree text={text} suggestion={suggestion} level={level} scope={scope} selected={selected} busy={busy} onToggle={onToggle} />
-      {level === "matter" ? <p className="text-muted-foreground">{nestedInClient(suggestion) ? found("nestedClientHint", { client: matterClientName(suggestion) }) : found("matterHint", { name: matterClientName(suggestion) })}</p> : null}
+      {level === "matter" ? <p className="text-muted-foreground">{found("matterHint", { name: suggestion.root })}</p> : null}
       {nestedWarnings.map((warning) => <p key={warning.key} className="lw-status warn">{nestedClientWarningText(found, warning)}</p>)}
       {noClients ? <p className="lw-status warn">{found("noClientsHint")}</p> : null}
       <AddsPanel text={text} found={found} />

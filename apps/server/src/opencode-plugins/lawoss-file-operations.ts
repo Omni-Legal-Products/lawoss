@@ -12,6 +12,7 @@
  */
 // OpenCode 2 načíta `default` export (`Plugin.define`).
 import { Plugin } from "@opencode/plugin";
+import { resolve } from "node:path";
 import { z } from "zod";
 import { askOrDeclined } from "./lawoss-declined-card.js";
 import { chatFilePath, chatWorkspace } from "./lawoss-file-paths.js";
@@ -38,7 +39,11 @@ const document = z.object({
   blocks: z.array(block).min(1).max(1000).describe("The document's content in order."),
 });
 const operation = z.object({
-  operation: z.enum(["move", "copy", "create_folder", "create_file", "delete"]).describe("move renames or moves, also to another drive or linked folder (the original then goes to the Trash); copy keeps the original; create_file writes ONE new .docx, .md or .txt file from the content given here and never overwrites; delete moves a file or a folder with its contents to the Trash, where the user can restore it."),
+  operation: z.enum(["move", "copy", "create_folder", "create_file", "delete", "register_case"]).describe("move renames or moves, also to another drive or linked folder (the original then goes to the Trash); copy keeps the original; create_file writes ONE new .docx, .md or .txt file from the content given here and never overwrites; delete moves a file or a folder with its contents to the Trash, where the user can restore it."),
+  title: z.string().optional().describe("register_case: the case title, as distinct from any task."),
+  source: z.string().optional().describe("register_case: an existing source file path relative to this client."),
+  phase: z.string().optional().describe("register_case: the current phase supported by the source."),
+  next_step: z.string().optional().describe("register_case: a sourced next step. Mark uncertainty explicitly."),
   from: pathArg.optional().describe("move/copy: the existing file or folder."),
   to: pathArg.optional().describe("move/copy: the new path; it must not exist yet."),
   path: pathArg.optional().describe("create_folder/delete: the folder to create or the file/folder to delete. create_file: the new file; it must not exist yet, its extension must match format, and its folder must exist or be created by a create_folder operation earlier in this call."),
@@ -52,7 +57,9 @@ const args = z.object({
   description: z.string().max(300).optional().describe("Briefly say why, in the user's language."),
 });
 
-const SYSTEM = `To rename, move, copy or delete files and folders, to create folders or to create a new document, use lawoss_files instead of shell commands (mv, cp, rm, mkdir, redirection): the user sees one approval card listing the exact changes, and deleted items go to the Trash. Put a whole requested batch in one call. If the user declines the card, nothing changed; do not retry it now, but if the user later explicitly asks again, call lawoss_files again so they see a new card. Report only the changes the tool result lists as done. ${CREATE_FILE_RULE} ${EXACT_NAME_RULE} ${MOVE_ACROSS_DRIVES_RULE} ${FILE_REPORT_RULE}`;
+const CASE_RULE = "When processing a client folder for case registration, inspect existing cases, the client index and source files. Use one lawoss_files batch of register_case operations for distinct new cases supported by local documents. Include title, source and any supported phase and next_step. This builds the sidebar and overview from case cards. It works without /novy-spis. A chat view or project task does not register a case. For a read-only request, just summarize.";
+
+const SYSTEM = `${CASE_RULE} To rename, move, copy or delete files and folders, to create folders or to create a new document, use lawoss_files instead of shell commands (mv, cp, rm, mkdir, redirection): the user sees one approval card listing the exact changes, and deleted items go to the Trash. Put a whole requested batch in one call. If the user declines the card, nothing changed; do not retry it now, but if the user later explicitly asks again, call lawoss_files again so they see a new card. Report only the changes the tool result lists as done. ${CREATE_FILE_RULE} ${EXACT_NAME_RULE} ${MOVE_ACROSS_DRIVES_RULE} ${FILE_REPORT_RULE}`;
 
 type Plan = { operations: unknown[]; revision: string };
 /** The tool's own permission (not `edit`): see the file header. */
@@ -117,6 +124,11 @@ async function execute(input: z.output<typeof args>, context: OpenCodeContext): 
   if (!own) throw new Error(`No LegalWork workspace matches the working directory ${directory}.`);
   const absolute = (value: string) => chatFilePath(value, directory, own.path);
   const operations = input.operations.map((item) => {
+    if (item.operation === "register_case") {
+      if (resolve(directory) !== resolve(own.path)) throw new Error("Register cases in the client root chat.");
+      if (!item.title || !item.source) throw new Error("register_case needs a title and an existing source path.");
+      return { operation: item.operation, title: item.title, source: item.source, phase: item.phase, next_step: item.next_step };
+    }
     if (item.operation === "move" || item.operation === "copy") {
       if (!item.from || !item.to) throw new Error(`${item.operation} needs both from and to. Nothing was changed.`);
       return { operation: item.operation, from: absolute(item.from), to: absolute(item.to) };
@@ -127,6 +139,7 @@ async function execute(input: z.output<typeof args>, context: OpenCodeContext): 
   });
   const workspace = own.id;
   const plan: Plan = z.object({ operations: z.array(z.unknown()), revision: z.string() }).parse(await post(context, workspace, "plan", { operations }));
+  if (!plan.operations.length) return JSON.stringify({ complete: true, results: [], report: "These cases are already registered. No files changed." });
   // 🟡 LAWOSS: zamietnutá karta je výsledok, nie chyba (lawoss-declined-card.ts).
   const declined = await askOrDeclined(() => ask({ permission: PERMISSION, patterns: visiblePaths(plan), always: [],
     metadata: { lawossFiles: plan.operations, ...(input.description ? { description: input.description } : {}) } }), visiblePaths(plan).join(", "));
@@ -143,7 +156,7 @@ export default Plugin.define({
     const tools = await ctx.tool.transform((editor) => {
       editor.add(directTool(nativeTool(ctx, {
         name: "lawoss_files",
-        description: `Rename, move, copy or delete files and folders, create folders, or create a new Word (.docx), Markdown (.md) or plain-text (.txt) file from content you give, in this client's folder and its linked folders. Shows the user one approval card with every change (no card when YOLO Mode is on). Deleting moves items to the Trash. Never overwrites: an existing target is refused. A declined card changes nothing. The result lists what was actually done. ${CREATE_FILE_RULE} ${EXACT_NAME_RULE} ${MOVE_ACROSS_DRIVES_RULE}`,
+        description: `${CASE_RULE} Rename, move, copy or delete files and folders, create folders, or create a new Word (.docx), Markdown (.md) or plain-text (.txt) file from content you give, in this client's folder and its linked folders. Shows the user one approval card with every change (no card when YOLO Mode is on). Deleting moves items to the Trash. Never overwrites: an existing target is refused. A declined card changes nothing. The result lists what was actually done. ${CREATE_FILE_RULE} ${EXACT_NAME_RULE} ${MOVE_ACROSS_DRIVES_RULE}`,
         schema: args,
         // The tool asks its own `lawoss_file_change` card with the whole plan; no second card for its name.
         permission: "domain",

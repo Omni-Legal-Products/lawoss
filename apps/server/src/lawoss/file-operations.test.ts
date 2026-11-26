@@ -1301,3 +1301,67 @@ test("create_file needs its folder: it exists, or an earlier create_folder of th
   expect(await readdir(client)).not.toContain("VSTUPY.md");
   expect(result.results.every((item) => item.input === undefined)).toBe(true);
 });
+
+test("folder intake registers six sourced cases on disk, and a repeat adds only new cases", async () => {
+  const { client, workspace, config } = await office();
+  const ops = Array.from({ length: 6 }, (_, i) => ({
+    operation: "register_case", title: `Synthetic case / ${i + 1}`, source: "poznamky.txt",
+    phase: "Evidence review", next_step: "Check the contract",
+  }));
+  const plan = await planFileOperations(config, workspace, ops);
+  expect(plan.operations).toHaveLength(12);
+  expect(await readdir(client)).not.toContain("Spisy");
+  const applied = await applyFileOperations(config, workspace, ops, plan.operations, plan.revision);
+  expect(applied.complete).toBe(true);
+  expect(await readdir(join(client, "Spisy"))).toHaveLength(6);
+  const target = plan.operations[1]!.to!;
+  const card = await readFile(join(client, target), "utf8");
+  expect(card).toContain('title: "Synthetic case / 1"');
+  expect(card).toContain('source: "poznamky.txt"');
+  expect(card).toContain('phase: "Evidence review"');
+  expect(card).toContain('next_step: "Check the contract"');
+  expect((await planFileOperations(config, workspace, ops)).operations).toEqual([]);
+  expect((await planFileOperations(config, workspace, [...ops, { ...ops[0], title: "Another case" }])).operations).toHaveLength(2);
+  expect(await readFile(join(client, "poznamky.txt"), "utf8")).toBe("SYN poznamky");
+  for (const source of ["../another/client.txt", "unknown.txt"]) {
+    await expect(planFileOperations(config, workspace, [{ ...ops[0], source }])).rejects.toThrow();
+  }
+});
+
+test("folder intake reads an exact selected client, extracts Word and PDF without Markdown and reuses registered cases", async () => {
+  const {config, client, other, workspace} = await office();
+  const { FolderIntakes } = await import("./folder-intake.js");
+  const { PDFDocument } = await import("pdf-lib");
+  const { zipSync, strToU8 } = await import("fflate");
+  const { DocumentPreparation } = await import("../document-preparation/service.js");
+  const { OcrManager } = await import("../ocr/manager.js");
+  const ocr = new OcrManager(join(other, ".test-ocr"));
+  const preparation = new DocumentPreparation(ocr);
+  stops.push(() => ocr.stop());
+  const service = new FolderIntakes(config, preparation);
+  stops.push(() => service.close(), () => preparation.stop());
+  const dir = join(client, "Sources");
+  await mkdir(dir);
+  const pdf = await PDFDocument.create(); pdf.addPage().drawText("Case: Synthetic equipment lease");
+  await writeFile(join(dir,"record.pdf"), await pdf.save());
+  await writeFile(join(dir,"notes.docx"), zipSync({"word/document.xml": strToU8("<w:document><w:p><w:r><w:t>Case: Synthetic licence dispute</w:t></w:r></w:p></w:document>")}));
+  await writeFile(join(other, "INDEX.md"), "Case: Sibling must stay outside");
+  await symlink(other, join(dir,"external"), "dir");
+  const nested = join(client,"Separate");
+  await mkdir(nested); await writeFile(join(nested,"INDEX.md"), "Case: Other workspace");
+  config.workspaces.push({...workspace,id:"w_nested",path:nested});
+  expect(service.start(workspace).state).toBe("scanning");
+  const state = await service.settled(workspace);
+  expect([state.state, state.issues]).toEqual(["ready", []]);
+  expect(state.cases.map(c=>c.title).sort()).toEqual(["Synthetic equipment lease", "Synthetic licence dispute"]);
+  expect(state.registered).toBe(2);
+  expect(state.sources.map(f=>f.path)).not.toContain("Separate/INDEX.md");
+  expect(JSON.stringify(state)).not.toContain("Sibling must stay outside");
+  expect(await readdir(join(client,"Spisy"))).toHaveLength(2);
+  await writeFile(join(client,"INDEX.md"), "| Prípad | Fáza | Ďalší krok |\n|---|---|---|\n| Tretia syntetická vec | Otvorená | Potvrdiť návrh |");
+  service.start(workspace, true);
+  const refreshed = await service.settled(workspace);
+  expect(refreshed.cases.find(c => c.title === "Tretia syntetická vec")?.phase).toBe("Otvorená");
+  expect(await readdir(join(client,"Spisy"))).toHaveLength(3);
+  expect(await readFile(join(other,"INDEX.md"),"utf8")).toBe("Case: Sibling must stay outside");
+});

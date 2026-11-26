@@ -164,6 +164,7 @@ async function convertOne(api: FlowApi, item: { root: string; name: string }, id
     const request = convertRequest(item.root, identity, today);
     const preview = await api.planOnboarding(confirmNewClient ? { ...request, confirmNewClient } : request);
     const result = await api.applyOnboarding({ id: preview.id, fingerprint: preview.fingerprint, confirm: true });
+    if (result.workspace && result.workspace.path !== item.root) throw new Error("The server returned a different client folder.");
     // N-A4-2: ďalej (krok Pripravené, chat a jeho prvá správa) platí meno, pod ktorým server klienta zaregistroval
     // (názov z karty alebo meno zadané skôr), teda to isté, ktoré ukáže bočný panel.
     return { ...item, name: registeredName(item, result.workspace), status: "done", result };

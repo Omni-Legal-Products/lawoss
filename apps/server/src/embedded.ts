@@ -119,6 +119,8 @@ export type EmbeddedServerHandle = {
   config: ServerConfig;
   /** Redacted details for the managed OpenCode child process, when spawned. */
   managedOpencodeExecution: OpencodeExecutionSnapshot | null;
+  /** Completion of the current managed engine ticket probe, including its server-side cleanup. */
+  readonly managedEngineTicketSettled: Promise<void>;
   managedOpencodeStatus: () => { running: boolean; pid: number | null } | null;
   /** Stop the HTTP server and managed OpenCode (if any). */
   stop: () => Promise<void>;
@@ -337,6 +339,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     config,
     invalidateRawHttpTrust: () => started.invalidateRawHttpTrust(),
     get managedOpencodeExecution() { return managed.engine?.execution ?? null; },
+    get managedEngineTicketSettled() { return tickets.settled; },
     managedOpencodeStatus: () => managed.engine
       ? { running: managed.engine.running(), pid: managed.engine.pid }
       : null,

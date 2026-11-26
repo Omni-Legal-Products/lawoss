@@ -1,3 +1,4 @@
+import { registerPickedFolder } from "./register-clients";
 /**
  * „Toto som našiel“ (spec 2026-10-08): návrh úrovne, oprava, prax, otázka OKF, hromadné pridanie
  * a usporiadanie po jednom klientovi. Spoločná pre onboarding aj bočný panel („Pridať priečinok“).
@@ -7,7 +8,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { toggledLeave, triageApply, triageReplan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { friendlyError, TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
-import { addMovedAsNew, addOkfFiles, answerClient, linkMovedItem, batchOffersChat, chatTarget, childPath, clientName, cloudFolderKind, connectPractice, severalPractices, createClientChatFlow, firstWorkspaceResult, folderName, matterClientName, matterClientPath, createReorganizeFlow, practiceView, retryFailed, rootClientName, workspaceResults, type Answer, type BatchItem, type FoundIdentity, nestedClientWarnings, nestedClientWarningText, nestedInClient } from "./found-flow";
+import { addMovedAsNew, addOkfFiles, answerClient, linkMovedItem, batchOffersChat, chatTarget, childPath, clientName, cloudFolderKind, connectPractice, severalPractices, createClientChatFlow, firstWorkspaceResult, folderName, createReorganizeFlow, practiceView, retryFailed, rootClientName, workspaceResults, type Answer, type BatchItem, type FoundIdentity, nestedClientWarnings, nestedClientWarningText, nestedInClient } from "./found-flow";
 import { clientChatPrompt, type ClientChatOutcome, type ClientChatRequest, type ClientChatUnavailable } from "./client-chat";
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
@@ -98,8 +99,8 @@ export function FoundView({ text, busy, suggestion: proposed, level, scope, sele
   const yesDisabled = level === "practice" && scope === "practice";
   // Prax po klientoch bez označeného klienta: nie je čo urobiť, kancelária sa nezapíše.
   const nothingSelected = level === "practice" && scope === "client" && selected.length === 0;
-  const parentName = matterClientName(suggestion);
-  const nested = level === "matter" && nestedInClient(suggestion);
+  const pickedName = folderName(suggestion.root);
+
   const nestedWarnings = nestedClientWarnings(suggestion, level);
   const noClients = level === "practice" && scope === "client" && suggestion.clients.length === 0;
   const cloud = cloudFolderKind(suggestion.root);
@@ -150,10 +151,10 @@ export function FoundView({ text, busy, suggestion: proposed, level, scope, sele
       </label>
       {level === "matter" ? (
         <div className="lw-onb-inset grid gap-2">
-          <p>{nested ? text("nestedClientHint", { client: parentName }) : text("matterHint", { name: parentName })}</p>
+          <p>{text("matterHint", { name: suggestion.root })}</p>
           <OkfNotice text={text} />
-          {/* R9: vec sa nepripája sama, pripojí sa nadradený klient s odpoveďou „Nie“. */}
-          <div><button type="button" className="lw-btn gold" disabled={busy} onClick={() => onAnswer("no")}>{text("useParent", { name: parentName })}</button></div>
+
+          <div><button type="button" className="lw-btn gold" disabled={busy} onClick={() => onAnswer("no")}>{text("usePicked", { name: pickedName })}</button></div>
           <p className="text-xs text-muted-foreground">{text("acknowledge")}</p>
         </div>
       ) : null}
@@ -186,18 +187,18 @@ export function FoundView({ text, busy, suggestion: proposed, level, scope, sele
           <OkfNotice text={text} />
           {noClients ? <p className="lw-status warn">{text("noClientsHint")}</p> : null}
           <div className="lw-onb-choices">
+            <section className="lw-onb-choice">
+              <h3>{chatChoice ? text("usePicked", { name: pickedName }) : text("answerNo")}</h3>
+              <p>{chatChoice ? text("matterHint", { name: suggestion.root }) : text("answerNoHint")}</p>
+              <button type="button" className="lw-btn gold" disabled={busy || nothingSelected} onClick={() => onAnswer("no")}>{chatChoice ? text("usePicked", { name: pickedName }) : text("answerNo")}</button>
+            </section>
             {chatChoice ? (
               <section className="lw-onb-choice">
                 <h3>{text("answerChat")}</h3>
                 <p>{text("answerChatHint")}</p>
-                <button type="button" className="lw-btn gold" disabled={busy} onClick={() => onAnswer("chat")}>{text("answerChat")}</button>
+                <button type="button" className="lw-btn" disabled={busy} onClick={() => onAnswer("chat")}>{text("answerChat")}</button>
               </section>
             ) : null}
-            <section className="lw-onb-choice">
-              <h3>{text("answerNo")}</h3>
-              <p>{text("answerNoHint")}</p>
-              <button type="button" className={chatChoice ? "lw-btn" : "lw-btn gold"} disabled={busy || nothingSelected} onClick={() => onAnswer("no")}>{text("answerNo")}</button>
-            </section>
             {chatChoice ? null : yesChoice}
           </div>
           {/* Tabuľka usporiadania ostáva ako pokročilá voľba (MČ 19. 10. 2026). */}
@@ -308,7 +309,7 @@ export function ChatUnavailableView({ text, busy, name, reason, onSettings, onRe
 }
 
 type Props = {
-  api: Pick<OnboardingApi, "planOnboarding" | "applyOnboarding" | "updateOnboardingProfile" | "suggestOnboarding">;
+  api: Pick<OnboardingApi, "createLocalWorkspace" | "planOnboarding" | "applyOnboarding" | "updateOnboardingProfile" | "suggestOnboarding">;
   triage: TriageClient;
   identity: FoundIdentity;
   text: Text;
@@ -485,8 +486,15 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
       setPhase({ name: "batch", items: batch, answer: choice });
       return;
     }
-    // Vec (R9): pripojí sa nadradený priečinok ako klient, nie samotná vec.
-    const target = level === "matter" ? matterClientPath(suggestion.root) : suggestion.root;
+    if (level === "matter") {
+      const workspace = await registerPickedFolder(api, suggestion.root);
+      const result: OnboardingApplyResult = { result: "applied", root: workspace.path, clientRoot: workspace.path, workspace };
+      const item: ConnectedClient = { root: workspace.path, name: workspace.name, result };
+      if (wizard) await wizard.onConnected({kind: "clients", root: workspace.path, clients: [item]}, result);
+      else await onDone(result);
+      return;
+    }
+    const target = suggestion.root;
     const progress = (next: BatchItem[]) => setPhase({ name: "batch", items: next, answer: choice });
     const addFiles = async (items: readonly { root: string; name: string }[]) => {
       const batch = await addOkfFiles(api, items, identity, today, progress, describe);
@@ -499,7 +507,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
       reorganize: reorganize.begin,
       chat: wizard ? undefined : chat?.begin,
       showBatch: progress,
-    }, choice, { root: target, name: level === "matter" ? matterClientName(suggestion) : rootClientName(suggestion) });
+    }, choice, { root: target, name: rootClientName(suggestion) });
   });
 
   if (phase.name === "loading") {
