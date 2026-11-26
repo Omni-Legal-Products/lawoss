@@ -3367,7 +3367,7 @@ export const shellDe = {
   "lawoss.lite.folder_analyze": "Fälle finden und erfassen",
   "lawoss.lite.folder_organize": "Ordnerstruktur ansehen",
   "lawoss.lite.folder_hint": "Prüfen Sie die lokalen Unterlagen mit dem Assistenten. Erfasste Fälle erscheinen hier mit Phase und nächstem Schritt.",
-  "lawoss.lite.folder_draft": "Lies Index, Status und relevante Unterlagen dieses Mandanten. Prüfe bereits erfasste Fälle. Verwende für jeden neuen, durch eine lokale Datei belegten Fall lawoss_files mit register_case in einem gemeinsamen Aufruf. Nenne Titel, Quelldatei sowie belegte Phase und nächsten Schritt. Kennzeichne Unklarheiten und erhalte die Originale. Berichte, welche Fälle erfasst wurden.",
+  "lawoss.lite.folder_draft": "Lesen Sie den Index, den aktuellen Stand und die relevanten Unterlagen dieses Mandanten. Prüfen Sie, welche Fälle bereits erfasst sind. Erfassen Sie alle neuen eigenständigen Fälle, die durch eine Datei in diesem Ordner belegt sind, in einem gemeinsamen Aufruf von lawoss_files mit der Operation register_case. Geben Sie für jeden Fall den Titel und den Pfad zur Quelldatei an. Nennen Sie die Phase und den nächsten Schritt, soweit sie belegt sind. Kennzeichnen Sie Unklarheiten zur Prüfung und bewahren Sie die Originalunterlagen. Zeigen Sie, welche Fälle erfasst wurden.",
   "lawoss.lite.folder_updated": "Ordnerübersicht aktualisiert.",
   "lawoss.lite.matter_new_chat": "Neuer Chat",
   "lawoss.lite.client_overview_title": "Mandantenübersicht",
