@@ -39,7 +39,7 @@ jobs:
     if: ${{ !inputs.runtime_provided }}
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
-      targets: linux-x64,win32-x64,win32-arm64,darwin-arm64
+      targets: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diag/isir-win-generation-78271fc') && 'win32-x64' || 'linux-x64,win32-x64,win32-arm64,darwin-arm64' }}
       run_tests: false
   # 🟡 LAWOSS (ADR 0016, MČ 8. 11. 2026): pri samostatnom behu si engine 2.1.4-legalwork.lawoss-project-stop.1
   # zostaví zo zdrojov vývojovou cestou (ad-hoc podpis); volajúci workflow môže dodať vlastný digest.
@@ -54,7 +54,7 @@ jobs:
   package-smoke:
     name: Package and launch (${{ matrix.os }})
     needs: [sandbox-runtime, opencode-engine]
-    if: ${{ !cancelled() && (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'skipped') && (needs.opencode-engine.result == 'success' || needs.opencode-engine.result == 'skipped') }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diag/isir-win-generation-78271fc') && !cancelled() && (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'skipped') && (needs.opencode-engine.result == 'success' || needs.opencode-engine.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 100
     strategy:
@@ -196,36 +196,7 @@ jobs:
     timeout-minutes: 100
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            platform: linux
-            arch: x64
-            executable: linux-unpacked/legalwork
-            asar: linux-unpacked/resources/app.asar
-            securityTarget: linux-unpacked/legalwork
-          - os: windows-2022
-            target: x86_64-pc-windows-msvc
-            platform: win
-            arch: x64
-            executable: win-unpacked/LAWOSS.exe
-            asar: win-unpacked/resources/app.asar
-            securityTarget: win-unpacked/LAWOSS.exe
-          - os: macos-15
-            target: aarch64-apple-darwin
-            platform: mac
-            arch: arm64
-            executable: mac-arm64/LAWOSS.app/Contents/MacOS/LAWOSS
-            asar: mac-arm64/LAWOSS.app/Contents/Resources/app.asar
-            securityTarget: mac-arm64/LAWOSS.app
-          - os: windows-11-arm
-            target: aarch64-pc-windows-msvc
-            platform: win
-            arch: arm64
-            executable: win-arm64-unpacked/LAWOSS.exe
-            asar: win-arm64-unpacked/resources/app.asar
-            securityTarget: win-arm64-unpacked/LAWOSS.exe
+      matrix: ${{ fromJSON((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diag/isir-win-generation-78271fc') && '{"include":[{"os":"windows-2022","target":"x86_64-pc-windows-msvc","platform":"win","arch":"x64","executable":"win-unpacked/LAWOSS.exe","asar":"win-unpacked/resources/app.asar","securityTarget":"win-unpacked/LAWOSS.exe"}]}' || '{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","platform":"linux","arch":"x64","executable":"linux-unpacked/legalwork","asar":"linux-unpacked/resources/app.asar","securityTarget":"linux-unpacked/legalwork"},{"os":"windows-2022","target":"x86_64-pc-windows-msvc","platform":"win","arch":"x64","executable":"win-unpacked/LAWOSS.exe","asar":"win-unpacked/resources/app.asar","securityTarget":"win-unpacked/LAWOSS.exe"},{"os":"macos-15","target":"aarch64-apple-darwin","platform":"mac","arch":"arm64","executable":"mac-arm64/LAWOSS.app/Contents/MacOS/LAWOSS","asar":"mac-arm64/LAWOSS.app/Contents/Resources/app.asar","securityTarget":"mac-arm64/LAWOSS.app"},{"os":"windows-11-arm","target":"aarch64-pc-windows-msvc","platform":"win","arch":"arm64","executable":"win-arm64-unpacked/LAWOSS.exe","asar":"win-arm64-unpacked/resources/app.asar","securityTarget":"win-arm64-unpacked/LAWOSS.exe"}]}') }}
     defaults:
       run:
         shell: bash
@@ -326,7 +297,7 @@ jobs:
   memory-budget:
     name: RAM budget 2 GB (macos-15)
     needs: [sandbox-runtime, opencode-engine]
-    if: ${{ !cancelled() && (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'skipped') && (needs.opencode-engine.result == 'success' || needs.opencode-engine.result == 'skipped') }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diag/isir-win-generation-78271fc') && !cancelled() && (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'skipped') && (needs.opencode-engine.result == 'success' || needs.opencode-engine.result == 'skipped') }}
     runs-on: macos-15
     timeout-minutes: 60
     defaults:

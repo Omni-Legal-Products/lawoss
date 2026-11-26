@@ -449,6 +449,7 @@ try {
     }
     const provisionStartedAtMs=Date.now(), nativeReviewStart=protectedApprovals?.receipts.length??0;
     diagnostics.provisioningStart(index+1,cdp.events,cdp.events.length,{origin:serverInfo.baseUrl,workspaceId:workspace.id});
+    if (corpus.mode === "synthetic") await cdp.evaluate("document.documentElement.setAttribute('data-isir-probe','before-click'); delete document.documentElement.dataset.isirFailure; delete document.documentElement.dataset.isirStatus; true");
     await click('Generate through chat');
     // Cold VM provisioning and the initial complete-source native review precede
     // inference. Preserve the separate existing 90-second generation oracle.
@@ -846,6 +847,17 @@ try {
   // 🟡 LAWOSS #220: closed host-error categories of a 5xx provisioning/generation POST also in the 90-day job log, not only the 7-day artifact.
   try { const hostErrors=diagnostics.hostErrors(); if(hostErrors)console.error('Native host error categories',JSON.stringify(hostErrors)); } catch { /* Diagnostics cannot replace the primary failure. */ }
   if(failure.phase==='generation'&&cdp){
+    if (corpus.mode === 'synthetic') {
+      try {
+        const receipt = await cdp.send('Runtime.evaluate', {returnByValue:true,timeout:3000,expression:`(() => {
+          const d = document.documentElement.dataset;
+          const stages = ['before-click','panel-list','panel-read','panel-coverage','panel-profiles','panel-profile-choice','panel-submit','workspace','endpoint','directory','model','route-profiles','route-profile-choice','binding-key','existing-snapshot','submit','preflight-catalog','preflight-model','preflight-directory','preflight-files','preflight-sources','provision'];
+          const failures = ['document_stale','document_pending','workspace_not_found','request_failed','invalid_payload','unauthorized','forbidden','internal_error','timeout','fetch-failed','type-error','syntax-error','other'];
+          return {stage:stages.includes(d.isirProbe)?d.isirProbe:'unobserved',error:failures.includes(d.isirFailure)?d.isirFailure:'unobserved',status:/^[45][0-9]{2}$/.test(d.isirStatus)?Number(d.isirStatus):null};
+        })()`});
+        console.log('Synthetic generation boundary', JSON.stringify(receipt.result.value));
+      } catch { console.log('Synthetic generation boundary unavailable'); }
+    }
     let timer;
     try {
       const snapshot=await Promise.race([

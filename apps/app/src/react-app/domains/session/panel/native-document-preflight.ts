@@ -1,3 +1,4 @@
+import { syntheticGenerationStage } from "./synthetic-generation-stage";
 import type { QueryClient } from "@tanstack/react-query";
 import type { ModelRef } from "@/app/types";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -21,16 +22,21 @@ export async function preflightDocumentGeneration(input: {
 }): Promise<void> {
   // Engine v2 caches the native model catalogue per location; generation needs the current one (tool capability).
   invalidateNativeCatalogReady(input.sdk, input.directory);
+  syntheticGenerationStage("preflight-catalog");
   const catalog = await ensureProviderListQuery(input.queryClient, { client: input.sdk, baseUrl: input.baseUrl, directory: input.directory, force: true });
+  syntheticGenerationStage("preflight-model");
   if (!input.model) throw new Error(t("session_route.no_model"));
   if (!modelReadiness({ defaultModel: input.model, providerList: catalog }).hasUsableModel) throw new Error(t("session_route.model_unavailable"));
   const selected = catalog.all.find(provider => provider.id === input.model!.providerID)?.models[input.model.modelID];
   if (!selected || !isAgentCapableModel(input.model.modelID, selected)) throw new Error(t("documents.tool_model"));
   // Mounted SDK query/header canonical guard runs before files/list checks directory kind.
+  syntheticGenerationStage("preflight-directory");
   unwrap(await preflightOpencodeDirectory(input.sdk, input.directory));
+  syntheticGenerationStage("preflight-files");
   await input.legalwork.listWorkspaceDirectory(input.workspaceId, input.relative);
   const paths = input.request.sources.filter(source => !source.provenance.parentId).map(source => source.path);
   if (!paths.length) throw new Error(t("documents.no_sources"));
+  syntheticGenerationStage("preflight-sources");
   const fresh = await freshDocumentSources(input.legalwork, input.workspaceId, paths, await listAllDocuments(input.legalwork, input.workspaceId));
   if (fresh.length !== input.request.sources.length || fresh.some(source => source.freshness !== "current" || !input.request.sources.some(expected => expected.id === source.id && expected.hash === source.hash))) throw new Error(t("documents.sources_changed"));
 }

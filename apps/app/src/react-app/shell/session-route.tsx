@@ -1,3 +1,4 @@
+import { syntheticGenerationStage } from "../domains/session/panel/synthetic-generation-stage";
 import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 import { protectedWorkspaceUploadParts } from "../domains/session/surface/composer/composer-draft";
 import { currentTemplateLocale } from "@/lawoss/i18n/template-locale";
@@ -2095,28 +2096,37 @@ export function SessionRoute() {
     return () => { for (const release of releases) release(); };
   }, [documentGenerationRevision, workspaces, baseUrl, token, hostToken]);
   const handleGenerateDocuments: DocumentGenerationCallback = Object.defineProperties(async (request: DocumentGenerationRequest): Promise<string> => {
+    syntheticGenerationStage("workspace");
     const workspace = workspaces.find(item => item.id === request.projectId);
     if (!workspace || isLawossHomeWorkspace(workspace)) throw new Error(t("workspace.not_found"));
+    syntheticGenerationStage("endpoint");
     const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken });
     if (!endpoint) throw new Error(t("session_route.create_server_unavailable"));
     const root = workspace.path?.trim() || "";
+    syntheticGenerationStage("directory");
     const { relative, directory } = documentExecutionDirectory(root, request.caseDirectory, endpoint.isRemote);
     const scopedClient = createClient(endpoint.opencodeBaseUrl, directory, { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" });
+    syntheticGenerationStage("model");
     const generationModel = local.prefs.defaultModel;
     const generationVariant = modelVariantValue;
     if (!generationModel) throw new Error(t("session_route.no_model"));
+    syntheticGenerationStage("route-profiles");
     const profiles = await endpoint.client.listLawossDocumentProfiles(endpoint.workspaceId, {providerId: generationModel.providerID, modelId: generationModel.modelID, caseDirectory: relative});
+    syntheticGenerationStage("route-profile-choice");
     const profile = selectDocumentGenerationProfile(profiles, request.profileId ?? "");
     const protectedTarget = {providerId: generationModel.providerID, modelId: generationModel.modelID, targetFingerprint: profiles.targetFingerprint, ...(profile ? {profileId: profile.id, profileRevision: profile.revision} : {})};
     const metadata = { projectId: workspace.id, baseUrl: endpoint.baseUrl, workspaceId: endpoint.workspaceId, root, directory, transport: PROTECTED_DOCUMENT_GENERATION_TRANSPORT, protectedTarget };
+    syntheticGenerationStage("binding-key");
     const key = documentGenerationKey(metadata, request.outputLanguage, request.sources);
     const existing = getDocumentGeneration(key);
     if (existing) {
+      syntheticGenerationStage("existing-snapshot");
       const result = await readDocumentGenerationSnapshot(key, async () => (await endpoint.client.getSessionSnapshot(endpoint.workspaceId, existing.sessionId, { limit: 20 })).item);
       reconcileDocumentGeneration(key, result);
       if (isDocumentGenerationSnapshotCurrent(getDocumentGeneration(key), result) && (result.snapshot.status.type === "busy" || result.snapshot.status.type === "retry")) return existing.sessionId;
     }
     try {
+      syntheticGenerationStage("submit");
       return await submitBoundDocumentGeneration({
         key,
         metadata,
@@ -2129,6 +2139,7 @@ export function SessionRoute() {
         },
         create: async () => {
           if (!generationModel) throw new Error(t("session_route.no_model"));
+          syntheticGenerationStage("provision");
           const provisioned = await endpoint.client.createLawossDocumentGeneration(endpoint.workspaceId, {
             sources: request.sources.map(source => ({id: source.id, hash: source.hash})),
             providerId: generationModel.providerID, modelId: generationModel.modelID, caseDirectory: relative, ...(profile ? {profileId: profile.id} : {}),

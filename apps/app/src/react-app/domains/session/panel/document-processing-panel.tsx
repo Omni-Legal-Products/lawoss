@@ -1,3 +1,4 @@
+import { syntheticGenerationStage, syntheticGenerationFailure } from "./synthetic-generation-stage";
 import { documentExecutionDirectory } from "./native-document-preflight";
 import { DocumentVisualReview } from "./document-visual-review";
 import { openDocumentVisualSource } from "./document-visual-source";
@@ -136,6 +137,7 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
       await run();
       await refresh();
     } catch (cause) {
+      syntheticGenerationFailure(cause);
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       busyRef.current = false;
@@ -153,16 +155,23 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
   const [preview, setPreview] = React.useState<{ id: string; hash: string; text: string } | null>(null);
   const previewRecord = records.find(r => r.id === preview?.id && r.hash === preview.hash && r.freshness === "current");
   const generate = (newGeneration: boolean) => action(async () => {
-    const latest = await freshDocumentSources(props.client, props.workspaceId, selection, await listAllDocuments(props.client, props.workspaceId));
+    syntheticGenerationStage("panel-list");
+    const listed = await listAllDocuments(props.client, props.workspaceId);
+    syntheticGenerationStage("panel-read");
+    const latest = await freshDocumentSources(props.client, props.workspaceId, selection, listed);
+    syntheticGenerationStage("panel-coverage");
     const exactOriginalCoverage = selection.every(path => latest.some(record => !record.provenance.parentId && record.path === path));
     if (!exactOriginalCoverage || latest.some(record => record.freshness !== "current")) {
       throw new Error(t("documents.sources_changed"));
     }
     if (protectedFlow) {
       if (!model) throw new Error(profileText.unavailable);
+      syntheticGenerationStage("panel-profiles");
       const freshProfiles = await props.client.listLawossDocumentProfiles(props.workspaceId, {providerId: model.providerID, modelId: model.modelID, caseDirectory: documentExecutionDirectory(props.workspaceRoot, caseDirectory, props.isRemote).relative});
+      syntheticGenerationStage("panel-profile-choice");
       selectDocumentGenerationProfile(freshProfiles, profileId);
     }
+    syntheticGenerationStage("panel-submit");
     await props.onGenerate!({ profileId: profileId || undefined, projectId: props.projectId, caseDirectory, sources: latest, outputLanguage: language, newGeneration });
   });
   const sourceStatusLabel = (record: FreshDocument) => {
