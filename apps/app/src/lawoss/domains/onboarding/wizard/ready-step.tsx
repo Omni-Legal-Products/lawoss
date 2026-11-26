@@ -111,6 +111,7 @@ export function ReadySummaryView({ text, found, connected, model, agent, busy, n
         ) : (
           <div className="lw-wiz-actions">
             <button type="button" className="lw-btn gold" disabled={busy} onClick={onOverview}>{text(plan.overview)}</button>
+            {plan.chatWith && model.state === "ready" && model.workspaceId === plan.chatWith.result.workspace?.id && chat ? chat(false) : null}
           </div>
         )}
         {busy ? <p role="status" className="text-sm text-muted-foreground">{text("readyWorking")}</p> : null}

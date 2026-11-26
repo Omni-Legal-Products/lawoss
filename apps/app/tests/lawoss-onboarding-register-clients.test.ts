@@ -73,6 +73,12 @@ describe("registrácia a výber pripojeného priečinka (MČ 19. 10.: odolné vo
     expect((await registerOnboardedWorkspace(deps, undefined, { workingFolder: "/p" }))?.id).toBe("ws-folder");
     expect(calls).toContain("folder:/p");
   });
+  test("odmietne registráciu nadradeného priečinka aj keď server vráti jeho platné ID", async () => {
+    const { deps, calls } = fakeDeps(false);
+    await expect(registerOnboardedWorkspace(deps, { ...result, clientRoot: "/k/Novák/Spisy/Vec" })).rejects.toThrow("selected folder");
+    await expect(registerOnboardedWorkspace({ ...deps, registerWorkingFolder: async () => ({id:"parent",path:"/k"}) }, undefined, { workingFolder: "/k/Novák" })).rejects.toThrow("selected folder");
+    expect(calls).toEqual(["list", "list"]);
+  });
   test("Začať nanovo: koreň kancelárie sa nezaregistruje ani nevyberie, len sa pristane na Klienti (rozhodnutie 19. 10. 2026)", async () => {
     const { calls, deps } = fakeDeps(true);
     const office: OnboardingApplyResult = { result: "applied", root: "/p/Nová kancelária/Office" };
@@ -138,4 +144,16 @@ test("#581 desktop: hlavný aj ostatní klienti dávky sa natívne zapíšu meno
     "/p/C002-syn-hron-technologie-a-s": "SYN Hron Technológie, a. s.",
     "/p/C010-syn-gemer-stavby-s-r-o": "SYN Gemer Stavby, s. r. o.",
   });
+});
+
+test("a picker result can only bind the selected canonical client, even if the server reports another active workspace", async () => {
+  const { registerPickedFolder } = await import("../src/lawoss/domains/onboarding/register-clients");
+  for (const [parent, path] of [["/Clients", "/Clients/Syn A"], ["C:\\Clients","C:\\Clients\\Syn A"]]) {
+    const request = async (input: {folderPath?: string}) => {
+      expect(input.folderPath).toBe(path);
+      return { activeId:"parent",workspaces:[{id:"parent",path:parent,name:"parent"},{id:"sub",path,name:"Syn A"}] } as never;
+    };
+    expect((await registerPickedFolder({createLocalWorkspace:request},path)).id).toBe("sub");
+    await expect(registerPickedFolder({createLocalWorkspace: async () => ({activeId:"parent",workspaces:[{id:"parent",path:parent}]}) as never},path)).rejects.toThrow("selected folder");
+  }
 });

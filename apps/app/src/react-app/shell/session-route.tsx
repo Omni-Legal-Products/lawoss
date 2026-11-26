@@ -3,7 +3,7 @@ import { protectedWorkspaceUploadParts } from "../domains/session/surface/compos
 import { currentTemplateLocale } from "@/lawoss/i18n/template-locale";
 import { allDocumentGenerations, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, hasProtectedDocumentSession, reconcileDocumentGeneration, readDocumentGenerationSnapshot, isDocumentGenerationSnapshotCurrent, observeDocumentGeneration, subscribeDocumentGenerations, documentGenerationsRevision, submitBoundDocumentGeneration, sendProtectedDocumentTask, PROTECTED_DOCUMENT_GENERATION_TRANSPORT } from "../domains/session/panel/document-generation-lifecycle";
 import { ensureWorkspaceSessionSync, trackWorkspaceSessionSync } from "../domains/session/sync/session-sync";
-import { generationPrompt, selectDocumentGenerationProfile, type DocumentGenerationRequest, type DocumentGenerationCallback } from "../domains/session/panel/document-processing";
+import { generationPrompt, intakePrompt, selectDocumentGenerationProfile, type DocumentGenerationRequest, type DocumentGenerationCallback } from "../domains/session/panel/document-processing";
 import { documentExecutionDirectory, preflightDocumentGeneration } from "../domains/session/panel/native-document-preflight";
 import { PROJECT_FOLDER_RECONNECTED_EVENT } from "../domains/workspace/project-folder-recovery";
 import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domains/workspace/project-defaults-store";
@@ -2109,7 +2109,7 @@ export function SessionRoute() {
     const profile = selectDocumentGenerationProfile(profiles, request.profileId ?? "");
     const protectedTarget = {providerId: generationModel.providerID, modelId: generationModel.modelID, targetFingerprint: profiles.targetFingerprint, ...(profile ? {profileId: profile.id, profileRevision: profile.revision} : {})};
     const metadata = { projectId: workspace.id, baseUrl: endpoint.baseUrl, workspaceId: endpoint.workspaceId, root, directory, transport: PROTECTED_DOCUMENT_GENERATION_TRANSPORT, protectedTarget };
-    const key = documentGenerationKey(metadata, request.outputLanguage, request.sources);
+    const key = documentGenerationKey(metadata, request.outputLanguage, request.sources) + (request.purpose === "folder-intake" ? ":folder-intake" : "");
     const existing = getDocumentGeneration(key);
     if (existing) {
       const result = await readDocumentGenerationSnapshot(key, async () => (await endpoint.client.getSessionSnapshot(endpoint.workspaceId, existing.sessionId, { limit: 20 })).item);
@@ -2144,10 +2144,12 @@ export function SessionRoute() {
         },
         send: async (sessionId, messageID) => {
           // Select immediately, retaining this chat if inference/auth/billing fails.
-          setLegacySelectedWorkspaceId(workspace.id); writeActiveWorkspaceId(workspace.id);
-          writeLastSessionFor(workspace.id, sessionId); navigateToWorkspaceSession(workspace.id, sessionId);
+          if (request.purpose !== "folder-intake") {
+            setLegacySelectedWorkspaceId(workspace.id); writeActiveWorkspaceId(workspace.id);
+            writeLastSessionFor(workspace.id, sessionId); navigateToWorkspaceSession(workspace.id, sessionId);
+          }
           void refreshRouteState();
-          const text = generationPrompt(request.outputLanguage, request.sources);
+          const text = (request.purpose === "folder-intake" ? intakePrompt : generationPrompt)(request.outputLanguage, request.sources);
           try {
             if (!generationModel) throw new Error(t("session_route.no_model"));
             await sendNativeDraft({ mode: "prompt", text, parts: [{ type: "text", text }], attachments: [] }, sessionId, {messageID, modelSelection: {model: generationModel, variant: generationVariant}},
@@ -2600,7 +2602,7 @@ export function SessionRoute() {
     setCreateWorkspaceError(null);
     try {
       const list = await client.createLocalWorkspace({ ...input, preset: "starter" });
-      const id = resolveWorkspaceListSelectedId(list);
+      const id = input.folderPath ? list.workspaces.find(w => w.path === input.folderPath)?.id : resolveWorkspaceListSelectedId(list);
       if (!id) throw new Error(t("session_route.create_server_unavailable"));
       setLegacySelectedWorkspaceId(id);
       writeActiveWorkspaceId(id);
@@ -2611,14 +2613,14 @@ export function SessionRoute() {
       local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
       await refreshRouteState();
       setCreateWorkspaceOpen(false);
-      if (selectCreatedProjectForHome && !input.initializeFromFolders) {
+      if (selectCreatedProjectForHome && !input.initializeFromFolders && !input.folderPath) {
         setHomeProjectId(id);
         pendingHomeMessage.current = null;
         navigate(homeRoute(id), { replace: true });
       } else {
         navigate(workspaceProjectRoute(id));
       }
-      if (input.initializeFromFolders) {
+      if (input.initializeFromFolders && !input.folderPath) {
         try {
           if (!baseUrl || !token) throw new Error(t("session_route.create_server_unavailable"));
           const workspacePath = list.workspaces.find((workspace) => workspace.id === id)?.path;

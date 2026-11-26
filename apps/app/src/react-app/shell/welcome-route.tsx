@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
-import { resolveWorkspaceListSelectedId, workspaceCreate, workspaceSetRuntimeActive, workspaceSetSelected } from "@/app/lib/desktop";
+import { workspaceCreate, workspaceSetRuntimeActive, workspaceSetSelected } from "@/app/lib/desktop";
 import { canonicalDirectoryPath, pickDirectory } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/utils";
 import { resolveLegalworkConnection } from "./legalwork-connection";
@@ -19,7 +19,7 @@ import type { OnboardingCompletion } from "@/lawoss/domains/onboarding/lawoss-we
 import { authorAfterOnboarding } from "@/lawoss/okf/lawyer-name";
 import { canonicalPathOf, withCanonicalPaths } from "@/lawoss/domains/onboarding/typed-paths";
 import { watchLegalworkConnection } from "@/lawoss/domains/onboarding/server-connection";
-import { registerOnboardedWorkspace } from "@/lawoss/domains/onboarding/register-clients";
+import { registerOnboardedWorkspace, registerPickedFolder } from "@/lawoss/domains/onboarding/register-clients";
 import { openOnboardedClientChat } from "@/lawoss/domains/onboarding/client-chat-open";
 import { useBootState } from "./boot-state";
 
@@ -31,12 +31,7 @@ const workingFolderPath = (value: string) => isDesktopRuntime() ? canonicalPathO
 const continuationStep = (value: string | null): OnboardingStep | undefined =>
   value === "existing" || value === "okf" || value === "folder" ? "folder" : value === "client" || value === "matter" ? value : undefined;
 
-async function registerWorkingFolder(client: LegalworkServerClient, folderPath: string) {
-  const list = await client.createLocalWorkspace({ folderPath, name: folderPath.split(/[\\/]/).filter(Boolean).pop() ?? folderPath, preset: "starter", registerExisting: true });
-  const workspace = list.workspaces.find(item => item.path === folderPath) ?? list.workspaces.find(item => item.id === resolveWorkspaceListSelectedId(list));
-  if (!workspace) throw new Error("Working folder registration did not return a workspace.");
-  return { id: workspace.id, path: workspace.path, displayName: workspace.displayName ?? workspace.name };
-}
+const registerWorkingFolder = registerPickedFolder;
 
 /** Native LAWOSS onboarding. Office is configuration only, client is always the workspace. */
 export function WelcomeRoute() {
@@ -84,7 +79,12 @@ export function WelcomeRoute() {
       },
       remember: writeActiveWorkspaceId,
     }, result, completion);
-    if (registered) registeredClient.current = registered.client;
+    if (registered) {
+      registeredClient.current = registered.client;
+      if (result?.workspace?.id === registered.id) {
+        void registered.client.clientFolderIntake(registered.id, {action: "open"}).catch(() => undefined);
+      }
+    }
     return { status, registered };
   };
   // LAWOSS: tok z bočného panela po dokončenom onboardingu má „Zrušiť“ späť (prvá stránka histórie: domov).

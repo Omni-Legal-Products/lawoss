@@ -73,13 +73,13 @@ describe("klient s priečinkom ďalšieho klienta: upozornenie pred pripojením"
 
 describe("priečinok s kódom iného klienta vybraný priamo nie je prípad", () => {
   const inner = base({ root: `${OUTER}/C099 SYN Vnoreny klient`, level: "matter", score: 0.5, signals: ["documents_only"], units: [{ path: "", matters: [], matterCount: 0, files: 1, exact: true }] });
-  test("veta nehovorí o prípade; ponúkne vonkajšieho klienta (rozhodnutie MČ 23. 10. 2026)", () => {
+  test("pri samostatnom výbere ponechá vnorený priečinok", () => {
     expect(nestedInClient(inner)).toBe(true);
     expect(foundProposal(inner)).toEqual({ key: "nestedClientFound", level: "matter" });
     expect(headline(foundText("sk"), inner, "matter")).toBe("Priečinok C099 SYN Vnoreny klient má kód iného klienta než priečinok, v ktorom leží. Klient nemôže byť vnútri iného klienta.");
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={inner} level="matter" />);
-    expect(html).toContain("Ako prípad ho nepripojím. Pripojím klienta C030 SYN Vonkajsi klient, ktorému priečinok patrí; v jeho súboroch ostane ako obyčajný priečinok.");
-    expect(html).toContain("Pripojiť klienta C030 SYN Vonkajsi klient");
+    expect(html).toContain(inner.root);
+    expect(html).toContain("Pripojiť priečinok C099 SYN Vnoreny klient");
     expect(html).not.toContain("jeden prípad");
     expect(html).not.toContain("Prípad patrí pod klienta");
   });

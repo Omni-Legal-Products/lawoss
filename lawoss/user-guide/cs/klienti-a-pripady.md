@@ -18,7 +18,9 @@ Pod **Případy** je každý případ klienta, pod případem jeho chaty a **Nov
 
 ## Přehled klienta
 
-V části **Složka klienta** vidíte počty souborů a podsložek na první úrovni a můžete přímo otevřít index či poznámky. **Obnovit z disku** načte aktuální údaje. Pokud jsou na disku dokumenty a v přehledu ještě chybí případy, vyberte **Najít a zaevidovat případy**. Zkontrolujte připravenou zprávu a model, potom ji odešlete. Asistent připraví případy s odkazem na zdroj a podle nastavení oprávnění zobrazí společnou kartu k potvrzení. Po zápisu se případy objeví v postranním panelu i jako karty s dostupnou fází a dalším krokem. O zaevidování případů můžete požádat i ve stávajícím chatu. **Náhled struktury složky** otevře průvodce evidencí. Pole v detailech klienta se spravují samostatně.
+Po výběru složky LAWOSS automaticky otevře **Přehled** a místně projde také podsložky. Nad výsledky uvidíte přesnou cestu. Při výběru jednoho spisu zůstane rozsahem zvolený spis. V části **Podklady a pokrytí** můžete vyhledávat v textu, otevřít originál a rozlišit přečtené, částečně přečtené a nečitelné dokumenty. Funguje také složka s PDF a Wordem bez souborů Markdown.
+
+Jednoznačně pojmenované případy získají vlastní kartu v **Případech**. U návrhů ze souvisejících dokumentů zvolte **Zaevidovat případy**. V režimu uložení pomocných souborů mimo klienta se zápis karet do spisu spustí až tímto tlačítkem. **Obnovit z disku** zpracuje změny. **Uložit přehled** uloží samostatný Markdown. Pro podrobnější analýzu nabízí Přehled volbu **Rozpoznat další případy pomocí AI** s výběrem zdrojů a zobrazením modelu. Návrh posoudíte ve stejném okně.
 
 **Přehled** pod klientem ukazuje **Přehled klienta**: jeho **Případy** s fází a dalším krokem, **Nejbližší lhůty**, **Nejbližší termín**, **Otevřené úkoly z případů**, **Vstupy klienta** a **Chaty klienta**. Odkaz **Všechny lhůty klienta** otevře registr lhůt jen pro tohoto klienta. Údaje se čtou z pomocných souborů OKF ve složce klienta; pokud se něco nedalo přečíst, přehled to napíše (například **Podklady se nepodařilo přečíst, lhůty proto nejsou známé.**).
 

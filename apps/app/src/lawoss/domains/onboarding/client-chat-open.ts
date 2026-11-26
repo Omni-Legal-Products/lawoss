@@ -26,7 +26,7 @@ import { clientChatMessage, prepareClientChat, type ClientChatOutcome, type Clie
 export function clientChatTarget(connection: OkfConnection, request: Pick<ClientChatRequest, "workspaceId" | "directory">) {
   const client = connection.client;
   const directory = normalizeDirectoryPath(request.directory);
-  const workspace = connection.workspaces.find(item => item.id === request.workspaceId) ?? connection.workspaces.find(item => normalizeDirectoryPath(item.path) === directory);
+  const workspace = connection.workspaces.find(item => normalizeDirectoryPath(item.path) === directory && (!request.workspaceId || item.id === request.workspaceId));
   if (!client || !workspace || isRetiredRemoteWorkspace(workspace)) return null;
   const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token });
   return endpoint?.token ? { client, workspace, endpoint } : null;

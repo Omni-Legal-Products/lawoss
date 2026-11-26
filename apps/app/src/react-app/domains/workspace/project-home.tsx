@@ -46,6 +46,7 @@ export function ProjectHome(props: {
   client: LegalworkServerClient;
   workspaceId: string;
   localFolder?: string;
+  intakeGeneration?: import("../session/panel/document-processing").DocumentGenerationCallback;
   projectId: string;
   isRemoteWorkspace: boolean;
   inWorkspace: boolean;
@@ -221,7 +222,7 @@ export function ProjectHome(props: {
         </Surface> : null}
 
         <ClientSettingsWarning client={client} workspaceId={workspaceId} />{/* 🟡 LAWOSS #554 */}
-        {props.localFolder && <ClientFolderPanel root={props.localFolder} projectId={props.projectId}
+        {props.localFolder && <ClientFolderPanel key={workspaceId} client={client} workspaceId={workspaceId} generate={props.intakeGeneration} root={props.localFolder} projectId={props.projectId}
           listing={rootFiles.isError ? undefined : rootFiles.data} onOpen={props.onOpenFile} onRefresh={async () => {
             await Promise.all([
               rootFiles.refetch({ throwOnError: true }),

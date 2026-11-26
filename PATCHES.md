@@ -2713,3 +2713,7 @@ Logika je v nových LAWOSS súboroch `apps/app/src/lawoss/chat/provider-error.ts
 | `scripts/test-isir-native.mjs` | Test vyberá angličtinu vo vlastnom profile, používa skutočnú veľkosť okna a pri poslednom ukončení na macOS žiada aplikáciu o riadne ukončenie. Pri opätovnom pripojení kontroluje odpoveď výberu a uloženia priečinka. |
 | `apps/server/src/engine-client.ts`, `apps/server/src/lawoss/workspace-history-sessions.ts`, `apps/server/src/lawoss/workspace-session-rebind.ts` | Transakcia obnovenia potrebuje prečítať zoznam konverzácií a presunúť ich uložené umiestnenia, kým pôvodný priečinok chýba. Výnimka z kontroly pripravenosti priečinka platí iba pre tieto dve operácie lokálneho enginu v hostiteľskej transakcii. |
 | `apps/server/src/engine-project.ts`, `apps/server/src/routes/workspaces.ts` | Pri opätovnom pripojení presunie súkromný záznam o pôvode nastavení spolu s transakciou. Rozpozná len pôvodný názov a totožný obsah v kanonickom priečinku. |
+
+### Automatické spracovanie vybraného priečinka klienta
+
+Server v `routes/workspaces.ts` a `server.ts` spúšťa lokálne indexovanie pri registrácii. `legalwork-server.ts` pripája stav, hľadanie a evidenciu k Prehľadu. Pridanie klienta, registrácia a sprievodca používajú presnú vybranú cestu. `session-page.tsx`, `project-home.tsx`, `create-project-modal.tsx`, `welcome-route.tsx`, `session-route.tsx` a `document-processing.ts` sprístupňujú spracovanie bez prepisovania pokynov do chatu. Chránené spracovanie modelom zachováva výber konkrétnych súborov a pôvodnú kontrolu prenosu.

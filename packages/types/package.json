@@ -43,6 +43,7 @@
     "./ocr": "./src/ocr.ts",
     "./document-structure": "./src/document-structure.ts",
     "./reviews": "./src/reviews.ts",
+    "./folder-intake": "./src/folder-intake.ts",
     "./corpus": "./src/corpus.ts",
     "./search": "./src/search.ts",
     "./sync-events": "./src/sync-events.ts",

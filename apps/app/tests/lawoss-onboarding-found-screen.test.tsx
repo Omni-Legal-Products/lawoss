@@ -34,15 +34,17 @@ describe("Toto som našiel", () => {
     expect(html).toContain("Celú prax ako jeden priečinok usporiadať nejde");
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Áno, usporiadaj/);
   });
-  test("vec: ponúkne nadradeného klienta", () => {
+  test("vec: ponechá vybraný priečinok", () => {
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ root: "/p/Novák/2024-03 Zmluva", level: "matter" })} level="matter" />);
-    expect(html).toContain("Pripojiť klienta Novák");
+    expect(html).toContain("Pripojiť priečinok 2024-03 Zmluva");
+    expect(html).not.toContain("Pripojiť klienta Novák");
     expect(html).toContain("AGENTS.md");
     expect(html).toContain("Beriem na vedomie a pokračujem");
   });
-  test("vec v Spisy/ ponúkne klienta nad Spisy", () => {
+  test("vec v Spisy/ ponechá konkrétny priečinok", () => {
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ root: "/p/Novák/Spisy/2024-03 Zmluva", level: "matter" })} level="matter" />);
-    expect(html).toContain("Pripojiť klienta Novák");
+    expect(html).toContain("Pripojiť priečinok 2024-03 Zmluva");
+    expect(html).not.toContain("Pripojiť klienta Novák");
     expect(html).not.toContain("Pripojiť klienta Spisy");
   });
   test("prax po klientoch bez označeného klienta: obe odpovede sú vypnuté", () => {
