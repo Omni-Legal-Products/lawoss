@@ -154,6 +154,7 @@ jobs:
     uses: ./.github/workflows/ci-desktop-packaging.yml
     with:
       windows-only: true
+      runtime_provided: true
       derivative-manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
   mac-signing-acceptance:
     needs: [signing-inputs, changes]

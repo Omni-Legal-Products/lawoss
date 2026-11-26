@@ -66,7 +66,7 @@ jobs:
     timeout-minutes: 100
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(inputs.windows-only && '{"include":[{"os":"windows-2022","target":"x86_64-pc-windows-msvc","platform":"win","arch":"x64","executable":"win-unpacked/LAWOSS.exe","asar":"win-unpacked/resources/app.asar","securityTarget":"win-unpacked/LAWOSS.exe"},{"os":"windows-11-arm","target":"aarch64-pc-windows-msvc","platform":"win","arch":"arm64","executable":"win-arm64-unpacked/LAWOSS.exe","asar":"win-arm64-unpacked/resources/app.asar","securityTarget":"win-arm64-unpacked/LAWOSS.exe"}]}' || '{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","platform":"linux","arch":"x64","executable":"linux-unpacked/legalwork","asar":"linux-unpacked/resources/app.asar","securityTarget":"linux-unpacked/legalwork"},{"os":"windows-2022","target":"x86_64-pc-windows-msvc","platform":"win","arch":"x64","executable":"win-unpacked/LAWOSS.exe","asar":"win-unpacked/resources/app.asar","securityTarget":"win-unpacked/LAWOSS.exe"},{"os":"macos-15","target":"aarch64-apple-darwin","platform":"mac","arch":"arm64","executable":"mac-arm64/LAWOSS.app/Contents/MacOS/LAWOSS","asar":"mac-arm64/LAWOSS.app/Contents/Resources/app.asar","securityTarget":"mac-arm64/LAWOSS.app"},{"os":"windows-11-arm","target":"aarch64-pc-windows-msvc","platform":"win","arch":"arm64","executable":"win-arm64-unpacked/LAWOSS.exe","asar":"win-arm64-unpacked/resources/app.asar","securityTarget":"win-arm64-unpacked/LAWOSS.exe"}]}') }}
+      matrix: &desktop-matrix ${{ fromJSON(inputs.windows-only && '{"include":[{"os":"windows-2022","target":"x86_64-pc-windows-msvc","platform":"win","arch":"x64","executable":"win-unpacked/LAWOSS.exe","asar":"win-unpacked/resources/app.asar","securityTarget":"win-unpacked/LAWOSS.exe"},{"os":"windows-11-arm","target":"aarch64-pc-windows-msvc","platform":"win","arch":"arm64","executable":"win-arm64-unpacked/LAWOSS.exe","asar":"win-arm64-unpacked/resources/app.asar","securityTarget":"win-arm64-unpacked/LAWOSS.exe"}]}' || '{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","platform":"linux","arch":"x64","executable":"linux-unpacked/legalwork","asar":"linux-unpacked/resources/app.asar","securityTarget":"linux-unpacked/legalwork"},{"os":"windows-2022","target":"x86_64-pc-windows-msvc","platform":"win","arch":"x64","executable":"win-unpacked/LAWOSS.exe","asar":"win-unpacked/resources/app.asar","securityTarget":"win-unpacked/LAWOSS.exe"},{"os":"macos-15","target":"aarch64-apple-darwin","platform":"mac","arch":"arm64","executable":"mac-arm64/LAWOSS.app/Contents/MacOS/LAWOSS","asar":"mac-arm64/LAWOSS.app/Contents/Resources/app.asar","securityTarget":"mac-arm64/LAWOSS.app"},{"os":"windows-11-arm","target":"aarch64-pc-windows-msvc","platform":"win","arch":"arm64","executable":"win-arm64-unpacked/LAWOSS.exe","asar":"win-arm64-unpacked/resources/app.asar","securityTarget":"win-arm64-unpacked/LAWOSS.exe"}]}') }}
     defaults:
       run:
         shell: bash
@@ -203,36 +203,7 @@ jobs:
     timeout-minutes: 100
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            platform: linux
-            arch: x64
-            executable: linux-unpacked/legalwork
-            asar: linux-unpacked/resources/app.asar
-            securityTarget: linux-unpacked/legalwork
-          - os: windows-2022
-            target: x86_64-pc-windows-msvc
-            platform: win
-            arch: x64
-            executable: win-unpacked/LAWOSS.exe
-            asar: win-unpacked/resources/app.asar
-            securityTarget: win-unpacked/LAWOSS.exe
-          - os: macos-15
-            target: aarch64-apple-darwin
-            platform: mac
-            arch: arm64
-            executable: mac-arm64/LAWOSS.app/Contents/MacOS/LAWOSS
-            asar: mac-arm64/LAWOSS.app/Contents/Resources/app.asar
-            securityTarget: mac-arm64/LAWOSS.app
-          - os: windows-11-arm
-            target: aarch64-pc-windows-msvc
-            platform: win
-            arch: arm64
-            executable: win-arm64-unpacked/LAWOSS.exe
-            asar: win-arm64-unpacked/resources/app.asar
-            securityTarget: win-arm64-unpacked/LAWOSS.exe
+      matrix: *desktop-matrix
     defaults:
       run:
         shell: bash
@@ -333,7 +304,7 @@ jobs:
   memory-budget:
     name: RAM budget 2 GB (macos-15)
     needs: [sandbox-runtime, opencode-engine]
-    if: ${{ !cancelled() && (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'skipped') && (needs.opencode-engine.result == 'success' || needs.opencode-engine.result == 'skipped') }}
+    if: ${{ !inputs.windows-only && !cancelled() && (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'skipped') && (needs.opencode-engine.result == 'success' || needs.opencode-engine.result == 'skipped') }}
     runs-on: macos-15
     timeout-minutes: 60
     defaults:
