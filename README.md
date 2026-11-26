@@ -30,7 +30,7 @@ Ráno otvoríte **Dnes** a pozriete si najbližšie evidované lehoty. Vyberiete
 
 Ak vám pri inštalácii pomáha vlastný AI agent, dajte mu odkaz na tento repozitár a pokyn **„Pomôž mi vyskúšať LAWOSS na mojom počítači.“** [Postup pre agenta](docs/tester-agent.md)
 
-## Ako vyzerá pripravovaná alfa 21
+## Ako vyzerá pilotná zostava
 
 Snímky pochádzajú z **interného kandidáta z 25. novembra 2026** a zobrazujú syntetické údaje. Pozvánka uvedená vyššie distribuuje alfu 20. [Zmeny a postup skúšky kandidáta](https://github.com/Omni-Legal-Products/lawoss/blob/b60fdd082864da96e0b85369a298e715e6fc918b/docs/lawoss-build-pre-testerov.md#kontroly-pilotnej-zostavy)
 
@@ -42,6 +42,8 @@ Snímky pochádzajú z **interného kandidáta z 25. novembra 2026** a zobrazuj�
 |---|---|
 | [![PDF otvorené na šírku panela so zlatým perom pri názve dokumentu](docs/screenshots/pilot/citacka-pdf.png)](docs/screenshots/pilot/citacka-pdf.png) | [![Rozbalený zoznam dvoch testovacích podpisov s osobou, formátom, vydavateľom a časom](docs/screenshots/pilot/podpisy-pdf.png)](docs/screenshots/pilot/podpisy-pdf.png) |
 | Zlatým perom **Podpísať v Chevron7** odošlete vybrané PDF do podpisovacej aplikácie. Podpis dokončíte v Chevron7. | Kliknutím na odtlačok zobrazíte podpisy a časové pečiatky vložené v PDF. Na overenie platnosti či kvalifikovanosti podpisu použite samostatný validátor. |
+
+Ak pripojíte klientsky priečinok s vlastným indexom alebo pracovnými poznámkami, v **Prehľade** uvidíte súbory aj pred založením prvého prípadu. Môžete obnoviť údaje z disku, otvoriť index alebo pripraviť otázku pre AI. Správu si pred odoslaním skontrolujete. [Práca s klientskym priečinkom](lawoss/user-guide/sk/klienti-a-pripady.md)
 
 V kandidátovi sa **Fast** zapína bleskom pri modeli priamo v chate, ak ho pripojenie pre daný model ponúka. Pri dokončenom volaní registra vidíte, ktorý zdroj asistent použil. V prehľade prípadu môžete upraviť zobrazovaný názov a v nastaveniach nájdete správu osobných skillov.
 

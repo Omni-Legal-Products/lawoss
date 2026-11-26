@@ -50,7 +50,7 @@ const methodPillToneClass = (type: ProviderAuthMethod["type"]) => {
 import type { FormInfo } from "@opencode/client";
 import { NativeFormPanel } from "../../session/modals/native-form-panel";
 import { t } from "@/i18n";
-import { providerMethodLabel } from "@/lawoss/providers/method-labels";
+import { primaryChatGptMethod, providerMethodLabel } from "@/lawoss/providers/method-labels";
 import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import type {
   CustomProviderApiType,
@@ -284,6 +284,7 @@ export type ProviderAuthModalProps = {
     code?: string,
   ) => Promise<{ connected: boolean; pending?: boolean; message?: string }>;
   onRefreshProviders?: () => Promise<unknown>;
+  onCancelAuth?: () => Promise<void>;
   onClose: () => void;
 };
 
@@ -721,7 +722,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     queueMicrotask(() => {
       if (props.startOAuth) {
         setSelectedProviderId(entry.id);
-        const method = entry.methods.find(item => item.type === "oauth");
+        const method = isOpenAiProvider(entry.id, entry.name) ? primaryChatGptMethod(entry.methods) : entry.methods.find(item => item.type === "oauth");
         if (!method) {
           setView("method");
           setLocalError(`${t("providers.no_oauth_prefix")} ${entry.name}.`);
@@ -795,27 +796,37 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       if (startToken === oauthStartTokenRef.current && result?.connected) handleClose();
       return result;
     } catch (error) {
+      if (startToken !== oauthStartTokenRef.current) return { connected: false, pending: false };
       const message = error instanceof Error ? error.message : t("providers.oauth_failed");
       setLocalError(message);
       throw error instanceof Error ? error : new Error(message);
     } finally {
-      oauthSubmitBusyRef.current = false;
+      if (startToken === oauthStartTokenRef.current) oauthSubmitBusyRef.current = false;
     }
   };
 
   const attemptOauthAutoCompletion = async () => {
     const session = oauthSession;
     if (!session || oauthAutoBusyRef.current || oauthSubmitBusyRef.current) return;
+    const startToken = oauthStartTokenRef.current;
     oauthAutoBusyRef.current = true;
     setOauthAutoBusy(true);
     try {
       const result = await submitOauth(session.providerId, session.methodIndex);
-      if (!result?.connected && result?.message) {
+      if (startToken === oauthStartTokenRef.current && !result?.connected && result?.message) {
         setOauthSession(current => current ? { ...current, authorization: { ...current.authorization, instructions: result.message } } : current);
       }
+    } catch {
+      if (startToken === oauthStartTokenRef.current) {
+        stopOauthAutoPolling();
+        setOauthSession(null);
+        setView("method");
+      }
     } finally {
-      oauthAutoBusyRef.current = false;
-      setOauthAutoBusy(false);
+      if (startToken === oauthStartTokenRef.current) {
+        oauthAutoBusyRef.current = false;
+        setOauthAutoBusy(false);
+      }
     }
   };
 
@@ -843,6 +854,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       return;
     }
     oauthStartBusyRef.current = true;
+    setView("oauth-auto");
     const startToken = ++oauthStartTokenRef.current;
     setLocalError(null);
     setOauthCodeInput("");
@@ -1257,6 +1269,11 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       eigenweltWaitTokenRef.current += 1;
       oauthStartTokenRef.current += 1;
       oauthStartBusyRef.current = false;
+      stopOauthAutoPolling();
+      oauthSubmitBusyRef.current = false;
+      oauthAutoBusyRef.current = false;
+      setOauthAutoBusy(false);
+      void props.onCancelAuth?.();
       if ((selectedEntry?.methods.length ?? 0) > 1) {
         setView("method");
       } else {
@@ -1356,7 +1373,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   );
 
   const featuredOpenAI = entries.find(entry => isOpenAiProvider(entry.id, entry.name) && entry.methods.some(method => method.type === "oauth"));
-  const featuredChatGptMethod = featuredOpenAI?.methods.find(method => method.type === "oauth");
+  const featuredChatGptMethod = primaryChatGptMethod(featuredOpenAI?.methods ?? []);
   const selectedEntryIsOpenAI = Boolean(selectedEntry && isOpenAiProvider(selectedEntry.id, selectedEntry.name));
   const selectedEntryHasClaudeSubscription = Boolean(
     selectedEntry &&
@@ -1427,7 +1444,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     <div className="mb-4">
                       <ChatGptPlanCard disabled={actionDisabled} onContinue={() => {
                         setSelectedProviderId(featuredOpenAI.id);
-                        setView("method");
                         void startOauth(featuredOpenAI, featuredChatGptMethod.methodIndex);
                       }} />
                     </div>
@@ -1549,7 +1565,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                   </div>}
                   {selectedEntryHasClaudeSubscription ? anthropicSubscriptionWarning : null}
                   <div className="grid gap-2">
-                    {selectedEntry.methods.map((method) => selectedEntryIsOpenAI && method.type === "oauth" ? (
+                    {selectedEntry.methods.map((method) => selectedEntryIsOpenAI && method === featuredChatGptMethod ? (
                       <ChatGptPlanCard
                         key={`${selectedEntry.id}-${method.methodIndex}`}
                         disabled={actionDisabled}
@@ -1567,7 +1583,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                         onClick={() => void handleMethodSelect(method)}
                         disabled={actionDisabled}
                       >
-                        <div className="text-sm font-medium text-dls-text">{selectedEntryIsOpenAI ? t("providers.use_openai_api_key") : methodLabel(method)}</div>
+                        <div className="text-sm font-medium text-dls-text">{selectedEntryIsOpenAI && method.type === "api" ? t("providers.use_openai_api_key") : methodLabel(method)}</div>
                         <div className="mt-1 text-xs text-dls-secondary">{methodDescription(selectedEntry, method)}</div>
                       </button>
                     ))}

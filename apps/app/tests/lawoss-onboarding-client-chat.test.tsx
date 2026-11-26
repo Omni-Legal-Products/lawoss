@@ -33,18 +33,18 @@ const NONE = providerList([], { openai: ["gpt-5.6-terra"] });
 const OLD_SK = /(?<!\p{L})[Vv]ec(i|ou|í|iam|ami|iach)?(?!\p{L})/u;
 const OLD_CS = /(?<!\p{L})[Vv]ěc(i|í|em|mi|ech)?(?!\p{L})/u;
 
-describe("Toto som našiel: chat s klientom je hlavná voľba", () => {
-  test("klient: Otvoriť chat s klientom je zlaté tlačidlo, Nie ostáva, tabuľka je pokročilá voľba", () => {
+describe("Toto som našiel: pripojenie priečinka otvorí prehľad", () => {
+  test("klient: pripojenie priečinka je hlavné tlačidlo, chat ostáva, tabuľka je pokročilá voľba", () => {
     const html = renderToStaticMarkup(<FoundView {...props} chat suggestion={base()} level="client" />);
     expect(html).toContain("Ako chcete pokračovať?");
-    expect(html).toMatch(/class="lw-btn gold"[^>]*>Otvoriť chat s klientom</);
-    expect(html).toMatch(/class="lw-btn"[^>]*>Nie, nechaj ho tak, ako je</);
+    expect(html).toMatch(/class="lw-btn"[^>]*>Otvoriť chat s klientom</);
+    expect(html).toMatch(/class="lw-btn gold"[^>]*>Pripojiť priečinok Novák</);
     expect(html).toMatch(/<details[^>]*>\s*<summary[^>]*>Pokročilé<\/summary>[\s\S]*>Usporiadať podľa tabuľky<\/button>[\s\S]*<\/details>/);
     expect(html).not.toContain("Áno, usporiadaj");
     // Oznámenie o pomocných súboroch je pred všetkými odpoveďami, ktoré zapisujú.
     expect(html.indexOf("Do priečinka pridám niekoľko pomocných súborov")).toBeLessThan(html.indexOf("Otvoriť chat s klientom"));
-    expect(html.indexOf("Otvoriť chat s klientom")).toBeLessThan(html.indexOf("Nie, nechaj ho tak, ako je"));
-    expect(html.indexOf("Nie, nechaj ho tak, ako je")).toBeLessThan(html.indexOf("Usporiadať podľa tabuľky"));
+    expect(html.indexOf("Pripojiť priečinok Novák")).toBeLessThan(html.indexOf("Otvoriť chat s klientom"));
+    expect(html.indexOf("Pripojiť priečinok Novák")).toBeLessThan(html.indexOf("Usporiadať podľa tabuľky"));
   });
   test("tlačidlá odpovedí volajú chat, nie a tabuľku", () => {
     const answers: string[] = [];
@@ -58,7 +58,7 @@ describe("Toto som našiel: chat s klientom je hlavná voľba", () => {
       walk(nodeProps.children);
     };
     walk(element);
-    for (const label of ["Otvoriť chat s klientom", "Nie, nechaj ho tak, ako je", "Usporiadať podľa tabuľky"]) buttons.find((button) => button.label === label)?.click();
+    for (const label of ["Otvoriť chat s klientom", "Pripojiť priečinok Novák", "Usporiadať podľa tabuľky"]) buttons.find((button) => button.label === label)?.click();
     expect(answers).toEqual(["chat", "no", "yes"]);
   });
   test("počas zápisu sú všetky odpovede vypnuté", () => {
@@ -69,7 +69,8 @@ describe("Toto som našiel: chat s klientom je hlavná voľba", () => {
   test("prípad a prax: obrazovka otázky ostáva bez chatu (prax ho ponúkne až po pridaní súborov)", () => {
     const matter = renderToStaticMarkup(<FoundView {...props} chat suggestion={base({ root: "/p/Novák/2024-03 Zmluva", level: "matter" })} level="matter" />);
     expect(matter).not.toContain("Otvoriť chat s klientom");
-    expect(matter).toContain("Pripojiť klienta Novák");
+    expect(matter).toContain("Pripojiť priečinok 2024-03 Zmluva");
+    expect(matter).not.toContain("Pripojiť klienta Novák");
     const clients = [{ path: "Alfa", name: "Alfa" }];
     const practice = renderToStaticMarkup(<FoundView {...props} chat suggestion={base({ level: "practice", clients, clientPattern: "*" })} level="practice" selected={["Alfa"]} />);
     expect(practice).not.toContain("Otvoriť chat s klientom");
@@ -417,7 +418,7 @@ describe("zapojenie otvorenia chatu (client-chat-open)", () => {
   const local: RouteWorkspace = { id: "ws-1", name: "Novák", displayNameResolved: "Novák", path: "/p/Novák", preset: "starter", workspaceType: "local" };
   const connection = (patch: Partial<OkfConnection> = {}): OkfConnection => ({ client: server, baseUrl: "http://127.0.0.1:1", token: "t", workspaces: [local], activeWorkspaceId: "ws-1", ...patch });
   test("priečinok klienta podľa id aj podľa cesty", () => {
-    expect(clientChatTarget(connection(), { workspaceId: "ws-1", directory: "/iné" })?.workspace.id).toBe("ws-1");
+    expect(clientChatTarget(connection(), { workspaceId: "ws-1", directory: "/iné" })).toBeNull();
     expect(clientChatTarget(connection(), { directory: "/p/Novák/" })?.workspace.id).toBe("ws-1");
   });
   test("chýbajúci priečinok, vzdialený priečinok, chýbajúci token alebo server: chat sa neotvorí", () => {

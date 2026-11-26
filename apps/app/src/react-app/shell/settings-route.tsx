@@ -29,7 +29,6 @@ import { buildLegalworkEnvRuntimeKey } from "@/app/lib/legalwork-env-runtime";
 import type {
   Client,
   ProviderListItem,
-  SettingsTab,
   WorkspaceConnectionState,
   WorkspaceDisplay,
   WorkspacePreset,
@@ -170,7 +169,7 @@ import { useReloadCoordinator } from "./reload-coordinator";
 import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory";
 import { liteSettingsWorkspace } from "@/lawoss/lite/office-scope";
 import { settingsReturnRoute } from "@/lawoss/lite/settings-return"; // 🟡 LAWOSS: zatvorenie Nastavení v lite
-import { composerSettingsPath, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
+import { composerSettingsPath, settingsPathForRoute, workspaceSessionRoute, workspaceSettingsRoute, type SettingsPathParts } from "./workspace-routes";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { refreshProviderListQueries } from "@/react-app/infra/provider-list-query";
 import {
@@ -200,16 +199,7 @@ function reconcileSelectedWorkspaceId(
 
 const SETTINGS_HIDE_TITLEBAR_KEY = "legalwork.react.settings.hide-titlebar";
 
-function parseSettingsPath(pathname: string): {
-  tab: SettingsTab;
-  redirectPath: string | null;
-  workflowsSection?: "workflows" | "prompts" | "skills";
-  extensionsSection?: "all" | "mcp" | "skills" | "plugins" | "storage";
-  benchmarkRunId?: string;
-  benchmarkTaskId?: string;
-  benchmarkItemId?: string;
-  benchmarkItemChat?: boolean;
-} {
+function parseSettingsPath(pathname: string): SettingsPathParts & { redirectPath: string | null } {
   const trimmed = pathname
     .replace(/^\/workspace\/[^/]+\/settings\/?/, "")
     .replace(/^\/settings\/?/, "")
@@ -314,21 +304,6 @@ function findSessionWorkspaceId(
   return entries.find((entry) => entry.sessions.some((session) => session?.id === id))?.workspaceId ?? null;
 }
 
-function settingsPathForRoute(route: ReturnType<typeof parseSettingsPath>) {
-  if (route.tab === "extensions" && route.extensionsSection && route.extensionsSection !== "all") {
-    return `extensions/${route.extensionsSection}`;
-  }
-  if (route.tab === "benchmark" && route.benchmarkRunId) {
-    const base = `benchmark/runs/${encodeURIComponent(route.benchmarkRunId)}`;
-    if (!route.benchmarkItemId) return base;
-    const itemPath = `${base}/items/${encodeURIComponent(route.benchmarkItemId)}`;
-    return route.benchmarkItemChat ? `${itemPath}/chat` : itemPath;
-  }
-  if (route.tab === "benchmark" && route.benchmarkTaskId) {
-    return `benchmark/tasks/${encodeURIComponent(route.benchmarkTaskId)}`;
-  }
-  return route.tab;
-}
 
 export type SettingsSurfaceProps = {
   active?: boolean;
@@ -2361,15 +2336,18 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             lawossIntro={<div className="space-y-4">
               <AiGuidance locale={currentLocale()} liteDisclosure /* 🟡 LAWOSS: lite zbalené */ />
               <IntegrationSourcesCard />
-              {nativeIntegrations.error ? <p role="alert" className="text-sm text-red-11">{describeRouteError(nativeIntegrations.error)}</p> : null}
-              <NativeCatalog
+              {fileMemoryView}
+              <Chevron7IntegrationCard />
+            </div>}
+            lawossMarketplace={(googleOnly) => (
+              <NativeCatalog googleOnly={googleOnly}
                 workspaceId={runtimeWorkspaceId ?? ""}
                 workspaceName={selectedWorkspaceName}
                 busy={busy}
                 loading={nativeIntegrations.loading}
                 error={nativeIntegrations.error}
                 plugins={nativeIntegrations.plugins}
-                skills={extensionsStore.skills()}
+                skills={nativeIntegrations.availableSkills}
                 canInstallPlugin={Boolean(legalworkClient) && canInstallWorkspaceBundle}
                 canInstallSkills={Boolean(legalworkClient) && canInstallOkfSkills}
                 installPlugin={(url) => extensionsStore.installClaudePlugin(url)}
@@ -2377,9 +2355,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 installOkf={nativeIntegrations.installOkf}
                 refresh={nativeIntegrations.refresh}
               />
-              {fileMemoryView}
-              <Chevron7IntegrationCard />
-            </div>}
+            )}
             mcpView={mcpView}
             skillDetails={extensionsStore}
             renderPluginConnector={(name, onClose, pluginName) => cloneElement(mcpView, { detailsOnly: true, pluginName, selectedMcp: name, setSelectedMcp: next => { if (next === null) onClose(); } })}
@@ -2507,7 +2483,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       ) : (
         <SettingsShell
           accountClient={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient}
-          activeTab={route.tab}
+          activeTab={route.workflowsSection === "skills" ? "skills" : route.tab}
           onSelectTab={(tab) => navigateSettingsPath(tab)}
           developerMode={developerMode}
           selectedWorkspaceId={selectedWorkspaceId}
@@ -2540,6 +2516,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         connectedProviderIds={providerConnectedIds}
         authMethods={providerAuthSnapshot.providerAuthMethods}
         onSelect={providerAuthStore.startProviderAuth}
+        onCancelAuth={providerAuthStore.cancelProviderAuth}
         onSubmitApiKey={providerAuthStore.submitProviderApiKey}
         onSubmitCustomProvider={providerAuthStore.submitCustomProvider}
         onFetchCustomModels={providerAuthStore.fetchCustomProviderModels}

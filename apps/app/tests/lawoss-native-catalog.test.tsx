@@ -67,8 +67,8 @@ describe("native catalog rendering", () => {
   });
   test("existing OKF skills show the limited confirmed fact, not verified resources or connected MCP", () => {
     const html = renderToStaticMarkup(<NativeCatalog {...props} skills={[{ name: "novy-spis", path: "a" }, { name: "okf-pamat", path: "b" }, { name: "usporiadaj-spis", path: "c" }, { name: "roztried-spis", path: "d" }, { name: "vystup-dokumentu", path: "e" }]} />);
-    expect(html).toContain("Skills saved");
-    expect(html).toContain("Confirm package update");
+    expect(html).toContain("5 of 5 bundled skills available in this workspace");
+    expect(html).toContain("Write the bundled copies to this folder");
     expect(html).not.toContain("MCP connected");
     expect(html).not.toContain("Resources verified");
     expect(html).toContain("installed once for all your clients");
@@ -77,17 +77,51 @@ describe("native catalog rendering", () => {
   });
   test("partial OKF pack does not report all five installed and readonly actions stay disabled", () => {
     const html = renderToStaticMarkup(<NativeCatalog {...props} skills={[{ name: "novy-spis", path: "a" }, { name: "okf-pamat", path: "b" }, { name: "usporiadaj-spis", path: "c" }]} />);
-    expect(html).not.toContain("Skills saved");
+    expect(html).toContain("3 of 5 bundled skills available in this workspace");
     // Bez lokálneho servera LAWOSS Marketplace a bez práva zápisu: potvrdenie v každej karte je vypnuté.
-    expect(html.match(/<button[^>]*disabled=""[^>]*>Confirm installation in folder<\/button>/g)?.length).toBe(MARKETPLACE_CATALOG.length);
+    expect(html.match(/<button[^>]*disabled=""[^>]*>Confirm installation in folder<\/button>/g)?.length).toBe(MARKETPLACE_CATALOG.length - 1);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Write the bundled copies to this folder/);
     expect(html).toContain('data-lawoss-target="workspace"');
   });
+  test("the dedicated Google view distinguishes package state from the local gog account", () => {
+    const html = renderToStaticMarkup(<NativeCatalog {...props} googleOnly />);
+    expect(html).toContain("Google Workspace via gog");
+    expect(html).toContain("ext-google.svg");
+    expect(html).toContain("Available to install");
+    expect(html).toContain("gog auth list --check");
+    expect(html).toContain("ext-googlecalendar.svg");
+    expect(html).toContain("ext-googledrive.svg");
+    expect(html).toContain("Install skill");
+    expect(html.indexOf("Google Workspace via gog")).toBeLessThan(html.indexOf("All clients"));
+    expect(html).not.toContain('data-lawoss-entry="orsr"');
+    expect(html).not.toContain(">Connected<");
+    const pending = renderToStaticMarkup(<NativeCatalog {...props} googleOnly loading />);
+    expect(pending).toContain("Installation status unavailable");
+    expect(pending).not.toContain("Available to install");
+  });
+
+  test("an unavailable workspace skill inventory does not claim zero existing skills", () => {
+    const html = renderToStaticMarkup(<NativeCatalog {...props} skills={undefined} />);
+    expect(html).toContain("Skill availability has not been verified.");
+    expect(html).not.toContain("0 of 5");
+  });
+
+  test("a globally imported package in the combined registry has no workspace copy badge", () => {
+    const html = renderToStaticMarkup(<NativeCatalog {...props} googleOnly plugins={[{
+      pluginId: "github:Omni-Legal-Products/lawoss-marketplace#plugins/google-workspace-gog",
+      name: "Google Workspace", scope: "global", marketplaceId: null, description: null, updatedAt: null, files: [], importedAt: null,
+    }]} />);
+    expect(html).toContain('data-lawoss-installed="global"');
+    expect(html).not.toContain('data-lawoss-installed="workspace"');
+    expect(html).toContain("Manage installation");
+  });
+
   test("failed registry refresh does not present a cached import as a current installed badge", () => {
     const html = renderToStaticMarkup(<NativeCatalog {...props} error={new Error("registry offline")} plugins={[{
       pluginId: "github:Omni-Legal-Products/lawoss-marketplace#plugins/orsr", name: "ORSR", marketplaceId: null,
       description: null, updatedAt: null, files: [], importedAt: null,
     }]} />);
     expect(html).toContain("registry offline");
-    expect(html).not.toContain(">Installed<");
+    expect(html).not.toContain('data-lawoss-installed="workspace"');
   });
 });

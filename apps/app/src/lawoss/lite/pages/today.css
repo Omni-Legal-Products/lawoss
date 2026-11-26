@@ -15,19 +15,6 @@
   color: var(--lw-text-primary);
 }
 
-/* Jemná zlatá záře za úvodem, jako horizont na webu. */
-.lw-today::before {
-  content: "";
-  position: absolute;
-  inset: -40px -24px auto;
-  height: 320px;
-  pointer-events: none;
-  background:
-    radial-gradient(520px 220px at 82% 0%, color-mix(in srgb, var(--td-gold) 22%, transparent), transparent 70%),
-    radial-gradient(420px 180px at 12% 10%, color-mix(in srgb, var(--td-gold) 8%, transparent), transparent 70%);
-  filter: blur(4px);
-  z-index: 0;
-}
 .lw-today > * { position: relative; z-index: 1; }
 
 /* Postupné odhalení; bez pohybu, když si to systém nepřeje. */

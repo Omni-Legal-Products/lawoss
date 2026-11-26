@@ -4,6 +4,7 @@ import * as React from "react";
 import { ChevronDown, Settings2 } from "lucide-react";
 
 import type { ModelOption, ModelRef } from "@/app/types";
+import { subscriptionSpeedBase } from "@/lawoss/providers/subscription-models";
 import { modelDisplayName } from "@/app/utils/models";
 import { ProviderIcon } from "@/react-app/design-system/provider-icon";
 import {
@@ -74,6 +75,7 @@ export function useModelOptions(open: boolean) {
       Object.entries(provider.models).map(([id, model]) => ({
         providerID: provider.id,
         modelID: id,
+        subscriptionBaseID: subscriptionSpeedBase(provider, id),
         title: modelDisplayName(id, model.name),
         description: provider.name,
         behaviorTitle: t("model_select.reasoning"),
@@ -139,6 +141,7 @@ interface ModelSelectProps {
   onChange: (model: ModelRef) => void;
   disabled?: boolean;
   showManageModels?: boolean;
+  groupSubscriptionTiers?: boolean;
   /** Render a plain label instead of a picker — for setups where there is
    *  nothing to pick (a single provider serving a single model). */
   locked?: boolean;
@@ -162,6 +165,7 @@ function ModelSelectWithOptions({
   onChange,
   disabled = false,
   showManageModels = true,
+  groupSubscriptionTiers = false,
   locked = false,
   modelOptions,
 }: ModelSelectProps & { modelOptions: ModelOption[] }) {
@@ -196,9 +200,11 @@ function ModelSelectWithOptions({
     }),
   );
 
+  const speedBase = groupSubscriptionTiers ? selectedOption?.subscriptionBaseID : undefined;
+  const selectedName = speedBase ? modelOptions.find(option => option.providerID === "openai" && option.modelID === speedBase)?.title : selectedOption?.title;
   const groups = React.useMemo(
-    () => groupByProvider(modelOptions),
-    [modelOptions],
+    () => groupByProvider(groupSubscriptionTiers ? modelOptions.filter(option => !option.subscriptionBaseID || option.modelID === option.subscriptionBaseID) : modelOptions),
+    [modelOptions, groupSubscriptionTiers],
   );
 
   const handleSelect = (option: ModelOption) => {
@@ -241,7 +247,7 @@ function ModelSelectWithOptions({
           }
         >
           <span className="max-w-48 truncate">
-            {selectedOption?.title ?? (value?.modelID || t("model_select.select_model"))}
+            {selectedName ?? (value?.modelID || t("model_select.select_model"))}
           </span>
           <ChevronDown className="h-3 w-3" />
         </TooltipTrigger>
@@ -280,7 +286,7 @@ function ModelSelectWithOptions({
                         key={item.id}
                         value={`${option.providerID}:${option.modelID} ${option.title} ${option.description ?? ""}`}
                         onClick={() => handleSelect(option)}
-                        data-checked={isSameModel(value, option)}
+                        data-checked={isSameModel(value, option) || Boolean(speedBase && option.modelID === speedBase && option.providerID === "openai")}
                       >
                         <ProviderIcon
                           providerId={option.providerID}

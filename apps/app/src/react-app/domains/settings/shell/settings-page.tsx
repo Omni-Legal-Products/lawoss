@@ -253,7 +253,7 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   // Account leads: it is the firm's sign-in, plan and billing home.
-  const tabs: SettingsTab[] = ["account", "ai", "assistant", "notifications", "tabular-review", "extensions", "personalisation", "appearance", "safety", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["account", "ai", "assistant", "notifications", "tabular-review", "extensions", "skills", "personalisation", "appearance", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
   // Keep Account, AI Providers and Assistant first.
   if (isDesktopRuntime()) tabs.splice(3, 0, "office-addins");
@@ -402,7 +402,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
 }
 
 export function SettingsPage(props: SettingsPageProps) {
-  const library = props.activeTab === "extensions" || props.activeTab === "workflows";
+  const library = props.activeTab === "extensions" || props.activeTab === "workflows" || props.activeTab === "skills";
   return (
     <SettingsContent scrollable={!library}>
       {!library ? <SettingsPanel key={props.activeTab} className="lw-enter shrink-0">

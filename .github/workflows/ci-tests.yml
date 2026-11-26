@@ -154,11 +154,12 @@ jobs:
     uses: ./.github/workflows/ci-desktop-packaging.yml
     with:
       windows-only: true
+      runtime_provided: true
       derivative-manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
   mac-signing-acceptance:
     needs: [signing-inputs, changes]
-    # 🟡 LAWOSS: podpis enginu identitou Eigenwelt beží len v upstreame.
-    if: github.repository == 'eigenweltlabs/legalwork' && github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance && !inputs.native_source_acceptance
+    # A manual signer check can run only from the reviewed default branch.
+    if: github.repository == 'Omni-Legal-Products/lawoss' && github.ref == 'refs/heads/dev' && github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance && !inputs.native_source_acceptance
     uses: ./.github/workflows/mac-engine-signing-acceptance.yml
     secrets:
       APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
@@ -347,6 +348,10 @@ jobs:
       - name: Verify private desktop engine authentication after server build
         run: node --test apps/desktop/electron/runtime-embedded-auth.node.test.mjs
 
+      - name: Verify disposable pilot setup and feedback template
+        if: runner.os == 'Linux'
+        run: python3 -m unittest discover -s lawoss/testing/tester -p 'test_*.py'
+
       - name: Verify native ISIR bootstrap, diagnostics and owned resources
         run: node --test lawoss/testing/isir/native/*.test.mjs apps/app/scripts/word-addin-watch.test.mjs
 
@@ -361,7 +366,7 @@ jobs:
         run: |
           node lawoss/scripts/check-no-eigenwelt.mjs
           node --test lawoss/scripts/check-no-eigenwelt.test.mjs
-          # LAWOSS (ADR 0016): engine len vývojovou (ad-hoc) cestou, bez podpisovateľa Eigenwelt.
+          # Verify development isolation and the approved LAWOSS production signing path.
           node --test lawoss/scripts/check-engine-dev-path.test.mjs
 
       - name: Run app unit tests

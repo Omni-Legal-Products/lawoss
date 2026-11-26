@@ -8,9 +8,11 @@ import { CHEVRON7_BUNDLE_ID, findChevron7App, plistDeclaresChevron7 } from "../.
 import { t } from "../src/i18n";
 import {
   CHEVRON7_WEB_URL,
+  CHEVRON7_INSTALL_URL,
   shouldCheckChevron7Installed,
   shouldShowChevron7Card,
 } from "../src/lawoss/domains/integrations/chevron7-card";
+import { chevron7SourceAction, isChevron7FileSelection } from "../src/lawoss/domains/integrations/chevron7-file-action";
 import { Chevron7CardContent } from "../src/lawoss/domains/integrations/chevron7-integration-card";
 
 const languages = ["sk", "cs", "en", "de"] as const;
@@ -27,14 +29,14 @@ describe("LAWOSS Chevron7 karta: viditeľnosť", () => {
 
 describe("LAWOSS Chevron7 karta: obsah", () => {
   test("v slovenčine ukáže názov, podpisovanie PDF a odkaz na web Chevron7", () => {
-    const html = renderToStaticMarkup(<Chevron7CardContent locale="sk" />);
+    const html = renderToStaticMarkup(<Chevron7CardContent locale="sk" installed={false} />);
     expect(html).toContain(">Chevron7</h4>");
     expect(html).toContain('data-lawoss-badge="chevron7-signing"');
     expect(html).toContain("Podpisovanie PDF");
-    expect(html).toContain("PIN vyberáte priamo v Chevron7");
-    expect(html).toContain(`href="${CHEVRON7_WEB_URL}"`);
-    expect(html).toContain("Viac o Chevron7");
-    expect(CHEVRON7_WEB_URL).toBe("https://chevron7.slovensko.app");
+    expect(html).toContain("V Chevron7 vyberiete certifikát a zadáte PIN");
+    expect(html).toContain(`href="${CHEVRON7_INSTALL_URL}"`);
+    expect(html).toContain("Nainštalovať Chevron7");
+    expect(CHEVRON7_INSTALL_URL).toBe("https://chevron7.slovensko.app/#stiahnut");
   });
 
   test("karta nemá tlačidlo Pripojiť ani inú akciu okrem odkazu", () => {
@@ -50,19 +52,31 @@ describe("LAWOSS Chevron7 karta: obsah", () => {
     const badges = languages.map(locale => t("lawoss.integrations.chevron7.badge", locale));
     expect(badges).toEqual(["Podpisovanie PDF", "Podpisování PDF", "PDF signing", "PDF signieren"]);
     for (const locale of languages) {
-      const html = renderToStaticMarkup(<Chevron7CardContent locale={locale} />);
-      expect(html).toContain(t("lawoss.integrations.chevron7.link", locale));
+      const html = renderToStaticMarkup(<Chevron7CardContent locale={locale} installed={false} />);
+      expect(html).toContain(t("lawoss.integrations.chevron7.install", locale));
       expect(html).toContain(t("lawoss.integrations.chevron7.description", locale));
     }
   });
 });
 
 describe("LAWOSS Chevron7 karta: stav nainštalované", () => {
-  test("podporovaný helper sprístupní podpisovanie a verziu", () => {
-    const html = renderToStaticMarkup(<Chevron7CardContent locale="sk" installed available version="1.18.0" />);
-    expect(html).toContain("Vybrať PDF na podpis");
-    expect(html).toContain("1.18.0");
+  test("podporovaný helper zobrazí verziu bez podpisovacej akcie", () => {
+    const html = renderToStaticMarkup(<Chevron7CardContent locale="sk" installed available version="1.23.2" />);
+    expect(html).not.toContain("<button");
+    expect(html).not.toContain("Podpísať v Chevron7");
+    expect(html).toContain("1.23.2");
     expect(html).not.toContain("Pre toto prepojenie nainštalujte");
+  });
+  test("odlišuje neistý stav a prebiehajúcu kontrolu od chýbajúcej inštalácie", () => {
+    for (const checking of [false, true]) {
+      const html = renderToStaticMarkup(<Chevron7CardContent locale="sk" checking={checking} />);
+      expect(html).toContain(t(checking ? "lawoss.integrations.chevron7.checking" : "lawoss.integrations.chevron7.unknown", "sk"));
+      expect(html).not.toContain(CHEVRON7_INSTALL_URL);
+      expect(html).toContain(`href="${CHEVRON7_WEB_URL}"`);
+    }
+    const unsupported = renderToStaticMarkup(<Chevron7CardContent locale="sk" installed available={false} />);
+    expect(unsupported).toContain(t("lawoss.integrations.chevron7.unsupported", "sk"));
+    expect(unsupported).not.toContain(CHEVRON7_INSTALL_URL);
   });
   test("kontrola beží len v desktop appke na macOS", () => {
     expect(shouldCheckChevron7Installed({ desktopRuntime: true, isMac: true })).toBe(true);
@@ -128,4 +142,42 @@ test("Integrations (úvod prehľadu integrácií) vykresľuje kartu Chevron7 nam
   const source = readFileSync(new URL("../src/react-app/shell/settings-route.tsx", import.meta.url), "utf8");
   expect(source).toContain("<Chevron7IntegrationCard />");
   expect(source).not.toContain("<AutogramIntegrationCard />");
+});
+
+test("offers a file action only for a local desktop PDF selection", () => {
+  const selection = { workspaceId: "office", relativePath: "Spis/Návrh.PDF", serverUrl: "http://127.0.0.1:43123" };
+  expect(isChevron7FileSelection(selection, true)).toBe(true);
+  expect(isChevron7FileSelection(selection, false)).toBe(false);
+  expect(isChevron7FileSelection({ ...selection, serverUrl: "https://remote.example" }, true)).toBe(false);
+  for (const relativePath of ["/tmp/Návrh.pdf", "../Návrh.pdf", "sub/../Návrh.pdf", "file:///tmp/a.pdf", "test.docx"]) {
+    expect(isChevron7FileSelection({ ...selection, relativePath }, true)).toBe(false);
+  }
+});
+
+test("a PDF opened in another project activates its exact source tab before signing", async () => {
+  const { usePanelTabStore, workspacePanelKey } = await import("../src/react-app/domains/session/panel/panel-tab-store");
+  const { useUiStateStore } = await import("../src/react-app/shell/ui-state-store");
+  const previousTabs = usePanelTabStore.getState();
+  const previousUi = useUiStateStore.getState();
+  const workspaceId = "synthetic-source";
+  const scope = workspacePanelKey(workspaceId);
+  const name = "Návrh.PDF";
+  const path = `B/${name}`;
+  const routes: string[] = [];
+  const navigate = (route: string) => { routes.push(route); };
+  try {
+    usePanelTabStore.getState().openTab(scope, { id: "other", type: "artifact", label: name, value: `A/${name}`, preview: "pdf" });
+    const open = chevron7SourceAction("synthetic-viewer", workspaceId, path, name, navigate);
+    expect(routes).toEqual([]);
+    open!();
+    expect(routes).toEqual(["/workspace/synthetic-source/session?view=workspace"]);
+    const session = usePanelTabStore.getState().sessions[scope];
+    const selected = session.tabs.find(tab => tab.id === session.activeTabId);
+    expect(selected).toMatchObject({ label: name, value: path, sourceProject: { projectId: workspaceId, workspaceId, path, name } });
+    expect(useUiStateStore.getState().sidePanelState[scope]).toBe("panel");
+    expect(chevron7SourceAction(workspaceId, workspaceId, path, name, navigate)).toBeUndefined();
+  } finally {
+    usePanelTabStore.setState(previousTabs, true);
+    useUiStateStore.setState(previousUi, true);
+  }
 });

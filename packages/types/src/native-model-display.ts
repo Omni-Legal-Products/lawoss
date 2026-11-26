@@ -1,5 +1,5 @@
 /** Display metadata is never submitted as an executable model setting. */
-export type NativeModelDisplay = { legalwork?: { defaultVariantID: string | null } };
+export type NativeModelDisplay = { legalwork?: { defaultVariantID: string | null; subscriptionModel?: boolean } };
 export type NativeProviderDisplay = { legalwork?: { hasCustomEndpoint: boolean; chatCompletionsOnly?: boolean } };
 
 type Overlays = {

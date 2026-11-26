@@ -15,8 +15,12 @@ describe("LegalWork capabilities knowledge plugin", () => {
 
     await plugin.hook("session", "context", output);
 
-    expect(output.system.map(part => part.text).join("\n")).toContain("local-first desktop app");
-    expect(output.system.map(part => part.text).join("\n")).toContain("workspace-relative path");
+    const guidance = output.system.map(part => part.text).join("\n");
+    expect(guidance).toContain("local-first desktop app");
+    expect(guidance).toContain("workspace-relative path");
+    expect(guidance).toContain("Sign with Chevron7");
+    expect(guidance).toContain("separate signature validator");
+    expect(guidance).toContain("visible stamp alone provides no cryptographic evidence");
   });
 
   test("reports the project prompt as a reminder, resolving native project paths without matching neighbouring folders", async () => {

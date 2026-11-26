@@ -370,7 +370,10 @@ function manualLine(content: string, labels: readonly string[]): string | undefi
 function manualItem(ctx: Ctx, id: "phase" | "next_step", labels: readonly string[]): ViewItem[] {
   const status = ctx.input.manualStatus;
   const value = status ? manualLine(status.content, labels) : undefined;
-  if (!status || !value) return [];
+  if (!status || !value) {
+    const fromCard = !status && ctx.card.registration_id && clean(ctx.card[id]);
+    return fromCard ? [{ key: id, label: fromCard, source: cardSource(ctx, id) }] : [];
+  }
   return [{ key: id, label: value, ...(status.state === "stale" ? { flags: ["stale" as const] } : {}),
     source: { file: ctx.statusFile, section: labels[0], ...(status.updated ? { updated: status.updated } : {}) } }];
 }

@@ -71,7 +71,7 @@ export function CreateProjectModal(props: {
     }
   }, [props.open]);
   const hasFolders = Boolean(folder.trim() || remoteFolders.length);
-  const setup = initializeFromFolders && hasFolders;
+  const setup = Boolean(folder.trim()) || (initializeFromFolders && hasFolders);
   useEffect(() => {
     if (!hasFolders) setInitializeFromFolders(false);
   }, [hasFolders]);
@@ -157,10 +157,10 @@ export function CreateProjectModal(props: {
             </div>
             <p className="text-xs text-muted-foreground">{t(hasFolders ? "projects.setup.source_hint" : "projects.source_default_hint")}</p>
           </fieldset>
-          <div className="flex items-start justify-between gap-5 border-t border-border/60 pt-5">
+          {!folder.trim() && <div className="flex items-start justify-between gap-5 border-t border-border/60 pt-5">
             <div className="space-y-1.5"><label htmlFor="project-folder-setup" className="cursor-pointer text-sm font-medium">{t("projects.setup.label")}</label><p id="project-folder-setup-hint" className="text-xs leading-relaxed text-muted-foreground">{t(hasFolders ? "projects.setup.hint" : "projects.setup.choose_first")}</p></div>
             <Switch id="project-folder-setup" className="mt-0.5" checked={setup} onCheckedChange={setInitializeFromFolders} disabled={!hasFolders || props.submitting || picking} aria-describedby="project-folder-setup-hint" />
-          </div>
+          </div>}
           {catalog.isError ? <p role="alert" className="text-sm text-destructive">{t("projects.templates.load_failed")} <Button type="button" variant="link" onClick={() => void catalog.refetch()}>{t("projects.templates.reload")}</Button></p> : null}
           {props.error || pickError ? (
             <p role="alert" className="text-sm text-destructive">

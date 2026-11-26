@@ -81,6 +81,58 @@ Podrobný postup je v [D1, časť Klienti, veci a skilly](lawoss-d1-zabalena-app
 2. Opýtajte sa na konkrétnu vec z dokumentu, napríklad na sumu, dátum alebo strany zmluvy.
 3. Skontrolujte, či odpoveď sedí s dokumentom a či ukazuje, z ktorého dokumentu je. Odpovede nie sú právne stanovisko a overujete ich vy.
 
+### Overenie kandidáta na Windows
+
+Pred plánovaným spustením v piatok **27. novembra 2026** má Igor Ribár vyskúšať inštalátor kandidáta na svojom Windows. Stav ručnej skúšky je otvorený. Použite kandidátsky inštalátor od tímu a v Nastaveniach porovnajte verziu a commit s jeho odovzdávacím záznamom. Osobná pozvánka na alfu 20 slúži na skúšanie staršej zostavy.
+
+| Krok | Čo má tester vidieť |
+|---|---|
+| Overte architektúru počítača a SHA-256 inštalátora. Spustite ho na čistom testovacom profile. | Aplikácia sa otvorí, zobrazí svoju verziu a dovolí pripojiť syntetického klienta. V PowerShelli získate odtlačok príkazom `Get-FileHash -Algorithm SHA256 "cesta-k-instalatoru.exe"`. |
+| Prejdite tri cesty z časti 5 a kontroly pilotnej zostavy nižšie. | Prípady, premenovanie, model, Fast a použité registre zodpovedajú zvolenému klientovi a chatu. |
+| Otvorte nepodpísané PDF a kópiu s dvoma podpismi. Prepnite nástroje čítačky, rozšírte panel a vráťte sa do chatu. | Pri podpísanom PDF sa zobrazia obe osoby. Pri origináli sa zobrazí výsledok bez podpisu. Podpisovanie cez Chevron7 je dostupné na macOS. |
+| Na x64 vyskúšajte aj spracovanie série syntetických spisov ISIR vrátane tretieho. | Zaznamenajte, pri ktorom spise sa spracovanie dokončilo alebo zastavilo. Známe pozorovanie a výsledky podľa architektúry sú v [issue 384](https://github.com/Omni-Legal-Products/lawoss/issues/384#issuecomment-7162641392). |
+| Úplne ukončite LAWOSS, otvorte ho znova a potom vyskúšajte aktualizáciu na kópii staršieho testovacieho profilu. | Po reštarte ostávajú dostupné klient, prípad, názov aj dokumenty. Zaznamenajte osobitne výsledok čistej inštalácie a aktualizácie. |
+
+Do odovzdávacieho záznamu uveďte **Windows a architektúru, verziu, commit, SHA-256, výsledok každého kroku a prípadný blokátor**. Pri chybe pridajte prvý neúspešný krok, očakávaný a skutočný výsledok a snímku zo syntetického spisu. Tím rozhodne o piatkovom spustení po vyhodnotení tejto skúšky.
+
+### Kontroly pilotnej zostavy
+
+Tieto kontroly patria k zostave s úpravami z 25. novembra 2026 a s kontrolou podpisov v náhľade PDF. Pozvánka na staršiu alfu `0.2.1-alpha.20.g875852c` ponúka iný kód. Zapíšte verziu, pri vlastnom builde aj commit. Vyberte si riadok, ktorý skúšate. Podrobné návody k ovládaniu sú v [slovenčine](../lawoss/user-guide/sk/index.md) aj [češtine](../lawoss/user-guide/cs/index.md).
+
+| Čo vyskúšať na syntetických údajoch | Podľa čoho posúdiť výsledok |
+| --- | --- |
+| V nastaveniach AI vyberte predplatné ChatGPT. Vráťte sa späť počas prihlasovania, potom ho spustite znova. | Prvý pokus skončí. Jeho oneskorená odpoveď nesmie ohlásiť úspech druhého pokusu. Po dokončení prihlásenia vyberte model a vyžiadajte si krátku odpoveď. |
+| V dvoch chatoch vyberte rovnaký základný model a rovnakú úroveň uvažovania. V prvom zapnite blesk **Fast**, prepnite na druhý a späť. Nakoniec Fast vypnite. | Mení sa rýchlosť prvého chatu. Výber modelu, úroveň uvažovania a druhý chat zostanú podľa vašej voľby. Blesk sa zobrazí len pri modeli predplatného s dostupným prednostným spracovaním. |
+| V prehľade prípadu stlačte ceruzku vedľa názvu. Vyskúšajte zrušenie aj uloženie nového názvu. Otvorte ten istý prípad znova. | Uložený názov sa zobrazí pri správnom prípade. Skontrolujte pôvodnú cestu k priečinku, jeho dokumenty a súrodenecký prípad. |
+| V **Integráciách** prejdite dostupné a nainštalované pripojenia, Marketplace, Google Workspace a dostupné nástroje kancelárie. V Marketplace vyhľadajte OKF a prepnite filtre. | Zoznam zodpovedá filtru. Pri OKF vidíte počet dostupných skillov z piatich alebo informáciu, že stav ešte nebol overený. Zápis pribalených kópií skúšajte iba v skúšobnom priečinku. Zápis nahradí tamojšie rovnomenné skilly. |
+| Otvorte **Pridať vlastné MCP** a zrušte formulár pred uložením. V **Nastavenia → Skills** importujte miestny skúšobný balík po kontrole náhľadu. Pri Google Workspace skontrolujte stav inštalácie skillu a spustite `gog auth list --check` na vlastnom testovacom počítači. | Po zrušení nepribudne konektor. Importovaný skill sa objaví v knižnici. Voľby ChatGPT a Claude prehľadávajú miestne balíky. Stav účtu Google zistíte cez gog aj vtedy, keď už je jeho skill nainštalovaný. Do hlásenia stačí stav bez adresy účtu. |
+| Nechajte agenta použiť podporovaný register na konkrétnu verejnú otázku. V kontrolovanej skúške použite aj pripojenie, ktoré vráti chybu. Ak asistent zadá podúlohu, otvorte jej chat. | Pri úspešnom kroku uvidíte použitý register pri ikone knihy, pri chybe **Neúspešné volanie zdroja** s názvom registra. Samotná zmienka v odpovedi nesmie vytvoriť štítok. Podúloha ukáže **Úloha od asistenta LAWOSS** a rozbaliteľné **Zobraziť zadanie**. |
+
+**Ponuka modelov.** Zoznam, ktorý poskytne pripojený účet ChatGPT, má prednosť aj pri jedinom alebo novom modeli. Pri vstavanom katalógu bez údajov účtu má táto verzia náhradnú ponuku desiatich základných modelov. Engine 2.1.4 nový zoznam predplatného samostatne nesťahuje. Pri použití náhradného zoznamu sa ďalšie modely doplnia aktualizáciou LAWOSS. Režimy Fast sa do tohto počtu nezarátavajú. Výsledok pre konkrétny účet zaznamenajte podľa skutočnej odpovede modelu. Technickú skúšku s dvoma rôznymi ponukami účtov pokrýva [test enginu](../apps/server/src/lawoss/chatgpt-native-models.released.test.ts).
+
+#### Kontrola podpisov PDF
+
+Otvorte skúšobné PDF cez **Súbory** klienta. Na čítanie údajov o podpisoch nepotrebujete vlastný certifikát, model ani Chevron7. Agent môže štyri referenčné súbory pripraviť príkazom uvedeným nižšie.
+
+| Vstup | Očakávaný výsledok nad stranou PDF |
+| --- | --- |
+| `01-original.pdf` | **V PDF sa nenašiel elektronický podpis**. |
+| `02-empty-fields.pdf` | **V PDF sa nenašiel elektronický podpis**. Rozbalením zistíte počet dvoch prázdnych podpisových polí. |
+| `03-one-signature.pdf` | **Elektronické podpisy (1)**. Rozbaľte údaje prvého podpisu a porovnajte osobu s označením LAWOSS Test Pilot-A. Druhé pole je ešte prázdne. |
+| `04-two-signatures.pdf` | **Elektronické podpisy (2)**. V detaile vidíte Pilot-A aj Pilot-B. Porovnajte aj vydavateľa certifikátu, ak je k podpisu priradený. Dôveryhodnosť a kvalifikovanosť vyžadujú osobitnú validáciu. |
+| Poškodená skúšobná kópia podpísaného súboru | Očakávajte neúplný výsledok, chybu kontroly alebo chybu náhľadu. Poškodenie sa nesmie vyhodnotiť ako potvrdená neprítomnosť podpisu. |
+| Rovnaký názov PDF v dvoch klientoch | V prvom použite nepodpísaný originál, v druhom kópiu s dvomi podpismi. Otvorte ich postupne a prepnite sa späť. Počet a osoby musia zakaždým zodpovedať otvorenému súboru. |
+
+Pri otvorenom chate rozšírte čítačku PDF a vráťte ju späť. Skontrolujte meno súboru, zlaté pero Chevron7 na Macu a ponuku súboru pod tromi bodkami. V desktope zobrazte **Nástroje PDF**, zmeňte zväčšenie a otvorte náhľad tlače. Rozbaľte podpisy, porovnajte osoby v detaile a klávesom Escape sa vráťte k dokumentu. Vyskúšajte tiež úzky panel a svetlý motív. Na obrazovke Dnes zväčšite okno za šírku stĺpca s kartami a skontrolujte plynulé pozadie za pozdravom.
+
+Na prípravu sady spustite z koreňa zdrojového repozitára nasledujúci príkaz. Nahraďte posledný argument cestou do pracovnej kópie testovacieho klienta. Nástroj `uv` pri prvom behu potrebuje prístup k závislostiam. Vypíše názov nového priečinka `LAWOSS-PDF-…` so štyrmi súbormi. Pre poškodený variant vytvorte ďalšiu kópiu a skráťte ju na prvých desať bajtov.
+
+```sh
+uv --no-config run --no-project lawoss/testing/tester/signature_samples.py --output "<priečinok syntetického prípadu>"
+```
+
+**Podpis cez Chevron7 na Macu s Apple Silicon.** Pri lokálnom PDF zvoľte **Podpísať v Chevron7**. Najprv zrušte potvrdenie konkrétneho súboru. Potom skúste podpis na syntetickej kópii schváliť, certifikát a PIN zadajte v Chevron7. Otvorte výsledné PDF a porovnajte počet podpisov s originálom. Pri súbore z iného klienta prvá akcia iba otvorí PDF v zdrojovom klientovi. Až tam možno spustiť podpis. Bez kompatibilnej inštalácie alebo testovacieho certifikátu zaznamenajte prekážku. Skutočný podpis cez Chevron7 potvrdil používateľ na svojom Macu. Kontrolu konkrétneho nového buildu a validáciu podpisu zapisujte osobitne.
+
 ## 6. Aktualizácie
 
 Appka vám môže sama ponúknuť novú alfu. Ponuku zatiaľ nepotvrdzujte. Novú alfu nainštalujte až vtedy, keď ju oznámime v Telegram skupine testerov LAWOSS. Otvorte znova svoj osobný odkaz z pozvánky a pred stiahnutím skontrolujte, že ponúka oznámenú verziu pre váš systém.

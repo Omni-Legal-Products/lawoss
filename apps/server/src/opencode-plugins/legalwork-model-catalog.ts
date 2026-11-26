@@ -2,6 +2,7 @@ import { Integration, Plugin } from "@opencode/plugin";
 import { ConfigProvider } from "@opencode/schema/config/provider";
 import { Schema } from "effect";
 import { readFile } from "node:fs/promises";
+import { restoreChatGptModels, subscriptionAccountInventory } from "../lawoss/chatgpt-native-models.js";
 import { azureModelDefinitions } from "../azure-model-definitions.js";
 import { nativeModelCatalogRequestSchema, nativeModelCatalogRpc } from "../native-model-catalog-rpc.js";
 import { nativeEvents } from "./native-events.js";
@@ -19,6 +20,7 @@ export const LegalWorkModelCatalog = Plugin.define({
       catch { return []; } // A missing public cache must not break provider startup.
     };
     let azureModels = await readAzure();
+    let accountInventory = await subscriptionAccountInventory(ctx).catch(() => undefined);
     const integrations = await ctx.integration.transform(editor => {
       for (const [id, definition] of Object.entries(connectionProviders)) {
         if (!editor.get(id)) editor.method.update({ integrationID: id, method: { type: "key", label: "Manually enter API Key" } });
@@ -29,6 +31,7 @@ export const LegalWorkModelCatalog = Plugin.define({
     let restoredAzureModels = new Set<string>();
     const source = await ctx.provider.transform(editor => {
       restoredAzureModels = new Set();
+      restoreChatGptModels(editor, accountInventory);
       const azure = editor.get("azure");
       // Keep native credential activation, account binding and deployment discovery.
       // Custom endpoints/packages and authored model definitions remain authoritative.
@@ -56,6 +59,15 @@ export const LegalWorkModelCatalog = Plugin.define({
       inventories = new Map(editor.list().map(record => [record.provider.id, [...record.models.keys()].sort()]));
     });
     const stopEvents = nativeEvents(ctx, async event => {
+      if (event.type === "credential.switched" || event.type === "credential.updated") {
+        if (event.type === "credential.updated" || event.data.integrationID === "openai") {
+          const next = await subscriptionAccountInventory(ctx).catch(() => undefined);
+          if (JSON.stringify(next) === JSON.stringify(accountInventory)) return;
+          accountInventory = next;
+          await ctx.provider.reload();
+        }
+        return;
+      }
       if (event.type !== "models-dev.refreshed") return;
       azureModels = await readAzure();
       await ctx.provider.reload();

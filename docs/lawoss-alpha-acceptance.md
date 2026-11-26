@@ -64,6 +64,10 @@ Migráciu legacy nastavení najprv zobrazte cez host-only `/lawoss/ai-governance
    nevznikol pracovný priestor ani zápis OKF. Potom ho otvorte znova a vyberte testovaciu složku.
 4. Pre obyčajný priečinok skontrolujte výsledok rozpoznania, náhľad plánovaných zmien a
    potvrdenie pred zápisom. Nehľadajte historický krok „voľba OKF“.
+   Vo fiktívnom klientovi pripravte lokálny index so šiestimi doloženými prípadmi bez kariet.
+   Po výbere priečinka porovnajte zobrazenú úplnú cestu s výberom. Overte automatické spracovanie, šesť prípadov v bočnom paneli a v prehľade, fázu aj ďalší krok zo zdroja.
+   Zopakujte obnovu a reštart. Skontrolujte nezmenený pôvodný index a rovnaký počet kariet. Vedľa vybraného klienta uložte druhého syntetického klienta a uistite sa, že jeho dokumenty ani prípady sa nepridali.
+   Pripojte aj samostatný spis pod `Spisy/` a priečinok iba s PDF a DOCX. Overte presnú cestu, plnotextové hľadanie, ukážky, čiastočné čítanie a zdroj každej karty. Vyberte podklady a schválený model pre AI, posúďte výsledok v Prehľade a overte opakované uloženie.
 5. Samostatne pripojte existujúci syntetický OKF klient. Overte rozpoznanie existujúcich
    súborov, ponúknutý skúšobný klon a bezpečné doplnenie. Mapovanie bez zápisu je
    v tomto zdrojovom základe skryté flagom `ALPHA_HIDE_MAP_WITHOUT_WRITING`.
@@ -91,6 +95,12 @@ Katalóg LAWOSS a flagy dokazujú ponuku. Pre každú integráciu zaznamenajte o
 **ponúknuté → nainštalované → pripojené → overené**, s dátumom a odkazom na dôkaz.
 Aktuálny zdroj skrýva upstream kalendár, wiki, dashboards a plánované úlohy cez
 `ALPHA_HIDE_UNADOPTED_UPSTREAM`; ich existencia v kóde nie je tvrdenie o dostupnosti.
+
+## Pilotné kontroly pre zostavy s úpravami z 25. novembra 2026
+
+- [ ] Prejdite [pilotné scenáre](lawoss-build-pre-testerov.md#kontroly-pilotnej-zostavy) v SK aj CZ. Ku každej zahrnutej funkcii zapíšte skutočný výsledok na presnom balíčku. Pri modeli uveďte spôsob pripojenia, základný model, Fast a úroveň uvažovania. Pri registri doložte výsledok konkrétneho volania.
+- [ ] Na každom podporovanom systéme skontrolujte [náhľad podpisov PDF](lawoss-build-pre-testerov.md#kontrola-podpisov-pdf) vrátane prázdnych polí, poškodenia a prepnutia klienta. Na Macu s Apple Silicon samostatne overte zrušenie odovzdania, skutočný podpis cez Chevron7 a otvorenie výslednej kópie.
+- [ ] Pri každom PDF rozlíšte výsledok čítania údajov, dokončenie podpisovania a prípadný samostatný výsledok validátora. Ak chýba účet alebo certifikát potrebný na daný krok, zapíšte `blocked` a konkrétnu prekážku.
 
 ## Zapíšte výsledok
 

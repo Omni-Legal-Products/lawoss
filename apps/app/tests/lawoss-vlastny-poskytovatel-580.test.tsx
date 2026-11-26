@@ -1,10 +1,11 @@
 import { afterAll, describe, expect, mock, test } from "bun:test";
 import { act, createElement, type ReactNode } from "react";
-import { setLocale, type Language } from "../src/i18n";
+import { setLocale, t, type Language } from "../src/i18n";
 import en from "../src/i18n/locales/en";
 import de from "../src/i18n/locales/de";
 import sk from "../src/i18n/locales/sk";
 import cs from "../src/i18n/locales/cs";
+import type { ProviderAuthModalProps } from "../src/react-app/domains/connections/provider-auth/provider-auth-modal";
 import type { CustomProviderEditData } from "../src/react-app/domains/connections/provider-auth/store";
 
 /**
@@ -91,7 +92,7 @@ const edit: CustomProviderEditData = {
   models: [{ id: "qwen2.5:test", toolCall: true, reasoning: false, contextLimit: null, outputLimit: null }],
 };
 
-type Mode = { preferredProviderId?: string; customEdit?: CustomProviderEditData };
+type Mode = { preferredProviderId?: string; customEdit?: CustomProviderEditData; authMethods?: ProviderAuthModalProps["authMethods"] };
 
 async function renderDialog(locale: Language, mode: Mode): Promise<{ texts: string[]; lines: string[] }> {
   setLocale(locale);
@@ -117,13 +118,13 @@ async function renderDialog(locale: Language, mode: Mode): Promise<{ texts: stri
         root.render(
           <ProviderAuthModal
             open
-            allowChatGptSubscription={false}
+            allowChatGptSubscription={Boolean(mode.authMethods?.openai)}
             loading={false}
             submitting={false}
             error={null}
             providers={[]}
             connectedProviderIds={[]}
-            authMethods={{}}
+            authMethods={mode.authMethods ?? {}}
             preferredProviderId={mode.preferredProviderId}
             customEdit={mode.customEdit}
             onSelect={async () => { throw new Error("neočakávaný výber"); }}
@@ -195,4 +196,16 @@ describe("#580: dialóg Vlastný poskytovateľ bez anglických textov", () => {
       expect(dict["lawoss.providers.keys_stored_locally"]).not.toContain("OpenCode");
     }
   });
+});
+
+test("OpenAI offers one subscription action and labels each other native method separately", async () => {
+  const { texts } = await renderDialog("sk", { preferredProviderId: "openai", authMethods: { openai: [
+    { type: "api", label: "API key", methodIndex: 0 },
+    { type: "oauth", label: "Codex browser", methodID: "chatgpt-browser", methodIndex: 1 },
+    { type: "oauth", label: "Codex headless", methodID: "chatgpt-headless", methodIndex: 2 },
+    { type: "oauth", label: "ChatGPT", methodID: "chatgpt-token-sharing", methodIndex: 3 },
+  ] } });
+  for (const key of ["providers.continue_chatgpt", "providers.use_openai_api_key", "lawoss.provider_method.codex_browser", "lawoss.provider_method.codex_device"]) {
+    expect(texts.filter(text => text === t(key, "sk"))).toHaveLength(1);
+  }
 });

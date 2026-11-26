@@ -3449,8 +3449,24 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       ),
 
     // Provision the confined VM before issuing the single normal SDK prompt_async.
-    listLawossDocumentProfiles: (workspaceId: string, input: {providerId: string; modelId: string; caseDirectory: string}) => requestJson<ProtectedDocumentProfiles>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/profiles?${new URLSearchParams(input)}`, {token, hostToken, timeoutMs: timeouts.config}),
+    listLawossDocumentProfiles: async (workspaceId: string, input: {providerId: string; modelId: string; caseDirectory: string}) => {
+      const path = `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/profiles?${new URLSearchParams(input)}`;
+      const read = (timeoutMs: number) => requestJson<ProtectedDocumentProfiles>(baseUrl, path, {token, hostToken, timeoutMs});
+      const deadline = performance.now() + timeouts.config;
+      try {
+        return await read(timeouts.config);
+      } catch (error) {
+        // Profile discovery is read-only. Repeat a temporary refusal once within the original budget.
+        const remaining = Math.floor(deadline - performance.now());
+        if (!(error instanceof LegalworkServerError) || error.status !== 503 || remaining <= 0) throw error;
+        return read(remaining);
+      }
+    },
     createLawossDocumentGeneration: (workspaceId: string, input: LawossDocumentGenerationInput, options?: {signal?: AbortSignal}) => requestJson<LawossDocumentGenerationSession>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/generation`, {token, hostToken, method: "POST", body: input, signal: options?.signal, timeoutMs: 240_000}),
+    searchClientFolderIntake: (workspaceId: string, run: string, query: string, signal?: AbortSignal) =>
+      requestJson<import("@legalwork/types/folder-intake").IntakeFile[]>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/folder-intake/search`, { token, hostToken, method: "POST", body: {run, query}, signal }),
+    clientFolderIntake: (workspaceId: string, input: { action: "open" | "refresh" } | { action: "save"; run: string; cases: import("@legalwork/types/folder-intake").IntakeCase[] }, signal?: AbortSignal) =>
+      requestJson<import("@legalwork/types/folder-intake").FolderIntake>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/folder-intake`, { token, hostToken, method: "POST", body: input, signal }),
     prepareLawossDocuments: (workspaceId: string, paths: string[], options?: { signal?: AbortSignal }) => requestJson<{ documents: LawossDocumentSummary[]; untrusted: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/prepare`, { token, hostToken, method: "POST", body: { paths }, signal: options?.signal }),
     listLawossDocuments: (workspaceId: string, offset = 0, limit = 50, options?: { signal?: AbortSignal }) => requestJson<{ documents: LawossDocumentSummary[]; nextOffset: number | null; untrusted: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents?offset=${offset}&limit=${limit}`, { token, hostToken, signal: options?.signal }),
     readLawossDocument: (workspaceId: string, id: string, offset = 0, limit = 16000, options?: { signal?: AbortSignal }) => requestJson<LawossDocumentRead>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/${encodeURIComponent(id)}/read?offset=${offset}&limit=${limit}`, { token, hostToken, signal: options?.signal }),

@@ -8,7 +8,8 @@ Nastavenia otvoríte tlačidlom **Nastavenia** (ozubené koliesko) v bočnom pan
 | --- | --- |
 | [Nastavenia](legalwork://app/settings/general) | Prehľad nastavení. |
 | [Poskytovatelia AI](legalwork://app/settings/ai) | Poskytovatelia a modely, AI hranice, OCR skenov. Pozri [AI a modely](ai-a-modely.md). |
-| [Integrácie](legalwork://app/settings/extensions/plugins) | LAWOSS Marketplace, konektory, skilly, pluginy, úložisko súborov. Pozri [Integrácie](integracie.md). |
+| [Integrácie](legalwork://app/settings/extensions) | LAWOSS Marketplace, konektory, skilly, pluginy, úložisko súborov. Pozri [Integrácie](integracie.md). |
+| [Skills](legalwork://app/settings/workflows/skills) | Knižnica skillov, úpravy a import miestnych balíkov. |
 | [Oprávnenia](legalwork://app/settings/permissions) | Autorizované priečinky a prístup k súborom pre vybraného klienta. |
 | [Personalizácia](legalwork://app/settings/personalisation) | Doplnky systémového promptu, lokálna pamäť a osobnosť odpovedí. |
 | **Jazyk** | Jazyk rozhrania: slovenčina, čeština, angličtina, nemčina alebo **Podľa systému**. |

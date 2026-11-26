@@ -12,6 +12,10 @@ Když napíšete `/`, zobrazí se seznam skillů a příkazů. Přibalené skill
 
 Odpověď chatu není důkaz, že se soubor uložil. Zkontrolujte odkaz na výstup a případné chyby nástrojů.
 
+U kroku, ve kterém agent použil podporovaný rejstřík, vidíte jeho název u ikony knihy. **Neúspěšné volání zdroje** ukazuje, který rejstřík vrátil chybu. Rejstřík uvedený pouze v textu odpovědi agent nemusel otevřít. Při rešerši si vyžádejte také odkaz na konkrétní výsledek.
+
+Pokud asistent rozdělí práci, v chatu podřízené úlohy najdete označení **Úloha od asistenta LAWOSS**. Přes **Zobrazit zadání** otevřete text úlohy.
+
 ## Schvalování změn
 
 Agent smí číst dokumenty klienta a paměť případu bez ptaní. Před změnou se vás zeptá kartou, která ukazuje přesně, co se stane:

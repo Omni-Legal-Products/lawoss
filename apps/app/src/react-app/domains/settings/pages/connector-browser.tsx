@@ -2,7 +2,7 @@ import { cloneElement, useEffect, useRef, useState, type ReactNode } from "react
 import { mcpFailureText } from "../../../../lawoss/domains/integrations/mcp-failure";
 import { useSearchParams } from "react-router-dom";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowUpRight, Check, ChevronRight, Download, FolderOpen, Globe, Grid2X2, MoreHorizontal, Plus, Plug, RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Check, ChevronRight, Download, FolderOpen, Globe, Grid2X2, MoreHorizontal, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { connectorDefinitions, connectorIsConnected } from "@legalwork/types/connectors";
 import { legalResearchProviders, type ResearchProvider } from "@legalwork/types/legal-research";
 import type { StorageConnection, StorageKind, StorageOAuthProvider } from "@legalwork/types/file-storage";
@@ -21,6 +21,7 @@ import { t } from "@/i18n";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { resolveBrandIconSrc } from "@/react-app/design-system/extension-icon-src";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
+import { IntegrationNavigation, integrationSection, type IntegrationSection } from "@/lawoss/domains/integrations/library-navigation";
 import { marketplaceConnector } from "@/lawoss/domains/marketplace/mcp-servers";
 import { ConnectorConfig } from "../connector-config";
 import { connectorStatusQuery } from "../connector-status-query";
@@ -85,7 +86,7 @@ function connectionMethods(target: Target): ConnectionMethod[] {
   if (!methods.length && target.kind === "service" && target.entry.kind === "extension") methods.push("api");
   return methods;
 }
-function ConnectionTags({ target, count, showEmpty = false }: { target: Target; count: number; showEmpty?: boolean }) {
+function ConnectionTags({ target, count, showEmpty = false }: { target: Target; count: number | null; showEmpty?: boolean }) {
   const methods = connectionMethods(target);
   const methodLabels: Record<ConnectionMethod, string> = {
     skill: t("catalog.method_skill"),
@@ -96,7 +97,7 @@ function ConnectionTags({ target, count, showEmpty = false }: { target: Target; 
   };
   return <span className="mt-2 flex flex-wrap items-center gap-2">
     {methods.length ? <span role="group" aria-label={t("catalog.how_it_works")} className="flex flex-wrap gap-1.5">{methods.map(method => <span key={method} className="rounded-md border border-border px-1.5 py-0.5 text-[10px] font-normal leading-4 text-muted-foreground">{methodLabels[method]}</span>)}</span> : null}
-    {count > 0 ? <span className="flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-4 text-foreground/80"><Check className="size-3" />{t(target.kind === "research" ? "catalog.saved_login_count" : "catalog.connection_count", { count })}</span> : showEmpty ? <span className="text-xs text-muted-foreground">{t(target.kind === "research" ? "catalog.no_saved_logins" : "catalog.none_added")}</span> : null}
+    {count !== null && count > 0 ? <span className="flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-4 text-foreground/80"><Check className="size-3" />{t(target.kind === "research" ? "catalog.saved_login_count" : "catalog.connection_count", { count })}</span> : showEmpty && count === 0 ? <span className="text-xs text-muted-foreground">{t(target.kind === "research" ? "catalog.no_saved_logins" : "catalog.none_added")}</span> : null}
   </span>;
 }
 
@@ -111,6 +112,17 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
   const cache = useQueryClient(), platform = usePlatform();
   const [params, setParams] = useSearchParams();
   const selectedId = params.get("connection");
+  const section = integrationSection(params.get("library"), Boolean(props.lawossMarketplace), Boolean(props.lawossIntro), props.initialSection === "plugins");
+  const browse = (library: IntegrationSection) => {
+    setSearch("");
+    setCategory(null);
+    setParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.delete("connection");
+      next.set("library", library);
+      return next;
+    });
+  };
   const [category, setCategory] = useState<ConnectorCategory | null>(props.initialSection === "storage" ? "files" : null);
   const [search, setSearch] = useState("");
   const [storageEditor, setStorageEditor] = useState<StorageEditor | null>(null);
@@ -145,7 +157,7 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
     for (const event of [STORAGE_CHANGED_EVENT, CONNECTOR_SETTINGS_CHANGED, LEGALWORK_EXTENSION_STATE_CHANGED]) window.addEventListener(event, changed);
     return () => { for (const event of [STORAGE_CHANGED_EVENT, CONNECTOR_SETTINGS_CHANGED, LEGALWORK_EXTENSION_STATE_CHANGED]) window.removeEventListener(event, changed); };
   }, [cache]);
-  useEffect(() => { body.current?.scrollTo(0, 0); }, [selectedId, category, search]);
+  useEffect(() => { body.current?.scrollTo(0, 0); }, [selectedId, section, category, search]);
   const select = (id: string | null) => {
     setParams(previous => { const next = new URLSearchParams(previous); if (id) next.set("connection", id); else next.delete("connection"); return next; });
   };
@@ -201,7 +213,13 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
   for (const plugin of packages.data ?? []) {
     if (plugin.sourceKind === "skill" || plugin.sourceKind === "connector") continue;
     const name = pluginImportName(plugin);
-    installed.push({ id: `package:${plugin.pluginId}`, name, description: plugin.description ?? t("catalog.connection_description"), category: connectorCategory(plugin.name, name), icon: <Brand name={name} />, target: { kind: "package", plugin }, installed: true });
+    const states = plugin.files.filter(file => file.objectType === "mcp").map(file => {
+      const server = mcp.mcpServers.find(item => file.path === `opencode.jsonc#mcp.${item.name}`);
+      return server ? configuredConnectorState(server, mcp.mcpStatuses[server.name]) : undefined;
+    });
+    const status = states.find(state => state && state !== "connected")
+      ?? (states.length > 0 && states.every(state => state === "connected") ? "connected" : undefined);
+    installed.push({ status, id: `package:${plugin.pluginId}`, name, description: plugin.description ?? t("catalog.connection_description"), category: connectorCategory(plugin.name, name), icon: <Brand name={name} />, target: { kind: "package", plugin }, installed: true });
   }
   const firmItems = areFirmItemsHidden() ? [] : (team.data?.items ?? []).filter(item => item.kind === "mcp");
   for (const server of mcp.mcpServers) {
@@ -226,10 +244,10 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
     || item.id === customForTarget(selected.target)?.id)) : [];
   const connectionCount = (item: Item) => {
     const target = item.target;
-    if (target.kind === "native") return (accounts.data?.connectors.find(value => value.id === target.id)?.connections.length ?? 0) + Number(customForTarget(target)?.installed ?? false);
+    if (target.kind === "native") return accounts.data?.connectors.find(value => value.id === target.id)?.connections.length ?? 0;
     if (target.kind === "research" && !target.connection) return installed.filter(value => value.target.kind === "research" && value.target.connection && target.provider?.id === value.target.provider?.id).length;
-    if (target.kind === "storage" && !target.connection) return installed.filter(value => value.target.kind === "storage" && value.target.storageKind === target.storageKind && value.target.provider?.id === target.provider?.id).length + Number(customForTarget(target)?.installed ?? false);
-    return item.installed ? 1 : 0;
+    if (target.kind === "storage" && !target.connection) return installed.filter(value => value.target.kind === "storage" && value.target.storageKind === target.storageKind && value.target.provider?.id === target.provider?.id).length;
+    return (target.kind === "research" || target.kind === "storage") && target.connection ? 1 : null;
   };
   const nativeIsBlocked = (id: string) => {
     const entry = mcp.quickConnect.find(value => value.id === id);
@@ -291,11 +309,11 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
   const detailsAccess: PluginDetailsAccess | undefined = props.skillDetails && props.renderPluginConnector ? { skills: props.skillDetails.skills, skillStore: props.skillDetails, canEditSkills: props.canAddSkill !== false, renderConnector: props.renderPluginConnector, readComponent: props.skillDetails.readPackageComponent } : undefined;
   const query = search.trim().toLocaleLowerCase();
   const matches = (item: Item) => `${item.name} ${item.description} ${categoryLabel(item.category)}`.toLocaleLowerCase().includes(query);
-  const visibleCatalog = catalog.filter(matches);
+  const visibleCatalog = catalog.filter(item => !item.installed && matches(item));
   const categories = visibleConnectorCategories(connectorCategories);
   const sections = category ? [category] : query ? categories.filter(value => value !== "popular") : categories;
-  const row = (item: Item) => <div key={item.id} className="group flex min-w-0 items-center gap-2 rounded-xl py-3 transition-colors hover:bg-muted/40">
-    <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => select(item.id)}>{item.icon}<span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{item.name}</span><span className="mt-1 block truncate text-xs text-muted-foreground">{item.description}</span><ConnectionTags target={item.target} count={connectionCount(item)} /></span></button>
+  const row = (item: Item) => <div key={item.id} className="group flex min-w-0 items-center gap-2 rounded-xl border border-border/70 bg-background px-3 py-2.5 transition-colors hover:border-border hover:bg-muted/40">
+    <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => select(item.id)}>{item.icon}<span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{item.name}</span><span className="mt-1 block truncate text-xs text-muted-foreground">{item.description}</span>{item.status ? <span className="mt-1 flex">{item.status === "connected" ? <span className="text-xs font-medium text-foreground"><Check className="me-1 inline size-3 text-green-10" />{t("status.connected")}</span> : <ConnectorStatus state={item.status} />}</span> : <ConnectionTags target={item.target} count={connectionCount(item)} />}</span></button>
     <Button variant="ghost" size="icon-sm" disabled={disabled(item)} aria-label={t(item.installed ? "catalog.manage_named" : "catalog.add_named", { name: item.name })} onClick={() => { if (item.installed) select(item.id); else manage(item); }}>{item.installed ? <MoreHorizontal className="size-4" /> : <Plus className="size-4" />}</Button>
   </div>;
   const target = selected?.target;
@@ -308,17 +326,27 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
   return <div className="@container/integrations flex h-full min-h-0 w-full min-w-0 overflow-hidden bg-background" data-testid="connector-browser">
     <aside className="flex w-56 shrink-0 flex-col gap-6 overflow-y-auto border-r border-border/60 bg-muted/15 px-3 py-6 max-sm:hidden" aria-label={t("catalog.installed")}>
       <div className="px-2 text-sm font-semibold">{t("extensions.eyebrow_integrations")}</div>
-      <button type="button" className={cn("flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-muted", !selectedId && "bg-muted font-medium")} onClick={() => { select(null); setCategory(null); setSearch(""); }}><Grid2X2 className="size-4" />{t("catalog.browse")}</button>
+      <button type="button" className={cn("flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-muted", !selectedId && section === "available" && "bg-muted font-medium")} onClick={() => browse("available")}><Grid2X2 className="size-4" />{t("catalog.browse")}</button>
       <div><h2 className="mb-2 px-2.5 text-xs text-muted-foreground">{t("catalog.installed")}</h2>
         {installed.sort((a, b) => a.name.localeCompare(b.name)).map(item => <button key={item.id} type="button" aria-current={selectedId === item.id ? "page" : undefined} title={item.name} onClick={() => select(item.id)} className={cn("flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-start text-xs hover:bg-muted", selectedId === item.id && "bg-muted font-medium")}><span className="shrink-0 [&>span]:size-6 [&_img]:size-4 [&_svg]:size-4">{item.icon}</span><span className="min-w-0 truncate">{item.name}</span></button>)}
         {!installed.length ? <p className="px-2.5 py-2 text-xs leading-5 text-muted-foreground">{t(loading ? "common.loading" : "catalog.no_connections")}</p> : null}
       </div>
     </aside>
-    <main ref={body} className="min-h-0 min-w-0 flex-1 overflow-y-auto px-6 py-8 @min-[1100px]/integrations:px-12">
-      <div className="mx-auto w-full max-w-5xl space-y-8 pb-12">
+    <main ref={body} className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-6 @min-[1100px]/integrations:px-12">
+      <div className="mx-auto w-full max-w-5xl space-y-5 pb-12">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div>{selectedId ? <Button variant="ghost" size="sm" className="-ml-2 mb-3 text-muted-foreground" onClick={() => select(null)}><ArrowLeft className="size-4" />{t("catalog.browse")}</Button> : <><h1 className="text-2xl font-semibold tracking-tight">{t("extensions.eyebrow_integrations")}</h1><p className="mt-2 text-sm text-muted-foreground">{t("catalog.description")}</p></>}</div>
-          {!selectedId ? <div className="flex items-center gap-2"><div className="w-56"><IntegrationSearch value={search} onChange={setSearch} label={t("catalog.search")} /></div><Button variant="ghost" size="icon-sm" aria-label={t("common.refresh")} onClick={refresh}><RefreshCw className="size-4" /></Button><DropdownMenu><DropdownMenuTrigger render={<Button size="sm" />}><Plus className="size-4" />{t("common.add")}</DropdownMenuTrigger><DropdownMenuContent align="end" className="w-max min-w-64 max-w-(--available-width)"><DropdownMenuItem disabled={connectorsForbidden || props.busy} onClick={async () => { if (await orgPolicyAllows("connectors.allowCustom")) setCustomOpen(true); }}><Plug />{t("catalog.custom_connection")}</DropdownMenuItem><DropdownMenuItem disabled={!client?.canApprove || !workspaceId} onClick={() => setResearchEditor({})}><Globe />{t("catalog.method_website_automation")}</DropdownMenuItem><DropdownMenuItem disabled={!props.pluginImports || !props.canEditPlugins || !props.canUseGlobalScope || pluginsForbidden} onClick={() => setImportOpen(true)}><Download />{t("catalog.import")}</DropdownMenuItem>{props.developerMode ? <DropdownMenuItem onClick={() => setEngineOpen(true)}><Settings2 />{t("extensions.engine_plugins")}</DropdownMenuItem> : null}</DropdownMenuContent></DropdownMenu></div> : null}
+          {!selectedId ? <div className="flex max-w-full flex-wrap items-center gap-1.5">
+            <Button size="sm" disabled={connectorsForbidden || props.busy} onClick={async () => { if (await orgPolicyAllows("connectors.allowCustom")) setCustomOpen(true); }}>
+              <Plus className="size-4" />{t("lawoss.integrations.add_mcp")}
+            </Button>
+            <Button variant="ghost" size="icon-sm" aria-label={t("common.refresh")} onClick={refresh}><RefreshCw className="size-4" /></Button>
+            <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("integrations.more_actions")} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-max min-w-64 max-w-(--available-width)">
+              <DropdownMenuItem disabled={!client?.canApprove || !workspaceId} onClick={() => setResearchEditor({})}><Globe />{t("catalog.method_website_automation")}</DropdownMenuItem>
+              <DropdownMenuItem disabled={!props.pluginImports || !props.canEditPlugins || !props.canUseGlobalScope || pluginsForbidden} onClick={() => setImportOpen(true)}><Download />{t("catalog.import")}</DropdownMenuItem>
+              {props.developerMode ? <DropdownMenuItem onClick={() => setEngineOpen(true)}><Settings2 />{t("extensions.engine_plugins")}</DropdownMenuItem> : null}
+            </DropdownMenuContent></DropdownMenu>
+          </div> : null}
         </header>
         {errors.length ? <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-destructive/5 p-4 text-sm"><p>{t("catalog.load_failed")}</p><Button variant="outline" size="sm" onClick={refresh}>{t("common.refresh")}</Button></div> : null}
         {selected ? <article className="w-full space-y-8">
@@ -333,7 +361,7 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
             <div><div className="flex flex-wrap items-center gap-3"><h1 className="break-words text-2xl font-semibold tracking-tight">{selected.name}</h1>{selected.installed ? <ConnectorOwnership team={Boolean(selected.team)} /> : null}</div><p className="mt-2 text-sm text-muted-foreground">{selected.description}</p><ConnectionTags target={selected.target} count={connectionCount(selected)} showEmpty={!loading} /></div>
           </div>
           <ConnectorOverview name={target?.kind === "research" ? target.provider?.name ?? selected.name : selected.name} description={selected.description} providerId={target?.kind === "research" ? target.provider?.id : undefined} kind={target?.kind === "research" ? target.provider ? "research" : "website" : selected.category === "files" ? "files" : target?.kind === "native" ? connectorDefinitions.find(value => value.id === target.id)?.kind : undefined} facts={[
-            { label: t("catalog.status"), value: selected.status && selected.status !== "connected" ? <ConnectorStatus state={selected.status} /> : t(selected.installed ? target?.kind === "research" ? "research.configured" : "catalog.ready" : connectionCount(selected) > 0 ? "catalog.ready" : "catalog.none_added") },
+            { label: t("catalog.status"), value: selected.status === "connected" ? t("status.connected") : selected.status ? <ConnectorStatus state={selected.status} /> : t(selected.installed ? target?.kind === "research" ? "research.configured" : "catalog.installed" : "catalog.none_added") },
             { label: t("catalog.ownership"), value: t(selected.team ? "catalog.firm_managed" : "catalog.my_own") },
             { label: t(target?.kind === "storage" && target.connection ? "catalog.access" : "catalog.category"), value: target?.kind === "storage" && target.connection ? t(target.connection.readOnly ? "storage.read_only" : "storage.read_write") : categoryLabel(selected.category) },
           ]} />
@@ -350,11 +378,22 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
           {target?.kind === "team" ? teamConfig(target.item) : null}
           {related.length ? <section className="space-y-3 border-t border-border/60 pt-6"><h2 className="text-sm font-medium">{t(target?.kind === "research" ? "catalog.your_logins" : "catalog.your_connections")}</h2>{related.map(row)}</section> : null}
         </article> : selectedId ? <p role="status" className="text-sm text-muted-foreground">{t(loading ? "common.loading" : "catalog.not_found")}</p> : <>
-          {props.lawossIntro}
+          <IntegrationNavigation active={section} installed={installed.length} marketplace={Boolean(props.lawossMarketplace)} office={Boolean(props.lawossIntro)} onChange={browse} />
+          {section === "office" ? props.lawossIntro : section === "marketplace" || section === "google" ? props.lawossMarketplace?.(section === "google") : <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-base font-semibold">{t(section === "installed" ? "catalog.installed" : "lawoss.integrations.available")}</h2>
+            <IntegrationSearch value={search} onChange={setSearch} label={t("catalog.search")} />
+          </div>
+          {section === "installed" ? <>
+            <div className="grid gap-2 @min-[850px]/integrations:grid-cols-2">{installed.filter(matches).map(row)}</div>
+            {!installed.some(matches) ? <p role="status" className="py-4 text-sm text-muted-foreground">{t(loading ? "common.loading" : query ? "catalog.no_matches" : "catalog.no_connections")}</p> : null}
+          </> : <>
           <nav aria-label={t("catalog.categories")} className="-mx-3 flex flex-wrap gap-1 px-3"><Button size="sm" variant={category === null ? "secondary" : "ghost"} className="shrink-0 rounded-full" onClick={() => setCategory(null)}>{t("catalog.all")}</Button>{categories.map(value => <Button key={value} size="sm" variant={category === value ? "secondary" : "ghost"} className="shrink-0 rounded-full" onClick={() => setCategory(value)}>{categoryLabel(value)}</Button>)}</nav>
-          <div className="sm:hidden"><h2 className="mb-2 text-sm font-medium">{t("catalog.installed")}</h2>{installed.filter(matches).map(row)}</div>
-          {sections.map(value => { const items = visibleCatalog.filter(item => value === "popular" ? item.popular : item.category === value).sort((a, b) => Number(b.target.kind === "research") - Number(a.target.kind === "research")); if (!items.length) return null; const displayed = category || query ? items : items.slice(0, 6); return <section key={value} className="space-y-3"><button type="button" onClick={() => setCategory(value)} className="flex items-center gap-1 text-sm font-medium">{categoryLabel(value)}<ChevronRight className="size-3.5 text-muted-foreground" /></button>{value === "legal" ? <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t("catalog.research_description")}</p> : null}<div className="grid grid-cols-1 gap-x-12 gap-y-2 @min-[850px]/integrations:grid-cols-2">{displayed.map(row)}</div>{items.length > displayed.length ? <Button variant="link" size="sm" className="px-0 text-muted-foreground" onClick={() => setCategory(value)}>{t("catalog.see_all", { count: items.length })}</Button> : null}</section>; })}
+
+          {sections.map(value => { const items = visibleCatalog.filter(item => value === "popular" ? item.popular : item.category === value).sort((a, b) => Number(b.target.kind === "research") - Number(a.target.kind === "research")); if (!items.length) return null; const displayed = category || query ? items : items.slice(0, 6); return <section key={value} className="space-y-3 border-t border-border/70 pt-4"><button type="button" onClick={() => setCategory(value)} className="flex items-center gap-1 text-sm font-medium">{categoryLabel(value)}<ChevronRight className="size-3.5 text-muted-foreground" /></button>{value === "legal" ? <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t("catalog.research_description")}</p> : null}<div className="grid grid-cols-1 gap-2 @min-[850px]/integrations:grid-cols-2">{displayed.map(row)}</div>{items.length > displayed.length ? <Button variant="link" size="sm" className="px-0 text-muted-foreground" onClick={() => setCategory(value)}>{t("catalog.see_all", { count: items.length })}</Button> : null}</section>; })}
           {!visibleCatalog.some(item => !category || category === "popular" ? !category || item.popular : item.category === category) ? <p className="py-12 text-center text-sm text-muted-foreground">{t("catalog.no_matches")}</p> : null}
+          </>}
+          </>}
         </>}
       </div>
     </main>

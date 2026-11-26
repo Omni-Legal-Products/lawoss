@@ -1,7 +1,8 @@
 type ProviderLike = { id: string; source?: string; models?: Record<string, unknown> };
-type ModelLike = { id?: string; modelID?: string; api?: { id?: string } } | null | undefined;
+type ModelLike = { id?: string; modelID?: string; api?: { id?: string }; settings?: Record<string, unknown>; legalwork?: { subscriptionModel?: boolean } } | null | undefined;
 type IntegrationLike = { connections?: ReadonlyArray<{ type: "credential"; method: string } | { type: "env"; name?: string }> } | null | undefined;
 
+export const NATIVE_SUBSCRIPTION_MARKER: string;
 export const CHATGPT_SUBSCRIPTION_MODELS: ReadonlySet<string>;
 export const CHATGPT_RECOMMENDED_MODELS: readonly string[];
 export function nativeConnectionSource(integration: IntegrationLike): "custom" | "api" | "env" | "config";

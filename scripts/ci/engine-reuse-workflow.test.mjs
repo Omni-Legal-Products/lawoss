@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { engineTestFiles } from './run-engine-tests.mjs';
+import { engineTestFiles, LAWOSS_CI_ENGINE_TESTS } from './run-engine-tests.mjs';
 import { sourceBuildIdentity } from '../../packages/opencode-release/build/prepare.mjs';
 import recipe from '../../packages/opencode-release/build/recipe.json' with { type: 'json' };
 
@@ -75,6 +75,7 @@ test('real engine job cannot pass by silently skipping all engine fixtures', () 
   assert.equal(serverTests.if, "needs.changes.outputs.server == 'true'");
   assert.match(serverTests.run, /run-engine-tests.mjs/);
   const files = engineTestFiles(fileURLToPath(new URL('../../apps/server/src', import.meta.url)));
+  assert.ok(LAWOSS_CI_ENGINE_TESTS.includes('lawoss/chatgpt-native-models.released.test.ts'));
   for (const suffix of ['managed-opencode.released.test.ts', 'scheduled-tasks/engine.test.ts', 'managed-opencode.search.e2e.test.ts', 'opencode-plugins/pdf-reading.integration.test.ts']) assert.ok(files.some(filename => filename.endsWith(suffix)), suffix);
 });
 
@@ -145,4 +146,16 @@ test('a prebuilt engine is selected on ubuntu and only compilation needs the pin
   assert.match(select.env.PREBUILT, /steps.base-producer.outputs.run-id != ''/);
   assert.match(select.run, /os=ubuntu-latest; else os=macos-15/);
   assert.match(runner.steps.find(step => step.id === 'cache-key').if, /inputs.build-mode == 'development'/);
+});
+
+test('Mac alpha selects the same signing mode for engine preparation and desktop packaging', () => {
+  const { jobs } = workflow('alpha-macos-aarch64');
+  const producer = jobs['opencode-engine'];
+  const consumer = Object.values(jobs).find(job => job.steps?.some(step => step.uses === './.github/actions/setup-opencode'));
+  const mode = "${{ needs.signing.outputs.signed == 'true' && 'production' || 'development' }}";
+  assert.equal(producer.with['build-mode'], mode);
+  assert.equal(consumer.steps.find(step => step.uses === './.github/actions/setup-opencode').with['build-mode'], mode);
+  const build = consumer.steps.find(step => step.name === 'Build Electron alpha app');
+  assert.equal(build.env.DESKTOP_BUILD_SCRIPT, "${{ needs.signing.outputs.signed == 'true' && 'build:electron:production' || 'build:electron' }}");
+  assert.ok(build.run.includes('"$DESKTOP_BUILD_SCRIPT"'));
 });

@@ -39,6 +39,16 @@ describe("native subscription OAuth", () => {
     await store.cancelProviderAuth();
     expect(calls.some(call => call.method === "DELETE" && call.path.endsWith("/attempt-1"))).toBe(true);
   });
+  test("cancelling during discovery never creates a stale attempt or interferes with reopening", async () => {
+    const { store, calls } = providerStore();
+    const first = store.startProviderAuth("openai", 2);
+    await store.cancelProviderAuth();
+    const reopened = store.startProviderAuth("openai", 2);
+    await expect(first).rejects.toThrow("Sign-in was canceled.");
+    await reopened;
+    expect(calls.filter(call => call.path.endsWith("/connect/oauth"))).toHaveLength(1);
+    expect(await store.completeProviderAuthOAuth("openai", 2)).toMatchObject({ connected: false, pending: true });
+  });
   test("manual code completes only its native attempt and avoids an engine reload", async () => {
     const { store, calls } = providerStore();
     await store.startProviderAuth("google", 0, { account: "synthetic" });

@@ -23,6 +23,7 @@ import { CalculationToolCard } from "./calculation/calculation-card";
 import { PendingStatus } from "./pending-status";
 import { JevSearchCard } from "./review/jev-search-card";
 import { ReviewToolCard, ReviewToolGroup } from "./review/review-card";
+import { DelegatedTask } from "@/lawoss/chat/delegated-task";
 import { SubagentToolRows } from "./subagent-tool-row";
 "use memo";
 
@@ -633,6 +634,9 @@ function renderUserMessageText(message: UIMessage) {
     if (part.type !== "text") return [];
     const metadata = part.providerMetadata?.opencode;
     const { integrations } = integrationMessageMetadata(metadata);
+    if (part.text.startsWith("You are a subagent spawned by another session.\n")) {
+      return [<DelegatedTask key={index} text={part.text} />];
+    }
     return splitIntegrationMessage(part.text, integrations, metadata?.legacyIntegrationSpacing === true).map((segment, segmentIndex) =>
       typeof segment === "string" ? <React.Fragment key={`${index}:${segmentIndex}`}>{renderUserTextWithReferenceChips(segment)}</React.Fragment> :
         <span key={`${index}:${segmentIndex}`} data-integration-chip={segment.kind} title={segment.label} className="inline-flex max-w-full items-center rounded-full border border-gray-6 bg-gray-3 px-2.5 py-1 text-xs font-medium text-gray-11 align-middle"><span className="truncate">@{segment.label}</span></span>,

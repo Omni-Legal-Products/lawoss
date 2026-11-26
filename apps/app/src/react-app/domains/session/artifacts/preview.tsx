@@ -130,6 +130,7 @@ export function HTMLPreview({ className, ...props }: HTMLPreviewProps) {
 }
 
 interface PdfPreviewProps {
+  readingMode?: boolean;
   url: string;
   title: string;
   className?: string;
@@ -147,7 +148,7 @@ export type PdfPreviewApi = { navigate: (page: number) => Promise<{ requestedPag
  * own workspace file served from a same-origin blob URL, and PDFium sandboxes
  * any script embedded in the PDF itself.
  */
-export function PdfPreview({ url, title, className, apiRef, onLoad }: PdfPreviewProps) {
+export function PdfPreview({ url, title, className, apiRef, onLoad, readingMode }: PdfPreviewProps) {
   const [navigation, setNavigation] = React.useState<{ url: string; page: number; request: number } | null>(null);
   React.useImperativeHandle(apiRef, () => ({ navigate: async page => {
     if (!Number.isInteger(page) || page < 1 || page > 100000) throw new Error("Provide a positive page number.");
@@ -157,7 +158,7 @@ export function PdfPreview({ url, title, className, apiRef, onLoad }: PdfPreview
     return { requestedPage: page };
   } }), [url]);
   const current = navigation?.url === url ? navigation : null;
-  return <iframe key={`${url}:${current?.request ?? 0}`} src={pdfPreviewUrl(url, current?.page)} title={title} onLoad={event => onLoad?.(url, event.currentTarget)} className={cn("h-full w-full border-0", className)} />;
+  return <iframe key={`${url}:${current?.request ?? 0}:${readingMode ?? ""}`} src={pdfPreviewUrl(url, current?.page, readingMode)} title={title} onLoad={event => onLoad?.(url, event.currentTarget)} className={cn("h-full w-full border-0", className)} />;
 }
 
 interface ImagePreviewProps extends React.ComponentProps<"div"> {

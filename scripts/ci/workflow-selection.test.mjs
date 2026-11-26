@@ -60,6 +60,27 @@ test('failed prerequisites cannot become successful selected-check summaries', (
   assert.throws(() => run({ build: { result: 'cancelled' } }));
 });
 
+test('Windows archive acceptance consumes its existing runtime and selects only Windows desktop jobs', () => {
+  const { jobs } = workflow('ci-desktop-packaging');
+  const acceptance = main.jobs['windows-desktop-acceptance'];
+  assert.ok(acceptance.needs.includes('windows-protected-runtime'));
+  assert.equal(acceptance.with.runtime_provided, true);
+  assert.equal(acceptance.with['windows-only'], true);
+  assert.equal(main.jobs['windows-protected-runtime'].with.targets, 'win32-x64,win32-arm64');
+  assert.equal(jobs['sandbox-runtime'].if, '${{ !inputs.runtime_provided }}');
+
+  for (const job of ['package-smoke', 'isir-native']) {
+    const matrix = jobs[job].strategy.matrix.slice(3, -2).trim().replace(/inputs\.([\w-]+)/g, 'inputs["$1"]');
+    const select = Function('inputs', 'fromJSON', `return (${matrix});`);
+    assert.deepEqual(select({ 'windows-only': true }, JSON.parse).include.map(target => target.os),
+      ['windows-2022', 'windows-11-arm']);
+    assert.deepEqual(select({ 'windows-only': false }, JSON.parse).include.map(target => target.os),
+      ['ubuntu-latest', 'windows-2022', 'macos-15', 'windows-11-arm']);
+  }
+  const ram = Object.values(jobs).find(job => job.name === 'RAM budget 2 GB (macos-15)');
+  assert.ok(ram.if.startsWith('${{ !inputs.windows-only && '));
+});
+
 // LAWOSS: matica balenia má štyri hostiteľov (ubuntu x64, Windows x64/ARM64, macOS ARM64); „Package and launch“ sú povinné kontroly rulesetu.
 test('all LAWOSS package jobs retain storage checks without a duplicate six-host suite', () => {
   const packaging = workflow('ci-desktop-packaging').jobs['package-smoke'];

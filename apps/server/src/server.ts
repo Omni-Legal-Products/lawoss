@@ -15,6 +15,8 @@ import { registerDeadlineRoutes } from "./lawoss/deadlines/routes.js";
 import { registerClientSettingsRoutes } from "./lawoss/unreadable-client-settings.js"; // 🟡 LAWOSS #554
 import { acquireRuntimeDbLifetime, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { resolveWorkspaceFilePath, recheckWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
+import { FolderIntakes } from "./lawoss/folder-intake.js";
+import { registerFolderIntakeRoutes } from "./routes/lawoss-folder-intake.js";
 import { LawossDocuments } from "./lawoss/documents/service.js";
 import { registerLawossDocumentRoutes } from "./routes/lawoss-documents.js";
 import { sessionFolder, sessionOwnershipChecked, workspaceChatOwnership, workspaceOwnsChat } from "./lawoss/session-ownership.js";
@@ -624,7 +626,7 @@ ${sessionContext}
     : "";
   return `# Identity
 
-You are LegalWork. You have one continuous identity across text and voice. Always speak in the first person using I, me, and my.
+You are LAWOSS. You have one continuous identity across text and voice. Always speak in the first person using I, me, and my.
 
 # Conversation
 
@@ -1016,6 +1018,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: LawossSe
   cleanups.push(() => preparation.stop());
   // LAWOSS: príprava dokumentov číta aj z pripojených priečinkov klienta, overených pri každom čítaní (alfa2 A3);
   // klient zaregistrovaný vnútri tohto klienta je cudzí (N-A3-1).
+  const folderIntakes = new FolderIntakes(config, preparation);
+  cleanups.push(() => folderIntakes.close());
   const documents = new LawossDocuments(config, preparation, (workspace) => documentLinkedFolders(config, workspace), (workspace) => nestedClientRoots(config, workspace));
   cleanups.push(() => documents.stop());
   const protectedDocuments = new ProtectedDocumentRuntime({config, approvals, documents, getGuestBundle: protectedGuestBundleFactory(config)});
@@ -1107,7 +1111,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: LawossSe
       if (entry?.status === "failed" || entry?.status === "uncertain") throw new ApiError(409, "schedule_send", entry.error ?? "Check the chat before resuming this task.");
     }),
   });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents, scheduledTasks, wikiStore, wikiSync, protectedDocuments, runtimeOptions.publicEngineBinary, runtimeOptions.onboardingApplyCheckpoint);
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents, folderIntakes, scheduledTasks, wikiStore, wikiSync, protectedDocuments, runtimeOptions.publicEngineBinary, runtimeOptions.onboardingApplyCheckpoint);
   await assistantRuntime.register(routes, { jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, requireApproval });
   registerToolImageOriginalRoutes({ routes, config, raster: toolImageRaster, jsonResponse, resolveWorkspace, ensureWritable, requireClientScope, requireApproval });
   // LAWOSS: a case chat lives in a subfolder of its client; agent-access.ts compares the directory itself.
@@ -2094,6 +2098,7 @@ function createRoutes(
   reviews: ReviewService,
   corpus: CorpusService,
   documents: LawossDocuments,
+  folderIntakes: FolderIntakes,
   scheduledTasks: ScheduledTaskStore,
   wikiStore: WikiStore,
   wikiSync: WikiSync,
@@ -2158,6 +2163,7 @@ function createRoutes(
   registerFileOperationRoutes({ routes, config, jsonResponse, readJsonBodyLimited, requireClientScope, resolveWorkspace });
   registerProtectedDocumentRoutes({routes, runtime: protectedDocuments, jsonResponse, readJsonBodyLimited});
   registerProtectedDocumentProfileRoutes({config, routes, jsonResponse});
+  registerFolderIntakeRoutes(routes, config, folderIntakes, jsonResponse, readJsonBodyLimited);
   registerLawossDocumentRoutes({ routes, config, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerDeadlineRoutes({ routes, config, approvals, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerClientSettingsRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, resolveWorkspace }); // 🟡 LAWOSS #554
@@ -2256,6 +2262,7 @@ function createRoutes(
   } });
 
   registerWorkspaceRoutes({
+    onClientFolderAdded: workspace => { folderIntakes.start(workspace); },
     projectFolders,
     routes,
     config,

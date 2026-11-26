@@ -3,6 +3,7 @@ import type { ComponentType } from "react";
 import {
   ArrowRight,
   Bell,
+  Blocks,
   FileStack,
   FolderLock,
   KeyRound,
@@ -50,6 +51,7 @@ const globalItems = (): SettingsItem[] => [
   { tab: "assistant", icon: AssistantFlowerIcon, title: t("assistant.title"), desc: t("assistant.settings_description") },
   { tab: "notifications", icon: Bell, title: t("settings.tab_notifications"), desc: t("settings.tab_description_notifications") },
   { tab: "tabular-review", icon: TableProperties, title: t("review.title"), desc: t("review.defaults_scope") },
+  { tab: "skills", icon: Blocks, title: t("settings.tab_skills"), desc: t("lawoss.integrations.skills_description") },
   { tab: "extensions", icon: Puzzle, title: t("sidebar.integrations"), desc: `${t("settings.tab_description_extensions")}.` },
   {
     tab: "personalisation",

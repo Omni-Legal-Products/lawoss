@@ -174,7 +174,7 @@ describe("krok 6: s vybraným modelom asistent pripravený a chat s klientom hla
   });
   test("jeden klient aj prax s viacerými klientmi: chat je hlavná akcia, prehľad vedľa", () => {
     expect(readyChatClient(practice)?.name).toBe("C002");
-    expect(readyPlan(one, fromClient("w1"))).toMatchObject({ primary: "chat", overview: "readyOverview", chatWith: { name: "C001 SYN Tatran" } });
+    expect(readyPlan(one, fromClient("w1"))).toMatchObject({ primary: "overview", overview: "readyOverview", chatWith: { name: "C001 SYN Tatran" } });
     expect(readyPlan(practice, fromClient("w2"))).toMatchObject({ primary: "chat", overview: "readyOverviewClients", chatWith: { name: "C002" } });
     const html = renderToStaticMarkup(<ReadySummaryView text={sk} found={foundText("sk")} connected={practice} model={fromClient("w2")} agent="ask" busy={false} onGo={noop} onChat={noop} onOverview={noop} onTable={noop} />);
     expect(html).toContain('data-lawoss-ready-primary="chat"');

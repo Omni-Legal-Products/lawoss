@@ -18,11 +18,17 @@ Pod **Případy** je každý případ klienta, pod případem jeho chaty a **Nov
 
 ## Přehled klienta
 
+Po výběru složky LAWOSS automaticky otevře **Přehled** a místně projde také podsložky. Nad výsledky uvidíte přesnou cestu. Při výběru jednoho spisu zůstane rozsahem zvolený spis. V části **Podklady a pokrytí** můžete vyhledávat v textu, otevřít originál a rozlišit přečtené, částečně přečtené a nečitelné dokumenty. Funguje také složka s PDF a Wordem bez souborů Markdown.
+
+Jednoznačně pojmenované případy získají vlastní kartu v **Případech**. U návrhů ze souvisejících dokumentů zvolte **Zaevidovat případy**. V režimu uložení pomocných souborů mimo klienta se zápis karet do spisu spustí až tímto tlačítkem. **Obnovit z disku** zpracuje změny. **Uložit přehled** uloží samostatný Markdown. Pro podrobnější analýzu nabízí Přehled volbu **Rozpoznat další případy pomocí AI** s výběrem zdrojů a zobrazením modelu. Návrh posoudíte ve stejném okně.
+
 **Přehled** pod klientem ukazuje **Přehled klienta**: jeho **Případy** s fází a dalším krokem, **Nejbližší lhůty**, **Nejbližší termín**, **Otevřené úkoly z případů**, **Vstupy klienta** a **Chaty klienta**. Odkaz **Všechny lhůty klienta** otevře registr lhůt jen pro tohoto klienta. Údaje se čtou z pomocných souborů OKF ve složce klienta; pokud se něco nedalo přečíst, přehled to napíše (například **Podklady se nepodařilo přečíst, lhůty proto nejsou známé.**).
 
 ## Případ
 
 Kliknutím na případ otevřete jeho stránku. Karta **Přehled** shrnuje případ v blocích (například **Základ**, **Řízení**, **Korporátní agenda**, **Duševní vlastnictví**) podle toho, co LAWOSS rozpozná ze souborů. Bloky změníte přes **Upravit** a **Uložit do karty případu**. Karta **Co víme** ukazuje záznamy z paměti případu.
+
+Tužka vedle názvu otevře **Přejmenovat případ**. Zadejte nový název a zvolte **Uložit**. Změna se týká názvu na kartě případu. Soubory a složku najdete na původní cestě. Pokud se karta mezitím změnila, obnovte přehled a zkuste úpravu znovu.
 
 Na stránce případu jsou také **Rozpracované chaty** s tlačítkem **Pokračovat**, **Časová osa**, **Lhůty v příštích 14 dnech** a **Otevřené úkoly**.
 
@@ -39,5 +45,13 @@ Připojujte jen složku, která opravdu patří tomuto klientovi. Pokud složka 
 ## Soubory
 
 **Soubory** pod klientem ukazují soubory ve složce klienta. Dokumenty z odpovědí agenta otevřete z odkazu v chatu.
+
+### Elektronické podpisy v PDF
+
+Při čtení vedle chatu můžete dokument rozšířit ikonou v pravém horním rohu. V desktopové čtečce zapněte **Nástroje PDF** pro výběr stránky, zvětšení nebo tisk. Nabídka se třemi tečkami vedle ikony rozšíření obsahuje akce souboru. Na Macu má tlačítko **Podepsat v Chevron7** u názvu souboru ikonu pera.
+
+Otevřete PDF v **Souborech**. Nad stránkou rozbalte **Elektronické podpisy** s uvedeným počtem. U každého nalezeného podpisu nebo časového razítka si můžete zobrazit dostupné údaje, například formát, uvedenou podepisující osobu, vydavatele jejího certifikátu a uvedený čas. U nepodepsaného pole se v detailu zobrazí **Prázdná podpisová pole** s počtem. U nalezeného podpisu se zobrazí **Důvěryhodnost neověřena**. Pokud potřebujete potvrdit platnost či kvalifikovanost podpisu, důvěryhodnost certifikátu nebo platnost časového razítka, ověřte soubor v nástroji pro validaci podpisů.
+
+Na Macu s Apple Silicon vyberte v náhledu nebo v nabídce místního PDF **Podepsat v Chevron7**. V potvrzovacím okně LAWOSS zkontrolujte soubor, v Chevron7 vyberte certifikát a zadejte PIN. Po návratu otevřete vytvořený soubor v LAWOSS. Pokud úkon v Chevron7 zrušíte, samotné zavření okna nepotvrzuje vytvoření podepsané kopie.
 
 Související: [Chaty](chaty.md), [Dnes a lhůty](dnes-a-lehoty.md), [Nastavení](nastavenia.md).

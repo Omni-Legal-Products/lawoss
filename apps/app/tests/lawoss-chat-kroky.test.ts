@@ -160,7 +160,7 @@ describe("doplnky z LAWOSS Marketplace (test inštalácie 3. 11. 2026)", () => {
   test("server s iným menom než doplnok a najdlhšia zhoda", () => {
     setLocale("cs");
     expect(getToolHistoryLabel(tool("fs_opendata_mcp_vat_status", {}, true))).toBe("Zdroj: Finanční správa SR");
-    expect(getToolHistoryLabel(tool("cz_eu-registry_search", {}, true))).toBe("Zdroj: České registry");
+    expect(getToolHistoryLabel(tool("cz_eu-registry_search", {}, true))).toBe("Zdroj: EU Registry");
     expect(getToolHistoryLabel(tool("ruz_get_statement", {}, true))).toBe("Zdroj: Registr účetních závěrek SR");
   });
 

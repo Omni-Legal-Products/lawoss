@@ -213,7 +213,7 @@ describe("sprievodca C1: obrazovky", () => {
     const html = renderToStaticMarkup(<ReadySummaryView text={sk} found={found} connected={one} model={ready} agent="ask" busy={false} onGo={noop} onChat={noop} onOverview={noop} onTable={noop} />);
     expect(html).toContain("Klient C001 SYN Tatran");
     expect(html.match(/Hotové/g)).toHaveLength(3);
-    expect(html).toContain('data-lawoss-ready-primary="chat"');
+    expect(html).toContain('data-lawoss-ready-primary="overview"');
     expect(html).toContain("Otvoriť chat s klientom C001 SYN Tatran");
     expect(html).toContain(">Otvoriť prehľad klienta</button>");
     expect(html).toMatch(/class="lw-wiz-client"[\s\S]*C001 SYN Tatran/);
@@ -231,7 +231,7 @@ describe("sprievodca C1: logika súhrnu a režimu agenta", () => {
   const one: WizardConnected = { kind: "clients", root: "/p/a", clients: [{ root: "/p/a", name: "A", result: result("w1", "/p/a") }] };
   const two: WizardConnected = { kind: "clients", root: "/p", clients: [{ root: "/p/a", name: "A", result: { result: "applied", clientRoot: "/p/a" } }, { root: "/p/b", name: "B", result: result("w2", "/p/b") }] };
   test("prvá úloha podľa predpokladov", () => {
-    expect(readyPlan(one, { state: "ready", workspaceId: "w1" })).toMatchObject({ primary: "chat", offerTable: true });
+    expect(readyPlan(one, { state: "ready", workspaceId: "w1" })).toMatchObject({ primary: "overview", offerTable: true });
     // Pripravenosť z iného priestoru alebo neznáma: chat by mohol skončiť „bez modelu“, hlavná akcia je prehľad.
     expect(readyPlan(one, { state: "ready" })).toMatchObject({ primary: "overview" });
     expect(readyPlan(one, { state: "ready", workspaceId: "iny" })).toMatchObject({ primary: "overview" });

@@ -70,10 +70,11 @@ describe("N-A4-2: meno klienta v onboardingu z karty klienta", () => {
     expect(registeredName({ root: "/p/Klienti/C001-x", name: TATRAN }, { name: "Vlastné meno" })).toBe("Vlastné meno");
     expect(registeredName({ root: "/p/Klienti/C001-x", name: TATRAN }, undefined)).toBe(TATRAN);
   });
-  test("prípad otvorený priamo: klient, ku ktorému sa pripojí, sa volá názvom z jeho karty", () => {
+  test("pri výbere prípadu strom ukáže presne vybraný priečinok", () => {
     const matter: OnboardingSuggestion = { root: "/p/Klienti/C001-syn-tatran-automatika-s-r-o/Spisy/M001-uhrada", level: "matter", marked: true, score: 1, signals: ["matter_card"], clients: [], complete: true, matterClientTitle: TATRAN };
     const html = renderToStaticMarkup(<FoundTree text={wizardText("sk")} suggestion={matter} level="matter" scope="client" selected={[]} busy={false} />);
-    expect(html).toContain(TATRAN);
+    expect(html).toContain("M001-uhrada");
+    expect(html).not.toContain(TATRAN);
     expect(html).not.toContain("C001-syn-tatran-automatika-s-r-o");
     expect(matterClientName({ root: matter.root })).toBe("C001-syn-tatran-automatika-s-r-o");
   });

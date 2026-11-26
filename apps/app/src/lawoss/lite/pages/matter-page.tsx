@@ -1,5 +1,7 @@
-import { DiagnosticMessage } from "../../i18n/diagnostic-message";
 /** @jsxImportSource react */
+import { MatterTitleEditor } from "../matter-title-editor";
+import { writeMatterTitle } from "../matter-title";
+import { DiagnosticMessage } from "../../i18n/diagnostic-message";
 import { revalidateScopeTarget } from "../../okf/scope-target";
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -12,7 +14,7 @@ import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
 import { deadlineAnchor, hotDeadlineCount, LiveStamp, useHotTitle, useMinuteTick } from "../live";
 import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
-import { canActOnSource, localMatter, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
+import { DISPLAY_CARD, canActOnSource, localMatter, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
 import { deadlineKey, deadlineText, inHorizon, taskDueView, urgencyOf } from "../../okf/view-rules";
 import { freeTextPrompt, quickActionPrompt } from "../quick-actions";
 import { POSTPROCESS_RESOURCE_NAME, postprocessSource, VYSTUP_SKILL_NAME, vystupSkillBody } from "../../okf/skill-bundle";
@@ -153,6 +155,20 @@ export function LiteMatterBody({ data, meta, scope, navigate }: { data: OkfReadR
   // Oprava typu prehľadu: jediný riadok `tags:` karty prípadu z textu, ktorý ukázal náhľad, cez natívny zápis s kontrolou obsahu.
   const sourceReady = Boolean(!meta.failed && target && canActOnSource(data, target.workspace.id));
   const ownerId = target?.workspace.id;
+  async function rename(title: string, original: string) {
+    if (!connection || !target || !sourceReady || !matter || running.current) throw new Error("scope_changed");
+    running.current = true;
+    try {
+      const current = await revalidateScopeTarget(scope, connection, target.workspace.id);
+      const selected = current.read.matters.find(item => item.path === target.selected.path);
+      const path = matter.cardPath ?? [matter.path, DISPLAY_CARD].filter(Boolean).join("/");
+      const card = locateCaseFile(scope, path, current.workspace.id);
+      if (!selected || !card || selected.title !== original || selected.cardPath !== target.selected.cardPath) throw new Error("case_changed");
+      await writeMatterTitle(current.connection.client, current.workspace.id, card.path, selected, title);
+      await queries.invalidateQueries({ queryKey: ["okf-overview"] });
+    } finally { running.current = false; }
+  }
+
   async function onSaveViews(before: string, families: ViewFamily[] | null) {
     if (running.current || !matter?.cardPath || !ownerId || !connection || !sourceReady) throw new Error("source_not_ready");
     running.current = true;
@@ -179,7 +195,7 @@ export function LiteMatterBody({ data, meta, scope, navigate }: { data: OkfReadR
     conversations={conversations.items} conversationsComplete={conversations.status !== "ready" || conversations.complete}
     conversationsError={conversations.status === "error" ? conversations.retry ?? (() => {}) : undefined} onContinue={(c) => void onContinue(c)}
     onFiles={(files) => void onFiles(files)} saved={saved} modelGap={modelGap} sourceReady={sourceReady}
-    views={views} access={access} viewsEdit={viewsEdit} readState={meta.failed || (target && !canActOnSource(data, target.workspace.id)) ? "failed" : "fresh"}
+    onRename={sourceReady ? rename : undefined} views={views} access={access} viewsEdit={viewsEdit} readState={meta.failed || (target && !canActOnSource(data, target.workspace.id)) ? "failed" : "fresh"}
     scopePaths={input?.scopePaths}
     existingMemorySources={input?.existingMemorySources}
     truths={Object.fromEntries((input?.records ?? []).map((record) => [record.id, record.truth]))}
@@ -187,7 +203,7 @@ export function LiteMatterBody({ data, meta, scope, navigate }: { data: OkfReadR
     meta={meta} focusDeadline={params.get("lehota")} />;
 }
 
-export function LiteMatterView({ matter, cockpit, busy, error, onAction, onAsk, conversations = [], conversationsComplete = true, conversationsError, onContinue, onFiles, saved = null, modelGap = null, sourceReady = true, scopePaths = [], existingMemorySources = [], truths = {}, client, meta, focusDeadline = null, views, access, viewsEdit, readState = "fresh", documentsHref }: {
+export function LiteMatterView({ matter, cockpit, busy, error, onAction, onAsk, conversations = [], conversationsComplete = true, conversationsError, onContinue, onFiles, saved = null, modelGap = null, sourceReady = true, scopePaths = [], existingMemorySources = [], truths = {}, client, meta, focusDeadline = null, views, access, onRename, viewsEdit, readState = "fresh", documentsHref }: {
   matter: MatterOverview;
   /** Prehľad podľa oblasti a typu práce (`buildMatterViews`); bez neho záložka ostane pri pevných sekciách. */
   views?: MatterViews;
@@ -197,6 +213,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, onAsk, 
   readState?: "fresh" | "failed";
   /** Oprava rozpoznaného typu zápisom do karty prípadu. */
   viewsEdit?: ViewsEdit;
+  onRename?: (title: string, original: string) => Promise<void>;
   scopePaths?: readonly string[];
   existingMemorySources?: readonly string[];
   cockpit: LiteCockpit | null;
@@ -330,7 +347,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, onAsk, 
       }}>
       <header className="lw-pripad-head" style={reveal(0)}>
         <p className="lw-matter-topline"><Link className="lw-matter-crumb" to={LITE_CLIENTS_PATH}>{client ?? text("clients_title")}</Link>{meta ? <LiveStamp meta={meta} locale={locale} /> : null}</p>
-        <h1 className="lw-h1">{matter.title}</h1>
+        <MatterTitleEditor title={matter.title} onRename={onRename} />
         {/* Jeden riadok štítkov: druh, spisová značka (kopírovanie), súd a jednoznačná protistrana. */}
         <p className="lw-pripad-pills">
           {kind ? <span className="lw-dnes-pill" data-lawoss-matter-kind="">{tagText(`kind:${kind}`, locale) ?? kind}</span> : null}

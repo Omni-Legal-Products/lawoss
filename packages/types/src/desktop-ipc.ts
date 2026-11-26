@@ -413,7 +413,7 @@ export type AutogramOpenResult = {
   error?: string;
 };
 
-// Installed Chevron7 owns interactive signing; IPC never accepts a path or PIN.
+// Installed Chevron7 owns certificate selection and PIN entry.
 export type Chevron7Status = {
   installed: boolean;
   version?: string;
@@ -576,9 +576,9 @@ export type DesktopCommandMap = {
   // LAWOSS: Autogram teaser card (Integrations settings) — presence check + open.
   autogramStatus: { args: []; result: AutogramStatus };
   autogramOpen: { args: []; result: AutogramOpenResult };
-  // LAWOSS: Chevron7 card (Integrations settings), presence check only.
+  // LAWOSS: installation status and an explicitly selected workspace PDF.
   chevron7Status: { args: []; result: Chevron7Status };
-  chevron7SignPdf: { args: []; result: Chevron7SignResult };
+  chevron7SignPdf: { args: [{ workspaceId: string; serverUrl: string; relativePath: string }]; result: Chevron7SignResult };
 
   // Dialogs
   pickDirectory: {

@@ -18,12 +18,15 @@ const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { while (cleanup.length) await cleanup.pop()?.(); });
 // Windows refuses renaming A while anything holds a descendant open; content created after
 // the server started can still be open when the test renames A. Prepare it before the start.
-async function fixture(prepare?: (a: string, root: string) => Promise<unknown>) {
+// `.opencode` is watched after start, so projection files must be written and A renamed in
+// prepare (before startServer) — otherwise rename(A→B) fails with EPERM on Windows.
+async function fixture(prepare?: (a: string, root: string, config: ServerConfig) => Promise<unknown>) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "reconnect-")));
   cleanup.push(() => removeSyntheticTestDir(root));
   const a = join(root, "A"), b = join(root, "B");
-  await mkdir(a); await writeFile(join(a, "source.pdf"), "%PDF-original"); await prepare?.(a, root);
+  await mkdir(a); await writeFile(join(a, "source.pdf"), "%PDF-original");
   const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "client", hostToken: "host", configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"], workspaces: [{id: "stable", name: "Matter", displayName: "Matter", path: a, preset: "starter", workspaceType: "local", appFiles: "outside"}], authorizedRoots: [a], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  await prepare?.(a, root, config);
   const server = await startServer(config); cleanup.push(() => Promise.resolve(server.stop()));
   const request = (folderPath = b, expectedPath = a, authorized = true) => fetch(`http://127.0.0.1:${server.port}/workspace/stable/reconnect`, { method: "POST", headers: { "Content-Type": "application/json", ...(authorized ? { "X-LegalWork-Host-Token": "host" } : { Authorization: "Bearer client" }) }, body: JSON.stringify({ folderPath, expectedPath }) });
   return { root, a, b, config, server, request };
@@ -44,12 +47,13 @@ test("moved folder reconnect preserves ID, metadata, bytes and restart registry"
 });
 for (const scenario of ["unchanged", "edited", "rollback"] as const) {
   test(`reconnect handles the generated settings receipt when ${scenario}`, async () => {
-    const f = await fixture();
+    const f = await fixture(async (a, root, config) => {
+      await writeNativeProjectProjection(config, config.workspaces[0]!, Schema.decodeUnknownSync(Config.Info)({}));
+      await rename(a, join(root, "B"));
+    });
     const workspace = f.config.workspaces[0]!;
-    await writeNativeProjectProjection(f.config, workspace, Schema.decodeUnknownSync(Config.Info)({}));
     const receipt = async () => (await readLegalworkWorkspaceConfig(f.config, workspace.id)).nativeEngineProject;
     const original = await receipt();
-    await rename(f.a, f.b);
     const path = join(f.b, ".opencode", "opencode.json");
     if (scenario === "edited") await writeFile(path, "{}");
     if (scenario === "rollback") f.config.reconnectHostWorkspace = async () => { throw new Error("synthetic host persistence failure"); };

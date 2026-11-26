@@ -32,5 +32,5 @@ export async function revalidateScopeTarget(scope: OkfScope | null, expected: Pi
   if (!workspace) throw new Error("client_workspace_unavailable");
   const read = await readWorkspaceMemory(connection.client,workspace.id);
   if (!canActOnSource(read,workspace.id)) throw new Error("client_read_incomplete");
-  return { connection: { ...connection, client: connection.client }, workspace };
+  return { connection: { ...connection, client: connection.client }, workspace, read };
 }

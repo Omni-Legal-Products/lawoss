@@ -11,6 +11,7 @@ import { t } from "@/i18n";
 import { MessageContent } from "@/components/ui/message";
 // 🟡 LAWOSS: dávka zmien súborov sa v počte krokov ráta po vykonaných zmenách (N-A8-5).
 import { toolRunStepCount } from "@/lawoss/chat/file-changes";
+import { ToolSources } from "@/lawoss/chat/tool-sources";
 import { useActivityLabel } from "./use-activity-label";
 
 type ToolPart = ToolUIPart | DynamicToolUIPart;
@@ -66,6 +67,7 @@ export function ToolRun({ parts, showDetails, renderTool, active = false, defaul
       {deniedTool && !failedTool && <Ban className="size-3.5 shrink-0" aria-label={t("tool_run.permission_denied")} />}
       <ChevronDown className="size-3.5 shrink-0 opacity-50 transition-[transform,opacity] group-hover:opacity-100 group-data-panel-open:rotate-180" aria-hidden />
     </CollapsibleTrigger>
+    <ToolSources tools={tools} />
     <CollapsibleContent>
       <div ref={viewport} data-scrollable className="ml-2 max-h-80 overflow-auto border-l border-border/60 py-2 pl-4 [overflow-anchor:none]"
         onScroll={(event) => { const node = event.currentTarget; following.current = node.scrollHeight - node.clientHeight - node.scrollTop < 32; }}>

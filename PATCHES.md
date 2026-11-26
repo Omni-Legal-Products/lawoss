@@ -1,5 +1,46 @@
 # LAWOSS downstream patches
 
+## Evidencia prípadov zo zdrojov klienta (2026-11-26)
+
+Spracovanie priečinka a úvodné nastavenie klienta v prekladoch LAWOSS používajú dávku `lawoss_files/register_case`. Cez existujúci plán zmien vytvorí okf kartu prípadu so zdrojom, fázou a ďalším krokom v priečinku klienta. Zápis prechádza rovnakou kontrolou ciest, schválením a obnovou Prehľadu ako iné zmeny súborov. Pri synchronizácii zachovať rozšírenie v `apps/server/src/{opencode-plugins/lawoss-file-operations,lawoss/file-operations}.ts` a čítanie údajov z karty v `lawoss/okf/views.ts`.
+
+## Načítanie profilov pred spracovaním dokumentov (#384)
+
+V `apps/app/src/app/lib/legalwork-server.ts` môže klient po HTTP 503 raz zopakovať čítanie profilov toho istého spisu v zostávajúcom časovom limite. Prípustnosť profilu sa posudzuje z čerstvej odpovede. Regresný test v `apps/app/tests/native-document-generation.test.ts` overuje prechodný výpadok, trvalý výpadok a odmietnutie prístupu.
+
+## Podpis verejnej alfy (2026-11-26)
+
+Vydavateľom macOS a Windows je the Software s.r.o. Pri synchronizácii zachovať verejné odtlačky v `packages/opencode-release/selection.json`, ich kontrolu v `scripts/ci/mac-engine-signing-acceptance{,.test}.mjs`, výber produkčného enginu v `.github/workflows/{alpha-macos-aarch64,ci-opencode-derivative}.yml` a kontrolu vydavateľa vo Windows cez `.github/workflows/alpha-windows-x64.yml` a `scripts/release/verify-windows-signature.ps1`. Podrobnosti sú v [postupe vydania](docs/release-evidence.md).
+Šablóna `scripts/release/signpath-windows-installer.xml` používa jedno pevné meno bez parametrov predplatného. Alfa aj stabilný workflow kontrolujú meno pre architektúru zostavy a vlastnosti ProductName a ProductVersion pomocou `scripts/release/stage-signpath-installer.ps1`. Postup pre projekt forku je v `docs/windows-code-signing.md`.
+
+## Test uložených nastavení dokumentu (2026-11-26)
+
+V `apps/app/src/react-app/domains/session/artifacts/document-preferences.ts` používa každá inštancia rovnaký zdroj úložiska pre uloženie stavu aj čítanie volieb automatického ukladania. V rozhraní sa používa lokálne úložisko prehliadača. Test `apps/app/tests/document-preferences.test.ts` simuluje nové otvorenie dokumentu vytvorením ďalšej inštancie nad rovnakými dátami. Poradie importu modulov v testoch nemá ovplyvniť výsledok.
+
+## Čítačka PDF vedľa chatu (2026-11-25)
+
+`apps/app/src/react-app/domains/session/artifacts/{artifact-frame,artifact-panel,preview}.tsx` a `pdf-preview-url.ts` v tom istom adresári pripájajú hlavičku čítačky a režim zobrazenia PDFium. Pri aktualizácii zachovať odkaz na stranu, natívny iframe, kontrolu odtlačku dokumentu a ovládanie rozšíreného zobrazenia. Regresia je v `apps/app/tests/pdf-preview.test.tsx`.
+
+## Elektronické podpisy v náhľade PDF a kontrola pilotu (2026-11-25)
+
+| Miesto | Čo zachovať pri aktualizácii upstreamu |
+|---|---|
+| `apps/app/src/react-app/domains/session/artifacts/artifact-panel.tsx`, `apps/app/src/react-app/domains/workspace/workspace-file-operation.ts`, `apps/app/src/react-app/domains/settings/pages/workflow-resource-editor-panel.tsx`, `apps/app/package.json`, `pnpm-lock.yaml` | Panel vyhodnocuje presné bajty zobrazeného PDF v samostatnom lokálnom workeri. Výsledok je viazaný na otvorenú verziu súboru. Podpis a časová pečiatka majú samostatné označenie. |
+| `apps/server/src/opencode-plugins/legalwork-capabilities-knowledge.ts`, `apps/server/src/core-skills.ts` | Príručka a odpovede asistenta rozlišujú podpisovanie, zobrazenie údajov a overenie dôvery. |
+| `.github/workflows/ci-tests.yml`, `scripts/ci/{run-engine-tests.mjs,engine-reuse-workflow.test.mjs}` | V CI sa kontroluje príprava pracovnej kópie a šablóna výsledkov. Test nad skutočným enginom preberie nový identifikátor modelu z inventára syntetického účtu a kontroluje prenos priority Fast aj úrovne uvažovania. |
+
+## Pilotná spätná väzba k macOS (2026-11-25)
+
+Cesty v zložených zátvorkách majú spoločný prefix. Samostatné moduly v adresároch `lawoss/` obsahujú aplikačné pravidlá.
+
+| Miesto úpravy | Čo zachovať pri synchronizácii s upstreamom |
+|---|---|
+| `apps/server/src/{native-client-projection.ts,native-shared-values.ts,opencode-plugins/legalwork-model-catalog.ts}`, `packages/types/src/native-model-display.ts`, `apps/app/src/{app/types.ts,components/model-select.tsx}`, `apps/app/src/react-app/{shell/session-route.tsx,domains/session/chat/workspace-chat.tsx,domains/session/surface/{session-surface,composer/composer}.tsx}` | Inventár modelov a rýchlostí aktívneho pripojenia ChatGPT. Blesk v editore správy prepína prioritu v konkrétnom chate pri zachovaní úrovne uvažovania. Úložisko chatov je v `apps/app/src/react-app/domains/session/chat/session-model-store.ts`. |
+| `apps/app/src/react-app/domains/connections/provider-auth/{provider-auth-modal.tsx,store.ts}` | Po návrate z autorizácie sa spoločná výzva na pripojenie cez ChatGPT zobrazí raz. |
+| `apps/app/src/react-app/domains/{session/panel/workspace-entry-menu.tsx,settings/pages/{connector-browser,extensions-view,general-view,plugin-import-dialog,workflows-view}.tsx,settings/shell/settings-page.tsx}`, `apps/app/src/react-app/shell/{settings-route.tsx,workspace-routes.ts}`, `apps/server/src/core-skills.ts`, `docs/user-guide/screens.json` | Sekcie katalógu v natívnych Integráciách, vlastné MCP, Google Workspace, knižnica a import lokálnych skills. Pri zmene klienta zachovať otvorenú sekciu. Generované podklady príručky držať v zhode so zdrojmi. |
+| `apps/app/src/react-app/domains/session/artifacts/artifact-panel.tsx`, `apps/desktop/electron/{main,native-locale,lawoss-chevron7,lawoss-chevron7-cli,lawoss-chevron7-signing}.mjs`, `packages/types/src/desktop-ipc.ts` | Podpis presne vybraného lokálneho PDF s natívnym potvrdením v zdrojovom projekte. Stav inštalácie a odkaz na stiahnutie sú dostupné pred podpisovaním. |
+| `apps/app/src/components/chat/{message-list,tool-run}.tsx`, `apps/app/src/react-app/domains/session/sync/parse-tool-parts.ts`, `apps/server/src/{legalwork-runtime-config,server}.ts`, `apps/server/src/opencode-plugins/legalwork-{assistant-tools,capabilities-knowledge,extensions-preview}.ts` | V overenom podriadenom chate zobraziť zadanie pod značkou LAWOSS. V súhrne akcií používať identifikovaný zdroj zo skutočného volania a rozlíšiť neúspech. Technické identifikátory nástrojov ostávajú súčasťou protokolu. |
+
 ## Tip Package Smoke: workflow_dispatch + docs push ignore (2026-11-25)
 
 | Súbor | Zmena |
@@ -742,7 +783,7 @@ Rozhodnutie vlastníka a rozbor hrozieb sú v koordinačnom zázname. Chat v kli
 | --- | --- |
 | `apps/server/src/wiki/agent-access.ts` | Bez `clientRoot` a `CLIENT_RUNTIME_REQUIRED`. Pribudli `issueWikiAgentTicket`, `redeemWikiAgentTicket`, `closeWikiAgentTicketWindow`. Opakovanie s tým istým nonce vráti ten istý kľúč; iné opakovanie je 403 a tajomstvo sa pritom vymení len kým je okno otvorené, najviac 10 minút od vydania lístka. `allProjects = false`, `credentialScope` a ostatné kontroly sa nemenia. `wiki_agent_unauthorized` má text pre advokáta. |
 | `apps/server/src/server.ts` | +1 import, +1 trasa `POST /engine-agent/ticket` bez inej autorizácie než lístok; odpoveď `no-store`. |
-| `apps/server/src/embedded.ts`, `apps/server/src/cli.ts` | Engine dostane `LEGALWORK_WIKI_AGENT_TICKET` namiesto `LEGALWORK_WIKI_AGENT_TOKEN`; po štarte servera beží neblokujúce `settleEngineAgentTicket`. |
+| `apps/server/src/embedded.ts`, `apps/server/src/cli.ts` | Engine dostane `LEGALWORK_WIKI_AGENT_TICKET` namiesto `LEGALWORK_WIKI_AGENT_TOKEN`; po štarte servera beží neblokujúce `settleEngineAgentTicket`. Test hraníc čaká na dokončenie sondy cez `managedEngineTicketSettled` na lokálnom handle servera. |
 | `apps/server/src/managed-opencode.ts` | `SECRET_ENV_PATTERN` skryje aj `TICKET` v `execution.env`. |
 | `.github/workflows/ci-tests.yml` | Krok so skutočným enginom spúšťa aj `lawoss/engine-agent-ticket.integration.test.ts`; test sa na Windows preskočí, kým používa `/bin/sh`. |
 | `apps/server/src/opencode-plugins/office-plugin-shared.ts`, `legalwork-wiki-tools.ts`, `provider-failure-observer.ts`, `lawoss-okf-handoff.ts`, `lawoss/okf-handoff/host-memory-grants.mjs` | Čítajú tajomstvo z helpera, nie z prostredia. `office-plugin-shared` a `lawoss-okf-handoff` čakajú na výmenu v top-level await, takže je hotová pred factory pluginu a pred MCP inštancie. Nevydarená výmena: `workspaceToolHeaders` vyhodí `ENGINE_CONNECTION_REFUSED`. Prvý plugin odstráni z prostredia enginu prihlásenie a `OPENCODE_CONFIG`; `lawoss-file-operations` cez `shell.env` skryje pre shell aj ostatné cesty a schopnosti. Pozri koordinačný záznam. |
@@ -2330,7 +2371,7 @@ Rozhodnutie MČ 19. 10. 2026: klient = natívny projekt (registrovaný priečino
 | `apps/app/src/react-app/shell/shell-config.tsx` | `ProjectNavKey` + `projectMatters` a `projectDeadlines`, v `DEFAULT_PROJECT_ORDER` hneď za `projectHome`, booleany v `ShellConfig` predvolene `true`. `readProjectOrder` doplní chýbajúce kľúče do uloženého poradia za Domov (nie na koniec za Chaty); uložené poradie, ktoré ich už má, ostáva. Dôvod: Prípady a Lehoty sa dajú vypnúť a presunúť v natívnom prispôsobení (variant A). |
 | `apps/app/src/react-app/domains/session/sidebar/sidebar-customization.tsx` | Dve položky `SIDEBAR_ITEMS` (`lawoss.lite.project_matters`, `lawoss.shell.deadlines`; ikony `Briefcase`, `CalendarClock`) pre prispôsobenie a stránku Projekty. Oprava po review: pripnuté a nedávne chaty v bežnom režime číta a zapisuje `useChatSectionVisibility` (vlastná voľba bežného režimu, predvolene vypnuté), ostatné položky a Pokročilý režim ostávajú na natívnej konfigurácii (+3 riadky). |
 | `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | `AppSidebar` obalí obsah `ClientNavProvider` so živými `groups` a `selectedWorkspaceId` panela (jedno čítanie OKF pre celý panel; registrácia a odobratie klienta sa prejavia hneď, režim wiki zoznam projektov nemení). Sekcia projektov aj pripnuté projekty skryjú priečinky z `useHiddenClientProjects` (registrovaný koreň praxe, ktorého klientov majú všetkých registrovaní klienti; staršia vec registrovaná zvlášť; kým sa spojenie alebo prehľad číta, kandidáti sa zatiaľ neukážu). Natívny `newChatSection` ide do `LawossNav` (`newChat=`), horné riadky sú Dnes · Nový chat · Pridať klienta v oboch režimoch; samostatný riadok `{!lite && newChatSection …}` odstránený. „Nový chat“ sa najprv opýta `useLawossNewChat(openProjectId, …)` (bežný režim: bez otvoreného projektu jeden klient rovno, viac = výber klienta; v otvorenom koreni praxe s klientmi z OKF chat u klienta z kontextu trasy, inak výber jej klientov; klient v koreni praxe dostane chat v koreni s priečinkom klienta, nikdy nad celou praxou), inak natívne (aj obyčajný projekt). Sekcie chatu filtruje `chatSections.shown(key, shellConfig[key])` namiesto `!lite &&`: bežný režim ukáže sekciu projektov (klientov), pripnuté a nedávne chaty sú v ňom predvolene vypnuté, ale prepínač v prispôsobení funguje; Pokročilý bez zmeny. Hlavička sekcie: mriežka (`lawoss.lite.nav_clients`) vedie na `/klienti`; „+“ v bežnom režime (`lawoss.lite.add_client`) na Pridať klienta, v Pokročilom ostáva natívne vytvorenie projektu (`onOpenCreateWorkspace`, `projects.create`); natívna stránka Projekty ostáva v hlavnej lište. Mapa položiek projektu má dva tenké záznamy `projectMatters` / `projectDeadlines`, ktoré vykreslia komponenty LAWOSS. |
-| `apps/app/src/react-app/domains/workspace/project-home.tsx` | Voliteľný slot `extra?: ReactNode`, vykreslený nad úlohami. Dôvod: Domov klienta ukáže prehľad z OKF (prípady, súčty, najbližšie lehoty) bez kópie natívnej stránky. |
+| `apps/app/src/react-app/domains/workspace/project-home.tsx` | Lokálny Domov používa otvorený koreň a výpis súborov aj pre spracovanie a obnovenie priečinka (prepojenie zo session-page.tsx). Voliteľný slot `extra?: ReactNode`, vykreslený nad úlohami. Dôvod: Domov klienta ukáže prehľad z OKF (prípady, súčty, najbližšie lehoty) bez kópie natívnej stránky. |
 | `apps/app/src/react-app/domains/session/chat/session-page.tsx` | `ProjectHome` dostane `extra={<ClientOverview workspaceId={props.selectedWorkspaceId} />}` (projekt, ktorý nie je klient OKF, nedostane nič). `onOpenProject` stránky Projekty pošle `projectDeadlines` na `clientDeadlinesLink(id)`; `projectMatters` zámerne padne na Domov, kde je prehľad prípadov. |
 | `apps/app/src/react-app/domains/workspace/projects-page.tsx` | Stránka Projekty ponúkne Prípady a Lehoty len pri projektoch, ktoré sú klienti OKF (`useClientProjectItem` z `lawoss/lite/client-nav.tsx`, +2 riadky). |
 
@@ -2687,6 +2728,16 @@ Logika je v nových LAWOSS súboroch `apps/app/src/lawoss/chat/provider-error.ts
 | `apps/server/src/engine-client.ts`, `apps/server/src/lawoss/workspace-history-sessions.ts`, `apps/server/src/lawoss/workspace-session-rebind.ts` | Transakcia obnovenia potrebuje prečítať zoznam konverzácií a presunúť ich uložené umiestnenia, kým pôvodný priečinok chýba. Výnimka z kontroly pripravenosti priečinka platí iba pre tieto dve operácie lokálneho enginu v hostiteľskej transakcii. |
 | `apps/server/src/engine-project.ts`, `apps/server/src/routes/workspaces.ts` | Pri opätovnom pripojení presunie súkromný záznam o pôvode nastavení spolu s transakciou. Rozpozná len pôvodný názov a totožný obsah v kanonickom priečinku. |
 
+### Automatické spracovanie vybraného priečinka klienta
+
+Server v `routes/workspaces.ts` a `server.ts` spúšťa lokálne indexovanie pri registrácii. `legalwork-server.ts` pripája stav, hľadanie a evidenciu k Prehľadu. Pridanie klienta, registrácia a sprievodca používajú presnú vybranú cestu. `session-page.tsx`, `project-home.tsx`, `create-project-modal.tsx`, `welcome-route.tsx`, `session-route.tsx` a `document-processing.ts` sprístupňujú spracovanie bez prepisovania pokynov do chatu. Chránené spracovanie modelom zachováva výber konkrétnych súborov a pôvodnú kontrolu prenosu.
+
 The macOS ARM64 unit integration, packaging and sandbox CI lanes in `.github/workflows/ci-tests.yml`, `.github/workflows/ci-desktop-packaging.yml` and `.github/workflows/sandbox-runtime.yml` support an operator-selected isolated runner for a single reviewed PR merge commit. Preserve matrix check names and the hosted default during upstream sync. See [the runner procedure](docs/testing/macos-local-runner.md).
 
 The regression in `scripts/ci/engine-reuse-workflow.test.mjs` checks the opt-in conditions, job-specific labels and hosted fallback for all three workflows. Its separate required-check test retains the original job matrix and failure propagation.
+
+### Akceptácia Windows bez macOS runnera
+
+| Súbory | Zmena |
+|---|---|
+| `.github/workflows/ci-tests.yml`, `.github/workflows/ci-desktop-packaging.yml` | Akceptácia Windows používa runtime vygenerovaný v tom istom behu. Balenie a natívny ISIR majú spoločnú maticu. Režim Windows vyberá x64 a ARM64 a vynechá macOS kontrolu pamäte. Predvolený beh PR pokrýva všetky štyri platformy. |

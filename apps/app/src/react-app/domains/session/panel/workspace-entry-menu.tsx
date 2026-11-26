@@ -2,7 +2,8 @@ import type { ViewSummary } from "@legalwork/types/views";
 import { ViewRenameDialog } from "../../views/view-rename-dialog";
 import { useId, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, FolderPlus, Loader2, Pencil, RefreshCw, Trash2, Upload } from "lucide-react";
+import { useChevron7FileAction } from "@/lawoss/domains/integrations/chevron7-file-action";
+import { FileSignature, FolderOpen, FolderPlus, Loader2, Pencil, RefreshCw, Trash2, Upload } from "lucide-react";
 import type { LegalworkServerClient, LegalworkWorkspaceDirectoryEntry, LegalworkWorkspaceFileOperation } from "@/app/lib/legalwork-server";
 import { FileEntryActions } from "./file-entry-actions";
 import { operateWorkspaceFile } from "../../workspace/workspace-file-operation";
@@ -34,6 +35,8 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
   const queryClient = useQueryClient();
   const projectFiles = useProjectFiles();
   const source = entry?.kind === "file" && client && workspaceId ? projectFiles?.identify(client, workspaceId, entry) : undefined;
+  const signing = useChevron7FileAction(entry?.kind === "file" && client && workspaceId && !isRemoteWorkspace
+    ? { workspaceId, serverUrl: client.baseUrl, relativePath: entry.path } : null);
   const formId = useId();
   const uploadRef = useRef<HTMLInputElement>(null);
   const [action, setAction] = useState<"rename" | "mkdir" | "delete" | null>(null);
@@ -61,6 +64,7 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
       pin={entry?.kind === "file" && workspaceId ? { workspaceId, source: "local", path: entry.path, name: entry.name } : undefined}
       actions={[
         ...(onOpen ? [{ label: t("storage.open"), icon: <FolderOpen />, onClick: onOpen }] : []),
+        ...(signing ? [{ ...signing, icon: <FileSignature /> }] : []),
         ...(!isRemoteWorkspace && isDesktopRuntime() ? [{ label: t(isWindowsPlatform() ? "workspace_list.reveal_explorer" : "workspace_list.reveal_finder"), icon: <FolderOpen />, disabled: !workspaceRoot, onClick: () => {
           void joinDesktopPath(workspaceRoot, ...(entry?.path ?? folderPath).split("/").filter(Boolean)).then(revealDesktopItemInDir).catch(() => toast.error(t("workspace_files.open_failed_title")));
         } }] : []),

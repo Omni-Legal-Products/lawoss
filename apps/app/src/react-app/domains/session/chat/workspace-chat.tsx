@@ -7,6 +7,7 @@ import { useModelPicker } from "../modals/use-model-picker";
 import { ModelPickerModal } from "../modals/model-picker-modal";
 import { useModelBehavior } from "../surface/use-model-behavior";
 import { useProviderListQuery } from "@/react-app/infra/provider-list-query";
+import { subscriptionSpeedBase } from "@/lawoss/providers/subscription-models";
 import { modelReadiness } from "@/lawoss/shell/model-readiness";
 import { chatModelKey, useSessionModelStore } from "./session-model-store";
 import { resolveModelDisplayName } from "@/app/utils";
@@ -39,9 +40,15 @@ export function WorkspaceChat(props: SessionSurfaceProps & { clientRoot: string;
   const stored = useSessionModelStore(state => state.selections[key]);
   const providers = useProviderListQuery({ client, baseUrl: props.opencodeBaseUrl, directory: directory || undefined });
   const assistant = useChatModelPreferences(Boolean(props.assistantDate), providers.data);
-  const selection = props.assistantDate
+  const preferred = props.assistantDate
     ? { model: assistant.model ?? { providerID: "", modelID: "" }, variant: assistant.variant }
     : stored ?? { model: props.selectedModel, variant: props.modelVariant };
+  const provider = providers.data?.all.find(item => item.id === preferred.model.providerID);
+  const speedBase = provider && subscriptionSpeedBase(provider, preferred.model.modelID);
+  const speed = useSessionModelStore(state => state.speedByChat[key]);
+  const selection = speedBase && speed?.base === speedBase
+    ? { ...preferred, model: { providerID: preferred.model.providerID, modelID: speed.fast ? `${speedBase}-fast` : speedBase } }
+    : preferred;
   useEffect(() => {
     if (!props.assistantDate && props.selectedModel.providerID && props.selectedModel.modelID) useSessionModelStore.getState().initialize(key, { model: props.selectedModel, variant: props.modelVariant });
   }, [key, props.assistantDate, props.selectedModel, props.modelVariant]);
@@ -50,10 +57,14 @@ export function WorkspaceChat(props: SessionSurfaceProps & { clientRoot: string;
   const unavailable = modelReadiness({ defaultModel: selection.model, providerList: providers.data }).modelUnavailable;
   const behavior = useModelBehavior({ providerList: providers.data, defaultModel: selection.model, modelVariant: selection.variant });
   const select = (model: ModelRef) => {
-    if (props.assistantDate) assistant.onModelChange(model);
+    const nextProvider = providers.data?.all.find(item => item.id === model.providerID);
+    const nextBase = nextProvider && subscriptionSpeedBase(nextProvider, model.modelID);
+    if (nextBase) useSessionModelStore.getState().setSpeed(key, nextBase, model.modelID !== nextBase);
+    const next = nextBase ? { ...model, modelID: nextBase } : model;
+    if (props.assistantDate) assistant.onModelChange(next);
     else {
-      useSessionModelStore.getState().select(key, { model, variant: selection.model.providerID === model.providerID && selection.model.modelID === model.modelID ? selection.variant : null });
-      props.onModelChange(model);
+      useSessionModelStore.getState().select(key, { model: next, variant: preferred.model.providerID === next.providerID && (preferred.model.modelID === next.modelID || nextBase && speedBase === nextBase) ? preferred.variant : null });
+      props.onModelChange(next);
     }
     picker.setCompactOpen(false); picker.setOpen(false);
   };
@@ -70,10 +81,14 @@ export function WorkspaceChat(props: SessionSurfaceProps & { clientRoot: string;
     modelVariant: behavior.modelVariantValue,
     modelVariantLabel: behavior.modelVariantLabel,
     modelBehaviorOptions: behavior.modelBehaviorOptions,
-    onModelVariantChange: variant => selectBehavior(selection.model, variant),
+    onModelVariantChange: variant => selectBehavior(preferred.model, variant),
   };
   return <div className="h-full min-h-0" data-workspace-chat={props.sessionId} data-workspace-tab-active={props.active !== false}>
     <SessionSurface {...props} {...interactions} {...modelSettings} workspaceRoot={directory}
+      subscriptionSpeed={speedBase ? {
+        fast: selection.model.modelID !== speedBase,
+        toggle: () => useSessionModelStore.getState().setSpeed(key, speedBase, selection.model.modelID === speedBase),
+      } : undefined}
       assistantHeader={props.renderAssistantHeader?.(modelSettings) ?? props.assistantHeader}
       modelLabel={resolveModelDisplayName(selection.model.modelID)} modelUnavailable={unavailable}
       onModelClick={() => picker.setOpen(true)} onChangeModel={select}
