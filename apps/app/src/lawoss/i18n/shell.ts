@@ -1,4 +1,7 @@
+import { alphaReportCs, alphaReportDe, alphaReportEn, alphaReportSk } from "./alpha-report";
+
 export const shellEn = {
+  ...alphaReportEn,
   // Upstream v0.3.0 replaced this with the Assistant hint; LAWOSS Home without a client creates one.
   "home.new_project_hint": "Choose a client or add a new one first.",
   "lawoss.home.client_required": "Choose a client for this message, or add a new client. Your text stays here.",
@@ -1030,6 +1033,7 @@ export const shellEn = {
 type SlavicPluralKey = "lawoss.lite.days_unit_few" | "lawoss.lite.days_unit_many" | "lawoss.lite.deadlines_unit_few" | "lawoss.lite.deadlines_unit_many" | "lawoss.lite.week_dates_few" | "lawoss.lite.week_dates_many" | "lawoss.lite.tile_reg_failing_few" | "lawoss.lite.tile_reg_failing_many" | "lawoss.lite.continue_tasks_few" | "lawoss.lite.continue_tasks_many" | "lawoss.lite.due_in_days_few" | "lawoss.lite.due_in_days_many" | "lawoss.practice.clients_few" | "lawoss.practice.clients_many" | "lawoss.lite.registers_failing_few" | "lawoss.lite.registers_failing_many" | "lawoss.lite.client_phase_missing_few" | "lawoss.lite.client_phase_missing_many";
 
 export const shellCs = {
+  ...alphaReportCs,
   "home.new_project_hint": "Nejdřív vyberte klienta, nebo přidejte nového.",
   "lawoss.home.client_required": "Vyberte klienta, kterého se zpráva týká, nebo přidejte nového. Text tu zůstane.",
   "lawoss.home.client_required_add": "Přidat klienta",
@@ -2075,6 +2079,7 @@ export const shellCs = {
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
+  ...alphaReportSk,
   "home.new_project_hint": "Najprv zvoľte klienta alebo pridajte nového.",
   "lawoss.home.client_required": "Zvoľte klienta, ktorého sa správa týka, alebo pridajte nového. Text tu ostane.",
   "lawoss.home.client_required_add": "Pridať klienta",
@@ -3120,6 +3125,7 @@ export const shellSk = {
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
+  ...alphaReportDe,
   "home.new_project_hint": "Wählen Sie zuerst einen Mandanten oder legen Sie einen neuen an.",
   "lawoss.home.client_required": "Wählen Sie den Mandanten für diese Nachricht oder legen Sie einen neuen an. Ihr Text bleibt hier.",
   "lawoss.home.client_required_add": "Mandanten hinzufügen",

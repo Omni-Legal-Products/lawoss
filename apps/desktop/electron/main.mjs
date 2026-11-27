@@ -45,6 +45,7 @@ import { SystemKeyMonitor, resolveKeyMonitorPath } from "./audio/system-key-moni
 import { PowerLifecycle, PowerSessions } from "./power-lifecycle.mjs";
 import { AppTray } from "./tray.mjs";
 import { alphaPageUrl, feedbackUrl, latestAlpha } from "./lawoss-alpha-feedback.mjs";
+import { createAlphaReportHandlers, requestAlphaReport } from "./lawoss-alpha-report-ipc.mjs"; // 🟡 LAWOSS: hlásenie z appky
 import { pinWindowsProcessQoS } from "./windows-qos.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager, externalWorkspaceAppFilesRoot, resolveLegalworkServerConfigPath } from "./runtime.mjs";
@@ -455,10 +456,24 @@ async function collectSupportLogsAndReveal(technical = false, days = 7) {
   return filePath;
 }
 
-// LAWOSS: tester nahlási chybu formulárom na webe; odkaz nesie len verziu a systém.
+// LAWOSS: tester nahlási chybu oknom v appke; bez načítaného okna formulárom na webe (odkaz nesie len verziu a systém).
 function openAlphaFeedback() {
-  void shell.openExternal(feedbackUrl({ locale: uiLocales.forWindow(mainWindow), version: app.getVersion() }));
+  const focused = BrowserWindow.getFocusedWindow();
+  requestAlphaReport({
+    window: focused && (focused === mainWindow || secondaryWindows.has(focused)) ? focused : mainWindow,
+    openWeb: () => void shell.openExternal(feedbackUrl({ locale: uiLocales.forWindow(mainWindow), version: app.getVersion() })),
+  });
 }
+
+// LAWOSS: okno hlásenia (snímka, diagnostika bez tajomstiev a ciest klientov, odoslanie na lawoss.app).
+const alphaReportHandlers = createAlphaReportHandlers({
+  app, shell, dialog, BrowserWindow,
+  runtimeManager: { legalworkServerInfo: () => runtimeManager.legalworkServerInfo(), collectRuntimeDiagnostics: () => runtimeManager.collectRuntimeDiagnostics() },
+  listWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
+  getMainWindow: () => mainWindow,
+  getLocale: () => uiLocales.forWindow(mainWindow),
+  saveTitle: () => nativeCopy(uiLocales.forWindow(mainWindow)).reportSave,
+});
 
 // LAWOSS: nepodpísané alfy vstavaný updater nevidí, preto sa na novú alfu pýtame webu (raz po štarte, potom každých 6 h).
 let announcedAlpha = "";
@@ -2024,6 +2039,7 @@ const desktopCommandHandlers = {
       return { path: bundlePath };
   },
   "technicalSupportBundleCollect": async (event, ...args) => ({ path: await collectSupportLogsAndReveal(true, args[0]?.days) }),
+  ...alphaReportHandlers, // 🟡 LAWOSS
   "runtimeStatus": async (event, ...args) => {
       return runtimeManager.runtimeStatus();
   },

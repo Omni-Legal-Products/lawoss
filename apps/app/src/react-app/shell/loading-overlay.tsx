@@ -12,6 +12,8 @@ import { OwDotTicker } from "./dot-ticker";
 import { SettingsSurface } from "./settings-route";
 import { t } from "@/i18n";
 import { FORK_RELEASES_URL } from "@/lawoss/branding";
+import { requestAlphaReport } from "@/lawoss/alpha-report/report-dialog"; // 🟡 LAWOSS: hlásenie z chybovej obrazovky
+import { currentLocale } from "@/i18n";
 
 const RELEASES_URL = FORK_RELEASES_URL;
 
@@ -120,6 +122,10 @@ export function LoadingOverlay({ startup = { status: "ready" } }: { startup?: En
                   {t("boot.retry")}
                 </Button>
                 <CollectLogsButton />
+                {/* 🟡 LAWOSS: rovnaké okno hlásenia ako v bočnom paneli; diagnostika ide bez servera z balíka podpory. */}
+                <Button variant="outline" size="sm" onClick={() => void requestAlphaReport(currentLocale())} data-lawoss-boot-report="">
+                  {t("lawoss.lite.report_problem")}
+                </Button>
                 <Dialog open={updatesOpen} onOpenChange={setUpdatesOpen}>
                   {/* Keep the updater and its menus above the boot overlay. */}
                   <DialogContent

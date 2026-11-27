@@ -2,6 +2,7 @@
 export const NATIVE_STRINGS = {
   "en": {
     "reportIssue": "Report a Problem or Idea…",
+    "reportSave": "Save the report",
     "alphaTitle": "A new LAWOSS alpha is available",
     "alphaDetail": "Version {version} is ready. Use the download link from your invitation e-mail; your data stays where it is.",
     "alphaOpen": "Open lawoss.app",
@@ -83,6 +84,7 @@ export const NATIVE_STRINGS = {
   },
   "cs": {
     "reportIssue": "Nahlásit chybu nebo nápad…",
+    "reportSave": "Uložit hlášení",
     "alphaTitle": "Je k dispozici nová alfa LAWOSS",
     "alphaDetail": "Verze {version} je připravena. Stáhněte ji z odkazu v e-mailu s pozvánkou; vaše data zůstanou na místě.",
     "alphaOpen": "Otevřít lawoss.app",
@@ -164,6 +166,7 @@ export const NATIVE_STRINGS = {
   },
   "sk": {
     "reportIssue": "Nahlásiť chybu alebo nápad…",
+    "reportSave": "Uložiť hlásenie",
     "alphaTitle": "Je dostupná nová alfa LAWOSS",
     "alphaDetail": "Verzia {version} je pripravená. Stiahnite ju z odkazu v e-maile s pozvánkou; vaše údaje ostanú na mieste.",
     "alphaOpen": "Otvoriť lawoss.app",
@@ -245,6 +248,7 @@ export const NATIVE_STRINGS = {
   },
   "de": {
     "reportIssue": "Problem oder Idee melden…",
+    "reportSave": "Meldung speichern",
     "alphaTitle": "Eine neue LAWOSS-Alpha ist verfügbar",
     "alphaDetail": "Version {version} ist bereit. Nutzen Sie den Download-Link aus Ihrer Einladungs-E-Mail; Ihre Daten bleiben, wo sie sind.",
     "alphaOpen": "lawoss.app öffnen",

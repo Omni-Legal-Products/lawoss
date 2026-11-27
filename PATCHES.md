@@ -1,5 +1,24 @@
 # LAWOSS downstream patches
 
+## Hlásenie chyby priamo z appky (2026-11-27)
+
+Podľa návrhu „Systém verejnej alfy LAWOSS“ (MČ, 27. 11. 2026, časť 2) **Nahlásiť chybu alebo nápad** otvorí okno v appke namiesto webu. Okno má typ, závažnosť, popis, čo sa stalo, ako často, nepovinnú snímku okna, zaškrtnutú diagnostiku s náhľadom, upozornenie na údaje klientov a nepovinný kontakt. Odosiela hlavný proces na `POST https://lawoss.app/api/alfa/hlasenie` (multipart podľa tabuľky „Spoločné rozhranie“, `source=app`). Adresu pre lokálny test mení `LAWOSS_ALPHA_REPORT_URL` (len https alebo http na tomto počítači).
+
+| Súbor | Zmena |
+|---|---|
+| nové `apps/desktop/electron/lawoss-alpha-report{,-ipc}.mjs` (+ test) | Diagnostika z `collectTechnicalSupportBundle`, bez servera z `buildSupportBundleText`. Redakcia: `scrubSecrets`, známe tvary tokenov, heslá v URL, e-maily, priečinky klientov a ich nadradený priečinok vrátane mien súborov (ostane prípona), domovský priečinok na `~`, iné disky a sieťové cesty. JSON sa redaguje po hodnotách a ostáva platný. Limit 9 MB, náhľad zobrazuje presne odosielané bajty. Snímka sa robí pred otvorením okna a len na požiadanie sa priloží. Časový limit 45 s a chyby servera sa vracajú len ako kód. Pri zlyhaní je možné uložiť priečinok s hlásením a snímkou a otvoriť webový formulár. Stav sa po odoslaní alebo zatvorení uvoľní. |
+| `apps/desktop/electron/main.mjs` | +1 import, `openAlphaFeedback` pošle udalosť do aktívneho okna (bez načítaného okna ostáva web), `alphaReportHandlers` a ich zaradenie do `desktopCommandHandlers` (+1 riadok). |
+| `apps/desktop/electron/preload.cjs` | Udalosť `lawoss:alpha-report:open` sa prepošle ako `window` Event (ako otvorenie Nastavení z menu). |
+| `packages/types/src/desktop-ipc.ts` | Príkazy `lawossAlphaReport{Prepare,Preview,Submit,Save,Discard,OpenWeb}` a typ `LawossAlphaReport`. |
+| `apps/desktop/electron/native-locale.mjs` | Nadpis ukladacieho dialógu `reportSave` (sk/cs/en/de). |
+| `apps/desktop/package.json` | `test` spúšťa aj `lawoss-alpha-feedback.test.mjs` a `lawoss-alpha-report.test.mjs`. |
+| nové `apps/app/src/lawoss/alpha-report/*`, `lawoss/i18n/alpha-report.ts` (zaradené v `lawoss/i18n/shell.ts`), `lawoss/lite/sidebar-footer.tsx` (+ test `tests/lawoss-alpha-report.test.ts`) | Okno a jeho stav; bočný panel ho otvára namiesto `report-problem.ts` (odstránený spolu s testom #464). Mimo desktopu ostáva webový formulár. |
+| `apps/app/src/react-app/shell/providers.tsx` | +1 import, `<AlphaReportHost />` vedľa ostatných hostiteľov okien LAWOSS. Okno sa kreslí nad štartovacím prekryvom. |
+| `apps/app/src/react-app/shell/loading-overlay.tsx` | +2 importy, tlačidlo „Nahlásiť chybu alebo nápad“ na chybovej obrazovke pri štarte vedľa zbierania protokolov. |
+| `lawoss/user-guide/{sk,cs}/riesenie-problemov.md`, `apps/server/src/core-skills.ts` | Postup hlásenia v príručke; zabudovaná príručka pregenerovaná (`pnpm docs:generate`). |
+
+Appka zatiaľ nepozná token pozvánky ani e-mail testera, preto `invite` neposiela a kontakt nepredvypĺňa. Pri synchronizácii zachovať hostiteľa v `providers.tsx`, tlačidlo v `loading-overlay.tsx` a udalosť v `preload.cjs`.
+
 ## Evidencia prípadov zo zdrojov klienta (2026-11-26)
 
 Spracovanie priečinka a úvodné nastavenie klienta v prekladoch LAWOSS používajú dávku `lawoss_files/register_case`. Cez existujúci plán zmien vytvorí okf kartu prípadu so zdrojom, fázou a ďalším krokom v priečinku klienta. Zápis prechádza rovnakou kontrolou ciest, schválením a obnovou Prehľadu ako iné zmeny súborov. Pri synchronizácii zachovať rozšírenie v `apps/server/src/{opencode-plugins/lawoss-file-operations,lawoss/file-operations}.ts` a čítanie údajov z karty v `lawoss/okf/views.ts`.

@@ -20,6 +20,7 @@ import { ProviderOverwriteConfirmHost } from "@/lawoss/providers/overwrite-confi
 import { ChatTrimConfirmHost } from "@/lawoss/chat/trim-confirm-host";
 // 🟡 LAWOSS: potvrdenie „Odobrať klienta“ v okne appky (nie systémové Cancel / OK).
 import { RemoveClientConfirmHost } from "@/lawoss/shell/remove-client-confirm-host";
+import { AlphaReportHost } from "@/lawoss/alpha-report/report-dialog"; // 🟡 LAWOSS: okno hlásenia
 
 function resolveDefaultServerUrl(): string {
   if (isDesktopRuntime()) return "http://127.0.0.1:4096";
@@ -75,6 +76,7 @@ export function AppProviders({ children }: AppProvidersProps) {
             <ProviderOverwriteConfirmHost />
             <ChatTrimConfirmHost />
             <RemoveClientConfirmHost />
+            <AlphaReportHost />
           </LocalProvider>
         </ArchitectureMismatchGate>
       </ServerProvider>

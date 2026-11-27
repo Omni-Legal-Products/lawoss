@@ -19,6 +19,18 @@ Při hlášení chyby uveďte přesný text chyby a tlačítko nebo obrazovku, k
 | Balíček z Marketplace se nenainstaluje | Instalace vyžaduje dostupnou složku a oprávnění k zápisu. Zkuste to znovu na kartě **Integrace**. |
 | **Aktualizace se nepodařilo zkontrolovat** | Zkontrolujte internet a zvolte **Zkontrolovat nyní** znovu. |
 
+## Nahlásit chybu nebo nápad
+
+Hlášení pošlete přímo z aplikace: v postranním panelu zvolte **Nahlásit chybu nebo nápad**, nebo **Nápověda → Nahlásit chybu nebo nápad**. Pokud se aplikace nespustí, stejné tlačítko je i na chybové obrazovce.
+
+1. Vyberte, zda hlásíte chybu, nápad nebo dotaz. U chyby zvolte, jak moc vám vadí.
+2. Popište, co jste dělali, co se stalo a co se mělo stát, a jak často se to děje.
+3. **Snímek okna** je nepovinný. Aplikace ho pořídí před otevřením okna hlášení; v náhledu zkontrolujte, že na něm nejsou jména klientů ani dokumenty.
+4. **Přiložit diagnostiku** je zaškrtnuté. Jde o technické záznamy aplikace bez hesel, klíčů, e-mailů a názvů složek klientů. Tlačítkem **Zobrazit, co se odešle** si prohlédnete přesně to, co se pošle.
+5. E-mail je nepovinný a slouží jen k odpovědi. Do hlášení nepište údaje klientů.
+
+Po odeslání aplikace ukáže číslo hlášení. Pokud odeslání selže, aplikace řekne proč a nabídne **Uložit hlášení do počítače** a **Otevřít webový formulář**, kde uložené soubory přiložíte.
+
 Karta **Ladění** je jen pro vývojáře a běžně se nezobrazuje.
 
 Související: [Nastavení](nastavenia.md), [Integrace](integracie.md), [Chaty](chaty.md).
