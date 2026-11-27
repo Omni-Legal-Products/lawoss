@@ -254,3 +254,65 @@ test("client folders and their office folder are redacted, the home folder itsel
   assert.equal(requestAlphaReport({ window: { ...window, webContents: { ...window.webContents, isLoading: () => true } }, openWeb: () => { web++; } }), "web");
   assert.equal(web, 2);
 });
+
+test("cloud drives in ~/Library and bare client folder names are removed, app folders stay readable", () => {
+  const named = createRedactor({ home: HOME, clientRoots: [CLIENT], clientNames: ["Novák s.r.o.", "AB"], profile: [[PROFILE, "<profile>"]] });
+  const text = named.redactText([
+    `sync ${HOME}/Library/CloudStorage/GoogleDrive-advokat@kancelaria.sk/Shared drives/Novák/spis.pdf`,
+    `icloud ${HOME}/Library/Mobile Documents/com~apple~CloudDocs/Horváthová/zmluva.docx`,
+    `cache ${HOME}/Library/Caches/LAWOSS/models/x.bin`,
+    "workspace opened: Novák s.r.o. (3 files)",
+    "tab ABC stays, AB alone is too short to remove",
+  ].join("\n"));
+  assertClean(text, { secrets: [], privateTerms: ["Novák", "Horváthová", "kancelaria.sk", "advokat"] });
+  assert.match(text, /sync <path>\.pdf/);
+  assert.match(text, /icloud <path>\.docx/);
+  assert.match(text, /cache ~\/Library\/Caches\/LAWOSS\/models\/x\.bin/);
+  assert.match(text, /workspace opened: <client> \(3 files\)/);
+  assert.match(text, /tab ABC stays/);
+  assert.equal(named.redactJson({ sessionID: "ses_123", accessKey: "AKIAXXXXXXXXXXXXXXXX" }).sessionID, "ses_123");
+});
+
+test("the Electron handlers save a folder with the report and the screenshot, and redact the real client folders", async () => {
+  const { createAlphaReportHandlers } = await import("./lawoss-alpha-report-ipc.mjs");
+  const root = await mkdtemp(path.join(tmpdir(), "alpha-report-ipc-"));
+  try {
+    const userData = path.join(root, "profile");
+    const client = path.join(root, "Klienti", "Novák s.r.o.");
+    const revealed = [];
+    const image = {
+      isEmpty: () => false, getSize: () => ({ width: 2000, height: 1000 }),
+      resize: () => image, toPNG: () => Buffer.from("PNG"), toDataURL: () => "data:image/png;base64,AA",
+    };
+    const win = { isDestroyed: () => false, webContents: { capturePage: async () => image } };
+    const handlers = createAlphaReportHandlers({
+      app: { getVersion: () => "0.2.1-alpha.27", getName: () => "LAWOSS", isPackaged: true, getPath: (name) => name === "userData" ? userData : name === "desktop" ? root : path.join(root, name) },
+      shell: { showItemInFolder: (file) => revealed.push(file), openExternal: async () => undefined },
+      dialog: { showSaveDialog: async (_parent, options) => ({ canceled: false, filePath: options.defaultPath }) },
+      BrowserWindow: { fromWebContents: () => win },
+      runtimeManager: {
+        legalworkServerInfo: async () => ({ running: false }),
+        collectRuntimeDiagnostics: async () => ({ workspaces: [client, path.join(userData, "lawoss-domov")], note: "opened Novák s.r.o." }),
+      },
+      listWorkspacePaths: async () => [client, path.join(userData, "lawoss-domov")],
+      getMainWindow: () => win,
+      getLocale: () => "sk",
+      saveTitle: () => "Uložiť hlásenie",
+    });
+    const { id, screenshot } = await handlers.lawossAlphaReportPrepare({ sender: {} });
+    assert.equal(screenshot, "data:image/png;base64,AA");
+    const preview = await handlers.lawossAlphaReportPreview({}, { id });
+    assert.equal(preview.name, "lawoss-diagnostika.txt", "without the local service the text bundle is used");
+    assert.ok(!preview.text.includes("Novák"));
+    assert.match(preview.text, /<client-folder>/);
+    assert.match(preview.text, /<profile>\/lawoss-domov/);
+    const { path: saved } = await handlers.lawossAlphaReportSave({}, { id, report: { what: "Nefunguje export", includeDiagnostics: true, includeScreenshot: true } });
+    assert.ok(saved && saved.startsWith(root));
+    const { readFile } = await import("node:fs/promises");
+    const bundle = JSON.parse(await readFile(path.join(saved, "hlasenie.json"), "utf8"));
+    assert.equal(bundle.what, "Nefunguje export");
+    assert.equal(bundle.diagnostics.content, (await handlers.lawossAlphaReportPreview({}, { id })).text);
+    assert.equal((await readFile(path.join(saved, "snimka-okna.png"))).toString(), "PNG");
+    assert.deepEqual(revealed, [path.join(saved, "hlasenie.json")]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

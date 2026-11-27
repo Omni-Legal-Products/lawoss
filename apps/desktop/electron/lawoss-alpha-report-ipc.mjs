@@ -32,12 +32,20 @@ export function clientFolderRoots(paths, home = os.homedir()) {
 }
 
 /**
+ * Len časti Electronu, ktoré okno hlásenia potrebuje (test ich nahradí).
+ * @typedef {{ isEmpty: () => boolean, getSize: () => { width: number }, resize: (options: { width: number, quality?: "good" }) => ReportImage, toPNG: () => Buffer, toDataURL: () => string }} ReportImage
+ * @typedef {{ isDestroyed: () => boolean, webContents: { capturePage: () => Promise<ReportImage> } }} ReportWindow
+ */
+
+/**
  * @param {{
- *   app: import("electron").App, shell: import("electron").Shell, dialog: import("electron").Dialog,
- *   BrowserWindow: typeof import("electron").BrowserWindow,
+ *   app: { getVersion: () => string, getName: () => string, isPackaged?: boolean, getPath: (name: any) => string },
+ *   shell: { showItemInFolder: (file: string) => void, openExternal: (url: string) => Promise<unknown> },
+ *   dialog: { showSaveDialog: (...args: any[]) => Promise<{ canceled: boolean, filePath?: string }> },
+ *   BrowserWindow: { fromWebContents: (contents: any) => ReportWindow | null },
  *   runtimeManager: { legalworkServerInfo: () => Promise<any>, collectRuntimeDiagnostics: () => Promise<unknown> },
  *   listWorkspacePaths: () => Promise<string[]>,
- *   getMainWindow: () => import("electron").BrowserWindow | null,
+ *   getMainWindow: () => ReportWindow | null,
  *   getLocale: () => string,
  *   saveTitle: () => string,
  * }} deps
@@ -52,11 +60,16 @@ export function createAlphaReportHandlers(deps) {
 
   const redactor = async () => {
     const optional = (name) => { try { return app.getPath(name); } catch { return ""; } };
+    // Domáci priečinok appky je v profile (`lawoss-home-workspace.mjs`), nie priečinok klienta.
+    const userData = optional("userData");
+    const insideProfile = (dir) => Boolean(userData) && !path.relative(userData, dir).startsWith("..") && !path.isAbsolute(path.relative(userData, dir));
+    const workspaces = (await deps.listWorkspacePaths().catch(() => [])).map((dir) => String(dir ?? "").trim()).filter((dir) => dir && !insideProfile(dir));
     /** @type {Array<[string, string]>} */
-    const profile = [[optional("userData"), "<profile>"], [optional("logs"), "<logs>"], [optional("temp"), "<temp>"], [process.resourcesPath ?? "", "<app>"]];
+    const profile = [[userData, "<profile>"], [optional("logs"), "<logs>"], [optional("temp"), "<temp>"], [process.resourcesPath ?? "", "<app>"]];
     return createRedactor({
       home: os.homedir(),
-      clientRoots: clientFolderRoots(await deps.listWorkspacePaths().catch(() => [])),
+      clientRoots: clientFolderRoots(workspaces),
+      clientNames: workspaces.map((dir) => path.basename(dir.replace(/[\\/]+$/, ""))),
       profile: profile.filter(([dir]) => dir),
     });
   };

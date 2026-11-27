@@ -55,11 +55,12 @@ const TOKEN_PATTERNS = [
   /\bAIza[0-9A-Za-z_-]{35}\b/g,
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
 ];
-const SECRET_KEY = /(token|password|passwd|secret|credential|authorization|api[-_]?key|apikey|cookie|private[-_]?key|access[-_]?key|session[-_]?id)/i;
+const SECRET_KEY = /(token|password|passwd|secret|credential|authorization|api[-_]?key|apikey|cookie|private[-_]?key|access[-_]?key)/i;
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
 // Koniec cesty: úvodzovka, koniec riadku, alebo bežný oddeľovač za ňou v logu („: “, „, “, „)“).
 const PATH_END = String.raw`(?=["'\n\r]|: |, |\)|$)`;
-const PROFILE_UNDER_HOME = String.raw`(?:Library|\.config|\.local|\.cache|AppData)`;
+// Len systémové priečinky aplikácií; `~/Library/CloudStorage` (Google Drive, OneDrive, Dropbox) a `Mobile Documents` (iCloud) nie.
+const PROFILE_UNDER_HOME = String.raw`(?:Library[\\/](?:Application Support|Caches|Logs|Preferences)|\.config|\.local|\.cache|AppData[\\/](?:Local|Roaming))`;
 const RESIDUAL_PATHS = [
   // Zvyšné cesty v domovskom priečinku mimo profilu appky.
   new RegExp(String.raw`~(?:[\\/]+|\\\\)(?!${PROFILE_UNDER_HOME}[\\/])[^"'\n\r]*?${PATH_END}`, "gm"),
@@ -83,10 +84,11 @@ function pathVariants(value) {
 const pathPlaceholder = (match) => `<path>${/\.[A-Za-z0-9]{1,5}$/.exec(match)?.[0] ?? ""}`;
 
 /**
- * Pravidlá redakcie pre tento počítač. `clientRoots` sú priečinky klientov (a kancelárie), `profile` priečinky appky.
- * @param {{ home?: string, clientRoots?: string[], profile?: Array<[string, string]> }} options
+ * Pravidlá redakcie pre tento počítač. `clientRoots` sú priečinky klientov (a kancelárie), `profile` priečinky appky,
+ * `clientNames` názvy priečinkov klientov, ktoré sa odstránia aj mimo cesty (napr. v správe v logu).
+ * @param {{ home?: string, clientRoots?: string[], clientNames?: string[], profile?: Array<[string, string]> }} options
  */
-export function createRedactor({ home = "", clientRoots = [], profile = [] } = {}) {
+export function createRedactor({ home = "", clientRoots = [], clientNames = [], profile = [] } = {}) {
   /** @type {Array<[string, string, boolean]>} */
   const prefixes = [];
   for (const [dir, label] of profile) for (const variant of pathVariants(dir)) prefixes.push([variant, label, false]);
@@ -100,6 +102,11 @@ export function createRedactor({ home = "", clientRoots = [], profile = [] } = {
     ? [new RegExp(String.raw`${escapeRegExp(variant)}(?:[\\/][^"'\n\r]*?)?${PATH_END}`, "gim"), (match) => match.length > variant.length ? `${label}/${pathPlaceholder(match)}` : label]
     : [new RegExp(String.raw`${escapeRegExp(variant)}(?=[\\/"'\s:,)]|$)`, "gim"), () => label]);
 
+  // Názvy kratšie ako 3 znaky by zasiahli bežné slová.
+  const names = [...new Set(clientNames.map((name) => String(name ?? "").trim()).filter((name) => name.length >= 3))]
+    .sort((a, b) => b.length - a.length)
+    .map((name) => new RegExp(String.raw`(?<![\p{L}\p{N}])${escapeRegExp(name)}(?![\p{L}\p{N}])`, "giu"));
+
   /** @param {string} text */
   const redactText = (text) => {
     let value = scrubSecrets(text);
@@ -110,6 +117,7 @@ export function createRedactor({ home = "", clientRoots = [], profile = [] } = {
       .replace(EMAIL, "<email>");
     for (const [pattern, label] of rules) value = value.replace(pattern, label);
     for (const pattern of RESIDUAL_PATHS) value = value.replace(pattern, pathPlaceholder);
+    for (const pattern of names) value = value.replace(pattern, "<client>");
     return value;
   };
 
