@@ -2741,3 +2741,9 @@ The regression in `scripts/ci/engine-reuse-workflow.test.mjs` checks the opt-in 
 | Súbory | Zmena |
 |---|---|
 | `.github/workflows/ci-tests.yml`, `.github/workflows/ci-desktop-packaging.yml` | Akceptácia Windows používa runtime vygenerovaný v tom istom behu. Balenie a natívny ISIR majú spoločnú maticu. Režim Windows vyberá x64 a ARM64 a vynechá macOS kontrolu pamäte. Predvolený beh PR pokrýva všetky štyri platformy. |
+
+### Návrhy prípadov z priečinkov klienta
+
+| Súbory | Zmena |
+|---|---|
+| `apps/server/src/lawoss/folder-intake.ts` | Pomenované podpriečinky klienta a veci v zbernom priečinku (napríklad `Spisy`) sú návrhom prípadu s prvým prečítaným podkladom ako zdrojom. Pracovné a číslované priečinky OKF, priečinky s kartou prípadu a už zaevidované zdroje sa nenavrhujú. Poznámky OKF, ktoré LAWOSS zapisuje sám (`client.md`, `PRACOVNY-PROFIL.md`, `MEMORY.md`, `memory/` a podobne), nevstupujú do návrhov podľa témy. Tematický návrh z priečinka, ktorý už má návrh podľa názvu, sa nezobrazí. Evidencia ostáva na potvrdenie advokáta. |

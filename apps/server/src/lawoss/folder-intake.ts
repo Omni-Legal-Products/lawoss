@@ -18,6 +18,12 @@ const card = /^(?:matter|spis|project|projekt)\.md$/iu;
 const indexName = "PREHLAD-LAWOSS.md";
 const ignored = new Set(["node_modules", "__pycache__", "$recycle.bin", "__macosx"]);
 const instructions = /^(?:agents|claude|gemini)\.md$/iu;
+/** Poznámky OKF, ktoré LAWOSS zapisuje sám. Ich nadpisy nie sú prípady klienta. */
+const okfNote = /^(?:klient|client|memory|pracovny-profil|vstupy|komunikacne-kanaly|index|_status|evidence)\.md$/iu;
+const fold = (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[_-]+/gu, " ").trim();
+/** Priečinky s menami vecí sú návrhom prípadu; zberné a pracovné priečinky nie. */
+const caseContainer = /^(?:spisy|pripady|veci|vecy|matters|cases|projekty|projects)$/u;
+const genericFolder = /^(?:\d{1,3}(?: .*)?|\d{4}|zmluvy|smlouvy|contracts|plne moci|splnomocnenia|fotky|foto|photos|obrazky|images|vypisy|ucty|osobne|interne|poznamky|notes|rozne|ruzne|memory|korespondencia|korespondence|komunikacia|komunikace|posta|dolezita posta|e ?maily?|mail|podklady|dokumenty|documents|docs|sources|zdroje|prilohy|attachments|archiv|archive|ostatne|ostatni|other|misc|faktury|invoices|uctovnictvo|sablony|templates|drafty|navrhy|vystupy|outputs|resers|reserse|research|scan|skeny|scans|na zatriedenie|k zarazeni|inbox|temp|tmp|podania)$/u;
 type Entry = { stamp: string; file: IntakeFile; text: string };
 type Job = { scope: string; snapshot: FolderIntake; workspace: WorkspaceInfo; controller: AbortController; done: Promise<void>; applying?: Promise<void> };
 
@@ -120,6 +126,9 @@ export class FolderIntakes {
     const note = (path: string) => { if (snapshot.issues.length < 50) snapshot.issues.push(path); };
     const pending = [""];
     const matterRoots: string[] = [];
+    // Pomenované priečinky prvej úrovne (a vecí v zbernom priečinku ako „Spisy“) s prvým prečítaným podkladom.
+    const folderCases = new Map<string, { title: string; source?: string; explicit?: boolean }>();
+    const folderOf = (path: string) => { for (const dir of folderCases.keys()) if (path.startsWith(dir + "/")) return dir; };
     while (pending.length) {
       this.owned(workspace); signal.throwIfAborted();
       if (this.scope(workspace) !== job.scope) throw new Error("Client folders changed. Refresh to retry.");
@@ -131,12 +140,18 @@ export class FolderIntakes {
       const insideCase = matterRoots.some(p => !p || dir === p || dir.startsWith(p + "/"));
       const caseDirectory = insideCase || entries.some(e => card.test(e.name));
       if (caseDirectory && !insideCase) matterRoots.push(dir);
-      if (caseDirectory) existing.add(intakeCaseKey(basename(location)));
+      if (caseDirectory) { existing.add(intakeCaseKey(basename(location))); for (const candidate of folderCases.keys()) if (dir === candidate || dir.startsWith(candidate + "/")) folderCases.delete(candidate); }
       for (const e of entries.sort((a,b) => a.name.localeCompare(b.name))) {
         signal.throwIfAborted();
         const path = dir ? dir + "/" + e.name : e.name;
         if (e.isSymbolicLink() || e.name.startsWith(".") || e.name.startsWith("~$") || ignored.has(e.name.toLowerCase()) || isSensitiveWorkspacePath(path)) continue;
-        if (e.isDirectory()) { pending.push(path); snapshot.folders++; continue; }
+        if (e.isDirectory()) {
+          pending.push(path); snapshot.folders++;
+          const parent = dir.split("/");
+          const named = !genericFolder.test(fold(e.name)) && !caseContainer.test(fold(e.name));
+          if (named && !insideCase && (!dir || (parent.length === 1 && caseContainer.test(fold(dir))))) folderCases.set(path, { title: e.name.normalize("NFC") });
+          continue;
+        }
         if (!e.isFile() || e.name === indexName) continue;
         snapshot.files++;
         const record: IntakeFile = { path, state: "unsupported" };
@@ -158,6 +173,8 @@ export class FolderIntakes {
             }
             used.add(name);
             Object.assign(record, entry.file);
+            const folder = folderOf(path), candidate = folder ? folderCases.get(folder) : undefined;
+            if (candidate && !candidate.source && entry.file.hash && entry.file.state !== "unreadable") candidate.source = path;
             if (card.test(e.name)) {
               const title = entry.text.match(/^title:\s*(.+)$/im)?.[1]?.replace(/^["']|["']$/gu, "");
               if (title) {
@@ -176,7 +193,9 @@ export class FolderIntakes {
               const explicit = identifiedCases(entry.text, path);
               const ref = !explicit.length && referencedCase(entry.text, path);
               if (ref) explicit.push(ref);
-              if (!explicit.length) { const topic = topicSource(path, entry.text); if (topic) topics.push(topic); }
+              if (explicit.length && candidate) candidate.explicit = true;
+              const own = okfNote.test(e.name) || /^memory(?:\/|$)/iu.test(path) || (!dir && /\.md$/iu.test(e.name) && /^[\p{Lu}0-9_-]+\.md$/u.test(e.name));
+              if (!explicit.length && !own) { const topic = topicSource(path, entry.text); if (topic) topics.push(topic); }
               for (const c of explicit) if (!titles.has(intakeCaseKey(c.title))) titles.set(intakeCaseKey(c.title), c);
             }
           } catch { signal.throwIfAborted(); record.state = "unreadable"; note(path); }
@@ -191,7 +210,14 @@ export class FolderIntakes {
     for (const [key, record] of generated) if (!titles.has(key) && indexed.has(record.source)) titles.set(key, record);
     snapshot.registered = [...generated.keys()].filter(key => titles.has(key)).length;
     snapshot.cases = [...titles].filter(([key]) => !existing.has(key)).map(([, value]) => value);
-    snapshot.suggestions = topicSuggestions(topics).filter(c => !titles.has(intakeCaseKey(c.title)) && !recordedNames.has(intakeCaseKey(c.title)));
+    const known = (title: string) => titles.has(intakeCaseKey(title)) || recordedNames.has(intakeCaseKey(title)) || existing.has(intakeCaseKey(title));
+    const registeredSources = new Set([...generated.values()].map(c => c.source));
+    const folders = [...folderCases].filter(([dir, c]) => c.source && !c.explicit && c.title.length <= 180 && !/[\p{Cc}\p{Cf}]/u.test(c.title) && !known(c.title) &&
+      ![...registeredSources].some(source => source.startsWith(dir + "/"))) as [string, IntakeCase & { source: string }][];
+    snapshot.suggestions = [
+      ...folders.map(([, c]) => ({ title: c.title, source: c.source })),
+      ...topicSuggestions(topics).filter(c => !known(c.title) && !folders.some(([dir]) => c.source.startsWith(dir + "/"))),
+    ];
     for (const file of await readdir(cache)) if (/^[a-f0-9]{64}\.json$/u.test(file) && !used.has(file)) await rm(join(cache, file), { force: true });
     this.owned(workspace); signal.throwIfAborted();
     const overview = ["# " + workspace.name, "", ...snapshot.cases.map(c => "- " + c.title + " (" + c.source + ")"), "", ...snapshot.sources.map(f => "- " + f.path + (f.excerpt ? ": " + f.excerpt : "")), ""].join("\n");
