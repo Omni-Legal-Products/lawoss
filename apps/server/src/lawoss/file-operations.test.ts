@@ -1387,9 +1387,9 @@ test("folder intake suggests named client folders as cases and never its own OKF
   for (const [folder, file, text] of [
     ["Spor o vrátenie zálohy 2025", "Žaloba.docx", "Syntetická žaloba o vrátenie zálohy za dodávku nábytku."],
     ["Spor o vrátenie zálohy 2025/Podania", "Vyjadrenie.docx", "Syntetické vyjadrenie k žalobe o vrátenie zálohy."],
-    ["Nájomná zmluva Bratislava", "Zmluva.docx", "Syntetická nájomná zmluva k bytu v Bratislave."],
+    ["Nájomná zmluva Bratislava", "Zmluva.docx", "Dodatok o pozemku\nSyntetická nájomná zmluva, stavebný pozemok Rovinka, územné rozhodnutie, regulatív zástavby, stavebný úrad Senec."],
     ["Spisy/Exekúcia Novák", "Návrh.docx", "Syntetický návrh na vykonanie exekúcie."],
-    ["Korešpondencia", "List.docx", "Syntetický list klientke o stave veci."],
+    ["Korešpondencia", "List.docx", "Podmienka územného plánovania\nSyntetický list klientke, stavebný pozemok Rovinka, územné rozhodnutie, regulatív zástavby, stavebný úrad Senec."],
     ["01_Podklady", "Sken.docx", "Syntetický podklad bez veci."],
     ["Kúpa pozemku/Zmluvy", "Kúpna.docx", "Syntetická kúpna zmluva k pozemku."],
     ["Zmluvy", "Rámcová.docx", "Syntetická rámcová zmluva."],
@@ -1423,4 +1423,7 @@ test("folder intake suggests named client folders as cases and never its own OKF
   const refreshed = await service.settled(workspace);
   expect(refreshed.suggestions.map(c => c.title)).not.toContain("Nájomná zmluva Bratislava");
   expect(refreshed.suggestions.map(c => c.title)).toContain("Spor o vrátenie zálohy 2025");
+  // Ani podľa obsahu sa z už zaevidovaného priečinka nenavrhuje ďalší prípad.
+  expect(refreshed.suggestions.filter(c => c.source.startsWith("Nájomná zmluva Bratislava/"))).toEqual([]);
+  expect(refreshed.suggestions.every(c => ["Spor o vrátenie zálohy 2025", "Exekúcia Novák", "M001"].includes(c.title))).toBe(true);
 });

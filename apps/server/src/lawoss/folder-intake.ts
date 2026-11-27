@@ -216,7 +216,8 @@ export class FolderIntakes {
       ![...registeredSources].some(source => source.startsWith(dir + "/"))) as [string, IntakeCase & { source: string }][];
     snapshot.suggestions = [
       ...folders.map(([, c]) => ({ title: c.title, source: c.source })),
-      ...topicSuggestions(topics).filter(c => !known(c.title) && !folders.some(([dir]) => c.source.startsWith(dir + "/"))),
+      // Pomenovaný priečinok je jeden prípad: podľa obsahu sa z neho nenavrhuje ďalší, ani keď je už zaevidovaný.
+      ...topicSuggestions(topics).filter(c => !known(c.title) && !folderOf(c.source)),
     ];
     for (const file of await readdir(cache)) if (/^[a-f0-9]{64}\.json$/u.test(file) && !used.has(file)) await rm(join(cache, file), { force: true });
     this.owned(workspace); signal.throwIfAborted();
