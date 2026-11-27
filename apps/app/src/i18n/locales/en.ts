@@ -8,6 +8,7 @@ import { initialEn } from "../../lawoss/i18n/initial";
 import { mattersEn } from "../../lawoss/i18n/matters";
 import { integrationsEn } from "../../lawoss/i18n/integrations";
 import { shellEn } from "../../lawoss/i18n/shell";
+import { alphaReportEn } from "../../lawoss/i18n/alpha-report";
 import { ocrEn } from "../../lawoss/i18n/ocr";
 import { csvEditorEn } from "../../lawoss/i18n/csv-editor";
 import { projectTemplateStrings } from "@legalwork/types/workspace";
@@ -26,6 +27,7 @@ export default {
   ...mattersEn,
   ...integrationsEn,
   ...shellEn,
+  ...alphaReportEn,
   ...ocrEn,
   ...csvEditorEn,
   "shutdown.restart_title": "Save changes before restarting?",

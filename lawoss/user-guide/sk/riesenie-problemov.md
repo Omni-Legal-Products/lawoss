@@ -19,6 +19,18 @@ Pri hlásení chyby uveďte presný text chyby a tlačidlo alebo obrazovku, ktor
 | Balík z Marketplace sa nenainštaluje | Inštalácia vyžaduje dostupný priečinok a oprávnenie na zápis. Skúste to znova na karte **Integrácie**. |
 | **Aktualizácie sa nepodarilo skontrolovať** | Skontrolujte internet a zvoľte **Skontrolovať teraz** znova. |
 
+## Nahlásiť chybu alebo nápad
+
+Hlásenie pošlete priamo z appky: v bočnom paneli zvoľte **Nahlásiť chybu alebo nápad**, alebo **Pomocník → Nahlásiť chybu alebo nápad**. Ak appka nenaštartuje, rovnaké tlačidlo je aj na chybovej obrazovke.
+
+1. Vyberte, či hlásite chybu, nápad alebo otázku. Pri chybe zvoľte, ako veľmi vám prekáža.
+2. Opíšte, čo ste robili, čo sa stalo a čo sa malo stať, a ako často sa to deje.
+3. **Snímka okna** je nepovinná. Appka ju urobí pred otvorením okna hlásenia; skontrolujte náhľad, že na nej nie sú mená klientov ani dokumenty.
+4. **Priložiť diagnostiku** je zaškrtnuté. Ide o technické záznamy appky bez hesiel, kľúčov, e-mailov a názvov priečinkov klientov. Tlačidlom **Zobraziť, čo sa odošle** si pozriete presne to, čo sa pošle.
+5. E-mail je nepovinný a slúži len na odpoveď. Do hlásenia nepíšte údaje klientov.
+
+Po odoslaní appka ukáže číslo hlásenia. Ak odoslanie zlyhá, appka povie prečo a ponúkne **Uložiť hlásenie do počítača** a **Otvoriť webový formulár**, kde uložené súbory priložíte.
+
 Karta **Ladenie** je len pre vývojárov a bežne sa nezobrazuje.
 
 Súvisí: [Nastavenia](nastavenia.md), [Integrácie](integracie.md), [Chaty](chaty.md).

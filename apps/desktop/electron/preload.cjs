@@ -7,6 +7,8 @@ const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "legalwork:native-menu:toggle-sidebar";
 const NATIVE_MENU_CHECK_UPDATES_EVENT = "legalwork:native-menu:check-updates";
 const NATIVE_MENU_ZOOM_EVENT = "legalwork:native-menu:zoom";
 const DESKTOP_NOTIFICATION_CLICK_EVENT = "legalwork:desktop-notification-click";
+// 🟡 LAWOSS: Pomocník › Nahlásiť chybu alebo nápad otvorí okno hlásenia v appke.
+const LAWOSS_ALPHA_REPORT_OPEN_EVENT = "lawoss:alpha-report:open";
 
 function normalizePlatform(value) {
   if (value === "darwin" || value === "linux") return value;
@@ -257,6 +259,11 @@ ipcRenderer.on(NATIVE_DEEP_LINK_EVENT, (_event, urls) => {
 ipcRenderer.on(NATIVE_MENU_OPEN_SETTINGS_EVENT, () => {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new Event(NATIVE_MENU_OPEN_SETTINGS_EVENT));
+});
+
+ipcRenderer.on(LAWOSS_ALPHA_REPORT_OPEN_EVENT, () => {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(LAWOSS_ALPHA_REPORT_OPEN_EVENT));
 });
 
 ipcRenderer.on(NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT, () => {

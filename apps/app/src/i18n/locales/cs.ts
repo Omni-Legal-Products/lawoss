@@ -9,6 +9,7 @@ import { initialCs } from "../../lawoss/i18n/initial";
 import { mattersCs } from "../../lawoss/i18n/matters";
 import { integrationsCs } from "../../lawoss/i18n/integrations";
 import { shellCs } from "../../lawoss/i18n/shell";
+import { alphaReportCs } from "../../lawoss/i18n/alpha-report";
 import { ocrCs } from "../../lawoss/i18n/ocr";
 import { csvEditorCs } from "../../lawoss/i18n/csv-editor";
 /**
@@ -27,6 +28,7 @@ export default {
   ...mattersCs,
   ...integrationsCs,
   ...shellCs,
+  ...alphaReportCs,
   ...ocrCs,
   ...csvEditorCs,
   "office_addins.tab_label": "Doplňky Office",

@@ -435,6 +435,20 @@ export type NativeMailDraftInput = {
   attachments: { name: string; data: Uint8Array }[];
 };
 
+
+/** 🟡 LAWOSS: polia okna hlásenia; hodnoty zodpovedajú `POST lawoss.app/api/alfa/hlasenie`. */
+export type LawossAlphaReport = {
+  kind?: "chyba" | "vylepsenie" | "otazka";
+  severity?: "blokuje" | "vazne" | "drobnost";
+  what?: string;
+  outcome?: string;
+  repeat?: "vzdy" | "niekedy" | "raz" | "neskusane" | "";
+  contact?: string;
+  includeDiagnostics?: boolean;
+  includeScreenshot?: boolean;
+};
+export type LawossAlphaReportResult = { ok: true; id: number } | { ok: false; code: string };
+
 export type DesktopCommandMap = {
   composeAppleMailDraft: { args: [draft: NativeMailDraftInput]; result: void };
   composeOutlookDraft: { args: [draft: NativeMailDraftInput]; result: void };
@@ -510,6 +524,13 @@ export type DesktopCommandMap = {
   supportBundleCollect: { args: []; result: { path: string | null } };
   /** Export diagnostic traces with chat message bodies removed. Defaults to 7 days of chat activity. */
   technicalSupportBundleCollect: { args: [options?: { days?: number }]; result: { path: string | null } };
+  // 🟡 LAWOSS: okno „Nahlásiť chybu alebo nápad“; snímku, diagnostiku a odoslanie robí hlavný proces.
+  lawossAlphaReportPrepare: { args: []; result: { id: number; screenshot: string | null; server: string } };
+  lawossAlphaReportPreview: { args: [options: { id: number }]; result: { name: string; bytes: number; text: string; truncated: boolean } };
+  lawossAlphaReportSubmit: { args: [options: { id: number; report: LawossAlphaReport }]; result: LawossAlphaReportResult };
+  lawossAlphaReportSave: { args: [options: { id: number; report: LawossAlphaReport }]; result: { path: string | null } };
+  lawossAlphaReportDiscard: { args: [options: { id: number }]; result: { ok: true } };
+  lawossAlphaReportOpenWeb: { args: []; result: { ok: true } };
   engineStop: { args: []; result: EngineInfo };
   engineRestart: { args: [options?: Record<string, unknown>]; result: EngineInfo };
   engineInfo: { args: []; result: EngineInfo };

@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 /**
- * Spodok bočného panela v bežnom režime (alfa 14): stav registrov, Nahlásiť chybu alebo nápad, Nastavenia.
+ * Spodok bočného panela v bežnom režime (alfa 14): stav registrov, Nahlásiť chybu alebo nápad (okno v appke), Nastavenia.
  * Bežný režim nemá ľavú lištu, preto sú Nastavenia tu. Pokročilý režim tento spodok nemá (lišta ostáva).
  */
 import { MessageSquareWarning, Settings } from "lucide-react";
@@ -9,14 +9,10 @@ import { Link, useLocation } from "react-router-dom";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
-import { usePlatform } from "@/react-app/kernel/platform";
 import { workspaceSettingsRoute } from "@/react-app/shell/workspace-routes";
 import { useMcpStatuses } from "./mcp-status-store";
 import { registersSummary, type RegistersSummary } from "./sidebar-model";
-import { reportProblem } from "./report-problem";
-import { toast } from "@/components/ui/sonner";
-import { openDesktopUrl } from "@/app/lib/desktop";
-import { isDesktopRuntime } from "@/app/utils";
+import { requestAlphaReport } from "../alpha-report/report-dialog";
 import { isSettingsPath, rememberSettingsReturn } from "./settings-return";
 
 const ROW_CLASS = "gap-2.5 text-[13px] text-sidebar-foreground/80 [&_svg]:size-4";
@@ -34,10 +30,9 @@ export function registersText(summary: RegistersSummary, locale: Language): { la
 }
 
 export function LiteSidebarFooter({ workspaceId }: { workspaceId?: string | null }) {
-  const platform = usePlatform();
   const locale = useLocale();
   const summary = registersSummary(useMcpStatuses());
-  return <LiteSidebarFooterView workspaceId={workspaceId} summary={summary} locale={locale} onReport={() => void reportProblem(locale, isDesktopRuntime() ? openDesktopUrl : async (url) => platform.openLink(url), toast)} />;
+  return <LiteSidebarFooterView workspaceId={workspaceId} summary={summary} locale={locale} onReport={() => void requestAlphaReport(locale)} />;
 }
 
 export function LiteSidebarFooterView(props: { workspaceId?: string | null; summary: RegistersSummary; locale: Language; onReport: () => void }) {
