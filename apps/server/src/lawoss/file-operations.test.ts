@@ -1365,3 +1365,62 @@ test("folder intake reads an exact selected client, extracts Word and PDF withou
   expect(await readdir(join(client,"Spisy"))).toHaveLength(3);
   expect(await readFile(join(other,"INDEX.md"),"utf8")).toBe("Case: Sibling must stay outside");
 });
+
+test("folder intake suggests named client folders as cases and never its own OKF notes", async () => {
+  const {config, client, other, workspace} = await office();
+  const { FolderIntakes } = await import("./folder-intake.js");
+  const { zipSync, strToU8 } = await import("fflate");
+  const { DocumentPreparation } = await import("../document-preparation/service.js");
+  const { OcrManager } = await import("../ocr/manager.js");
+  const ocr = new OcrManager(join(other, ".test-ocr"));
+  const preparation = new DocumentPreparation(ocr);
+  stops.push(() => ocr.stop());
+  const service = new FolderIntakes(config, preparation);
+  stops.push(() => service.close(), () => preparation.stop());
+  const word = (text: string) => zipSync({"word/document.xml": strToU8(`<w:document><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:document>`)});
+  // Súbory OKF, ktoré LAWOSS sám zapíše pri pripojení priečinka, nie sú prípady.
+  await writeFile(join(client, "client.md"), "# Syntetická Klientka\n\nFyzická osoba, syntetické údaje o klientke a jej veciach.");
+  await writeFile(join(client, "PRACOVNY-PROFIL.md"), "# Pracovné priečinky a názvy dokumentov\n\nSyntetické pravidlá o priečinkoch klientky a veciach.");
+  await writeFile(join(client, "MEMORY.md"), "# Pamäť\n\nSyntetické poznámky o priečinkoch klientky a veciach.");
+  await mkdir(join(client, "memory"));
+  await writeFile(join(client, "memory", "T-001.md"), "# Syntetická úloha\n\nPoznámky o priečinkoch klientky a veciach.");
+  for (const [folder, file, text] of [
+    ["Spor o vrátenie zálohy 2025", "Žaloba.docx", "Syntetická žaloba o vrátenie zálohy za dodávku nábytku."],
+    ["Spor o vrátenie zálohy 2025/Podania", "Vyjadrenie.docx", "Syntetické vyjadrenie k žalobe o vrátenie zálohy."],
+    ["Nájomná zmluva Bratislava", "Zmluva.docx", "Syntetická nájomná zmluva k bytu v Bratislave."],
+    ["Spisy/Exekúcia Novák", "Návrh.docx", "Syntetický návrh na vykonanie exekúcie."],
+    ["Korešpondencia", "List.docx", "Syntetický list klientke o stave veci."],
+    ["01_Podklady", "Sken.docx", "Syntetický podklad bez veci."],
+    ["Kúpa pozemku/Zmluvy", "Kúpna.docx", "Syntetická kúpna zmluva k pozemku."],
+    ["Zmluvy", "Rámcová.docx", "Syntetická rámcová zmluva."],
+    ["2024", "Výpis.docx", "Syntetický výpis."],
+  ] as const) {
+    await mkdir(join(client, folder), { recursive: true });
+    await writeFile(join(client, folder, file), word(text));
+  }
+  // Priečinok, ktorý už má kartu prípadu, sa ako nový prípad neponúka.
+  await writeFile(join(client, "Kúpa pozemku", "Zmluvy", "matter.md"), "---\ntype: spis\ntitle: Kúpa pozemku Senec\n---\n");
+  const state = await service.settled((service.start(workspace), workspace));
+  expect([state.state, state.issues]).toEqual(["ready", []]);
+  const titles = state.suggestions.map(c => c.title);
+  expect(titles).not.toContain("Syntetická Klientka");
+  expect(titles).not.toContain("Pracovné priečinky a názvy dokumentov");
+  expect(state.suggestions.every(c => !/^(?:client|PRACOVNY-PROFIL|MEMORY)\.md$|^memory\//u.test(c.source))).toBe(true);
+  for (const title of ["Spor o vrátenie zálohy 2025", "Nájomná zmluva Bratislava", "Exekúcia Novák"]) {
+    const suggestion = state.suggestions.find(c => c.title === title);
+    expect(suggestion?.source.startsWith(title === "Exekúcia Novák" ? "Spisy/Exekúcia Novák/" : title + "/")).toBe(true);
+  }
+  for (const generic of ["Korešpondencia", "01_Podklady", "Spisy", "memory", "Podania", "Kúpa pozemku", "Zmluvy", "2024"]) expect(titles).not.toContain(generic);
+  // Návrhy čakajú na potvrdenie advokáta: bez neho LAWOSS nič nezapíše.
+  expect(state.cases).toEqual([]);
+  await expect(readdir(join(client, "Spisy"))).resolves.toEqual(["Exekúcia Novák"]);
+  const saved = await service.save(workspace, state.run, state.suggestions.filter(c => c.title === "Nájomná zmluva Bratislava"));
+  expect(saved.cases.map(c => c.title)).toEqual(["Nájomná zmluva Bratislava"]);
+  expect(saved.suggestions.map(c => c.title)).not.toContain("Nájomná zmluva Bratislava");
+  expect((await readdir(join(client, "Spisy"))).filter(name => name.startsWith("spis-"))).toHaveLength(1);
+  // Po obnovení sa zaevidovaný priečinok neponúka znova.
+  service.start(workspace, true);
+  const refreshed = await service.settled(workspace);
+  expect(refreshed.suggestions.map(c => c.title)).not.toContain("Nájomná zmluva Bratislava");
+  expect(refreshed.suggestions.map(c => c.title)).toContain("Spor o vrátenie zálohy 2025");
+});
