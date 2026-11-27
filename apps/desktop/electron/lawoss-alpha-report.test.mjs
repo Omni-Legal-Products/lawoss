@@ -366,7 +366,7 @@ test("the Electron handlers redact client folders that only the local server kno
       }));
     });
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await /** @type {Promise<void>} */ (new Promise((resolve) => { server.listen(0, "127.0.0.1", () => resolve()); }));
   try {
     const { port } = /** @type {import("node:net").AddressInfo} */ (server.address());
     const handlers = createAlphaReportHandlers({
@@ -393,7 +393,7 @@ test("the Electron handlers redact client folders that only the local server kno
     assert.equal(parsed.server.workspaces[1].path, "<profile>/lawoss-domov");
     assert.equal(parsed.server.log[1], "client <client> ready");
   } finally {
-    await new Promise((resolve) => server.close(resolve));
+    await /** @type {Promise<void>} */ (new Promise((resolve) => { server.close(() => resolve()); }));
     await rm(root, { recursive: true, force: true });
   }
 });
