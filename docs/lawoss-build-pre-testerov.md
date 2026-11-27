@@ -16,7 +16,7 @@ Ak vám pomáha vlastný AI agent, dajte mu [postup pre agenta testera](tester-a
 
 ## 2. Stiahnutie appky
 
-Osobný odkaz z pozvánky ponúka hotový inštalátor pre váš systém. Stačí prehliadač. Na Macu vyberte súbor DMG pre Apple Silicon, na Windowse inštalátor EXE pre x64 alebo ARM64. Odkaz si nechajte pre seba. Alfa `0.2.1-alpha.20` pre pozvaných testerov má na Macu podpis ad hoc bez notarizácie a na Windowse je bez podpisu vydavateľa.
+Osobný odkaz z pozvánky ponúka hotový inštalátor pre váš systém. Stačí prehliadač. Na Macu vyberte súbor DMG pre Apple Silicon, na Windowse inštalátor EXE pre x64 alebo ARM64. Odkaz si nechajte pre seba. Aktuálna alfa pre pozvaných testerov zo zdrojového commitu `a780d001c` má na Macu verziu `0.2.1-alpha.25.ga780d00` a na Windowse `0.2.1-alpha.27.ga780d00`. Obsah appky je rovnaký. Inštalátory pre Windows pochádzajú z alfa workflowu GitHub Actions. Mac DMG bolo 27. 11. 2026 pre výpadok macOS runnerov GitHubu zostavené lokálne podľa postupu nižšie (Node 24.22.1, Bun 1.4.4, sandbox runtime z CI) a overené na izolovanom profile. K Mac DMG preto nie je koncept vydania na GitHube. Na Macu má podpis ad hoc bez notarizácie a na Windowse je bez podpisu vydavateľa.
 
 - **macOS s Apple Silicon (arm64).** Otvorte súbor `.dmg` a pretiahnite LAWOSS do priečinka Aplikácie. Ak Gatekeeper zablokuje prvé spustenie zostavy stiahnutej z vašej pozvánky, na macOS 15 a novšom zatvorte okno tlačidlom Hotovo. V **Nastaveniach systému → Súkromie a bezpečnosť** nájdite LAWOSS, zvoľte **Napriek tomu otvoriť** a potvrďte heslom alebo Touch ID. Na macOS 14 a staršom použite pravý klik na LAWOSS → **Otvoriť** → **Otvoriť**.
 - **Windows x64 a ARM64.** V **Nastaveniach → Systém → Informácie** skontrolujte typ systému a stiahnite príslušný inštalátor `.exe`. Ak SmartScreen zobrazí varovanie pri inštalátore z vašej pozvánky, zvoľte **Ďalšie informácie → Spustiť aj tak**. Ak počítač spravuje organizácia a táto možnosť chýba, obráťte sa na jej správcu. Podrobný postup je v [návode na inštaláciu a aktualizácie pre Windows](lawoss-d1-zabalena-appka-2026-10-05.md#windows-inštalácia-a-aktualizácie-pre-testerov).
@@ -97,7 +97,7 @@ Do odovzdávacieho záznamu uveďte **Windows a architektúru, verziu, commit, S
 
 ### Kontroly pilotnej zostavy
 
-Tieto kontroly patria k zostave s úpravami z 25. novembra 2026 a s kontrolou podpisov v náhľade PDF. Pozvánka na staršiu alfu `0.2.1-alpha.20.g875852c` ponúka iný kód. Zapíšte verziu, pri vlastnom builde aj commit. Vyberte si riadok, ktorý skúšate. Podrobné návody k ovládaniu sú v [slovenčine](../lawoss/user-guide/sk/index.md) aj [češtine](../lawoss/user-guide/cs/index.md).
+Tieto kontroly patria k zostave s úpravami z 25. a 26. novembra 2026 a s kontrolou podpisov v náhľade PDF. Obsahuje ich aj alfa z osobnej pozvánky zo zdrojového commitu `a780d001c`. Staršia alfa `0.2.1-alpha.20.g875852c` ich nemá. Zapíšte verziu, pri vlastnom builde aj commit. Vyberte si riadok, ktorý skúšate. Podrobné návody k ovládaniu sú v [slovenčine](../lawoss/user-guide/sk/index.md) aj [češtine](../lawoss/user-guide/cs/index.md).
 
 | Čo vyskúšať na syntetických údajoch | Podľa čoho posúdiť výsledok |
 | --- | --- |
@@ -162,13 +162,13 @@ Postup akceptačného behu s kritériami PASS/FAIL je v [alfa akceptačnom proto
 
 ### Overenie konkrétneho desktop balíčka
 
-Inštalátory z osobnej pozvánky pre verziu `0.2.1-alpha.20.g875852c` si môžete overiť podľa tabuľky. Na macOS použite `shasum -a 256` s cestou k DMG, na Windowse príkaz PowerShellu `Get-FileHash` s cestou k EXE a prepínačom `-Algorithm SHA256`.
+Inštalátory z osobnej pozvánky zo zdrojového commitu `a780d001c` si môžete overiť podľa tabuľky. Na macOS použite `shasum -a 256` s cestou k DMG, na Windowse príkaz PowerShellu `Get-FileHash` s cestou k EXE a prepínačom `-Algorithm SHA256`.
 
 | Inštalátor | Veľkosť v bajtoch | SHA-256 |
 | --- | ---: | --- |
-| `lawoss-mac-arm64-0.2.1-alpha.20.g875852c.dmg` | 861656429 | `5d421bcd5c839d83c1c873ff7ebd75ee62d3432b4b10ed3ec88c14badd944b8d` |
-| `lawoss-win-x64-0.2.1-alpha.20.g875852c.exe` | 811750017 | `5c5fa2dfffdc26de145335ff6166bbf27daf5ba387857271f1900d75cbddee86` |
-| `lawoss-win-arm64-0.2.1-alpha.20.g875852c.exe` | 768080247 | `fbf3c556bfb3bd7088a46da17225a2d89b090cc54b2f2e7777c7c30722f3e05a` |
+| `lawoss-mac-arm64-0.2.1-alpha.25.ga780d00.dmg` | 856924815 | `7098e6781047660a74411f7457da194036c58d019bc923fb51971704145a1633` |
+| `lawoss-win-x64-0.2.1-alpha.27.ga780d00.exe` | 812315874 | `a17341d99b80695671b03ad1998261dc8a0bcee6d5ca4572c48f1fa057cb1e9c` |
+| `lawoss-win-arm64-0.2.1-alpha.27.ga780d00.exe` | 768739937 | `7d7587ba925eda24fcadd54f280c88f8af5046f6400de28042398a40195282a0` |
 
 V Nastaveniach → Debug prečítajte verziu, celý commit, kanál, target a stav identity.
 `unavailable` znamená nedoložený pôvod staršieho balíčka. SHA z iného checkoutu ho nenahrádza.
@@ -240,7 +240,7 @@ Potom v appke pripájajte klientov z kópie `dnes\02_OKF_kancelaria\Klienti`. Vo
 
 ### Build zo zdrojov
 
-Predpripravené inštalátory z pozvánky obsahujú aplikáciu, engine aj runtime. Ak si chcete zostaviť vlastný inštalátor, zdrojom kandidáta `alpha.20` je [commit 875852c61](https://github.com/Omni-Legal-Products/lawoss/tree/875852c61ef29754171bedd6deeb8147594090a8).
+Predpripravené inštalátory z pozvánky obsahujú aplikáciu, engine aj runtime. Ak si chcete zostaviť vlastný inštalátor, zdrojom aktuálnej alfy z pozvánky je [commit a780d001c](https://github.com/Omni-Legal-Products/lawoss/tree/a780d001c8833de0c1f1bc1632ec49c047bd6d1f).
 
 **Vlastná zostava cez GitHub Actions.** Vo svojom forku povoľte Actions a vytvorte vetvu z uvedeného commitu. V karte Actions vyberte [workflow macOS](../.github/workflows/alpha-macos-aarch64.yml) alebo [workflow Windows x64 a ARM64](../.github/workflows/alpha-windows-x64.yml) a v **Run workflow** vyberte túto vetvu. Pre macOS nastavte vo forku repository variable `MACOS_NOTARIZE=false`. Pre vlastný nepodpísaný build zvoľte `allow_unsigned_internal=true`, `draft=true` a základnú verziu `0.2.1`. Vo Windows workflowe ponechajte `publish=true`, aby vytvoril koncept vydania. Workflow pripraví engine zo zdrojov, zostaví sandbox runtime a zabalí aplikáciu. Po úspešnom behu nájdete svoje DMG alebo EXE v koncepte vydania vo vlastnom forku. Číslo alfy sa odvíja od poradového čísla vášho behu.
 
@@ -249,14 +249,14 @@ Predpripravené inštalátory z pozvánky obsahujú aplikáciu, engine aj runtim
 ```sh
 git clone https://github.com/Omni-Legal-Products/lawoss.git
 cd lawoss
-git switch --detach 875852c61ef29754171bedd6deeb8147594090a8
+git switch --detach a780d001c8833de0c1f1bc1632ec49c047bd6d1f
 pnpm install --frozen-lockfile
 ```
 
 Pred buildom pripravte sandbox runtime pre cieľovú platformu podľa [sandbox workflowu](../.github/workflows/sandbox-runtime.yml). Rovnaký archív môžete počas jeho retencie stiahnuť cez `gh run download` po prihlásení do GitHubu. Napríklad pre Mac:
 
 ```sh
-gh run download 45555531440 -R Omni-Legal-Products/lawoss -n sandbox-runtime-darwin-arm64 -D .work/alpha-runtime
+gh run download 46002178576 -R Omni-Legal-Products/lawoss -n sandbox-runtime-darwin-arm64 -D .work/alpha-runtime
 mkdir -p apps/server/resources/agent-sandbox/runtime
 tar -xzf .work/alpha-runtime/sandbox-runtime.tgz -C apps/server/resources/agent-sandbox/runtime
 node scripts/sandbox/verify-runtime.mjs
@@ -265,7 +265,7 @@ pnpm --filter @legalwork/desktop build:electron
 CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml -c.mac.identity=- --mac --arm64 --publish never
 ```
 
-Na Windowse spustite príkazy v Git Bash, zvoľte beh `45555534704` a archív `sandbox-runtime-win32-x64` alebo `sandbox-runtime-win32-arm64` podľa vášho počítača. Po rozbalení, overení runtime a `build:electron` použite `pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --win --x64 --publish never` alebo zmeňte posledný prepínač architektúry na `--arm64`. Výstup je v `apps/desktop/dist-electron`. Prvá príprava enginu potrebuje sieť a používa [recept z repozitára](../packages/opencode-release/build/README.md).
+Na Windowse spustite príkazy v Git Bash, zvoľte beh `46010361462` a archív `sandbox-runtime-win32-x64` alebo `sandbox-runtime-win32-arm64` podľa vášho počítača. Po rozbalení, overení runtime a `build:electron` použite `pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --win --x64 --publish never` alebo zmeňte posledný prepínač architektúry na `--arm64`. Výstup je v `apps/desktop/dist-electron`. Prvá príprava enginu potrebuje sieť a používa [recept z repozitára](../packages/opencode-release/build/README.md).
 
 ### Hlásenie chýb pri vlastnom builde
 
