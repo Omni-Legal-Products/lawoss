@@ -34,10 +34,18 @@ Skript pre jeden čakajúci job vytvorí čistý klon macOS 15, skontroluje arch
 ## Povinné kontroly PR
 
 1. Over vlastný repozitár na oboch stranách PR, aktuálny head a testovací merge commit. Schváľ obsah testovaného stromu a samotné workflow. V repozitári zisti `merge_commit_sha` cez `gh api repos/Omni-Legal-Products/lawoss/pulls/$PR --jq .merge_commit_sha`.
-2. Ak verzia workflow v PR podporuje lokálny výber, nastav premennú repozitára `LAWOSS_LOCAL_MAC_SHA` na túto presnú merge SHA. Koordinuj hodnotu s inými operátormi. Výber sa týka jobov `legalwork-tests`, zostavenia sandbox runtime a `package-smoke` pre macOS ARM64 v tomto PR.
-3. Spusti nový pokus. Už pridelený štítok čakajúceho jobu ostáva v platnosti. Pokračuj len ak GitHub zobrazí štítok s testovanou SHA, číslom behu, pokusom a druhom jobu. Staršia definícia workflow potrebuje najprv aktualizáciu cez PR. Produkčné podpisovanie má vlastný postup.
-4. Spusti vyššie uvedený skript pre konkrétne ID jobu a merge SHA. Pri ďalšom jobe použi nový klon. Zmena headu alebo testovacej merge SHA vyžaduje nové overenie. Po skončení odstráň premennú, ak stále obsahuje tvoju SHA. Bez zhodnej hodnoty workflow používa bežný GitHub runner.
-5. Do výsledku uveď URL jobu, head a testovanú SHA, pokus, priradený runner, vykonané kroky a výsledok. Úvodná skúška overí iba runner a vybrané desktopové testy. Zlúčenie vyžaduje úspech pôvodných povinných kontrol na GitHube. Pri zlyhaní produktu uchovaj prvý zlyhaný krok a oprav potvrdenú príčinu.
+2. Povoľ v skupine runnerov workflow súbory, ktoré priamo definujú presmerované joby: `ci-tests.yml`, `sandbox-runtime.yml` a `ci-desktop-packaging.yml`, každý s revíziou rovnou merge SHA. GitHub prijme revíziu, len ak na ňu ukazuje vetva alebo tag. Merge commit PR na žiadnu vetvu neukazuje, preto pin odmietne s chybou HTTP 400 a odkaz `refs/pull/<číslo>/merge` odmietne ako nejednoznačný. Pred úpravou skupiny preto vytvor dočasnú vetvu na merge commit. Push na vetvu `ci/local-mac/pr-<číslo>` žiadny workflow nespúšťa. Ponechaj pin pre `macos-local-probe.yml` a po úprave načítaj späť obe nastavenia skupiny podľa časti Príprava Macu.
+
+   ```sh
+   git fetch origin "refs/pull/$PR/merge"
+   test "$(git rev-parse FETCH_HEAD)" = "$MERGE_SHA"
+   git push origin "$MERGE_SHA:refs/heads/ci/local-mac/pr-$PR"
+   ```
+
+3. Ak verzia workflow v PR podporuje lokálny výber, nastav premennú repozitára `LAWOSS_LOCAL_MAC_SHA` na túto presnú merge SHA. Koordinuj hodnotu s inými operátormi. Výber sa týka jobov `legalwork-tests`, zostavenia sandbox runtime a `package-smoke` pre macOS ARM64 v tomto PR. Job, ktorého workflow v skupine nie je povolené, ostane čakať bez runnera.
+4. Spusti nový pokus. Už pridelený štítok čakajúceho jobu ostáva v platnosti. Pokračuj len ak GitHub zobrazí štítok s testovanou SHA, číslom behu, pokusom a druhom jobu. Opätovné spustenie staršieho behu použije jeho pôvodnú SHA. Ak GitHub medzitým po posune `dev` prepočítal merge commit, skript job odmietne. Vtedy spusti nový beh PR a postup zopakuj s novou merge SHA. Staršia definícia workflow potrebuje najprv aktualizáciu cez PR. Produkčné podpisovanie má vlastný postup.
+5. Spusti vyššie uvedený skript pre konkrétne ID jobu a merge SHA. Pri ďalšom jobe použi nový klon. Zmena headu alebo testovacej merge SHA vyžaduje nové overenie. Po skončení odstráň premennú, ak stále obsahuje tvoju SHA. Bez zhodnej hodnoty workflow používa bežný GitHub runner. Potom vráť skupinu runnerov na pôvodné povolené workflow, znova načítaj obe nastavenia a zmaž dočasnú vetvu cez `git push origin --delete "ci/local-mac/pr-$PR"`.
+6. Do výsledku uveď URL jobu, head a testovanú SHA, pokus, priradený runner, vykonané kroky a výsledok. Úvodná skúška overí iba runner a vybrané desktopové testy. Zlúčenie vyžaduje úspech pôvodných povinných kontrol na GitHube. Pri zlyhaní produktu uchovaj prvý zlyhaný krok a oprav potvrdenú príčinu.
 
 Pri správe vykonávaj hostiteľský skript zo skontrolovanej kópie infraštruktúry. Kód kandidáta sa spúšťa v hosťovi. Klientske priečinky, hostiteľské prihlasovacie údaje a podpisové identity do VM nepatria.
 
