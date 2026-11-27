@@ -16,7 +16,7 @@ Ak vám pomáha vlastný AI agent, dajte mu [postup pre agenta testera](tester-a
 
 ## 2. Stiahnutie appky
 
-Osobný odkaz z pozvánky ponúka hotový inštalátor pre váš systém. Stačí prehliadač. Na Macu vyberte súbor DMG pre Apple Silicon, na Windowse inštalátor EXE pre x64 alebo ARM64. Odkaz si nechajte pre seba. Aktuálna alfa pre pozvaných testerov zo zdrojového commitu `a780d001c` má na Macu verziu `0.2.1-alpha.25.ga780d00` a na Windowse `0.2.1-alpha.27.ga780d00`. Obsah appky je rovnaký. Inštalátory pre Windows pochádzajú z alfa workflowu GitHub Actions. Mac DMG bolo 27. 11. 2026 pre výpadok macOS runnerov GitHubu zostavené lokálne podľa postupu nižšie (Node 24.22.1, Bun 1.4.4, sandbox runtime z CI) a overené na izolovanom profile. K Mac DMG preto nie je koncept vydania na GitHube. Na Macu má podpis ad hoc bez notarizácie a na Windowse je bez podpisu vydavateľa.
+Osobný odkaz z pozvánky ponúka hotový inštalátor pre váš systém. Stačí prehliadač. Na Macu vyberte súbor DMG pre Apple Silicon, na Windowse inštalátor EXE pre x64 alebo ARM64. Odkaz si nechajte pre seba. Aktuálna alfa pre pozvaných testerov zo zdrojového commitu `f12658d76` má na Macu verziu `0.2.1-alpha.26.gf12658d` a na Windowse `0.2.1-alpha.28.gf12658d`. Obsah appky je rovnaký, čísla sa líšia len poradím behov. Všetky tri inštalátory pochádzajú z alfa workflowov GitHub Actions a majú koncept vydania na GitHube. Mac DMG bolo overené na izolovanom profile vrátane odoslania hlásenia z appky. Na Macu má podpis ad hoc bez notarizácie a na Windowse je bez podpisu vydavateľa. Oproti predchádzajúcej alfe `a780d001c` pribudlo okno **Nahlásiť chybu alebo nápad** priamo v appke (časť 7).
 
 - **macOS s Apple Silicon (arm64).** Otvorte súbor `.dmg` a pretiahnite LAWOSS do priečinka Aplikácie. Ak Gatekeeper zablokuje prvé spustenie zostavy stiahnutej z vašej pozvánky, na macOS 15 a novšom zatvorte okno tlačidlom Hotovo. V **Nastaveniach systému → Súkromie a bezpečnosť** nájdite LAWOSS, zvoľte **Napriek tomu otvoriť** a potvrďte heslom alebo Touch ID. Na macOS 14 a staršom použite pravý klik na LAWOSS → **Otvoriť** → **Otvoriť**.
 - **Windows x64 a ARM64.** V **Nastaveniach → Systém → Informácie** skontrolujte typ systému a stiahnite príslušný inštalátor `.exe`. Ak SmartScreen zobrazí varovanie pri inštalátore z vašej pozvánky, zvoľte **Ďalšie informácie → Spustiť aj tak**. Ak počítač spravuje organizácia a táto možnosť chýba, obráťte sa na jej správcu. Podrobný postup je v [návode na inštaláciu a aktualizácie pre Windows](lawoss-d1-zabalena-appka-2026-10-05.md#windows-inštalácia-a-aktualizácie-pre-testerov).
@@ -97,7 +97,7 @@ Do odovzdávacieho záznamu uveďte **Windows a architektúru, verziu, commit, S
 
 ### Kontroly pilotnej zostavy
 
-Tieto kontroly patria k zostave s úpravami z 25. a 26. novembra 2026 a s kontrolou podpisov v náhľade PDF. Obsahuje ich aj alfa z osobnej pozvánky zo zdrojového commitu `a780d001c`. Staršia alfa `0.2.1-alpha.20.g875852c` ich nemá. Zapíšte verziu, pri vlastnom builde aj commit. Vyberte si riadok, ktorý skúšate. Podrobné návody k ovládaniu sú v [slovenčine](../lawoss/user-guide/sk/index.md) aj [češtine](../lawoss/user-guide/cs/index.md).
+Tieto kontroly patria k zostave s úpravami z 25. a 26. novembra 2026 a s kontrolou podpisov v náhľade PDF. Obsahuje ich aj alfa z osobnej pozvánky zo zdrojového commitu `f12658d76` a predchádzajúca `a780d001c`. Staršia alfa `0.2.1-alpha.20.g875852c` ich nemá. Zapíšte verziu, pri vlastnom builde aj commit. Vyberte si riadok, ktorý skúšate. Podrobné návody k ovládaniu sú v [slovenčine](../lawoss/user-guide/sk/index.md) aj [češtine](../lawoss/user-guide/cs/index.md).
 
 | Čo vyskúšať na syntetických údajoch | Podľa čoho posúdiť výsledok |
 | --- | --- |
@@ -141,6 +141,7 @@ Appka vám môže sama ponúknuť novú alfu. Ponuku zatiaľ nepotvrdzujte. Nov�
 
 Chybu, nápad alebo otázku nahláste jedným z týchto spôsobov:
 
+- **priamo v appke:** tlačidlo **Nahlásiť chybu alebo nápad** dole v bočnom paneli alebo menu **Pomocník → Nahlásiť chybu alebo nápad…** (funguje aj počas prvého nastavenia). Verziu a systém appka doplní sama. Voliteľne priloží snímku okna a technickú diagnostiku bez hesiel, kľúčov, e-mailov a názvov priečinkov klientov. Pred odoslaním si ju môžete pozrieť tlačidlom **Zobraziť, čo sa odošle**. Po odoslaní appka ukáže číslo hlásenia. Ak odoslanie zlyhá, ponúkne uloženie diagnostiky do súboru a webový formulár,
 - cez formulár bez účtu na [lawoss.app/sk/alfa/hlasenie](https://lawoss.app/sk/alfa/hlasenie) (CZ: [lawoss.app/cz/alfa/hlasenie](https://lawoss.app/cz/alfa/hlasenie)), kde môžete priložiť aj snímku obrazovky,
 - v [issues forku](https://github.com/Omni-Legal-Products/lawoss/issues),
 - v Telegram skupine testerov LAWOSS.
@@ -162,13 +163,13 @@ Postup akceptačného behu s kritériami PASS/FAIL je v [alfa akceptačnom proto
 
 ### Overenie konkrétneho desktop balíčka
 
-Inštalátory z osobnej pozvánky zo zdrojového commitu `a780d001c` si môžete overiť podľa tabuľky. Na macOS použite `shasum -a 256` s cestou k DMG, na Windowse príkaz PowerShellu `Get-FileHash` s cestou k EXE a prepínačom `-Algorithm SHA256`.
+Inštalátory z osobnej pozvánky zo zdrojového commitu `f12658d76` si môžete overiť podľa tabuľky. Na macOS použite `shasum -a 256` s cestou k DMG, na Windowse príkaz PowerShellu `Get-FileHash` s cestou k EXE a prepínačom `-Algorithm SHA256`.
 
 | Inštalátor | Veľkosť v bajtoch | SHA-256 |
 | --- | ---: | --- |
-| `lawoss-mac-arm64-0.2.1-alpha.25.ga780d00.dmg` | 856924815 | `7098e6781047660a74411f7457da194036c58d019bc923fb51971704145a1633` |
-| `lawoss-win-x64-0.2.1-alpha.27.ga780d00.exe` | 812315874 | `a17341d99b80695671b03ad1998261dc8a0bcee6d5ca4572c48f1fa057cb1e9c` |
-| `lawoss-win-arm64-0.2.1-alpha.27.ga780d00.exe` | 768739937 | `7d7587ba925eda24fcadd54f280c88f8af5046f6400de28042398a40195282a0` |
+| `lawoss-mac-arm64-0.2.1-alpha.26.gf12658d.dmg` | 862290166 | `88cf73dcbb13aee7a6ea1e96fd4c7502cdfed3a7a5d273f94f2c1e94aa7fb6e9` |
+| `lawoss-win-x64-0.2.1-alpha.28.gf12658d.exe` | 812380417 | `71c7f654ce0a5e2c1ca3f23b15f36439698fbe679dc492efcec0d7177f759b78` |
+| `lawoss-win-arm64-0.2.1-alpha.28.gf12658d.exe` | 768777292 | `bb4e774e433b5479cf4929aa50d6e0254cc42f2d5dc09b226e80ff133fdc5910` |
 
 V Nastaveniach → Debug prečítajte verziu, celý commit, kanál, target a stav identity.
 `unavailable` znamená nedoložený pôvod staršieho balíčka. SHA z iného checkoutu ho nenahrádza.
@@ -240,7 +241,7 @@ Potom v appke pripájajte klientov z kópie `dnes\02_OKF_kancelaria\Klienti`. Vo
 
 ### Build zo zdrojov
 
-Predpripravené inštalátory z pozvánky obsahujú aplikáciu, engine aj runtime. Ak si chcete zostaviť vlastný inštalátor, zdrojom aktuálnej alfy z pozvánky je [commit a780d001c](https://github.com/Omni-Legal-Products/lawoss/tree/a780d001c8833de0c1f1bc1632ec49c047bd6d1f).
+Predpripravené inštalátory z pozvánky obsahujú aplikáciu, engine aj runtime. Ak si chcete zostaviť vlastný inštalátor, zdrojom aktuálnej alfy z pozvánky je [commit f12658d76](https://github.com/Omni-Legal-Products/lawoss/tree/f12658d767c29dc9bd5b105f2dc73e337297c159).
 
 **Vlastná zostava cez GitHub Actions.** Vo svojom forku povoľte Actions a vytvorte vetvu z uvedeného commitu. V karte Actions vyberte [workflow macOS](../.github/workflows/alpha-macos-aarch64.yml) alebo [workflow Windows x64 a ARM64](../.github/workflows/alpha-windows-x64.yml) a v **Run workflow** vyberte túto vetvu. Pre macOS nastavte vo forku repository variable `MACOS_NOTARIZE=false`. Pre vlastný nepodpísaný build zvoľte `allow_unsigned_internal=true`, `draft=true` a základnú verziu `0.2.1`. Vo Windows workflowe ponechajte `publish=true`, aby vytvoril koncept vydania. Workflow pripraví engine zo zdrojov, zostaví sandbox runtime a zabalí aplikáciu. Po úspešnom behu nájdete svoje DMG alebo EXE v koncepte vydania vo vlastnom forku. Číslo alfy sa odvíja od poradového čísla vášho behu.
 
@@ -249,14 +250,14 @@ Predpripravené inštalátory z pozvánky obsahujú aplikáciu, engine aj runtim
 ```sh
 git clone https://github.com/Omni-Legal-Products/lawoss.git
 cd lawoss
-git switch --detach a780d001c8833de0c1f1bc1632ec49c047bd6d1f
+git switch --detach f12658d767c29dc9bd5b105f2dc73e337297c159
 pnpm install --frozen-lockfile
 ```
 
 Pred buildom pripravte sandbox runtime pre cieľovú platformu podľa [sandbox workflowu](../.github/workflows/sandbox-runtime.yml). Rovnaký archív môžete počas jeho retencie stiahnuť cez `gh run download` po prihlásení do GitHubu. Napríklad pre Mac:
 
 ```sh
-gh run download 46002178576 -R Omni-Legal-Products/lawoss -n sandbox-runtime-darwin-arm64 -D .work/alpha-runtime
+gh run download 46068081830 -R Omni-Legal-Products/lawoss -n sandbox-runtime-darwin-arm64 -D .work/alpha-runtime
 mkdir -p apps/server/resources/agent-sandbox/runtime
 tar -xzf .work/alpha-runtime/sandbox-runtime.tgz -C apps/server/resources/agent-sandbox/runtime
 node scripts/sandbox/verify-runtime.mjs
@@ -265,7 +266,7 @@ pnpm --filter @legalwork/desktop build:electron
 CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml -c.mac.identity=- --mac --arm64 --publish never
 ```
 
-Na Windowse spustite príkazy v Git Bash, zvoľte beh `46010361462` a archív `sandbox-runtime-win32-x64` alebo `sandbox-runtime-win32-arm64` podľa vášho počítača. Po rozbalení, overení runtime a `build:electron` použite `pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --win --x64 --publish never` alebo zmeňte posledný prepínač architektúry na `--arm64`. Výstup je v `apps/desktop/dist-electron`. Prvá príprava enginu potrebuje sieť a používa [recept z repozitára](../packages/opencode-release/build/README.md).
+Na Windowse spustite príkazy v Git Bash, zvoľte beh `46068086095` a archív `sandbox-runtime-win32-x64` alebo `sandbox-runtime-win32-arm64` podľa vášho počítača. Po rozbalení, overení runtime a `build:electron` použite `pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --win --x64 --publish never` alebo zmeňte posledný prepínač architektúry na `--arm64`. Výstup je v `apps/desktop/dist-electron`. Prvá príprava enginu potrebuje sieť a používa [recept z repozitára](../packages/opencode-release/build/README.md).
 
 ### Hlásenie chýb pri vlastnom builde
 
