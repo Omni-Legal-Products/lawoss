@@ -1,4 +1,4 @@
-/** LAWOSS: okno „Nahlásiť chybu alebo nápad“ (`lawoss/alpha-report/`). Kľúče sú zaradené v `shell.ts`. */
+/** LAWOSS: okno „Nahlásiť chybu alebo nápad“ (`lawoss/alpha-report/`). Kľúče sú zaradené v `i18n/locales/{en,de,sk,cs}.ts`. */
 export const alphaReportEn = {
   "lawoss.report.title": "Report a bug or idea",
   "lawoss.report.intro": "The report goes straight to the LAWOSS team. We reply to the contact you enter.",

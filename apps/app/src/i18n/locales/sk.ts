@@ -9,6 +9,7 @@ import { initialSk } from "../../lawoss/i18n/initial";
 import { mattersSk } from "../../lawoss/i18n/matters";
 import { integrationsSk } from "../../lawoss/i18n/integrations";
 import { shellSk } from "../../lawoss/i18n/shell";
+import { alphaReportSk } from "../../lawoss/i18n/alpha-report";
 import { ocrSk } from "../../lawoss/i18n/ocr";
 import { csvEditorSk } from "../../lawoss/i18n/csv-editor";
 /**
@@ -27,6 +28,7 @@ export default {
   ...mattersSk,
   ...integrationsSk,
   ...shellSk,
+  ...alphaReportSk,
   ...ocrSk,
   ...csvEditorSk,
   "office_addins.tab_label": "Doplnky Office",

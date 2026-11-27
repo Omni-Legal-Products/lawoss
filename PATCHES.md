@@ -12,7 +12,7 @@ Podľa návrhu „Systém verejnej alfy LAWOSS“ (MČ, 27. 11. 2026, časť 2) 
 | `packages/types/src/desktop-ipc.ts` | Príkazy `lawossAlphaReport{Prepare,Preview,Submit,Save,Discard,OpenWeb}` a typ `LawossAlphaReport`. |
 | `apps/desktop/electron/native-locale.mjs` | Nadpis ukladacieho dialógu `reportSave` (sk/cs/en/de). |
 | `apps/desktop/package.json` | `test` spúšťa aj `lawoss-alpha-feedback.test.mjs` a `lawoss-alpha-report.test.mjs`. |
-| nové `apps/app/src/lawoss/alpha-report/*`, `lawoss/i18n/alpha-report.ts` (zaradené v `lawoss/i18n/shell.ts`), `lawoss/lite/sidebar-footer.tsx` (+ test `tests/lawoss-alpha-report.test.ts`) | Okno a jeho stav; bočný panel ho otvára namiesto `report-problem.ts` (odstránený spolu s testom #464). Mimo desktopu ostáva webový formulár. |
+| nové `apps/app/src/lawoss/alpha-report/*`, `lawoss/i18n/alpha-report.ts` (zaradené v `apps/app/src/i18n/locales/{en,de,sk,cs}.ts`, +1 import a +1 riadok v každom), `lawoss/lite/sidebar-footer.tsx` (+ test `tests/lawoss-alpha-report.test.ts`) | Okno a jeho stav; bočný panel ho otvára namiesto `report-problem.ts` (odstránený spolu s testom #464). Mimo desktopu ostáva webový formulár. |
 | `apps/app/src/react-app/shell/providers.tsx` | +1 import, `<AlphaReportHost />` vedľa ostatných hostiteľov okien LAWOSS. Okno sa kreslí nad štartovacím prekryvom. |
 | `apps/app/src/react-app/shell/loading-overlay.tsx` | +2 importy, tlačidlo „Nahlásiť chybu alebo nápad“ na chybovej obrazovke pri štarte vedľa zbierania protokolov. |
 | `lawoss/user-guide/{sk,cs}/riesenie-problemov.md`, `apps/server/src/core-skills.ts` | Postup hlásenia v príručke; zabudovaná príručka pregenerovaná (`pnpm docs:generate`). |

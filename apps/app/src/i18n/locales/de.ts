@@ -8,6 +8,7 @@ import { initialDe } from "../../lawoss/i18n/initial";
 import { mattersDe } from "../../lawoss/i18n/matters";
 import { integrationsDe } from "../../lawoss/i18n/integrations";
 import { shellDe } from "../../lawoss/i18n/shell";
+import { alphaReportDe } from "../../lawoss/i18n/alpha-report";
 import { ocrDe } from "../../lawoss/i18n/ocr";
 import { csvEditorDe } from "../../lawoss/i18n/csv-editor";
 import { projectTemplateStrings } from "@legalwork/types/workspace";
@@ -36,6 +37,7 @@ const de = {
   ...mattersDe,
   ...integrationsDe,
   ...shellDe,
+  ...alphaReportDe,
   ...ocrDe,
   ...csvEditorDe,
   "shutdown.restart_title": "Änderungen vor dem Neustart speichern?",
