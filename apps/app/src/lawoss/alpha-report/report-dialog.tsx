@@ -4,7 +4,7 @@
  * pri štarte; hostiteľ je v `shell/providers.tsx` a kreslí sa nad štartovacím prekryvom (z-[1000]).
  */
 import { ShieldAlert } from "lucide-react";
-import { useEffect, useId, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import type { DesktopCommandResult } from "@legalwork/types/desktop-ipc";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -76,6 +76,9 @@ function AlphaReportDialog({ session, locale }: { session: AlphaReportSession; l
   const [preview, setPreview] = useState<PreviewState>({ status: "idle" });
   const [showPreview, setShowPreview] = useState(false);
   const [send, setSend] = useState<SendState>({ status: "editing" });
+  const outcomeRef = useRef<HTMLDivElement>(null);
+  // Výsledok (chyba, uložené hlásenie) je na konci formulára; posunie sa do zorného poľa.
+  useEffect(() => { if (send.status === "failed" || send.status === "saved") outcomeRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [send]);
   const ids = { what: useId(), outcome: useId(), contact: useId(), shot: useId(), diag: useId() };
   const set = <K extends keyof ReportForm>(key: K, value: ReportForm[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -186,6 +189,7 @@ function AlphaReportDialog({ session, locale }: { session: AlphaReportSession; l
             <p className="text-[12px] text-muted-foreground">{t("lawoss.report.contact_hint", locale)} {t("lawoss.report.server", locale, { server: session.server })}</p>
           </div>
 
+          <div ref={outcomeRef}>
           {send.status === "failed" ? (
             <div className="grid gap-2 rounded-[var(--lw-radius-lg)] border border-red-7/40 bg-red-3/30 px-3 py-2 text-[12px] leading-5" role="alert" data-lawoss-report-error={send.code}>
               <strong className="font-medium">{t("lawoss.report.failed_title", locale)}</strong>
@@ -202,6 +206,7 @@ function AlphaReportDialog({ session, locale }: { session: AlphaReportSession; l
               <div><Button variant="outline" size="sm" onClick={openWeb}>{t("lawoss.report.open_web", locale)}</Button></div>
             </div>
           ) : null}
+          </div>
         </div>
         <DialogFooter className="mx-0 mb-0">
           <Button variant="outline" onClick={close} disabled={busy}>{t("lawoss.report.cancel", locale)}</Button>
