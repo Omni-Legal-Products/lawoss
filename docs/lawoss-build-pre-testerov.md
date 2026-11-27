@@ -16,7 +16,7 @@ Ak vám pomáha vlastný AI agent, dajte mu [postup pre agenta testera](tester-a
 
 ## 2. Stiahnutie appky
 
-Osobný odkaz z pozvánky ponúka hotový inštalátor pre váš systém. Stačí prehliadač. Na Macu vyberte súbor DMG pre Apple Silicon, na Windowse inštalátor EXE pre x64 alebo ARM64. Odkaz si nechajte pre seba. Alfa `0.2.1-alpha.20` pre pozvaných testerov má na Macu podpis ad hoc bez notarizácie a na Windowse je bez podpisu vydavateľa.
+Osobný odkaz z pozvánky ponúka hotový inštalátor pre váš systém. Stačí prehliadač. Na Macu vyberte súbor DMG pre Apple Silicon, na Windowse inštalátor EXE pre x64 alebo ARM64. Odkaz si nechajte pre seba. Aktuálna alfa pre pozvaných testerov zo zdrojového commitu `ce4adfe02` má na Macu verziu `0.2.1-alpha.23.gce4adfe` a na Windowse `0.2.1-alpha.25.gce4adfe`. Workflowy pre jednotlivé systémy číslujú alfy samostatne, obsah appky je rovnaký. Na Macu má podpis ad hoc bez notarizácie a na Windowse je bez podpisu vydavateľa.
 
 - **macOS s Apple Silicon (arm64).** Otvorte súbor `.dmg` a pretiahnite LAWOSS do priečinka Aplikácie. Ak Gatekeeper zablokuje prvé spustenie zostavy stiahnutej z vašej pozvánky, na macOS 15 a novšom zatvorte okno tlačidlom Hotovo. V **Nastaveniach systému → Súkromie a bezpečnosť** nájdite LAWOSS, zvoľte **Napriek tomu otvoriť** a potvrďte heslom alebo Touch ID. Na macOS 14 a staršom použite pravý klik na LAWOSS → **Otvoriť** → **Otvoriť**.
 - **Windows x64 a ARM64.** V **Nastaveniach → Systém → Informácie** skontrolujte typ systému a stiahnite príslušný inštalátor `.exe`. Ak SmartScreen zobrazí varovanie pri inštalátore z vašej pozvánky, zvoľte **Ďalšie informácie → Spustiť aj tak**. Ak počítač spravuje organizácia a táto možnosť chýba, obráťte sa na jej správcu. Podrobný postup je v [návode na inštaláciu a aktualizácie pre Windows](lawoss-d1-zabalena-appka-2026-10-05.md#windows-inštalácia-a-aktualizácie-pre-testerov).
@@ -97,7 +97,7 @@ Do odovzdávacieho záznamu uveďte **Windows a architektúru, verziu, commit, S
 
 ### Kontroly pilotnej zostavy
 
-Tieto kontroly patria k zostave s úpravami z 25. novembra 2026 a s kontrolou podpisov v náhľade PDF. Pozvánka na staršiu alfu `0.2.1-alpha.20.g875852c` ponúka iný kód. Zapíšte verziu, pri vlastnom builde aj commit. Vyberte si riadok, ktorý skúšate. Podrobné návody k ovládaniu sú v [slovenčine](../lawoss/user-guide/sk/index.md) aj [češtine](../lawoss/user-guide/cs/index.md).
+Tieto kontroly patria k zostave s úpravami z 25. a 26. novembra 2026 a s kontrolou podpisov v náhľade PDF. Obsahuje ich aj alfa z osobnej pozvánky zo zdrojového commitu `ce4adfe02`. Staršia alfa `0.2.1-alpha.20.g875852c` ich nemá. Zapíšte verziu, pri vlastnom builde aj commit. Vyberte si riadok, ktorý skúšate. Podrobné návody k ovládaniu sú v [slovenčine](../lawoss/user-guide/sk/index.md) aj [češtine](../lawoss/user-guide/cs/index.md).
 
 | Čo vyskúšať na syntetických údajoch | Podľa čoho posúdiť výsledok |
 | --- | --- |
@@ -162,13 +162,13 @@ Postup akceptačného behu s kritériami PASS/FAIL je v [alfa akceptačnom proto
 
 ### Overenie konkrétneho desktop balíčka
 
-Inštalátory z osobnej pozvánky pre verziu `0.2.1-alpha.20.g875852c` si môžete overiť podľa tabuľky. Na macOS použite `shasum -a 256` s cestou k DMG, na Windowse príkaz PowerShellu `Get-FileHash` s cestou k EXE a prepínačom `-Algorithm SHA256`.
+Inštalátory z osobnej pozvánky zo zdrojového commitu `ce4adfe02` si môžete overiť podľa tabuľky. Na macOS použite `shasum -a 256` s cestou k DMG, na Windowse príkaz PowerShellu `Get-FileHash` s cestou k EXE a prepínačom `-Algorithm SHA256`.
 
 | Inštalátor | Veľkosť v bajtoch | SHA-256 |
 | --- | ---: | --- |
-| `lawoss-mac-arm64-0.2.1-alpha.20.g875852c.dmg` | 861656429 | `5d421bcd5c839d83c1c873ff7ebd75ee62d3432b4b10ed3ec88c14badd944b8d` |
-| `lawoss-win-x64-0.2.1-alpha.20.g875852c.exe` | 811750017 | `5c5fa2dfffdc26de145335ff6166bbf27daf5ba387857271f1900d75cbddee86` |
-| `lawoss-win-arm64-0.2.1-alpha.20.g875852c.exe` | 768080247 | `fbf3c556bfb3bd7088a46da17225a2d89b090cc54b2f2e7777c7c30722f3e05a` |
+| `lawoss-mac-arm64-0.2.1-alpha.23.gce4adfe.dmg` | 862199038 | `20ff09f032bc8e8653417865df090bddd928be38ed3ab049813e5a962e39c067` |
+| `lawoss-win-x64-0.2.1-alpha.25.gce4adfe.exe` | 812312243 | `33c31136b95f69bc4acef47cb48e82bf505c7b0ccc7bb7a50710a55918836b70` |
+| `lawoss-win-arm64-0.2.1-alpha.25.gce4adfe.exe` | 768616365 | `d73ada4e841b5df9a735ec4e4f463c75858c4240690d2ca4a151f565f89750e8` |
 
 V Nastaveniach → Debug prečítajte verziu, celý commit, kanál, target a stav identity.
 `unavailable` znamená nedoložený pôvod staršieho balíčka. SHA z iného checkoutu ho nenahrádza.
@@ -240,7 +240,7 @@ Potom v appke pripájajte klientov z kópie `dnes\02_OKF_kancelaria\Klienti`. Vo
 
 ### Build zo zdrojov
 
-Predpripravené inštalátory z pozvánky obsahujú aplikáciu, engine aj runtime. Ak si chcete zostaviť vlastný inštalátor, zdrojom kandidáta `alpha.20` je [commit 875852c61](https://github.com/Omni-Legal-Products/lawoss/tree/875852c61ef29754171bedd6deeb8147594090a8).
+Predpripravené inštalátory z pozvánky obsahujú aplikáciu, engine aj runtime. Ak si chcete zostaviť vlastný inštalátor, zdrojom aktuálnej alfy z pozvánky je [commit ce4adfe02](https://github.com/Omni-Legal-Products/lawoss/tree/ce4adfe02d6477e076794063bf79c555d1d91061).
 
 **Vlastná zostava cez GitHub Actions.** Vo svojom forku povoľte Actions a vytvorte vetvu z uvedeného commitu. V karte Actions vyberte [workflow macOS](../.github/workflows/alpha-macos-aarch64.yml) alebo [workflow Windows x64 a ARM64](../.github/workflows/alpha-windows-x64.yml) a v **Run workflow** vyberte túto vetvu. Pre macOS nastavte vo forku repository variable `MACOS_NOTARIZE=false`. Pre vlastný nepodpísaný build zvoľte `allow_unsigned_internal=true`, `draft=true` a základnú verziu `0.2.1`. Vo Windows workflowe ponechajte `publish=true`, aby vytvoril koncept vydania. Workflow pripraví engine zo zdrojov, zostaví sandbox runtime a zabalí aplikáciu. Po úspešnom behu nájdete svoje DMG alebo EXE v koncepte vydania vo vlastnom forku. Číslo alfy sa odvíja od poradového čísla vášho behu.
 
@@ -249,7 +249,7 @@ Predpripravené inštalátory z pozvánky obsahujú aplikáciu, engine aj runtim
 ```sh
 git clone https://github.com/Omni-Legal-Products/lawoss.git
 cd lawoss
-git switch --detach 875852c61ef29754171bedd6deeb8147594090a8
+git switch --detach ce4adfe02d6477e076794063bf79c555d1d91061
 pnpm install --frozen-lockfile
 ```
 
