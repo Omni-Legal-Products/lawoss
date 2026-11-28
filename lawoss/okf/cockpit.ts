@@ -12,7 +12,7 @@ import { isManagedDeadline, managedDeadlineTrusted, type DeadlineWorkflowEvidenc
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
 import { isRecordType, valueLabel, type KnownRecordType, type RecordType } from "../okf-pamat/src/schema.ts";
 import { pendingInputs } from "./inputs.ts";
-import { deadlineBasis, deadlineConfirmed, deadlineLabel, deadlineTier, type DeadlineBasis, isOpenTask, isRetired, recordDeadlines, taskDue, validVerificationTime, type MatterInput, type MatterOverview } from "./read.ts";
+import { deadlineBasis, deadlineIsConfirmed, deadlineLabel, deadlineTier, type DeadlineBasis, isOpenTask, isRetired, recordDeadlines, taskDue, validVerificationTime, type MatterInput, type MatterOverview } from "./read.ts";
 
 /** Odkiaľ údaj pochádza. Slovo, nie farba — stav musí byť čitateľný aj bez nej. */
 type Provenance = "overené" | "AI návrh" | "zapísané" | "overenie neurčené" | "strojovo overené";
@@ -57,6 +57,25 @@ export type CockpitDeadline = {
   invalid?: true;
   /** Lehota z pokynu advokáta v chate, neoverená z listiny (`deadline_basis: lawyer_instruction`). */
   basis?: DeadlineBasis;
+  /** Kto a kedy lehotu potvrdil (pole `verified` záznamu), len pri platnom ľudskom potvrdení tejto lehoty. */
+  verifiedBy?: string;
+  verifiedAt?: string;
+};
+/**
+ * Preverenie subjektu (záznam `screening`) tak, ako ho zapísal advokát alebo agent: riziko a záver sú kanonické
+ * hodnoty schémy, registre doslovné reťazce. Nič sa z textu nečíta ani neodvodzuje.
+ */
+export type CockpitScreening = {
+  id: string;
+  title: string;
+  /** Názov subjektu z `subject_ref`, ak taký záznam v spise je. */
+  subject?: string;
+  risk?: string;
+  conclusion?: string;
+  registries: readonly string[];
+  date?: string;
+  provenance: Provenance;
+  file: string;
 };
 export type AttentionRow = {
   id: string;
@@ -91,6 +110,8 @@ export type Cockpit = {
   deadlines: { confirmed: readonly CockpitDeadline[]; candidates: readonly CockpitDeadline[] };
   attention: readonly AttentionRow[];
   parties: readonly CockpitParty[];
+  /** Preverenia subjektov veci (riziko, záver, registre), najnovšie prvé. */
+  screenings: readonly CockpitScreening[];
   events: readonly CockpitEvent[];
   unreadable: readonly MatterProblem[];
   /** Nálezy kanonického validátora, oddelené od súborov, ktoré sa nedali načítať. */
@@ -206,8 +227,11 @@ function deadlines(input: MatterInput, todayIso: string): CockpitDeadline[] {
         provenance: isManagedDeadline(r) ? managedDeadlineTrusted(r, input.deadlineWorkflowEvidence) ? "overené" : "overenie neurčené" : provenance(r),
         file: fileOf(input, r),
         overdue: !invalid && deadlineTier(date, todayIso) === "overdue",
-        confirmed: isManagedDeadline(r) ? managedDeadlineTrusted(r, input.deadlineWorkflowEvidence) : deadlineConfirmed(r, raw),
+        confirmed: deadlineIsConfirmed(r, raw, input.deadlineWorkflowEvidence),
       };
+      const by = item.confirmed && !isManagedDeadline(r) ? r.verified?.find((v) => v.type === "human" && v.deadline === raw && typeof v.by === "string" && v.by.trim()) : undefined;
+      if (by?.by) item.verifiedBy = by.by.trim();
+      if (by && validVerificationTime(by.at)) item.verifiedAt = by.at.slice(0, 10);
       if (invalid) item.invalid = invalid;
       if (!item.confirmed && deadlineBasis(r, raw)) item.basis = "instruction";
       const label = invalid ? undefined : deadlineLabel(raw);
@@ -233,6 +257,30 @@ function parties(input: MatterInput): CockpitParty[] {
     }
   }
   return out;
+}
+
+/** Rizikové hodnoty, ktoré si pýtajú pozornosť advokáta: stredné a vysoké riziko, zosilnená kontrola, odmietnutie. */
+const SCREENING_ALERT_RISK = new Set(["medium", "high"]);
+const SCREENING_ALERT_CONCLUSION = new Set(["enhanced_diligence", "decline"]);
+export const screeningNeedsAttention = (s: Pick<CockpitScreening, "risk" | "conclusion">): boolean =>
+  (s.risk !== undefined && SCREENING_ALERT_RISK.has(s.risk)) || (s.conclusion !== undefined && SCREENING_ALERT_CONCLUSION.has(s.conclusion));
+
+/** Živé preverenia veci (záznamy `screening`), najnovšie prvé. */
+export function screenings(input: Pick<MatterInput, "records" | "recordFiles" | "path" | "deadlineWorkflowEvidence">): CockpitScreening[] {
+  const titles = new Map(input.records.filter((r) => r.type === "subject").map((r) => [r.id, r.title]));
+  return input.records
+    .filter((r) => r.type === "screening" && !isRetired(r))
+    .map((r) => {
+      const out: CockpitScreening = { id: r.id, title: r.title, registries: (r.registries ?? []).filter((x) => typeof x === "string" && x.trim()), provenance: provenance(r, input.deadlineWorkflowEvidence), file: input.recordFiles?.[r.id] ?? `${input.path}/${MEMORY_DIR}/` };
+      const subject = r.subject_ref ? titles.get(r.subject_ref) : undefined;
+      if (subject) out.subject = subject;
+      if (r.risk) out.risk = r.risk;
+      if (r.conclusion) out.conclusion = r.conclusion;
+      const date = r.check_date ?? r.updated;
+      if (date) out.date = date;
+      return out;
+    })
+    .sort((a, b) => ((a.date ?? "") > (b.date ?? "") ? -1 : (a.date ?? "") < (b.date ?? "") ? 1 : a.id.localeCompare(b.id)));
 }
 
 function events(input: MatterInput): CockpitEvent[] {
@@ -416,6 +464,7 @@ export function buildCockpit(data: CockpitInput, path: string | null, todayIso: 
     deadlines: { confirmed, candidates },
     attention: attentionRows,
     parties: parties(input),
+    screenings: screenings(input),
     events: events(input),
     unreadable,
     diagnostics,

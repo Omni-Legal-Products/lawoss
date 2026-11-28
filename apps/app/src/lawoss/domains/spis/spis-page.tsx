@@ -4,13 +4,14 @@ import { okfRawFilesQueryOptions } from "../../okf/raw-files";
 import { revalidateScopeTarget } from "../../okf/scope-target";
 import { PracticeCoverage } from "../../okf/practice-coverage";
 /** @jsxImportSource react */
-import { deadlineText } from "../../okf/view-rules";
+import { deadlineText, dueTextFromDays } from "../../okf/view-rules";
 import { useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
+import { AlertTriangle, Check, Clock, FileText, Flag, Folder, PenLine, Scale, Search, ShieldCheck, User } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { isExperimentHidden } from "../../feature-flags";
 import { NEW_MATTER_PATH } from "../../lite/links";
-import { MatterParties, useMatterText } from "../okf-page";
+import { useMatterText } from "../okf-page";
 import type { MatterTextKey } from "../../i18n/matters";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
@@ -19,9 +20,9 @@ import { openMatterSession } from "../../okf/matter-session";
 import { LawossLayout } from "../../shell/layout";
 import {
   activeWorkspace,
-  addDays,
   dayClass,
   formatDay,
+  formatLongDay,
   today,
   useOkfConnection,
   useOkfOverview,
@@ -34,8 +35,20 @@ import {
   type Cockpit,
   type CockpitDeadline,
   type RegisterId,
+  screeningNeedsAttention,
 } from "../../../../../../lawoss/okf/cockpit";
-import { daysBetween, ISO_DAY, missingScopeLevels, scopeLevels } from "../../../../../../lawoss/okf/read";
+import { daysBetween, ISO_DAY, missingScopeLevels, scopeLevels, taskDue, type MatterInput, type MatterOverview } from "../../../../../../lawoss/okf/read";
+import { clientOf } from "../../lite/today-model";
+import { holidayJurisdiction } from "../../../../../../lawoss/okf/holidays";
+import { deadlineTone, groupEvents, monthDays } from "../overview-model";
+import { AlertBox, CalendarGrid, conclusionText, DayItems, eventKindText, riskText, Trust } from "../overview-views";
+import "../overview.css";
+
+/** Meno klienta prípadu pre drobčeky; prípad bez klienta (vlastný priečinok) žiadne nemá. */
+const clientName = (matter: MatterOverview, input?: MatterInput): string | undefined => {
+  const owner = clientOf(matter, input);
+  return owner.key.startsWith("matter:") ? undefined : owner.name;
+};
 
 /**
  * Spisový prehľad — read-only cockpit jednej veci (spec MF, bod 3.3).
@@ -94,12 +107,12 @@ export function SpisPage() {
         </>
       ) : cockpit ? (
         <>
-          <div className="mb-5 space-y-2">
-            <p className="break-all text-sm">{text("selectedMatter", { title: cockpit.matter.title, reference: cockpit.matter.matterRef ?? text("noReference") })}<br />{workspace?.path} · {(local?.selected ?? cockpit.matter).path || text("workspaceRoot")}</p>
-            <Button disabled={!data || !workspace || !canActOnSource(data,workspace.id) || openingSession || !connection?.client || !workspace || isRetiredRemoteWorkspace(workspace) || Boolean(query.error)} onClick={() => void openTask()}>{openingSession ? text("openingConversation") : text("openTask")}</Button>
-            {sessionError ? <p role="alert">{sessionError}</p> : null}
-          </div>
-          <MatterCockpit cockpit={cockpit} now={now} raw={raw.data ?? {}} scopePaths={data?.inputs.find((i) => i.path === cockpit.matter.path)?.scopePaths} />
+          <MatterCockpit cockpit={cockpit} now={now} raw={raw.data ?? {}} scopePaths={data?.inputs.find((i) => i.path === cockpit.matter.path)?.scopePaths}
+            client={clientName(cockpit.matter, data?.inputs.find((i) => i.path === cockpit.matter.path))}
+            action={<div className="space-y-2">
+              <Button disabled={!data || !workspace || !canActOnSource(data,workspace.id) || openingSession || !connection?.client || !workspace || isRetiredRemoteWorkspace(workspace) || Boolean(query.error)} onClick={() => void openTask()}>{openingSession ? text("openingConversation") : text("openTask")}</Button>
+              {sessionError ? <p role="alert">{sessionError}</p> : null}
+            </div>} />
         </>
       ) : (
         <NotFound found={data ? data.matters.map((m) => ({ path: m.path, title: m.title })) : []} vec={vec} />
@@ -150,87 +163,86 @@ function NotFound({ found, vec }: { found: { path: string; title: string }[]; ve
 
 export const matterLink = (path: string): string => `/spis?vec=${encodeURIComponent(path)}`;
 
-export function MatterCockpit({ cockpit, now, raw, scopePaths = [] }: { cockpit: Cockpit; now: string; raw: Record<string, string>; scopePaths?: readonly string[] }) {
+export function MatterCockpit({ cockpit, now, raw, scopePaths = [], client, action }: { cockpit: Cockpit; now: string; raw: Record<string, string>; scopePaths?: readonly string[];
+  /** Meno klienta pre drobčeky (karta klienta alebo priečinok); bez neho sa drobčeky neukážu. */
+  client?: string;
+  /** Hlavná akcia stránky (otvoriť prácu v chate) vpravo od názvu. */
+  action?: ReactNode }) {
   const { locale, text } = useMatterText();
   const { matter } = cockpit;
+  const findings = cockpit.attention.filter((r) => r.kind === "nález" || r.state === "neparsovateľné").length;
+  const clientName = client ?? cockpit.client;
+  const field = (label: string) => cockpit.obal.find((f) => f.label === label);
+  const jurisdiction = field("Jurisdikcia");
+  const reference = field("Spisová značka");
   return (
-    <>
-      <h1 className="lw-h1">{matter.title}</h1>
-      <p className="lw-lead">
-        {cockpit.client ? <>{text("client")} <b>{cockpit.client}</b>. </> : null}
-        {matter.matterRef ? <span className="lw-mono">{matter.matterRef}</span> : text("noMatterReference")}
-        {matter.court ? ` · ${matter.court}` : ""}
-        {matter.state ? ` · ${text("proceedingsState", { state: matter.state })}` : ""} · OKF:{" "}
-        <b>{cockpit.okfValid ? text("valid") : text("withFindingsCount", { count: cockpit.attention.filter((r) => r.kind === "nález" || r.state === "neparsovateľné").length })}</b>
-      </p>
+    <div className="lw-x lw-sp">
+      {clientName ? <div className="lw-sp-crumb" data-lawoss-crumb=""><Folder aria-hidden size={14} /><b>{clientName}</b><span aria-hidden>›</span><span>{text("breadcrumbMatters")}</span></div> : null}
+      <div className="lw-sp-head">
+        <div>
+          <h1 className="lw-h1">{matter.title}</h1>
+          <div className="lw-sp-chips">
+            {matter.matterRef ? <span className="lw-x-pill lw-x-mono" data-tone="line" title={text("field.reference")}>{matter.matterRef}</span>
+              : reference ? <span className="lw-x-pill" data-tone="amber">{text("missingField", { field: text("field.reference") })}</span>
+              : <span className="lw-x-pill" data-tone="line">{text("noMatterReference")}</span>}
+            {matter.court ? <span className="lw-x-pill" data-tone="line" title={matter.court}><Scale aria-hidden size={12} />{matter.court}</span> : null}
+            {jurisdiction && !jurisdiction.missing ? <span className="lw-x-pill" data-tone="line" title={text("field.jurisdiction")}>{jurisdiction.value}</span> : null}
+            {matter.state ? <span className="lw-x-pill" data-tone="line">{text("proceedingsState", { state: matter.state })}</span> : null}
+            <span className="lw-x-pill" data-tone={cockpit.okfValid ? "green" : "amber"}>{cockpit.okfValid ? <Check aria-hidden size={12} /> : null}OKF: {cockpit.okfValid ? text("valid") : text("withFindingsCount", { count: findings })}
+              {" · "}{cockpit.unreadable.length > 0 ? text("unreadableCount", { count: cockpit.unreadable.length }) : text("allReadable")}</span>
+          </div>
+        </div>
+        {action ? <div className="lw-sp-action">{action}</div> : null}
+      </div>
 
-      <div className="lw-obal">
-        {cockpit.registers.map((r) => (
-          <div key={r.id}>
-            <span className="lw-sc">{text(`register.${r.id}`)}</span>
-            <span className={`lw-v${r.id === "lehoty" && cockpit.deadlines.candidates.length > 0 ? " warn" : ""}`}>
-              {r.count}
-              <small>{registerNote(r.id, cockpit, text)}</small>
-            </span>
+      <DeadlineHero cockpit={cockpit} now={now} />
+      <MatterHealth cockpit={cockpit} now={now} />
+
+      <div className="lw-sp-cols">
+        <div className="lw-x-grid">
+          <AttentionPanel cockpit={cockpit} now={now} />
+          <FactsPanel cockpit={cockpit} />
+        </div>
+        <div className="lw-x-grid">
+          <CoursePanel cockpit={cockpit} now={now} />
+          <PartyCards parties={cockpit.parties} />
+        </div>
+      </div>
+
+      <details className="lw-x-panel lw-sp-records" data-lawoss-case-records="">
+        <summary><h2 className="lw-x-h2">{text("caseDetailsTitle")}<small>{text("caseDetailsNote")}</small></h2></summary>
+        {cockpit.registers.map((reg) => (
+          <div className="lw-reg" key={reg.id}>
+            <div className="lw-reg-h">
+              <h2>{text(REGISTER_TITLE[reg.id])}</h2>
+              <span className="lw-meta">{registerNote(reg.id, cockpit, text)}</span>
+            </div>
+            <RegisterRows id={reg.id} cockpit={cockpit} now={now} />
           </div>
         ))}
-        <div>
-          <span className="lw-sc">{text("okfStatus")}</span>
-          <span className={`lw-v${cockpit.okfValid ? "" : " warn"}`}>
-            {cockpit.okfValid ? text("valid") : text("withFindings")}
-            <small>{cockpit.unreadable.length > 0 ? text("unreadableCount", { count: cockpit.unreadable.length }) : text("allReadable")}</small>
-          </span>
-        </div>
-      </div>
-
-      <DeadlineStrip deadlines={[...cockpit.deadlines.confirmed, ...cockpit.deadlines.candidates]} now={now} />
-
-      <div className="lw-reg">
-        <div className="lw-reg-h">
-          <h2>{text("attention")}</h2>
-          <span className="lw-meta">{text("attentionNote")}</span>
-        </div>
-        {cockpit.attention.length === 0 ? (
-          <p className="lw-empty">{text("noAttention")}</p>
-        ) : (
-          cockpit.attention.map((row, i) => <AttentionLine key={row.id} row={row} cockpit={cockpit} index={i} now={now} />)
-        )}
-      </div>
-
-      <MatterParties parties={cockpit.parties} />
-
-      {cockpit.registers.map((reg) => (
-        <div className="lw-reg" key={reg.id}>
+        <div className="lw-reg">
           <div className="lw-reg-h">
-            <h2>{text(`register.${reg.id}`)}</h2>
-            <span className="lw-meta">{registerNote(reg.id, cockpit, text)}</span>
+            <h2>{text("recentEvents")}</h2>
+            <span className="lw-meta">{text("eventsNote", { count: cockpit.events.length })}</span>
           </div>
-          <RegisterRows id={reg.id} cockpit={cockpit} now={now} />
+          {cockpit.events.length === 0 ? (
+            <p className="lw-empty">{text("noEvents")}</p>
+          ) : (
+            cockpit.events.map((e, i) => (
+              <div className="lw-row lw-cols-leh" key={`${e.file}/${e.date}/${i}`}>
+                <span className="lw-no">{i + 1}.</span>
+                <span className="lw-d">{formatDay(e.date, locale)}</span>
+                <span className="lw-t">
+                  {e.text}
+                  <small className="lw-mono">{e.file}</small>
+                </span>
+                <span className="lw-ref">{e.recordId}</span>
+                <span className="lw-st">{e.kind ? eventKindText(e.kind, text) : text("event")}</span>
+              </div>
+            ))
+          )}
         </div>
-      ))}
-
-      <div className="lw-reg">
-        <div className="lw-reg-h">
-          <h2>{text("recentEvents")}</h2>
-          <span className="lw-meta">{text("eventsNote", { count: cockpit.events.length })}</span>
-        </div>
-        {cockpit.events.length === 0 ? (
-          <p className="lw-empty">{text("noEvents")}</p>
-        ) : (
-          cockpit.events.slice(0, 12).map((e, i) => (
-            <div className="lw-row lw-cols-leh" key={`${e.file}/${e.date}/${i}`}>
-              <span className="lw-no">{i + 1}.</span>
-              <span className="lw-d">{formatDay(e.date, locale)}</span>
-              <span className="lw-t">
-                {e.text}
-                <small className="lw-mono">{e.file}</small>
-              </span>
-              <span className="lw-ref">{e.recordId}</span>
-              <span className="lw-st">{e.kind ?? text("event")}</span>
-            </div>
-          ))
-        )}
-      </div>
+      </details>
 
       {cockpit.unreadable.length > 0 ? (
         <div className="lw-reg">
@@ -262,29 +274,263 @@ export function MatterCockpit({ cockpit, now, raw, scopePaths = [] }: { cockpit:
           <li key={level} data-lawoss-scope-missing={level}><b>{t(`lawoss.lite.scope_${level}`, locale)}:</b> {t(`lawoss.lite.scope_${level}_missing`, locale)}</li>
         ))}</ul> : null}
       </div>
-    </>
+    </div>
   );
 }
 
-function AttentionLine({ row, cockpit, index, now }: { row: AttentionRow; cockpit: Cockpit; index: number; now: string }) {
+const REGISTER_TITLE: Readonly<Record<RegisterId, MatterTextKey>> = { obal: "register.obal", fakty: "register.fakty", ulohy: "register.ulohy", lehoty: "register.lehoty" };
+const lastName = (file: string): string => file.split("/").filter(Boolean).pop() ?? file;
+const byDay = (a: { date: string }, b: { date: string }): number => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+
+/** Otvorené úlohy s platným termínom vzostupne, bez termínu na konci. */
+function datedTasks(cockpit: Cockpit): { task: Cockpit["tasks"][number]; day?: string }[] {
+  return cockpit.tasks.map((task) => ({ task, day: taskDue(task.due).day })).sort((a, b) => (a.day ?? "9999") < (b.day ?? "9999") ? -1 : (a.day ?? "9999") > (b.day ?? "9999") ? 1 : 0);
+}
+
+/** Najbližšia lehota s odpočtom, overením a zdrojom; vedľa mesiac s lehotami, termínmi úloh a udalosťami. */
+function DeadlineHero({ cockpit, now }: { cockpit: Cockpit; now: string }) {
+  const { locale, text } = useMatterText();
+  const all = [...cockpit.deadlines.confirmed, ...cockpit.deadlines.candidates].sort(byDay);
+  const valid = all.filter((d) => !d.invalid);
+  const invalid = all.filter((d) => d.invalid);
+  const nearest = valid.find((d) => d.date < now) ?? valid.find((d) => d.date >= now);
+  const tasks = datedTasks(cockpit);
+  const anchor = nearest?.date ?? now;
+  const jurisdiction = holidayJurisdiction(cockpit.jurisdiction);
+  const days = monthDays(anchor, now, jurisdiction ? [jurisdiction] : []);
+  const month = new Intl.DateTimeFormat(locale, { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${anchor.slice(0, 7)}-01T00:00:00Z`));
+  const groups = groupEvents(cockpit.events);
+  const tone = nearest ? deadlineTone(nearest.date, now) : undefined;
+  const left = nearest ? daysBetween(now, nearest.date) : 0;
+  return <section className="lw-x-panel lw-sp-hero lw-x-section" aria-label={text("nearestDeadline")} data-lawoss-deadline-hero={nearest ? tone : "none"}>
+    <div className="lw-sp-countdown">
+      <span className="lw-x-muted" style={{ fontSize: 12 }}>{text("nearestDeadline")}</span>
+      {nearest && tone ? <>
+        <span className="lw-sp-big" data-tone={tone}>{left < 0 ? <b style={{ fontSize: 34 }}>{text("overdue")}</b> : left === 0 ? <b style={{ fontSize: 40 }}>{text("today")}</b> : <><b>{left}</b><span>{text("daysLeft", { count: left }).replace(/^\d+\s*/, "")}</span></>}</span>
+        <span className="lw-sp-dl-title">{deadlineText(nearest)}</span>
+        <span className="lw-x-muted" style={{ fontSize: 13 }}>{formatLongDay(nearest.date, locale)}</span>
+        <Trust confirmed={nearest.confirmed} by={nearest.verifiedBy} at={nearest.verifiedAt} locale={locale} text={text} />
+        <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {nearest.source ? <span className="lw-x-src" title={nearest.source}><FileText aria-hidden size={12} /><span>{nearest.source}</span></span> : null}
+          <span className="lw-x-src" title={nearest.file}><span className="lw-x-mono">{nearest.recordId}</span><span>{lastName(nearest.file)}</span></span>
+        </span>
+      </> : <span className="lw-empty" style={{ padding: 0 }}>{text("noMatterDeadlines")}</span>}
+      {invalid.map((d) => <span key={`${d.recordId}/${d.date}`} className="lw-x-pill" data-tone="amber">? {d.date} · {cockpitLabel("neparsovateľné", text)}</span>)}
+      {tasks.length > 0 ? <div className="lw-sp-tasks">
+        <span className="lw-x-muted">{text("register.ulohy")}</span>
+        {tasks.map(({ task, day }) => <span key={task.id} className="lw-sp-task">
+          <span className="lw-x-pill" data-tone={day ? (day < now ? "red" : deadlineTone(day, now) === "later" ? undefined : "amber") : undefined}>
+            {day ? dueTextFromDays(daysBetween(now, day), locale) : task.invalid ? `? ${task.due ?? ""}` : text("noDue")}</span>
+          <span title={task.title}>{task.title}{task.assignee ? <span className="lw-x-muted"> · {task.assignee}</span> : null}</span>
+        </span>)}
+      </div> : null}
+    </div>
+    <div style={{ minWidth: 0 }}>
+      <div className="lw-sp-month-h"><b>{month.charAt(0).toLocaleUpperCase(locale) + month.slice(1)}</b>
+        <div className="lw-x-legend">
+          <span data-key="weekend"><i aria-hidden />{text("legend.weekend")}</span>
+          {jurisdiction ? <span data-key="holiday"><i aria-hidden />{text("legend.holiday", { jurisdictions: jurisdiction.toUpperCase() })}</span> : null}
+          <span data-key="event"><i aria-hidden />{text("event")}</span>
+          <span data-key="confirmed"><i aria-hidden />{text("legend.confirmed")}</span>
+          <span data-key="task"><i aria-hidden />{text("legend.task")}</span>
+        </div>
+      </div>
+      <CalendarGrid days={days} locale={locale} todayLabel={text("today")} holidayLabel={text("holiday")} size="small" label={month} renderDay={(day) => <DayItems max={2}
+        more={(count) => text("calendarMore", { count })}
+        items={[
+          ...valid.filter((d) => d.date === day.iso).map((d) => <span key={`d/${d.recordId}/${d.date}`} className="lw-x-ev" data-kind="deadline" data-tone={deadlineTone(d.date, now)}
+            data-confirmed={d.confirmed || undefined} title={deadlineText(d)}><span>{deadlineText(d)}</span></span>),
+          ...tasks.filter((x) => x.day === day.iso).map(({ task }) => <span key={`t/${task.id}`} className="lw-x-ev" data-kind="task" data-tone={task.overdue ? "overdue" : undefined} title={task.title}><span>{task.title}</span></span>),
+          ...groups.filter((g) => g.date === day.iso).map((g) => <span key={`e/${g.key}`} className="lw-x-ev" data-kind="event" title={g.texts.join(" · ")}><span>{g.texts[0]}</span></span>),
+        ]} />} />
+    </div>
+  </section>;
+}
+
+const KIND_COLORS = ["#8fb2d9", "#b9a3d9", "#8dbb8f", "#d89a4e", "#c9a24a", "#e8836b", "#75808c"];
+
+/** Stav spisu obrázkom: obal ako prstenec, fakty podľa druhu, úlohy a lehoty s overením. */
+function MatterHealth({ cockpit, now }: { cockpit: Cockpit; now: string }) {
+  const { locale, text } = useMatterText();
+  const filled = cockpit.obal.filter((f) => !f.missing).length;
+  const total = cockpit.obal.length;
+  const sourced = cockpit.facts.filter((f) => f.source).length;
+  const kinds = [...cockpit.facts.reduce((map, f) => map.set(f.kind, (map.get(f.kind) ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1]);
+  const tasks = datedTasks(cockpit);
+  const overdue = cockpit.tasks.filter((x) => x.overdue).length;
+  const next = tasks.find((x) => x.day && x.day >= now);
+  const { confirmed, candidates } = cockpit.deadlines;
+  const r = 22, c = 2 * Math.PI * r;
+  return <section className="lw-sp-health" aria-label={text("okfStatus")}>
+    <div className="lw-sp-hcell" data-lawoss-health="obal" data-warn={filled < total || undefined}>
+      <svg width="54" height="54" viewBox="0 0 54 54" role="img" aria-label={text("healthOf", { count: filled, total })}>
+        <circle cx="27" cy="27" r={r} fill="none" stroke="var(--lw-border)" strokeWidth="5" />
+        {total > 0 ? <circle cx="27" cy="27" r={r} fill="none" stroke={filled === total ? "var(--lw-success)" : "var(--lw-warning)"} strokeWidth="5" strokeLinecap="round"
+          strokeDasharray={`${(c * filled) / total} ${c}`} transform="rotate(-90 27 27)" /> : null}
+        <text x="27" y="31" textAnchor="middle" fontSize="13" fontWeight="600" fill="var(--lw-text-primary)">{filled}</text>
+      </svg>
+      <div><span className="lbl">{text("register.obal")}</span><span className="big">{text("healthOf", { count: filled, total })}</span><span className="sub">{text("register.obalNote")}</span></div>
+    </div>
+    <div className="lw-sp-hcell" data-lawoss-health="fakty" data-warn={sourced < cockpit.facts.length || undefined}>
+      <div><span className="lbl">{text("register.fakty")}</span>
+        <span className="big">{cockpit.facts.length}<small>{text("healthSourced", { count: sourced, total: cockpit.facts.length })}</small></span>
+        {kinds.length ? <span className="lw-sp-seg" aria-hidden>{kinds.map(([kind, n], i) => <i key={kind} style={{ flex: n, background: KIND_COLORS[i % KIND_COLORS.length] }} />)}</span> : null}
+        <span className="sub">{kinds.map(([kind, n]) => `${n} ${cockpitLabel(kind, text)}`).join(" · ") || text("noFacts")}</span></div>
+    </div>
+    <div className="lw-sp-hcell" data-lawoss-health="ulohy" data-warn={overdue > 0 || undefined}>
+      <div><span className="lbl">{text("register.ulohy")}</span>
+        <span className="big">{cockpit.tasks.length}{overdue > 0 ? <small>{text("overdueCount", { count: overdue })}</small> : null}</span>
+        <span className="sub">{next?.day ? `${text("healthNextTask", { when: dueTextFromDays(daysBetween(now, next.day), locale) })} · ${next.task.title}` : text("noTasks")}</span></div>
+    </div>
+    <div className="lw-sp-hcell" data-lawoss-health="lehoty" data-warn={cockpit.deadlines.confirmed.some((d) => d.overdue) || candidates.some((d) => d.overdue) || undefined}>
+      <div><span className="lbl">{text("register.lehoty")}</span>
+        <span className="big">{confirmed.length + candidates.length}</span>
+        <span style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+          <span className="lw-x-pill" data-tone={confirmed.length ? "green" : undefined}><ShieldCheck aria-hidden size={12} />{text("healthConfirmed", { count: confirmed.length })}</span>
+          <span className="lw-x-pill" data-tone={candidates.length ? "amber" : undefined}>{text("healthCandidates", { count: candidates.length })}</span>
+        </span></div>
+    </div>
+  </section>;
+}
+
+/** Čo čaká na advokáta ako výrazné riadky; rizikové preverenie navrchu; prázdny stav povie, čo je v poriadku a čo príde. */
+function AttentionPanel({ cockpit, now }: { cockpit: Cockpit; now: string }) {
+  const { locale, text } = useMatterText();
+  const risky = cockpit.screenings.filter(screeningNeedsAttention);
+  const upcoming = [
+    ...[...cockpit.deadlines.confirmed, ...cockpit.deadlines.candidates].filter((d) => !d.invalid && d.date >= now).map((d) => ({ date: d.date, title: deadlineText(d) })),
+    ...datedTasks(cockpit).filter((x) => x.day && x.day >= now).map((x) => ({ date: x.day ?? now, title: x.task.title })),
+  ].sort(byDay)[0];
+  const clear = cockpit.attention.length === 0;
+  return <section className="lw-x-panel" aria-labelledby="lw-sp-attention" data-lawoss-attention={cockpit.attention.length + risky.length}>
+    <h2 id="lw-sp-attention" className="lw-x-h2">{text("attention")}<small>{text("attentionNote")}</small></h2>
+    <div className="lw-x-grid" style={{ gap: 10 }}>
+      {risky.map((s) => <AlertBox key={s.id} tone="amber" icon="search" data-lawoss-screening={s.id}
+        title={text("screening.title", { subject: s.subject ?? s.title })}
+        detail={[s.id, s.date ? formatDay(s.date, locale) : "", ...s.registries].filter(Boolean).join(" · ")}
+        tags={<>{s.risk ? <span className="lw-x-pill" data-tone="amber">{text("screening.risk", { value: riskText(s.risk, text) })}</span> : null}
+          {s.conclusion ? <span className="lw-x-pill" data-tone="line">{text("screening.conclusion", { value: conclusionText(s.conclusion, text) })}</span> : null}</>} />)}
+      {cockpit.attention.map((row) => <AttentionLine key={row.id} row={row} cockpit={cockpit} now={now} />)}
+      {clear ? <AlertBox tone="ok" icon="ok" data-lawoss-attention-clear="" title={text(risky.length ? "alert.otherwiseClear" : "alert.clearTitle")} detail={text("alert.clearMatter")} /> : null}
+      {upcoming ? <p className="lw-x-next" style={{ margin: 0 }}>{text("nextUp")}:
+        <span className="lw-x-pill" data-tone={deadlineTone(upcoming.date, now) === "later" ? undefined : "amber"}>{dueTextFromDays(daysBetween(now, upcoming.date), locale)}</span>{upcoming.title}</p> : null}
+    </div>
+  </section>;
+}
+
+const FACTS_SHOWN = 6;
+const FACT_ICON: Readonly<Record<string, typeof FileText>> = { rozhodnutie: Scale, pravidlo: Scale, prameň: Scale, subjekt: User, preverenie: Search, tvrdenie: Flag };
+
+function FactCard({ fact, cockpit }: { fact: Cockpit["facts"][number]; cockpit: Cockpit }) {
+  const { locale, text } = useMatterText();
+  const Icon = FACT_ICON[fact.kind] ?? FileText;
+  const screening = cockpit.screenings.find((s) => s.id === fact.id);
+  const verified = fact.provenance === "overené";
+  return <div className="lw-sp-fact" data-lawoss-fact={fact.id}>
+    <span className="lw-sp-fact-icon"><Icon aria-hidden size={16} /></span>
+    <b title={fact.title}>{fact.title}</b>
+    <span className="lw-x-trust" data-trust={verified ? "confirmed" : "recorded"}>{verified ? <ShieldCheck aria-hidden size={13} /> : <PenLine aria-hidden size={12} />}{cockpitLabel(fact.provenance, text)}</span>
+    <span className="lw-sp-fact-meta">
+      <span className="lw-sp-kind">{cockpitLabel(fact.kind, text)}</span>
+      <span className="lw-x-src" title={[fact.source, fact.locator].filter(Boolean).join(" · ")}><FileText aria-hidden size={12} /><span>{fact.source ?? text("noSource")}</span></span>
+      {fact.locator ? <span className="lw-x-src" title={fact.locator}><span>{fact.locator}</span></span> : null}
+      {screening?.risk ? <span className="lw-x-pill" data-tone="amber">{text("screening.risk", { value: riskText(screening.risk, text) })}</span> : null}
+      {fact.date ? <span className="lw-x-muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{formatDay(fact.date, locale)}</span> : null}
+    </span>
+    <span className="lw-x-rec" title={fact.file}>{fact.id}</span>
+  </div>;
+}
+
+function FactsPanel({ cockpit }: { cockpit: Cockpit }) {
+  const { text } = useMatterText();
+  const sourced = cockpit.facts.filter((f) => f.source).length;
+  const shown = cockpit.facts.slice(0, FACTS_SHOWN);
+  const rest = cockpit.facts.slice(FACTS_SHOWN);
+  return <section className="lw-x-panel" aria-labelledby="lw-sp-facts">
+    <h2 id="lw-sp-facts" className="lw-x-h2">{text("factsTitle")}<small>{text("healthSourced", { count: sourced, total: cockpit.facts.length })}</small></h2>
+    {cockpit.facts.length === 0 ? <p className="lw-empty">{text("noFacts")}</p> : <div className="lw-sp-facts">
+      {shown.map((fact) => <FactCard key={fact.id} fact={fact} cockpit={cockpit} />)}
+    </div>}
+    {rest.length > 0 ? <details className="lw-sp-more"><summary>{text("showAll", { count: cockpit.facts.length })}</summary>
+      <div className="lw-sp-facts">{rest.map((fact) => <FactCard key={fact.id} fact={fact} cockpit={cockpit} />)}</div>
+    </details> : null}
+  </section>;
+}
+
+const COURSE_PAST = 8;
+
+/** Priebeh: nadchádzajúce lehoty a termíny úloh, dnešok, potom história zoskupená podľa dňa a druhu. */
+function CoursePanel({ cockpit, now }: { cockpit: Cockpit; now: string }) {
+  const { locale, text } = useMatterText();
+  const groups = groupEvents(cockpit.events);
+  const future = [
+    ...[...cockpit.deadlines.confirmed, ...cockpit.deadlines.candidates].filter((d) => !d.invalid && d.date >= now)
+      .map((d) => ({ key: `d/${d.recordId}/${d.date}`, date: d.date, title: deadlineText(d), task: false, rec: d.recordId })),
+    ...datedTasks(cockpit).filter((x) => x.day && x.day >= now).map((x) => ({ key: `t/${x.task.id}`, date: x.day ?? now, title: x.task.title, task: true, rec: x.task.id })),
+  ].sort(byDay).reverse();
+  const item = (g: ReturnType<typeof groupEvents>[number]) => <li key={g.key} data-kind={g.kind}>
+    <span className="lw-sp-when">{formatDay(g.date, locale)}{g.kind ? <span className="lw-sp-kind" data-kind={g.kind}>{eventKindText(g.kind, text)}</span> : null}
+      {g.recordIds.length > 1 ? <span>{text("groupRecords", { count: g.recordIds.length })}</span> : null}</span>
+    <span className="lw-sp-what">{g.texts[0]}</span>
+    {g.texts.slice(1).map((other) => <span key={other} className="lw-sp-also">{other}</span>)}
+    <span className="lw-sp-recs">{g.recordIds.map((id, i) => <span key={id} className="lw-x-rec" title={g.files[i] ?? g.files[0]}>{id}</span>)}</span>
+  </li>;
+  return <section className="lw-x-panel" aria-labelledby="lw-sp-course" data-lawoss-course={groups.length}>
+    <h2 id="lw-sp-course" className="lw-x-h2">{text("course")}<small>{text("courseNote", { count: cockpit.events.length })}</small></h2>
+    {groups.length === 0 && future.length === 0 ? <p className="lw-empty">{text("noEvents")}</p> : <ol className="lw-sp-tl">
+      {future.map((f) => <li key={f.key} data-future="" data-task={f.task || undefined}>
+        <span className="lw-sp-when">{formatDay(f.date, locale)}<span className="lw-sp-kind">{f.task ? text("legend.task") : cockpitLabel("lehota", text)}</span></span>
+        <span className="lw-sp-what">{f.title}</span>
+        <span className="lw-sp-recs"><span className="lw-x-rec">{f.rec}</span></span>
+      </li>)}
+      <li data-today=""><span className="lw-sp-when">{text("today")} · {formatDay(now, locale)}</span></li>
+      {groups.slice(0, COURSE_PAST).map(item)}
+    </ol>}
+    {groups.length > COURSE_PAST ? <details className="lw-sp-more"><summary>{text("courseAll", { count: groups.length })}</summary>
+      <ol className="lw-sp-tl">{groups.slice(COURSE_PAST).map(item)}</ol>
+    </details> : null}
+  </section>;
+}
+
+/** Zapojené subjekty ako karty; rola a meno ostávajú tak, ako sú v zázname. */
+function PartyCards({ parties }: { parties: Cockpit["parties"] }) {
+  const { text } = useMatterText();
+  if (parties.length === 0) return null;
+  return <section className="lw-x-panel" data-lawoss-parties aria-labelledby="lw-sp-parties">
+    <h2 id="lw-sp-parties" className="lw-x-h2">{text("parties")}</h2>
+    <div className="lw-sp-facts">{parties.map((p, i) => <div key={`${p.file}/${p.recordId}/${i}`} className="lw-sp-fact">
+      <span className="lw-sp-fact-icon"><User aria-hidden size={16} /></span>
+      <b title={p.name}>{p.name}</b>
+      {p.role ? <span className="lw-sp-kind">{p.role}</span> : <span />}
+      <span className="lw-sp-fact-meta">{p.contact ? <span className="lw-x-muted" style={{ fontSize: 12 }}>{p.contact}</span> : null}</span>
+      <span className="lw-x-rec" title={p.file}>{p.recordId}</span>
+    </div>)}</div>
+  </section>;
+}
+
+function AttentionLine({ row, cockpit, now }: { row: AttentionRow; cockpit: Cockpit; now: string }) {
   const { locale, text } = useMatterText();
   const copy = attentionCopy(row, cockpit, text);
+  const red = row.state === "po termíne" || row.state === "neparsovateľné";
+  // Pri lehote rozhoduje potvrdenie tejto lehoty, nie overenie celého záznamu (to isté pravidlo ako prehľad).
+  const deadline = row.kind === "lehota" ? [...cockpit.deadlines.confirmed, ...cockpit.deadlines.candidates].find((d) => `lehota:${d.recordId}:${d.date}` === row.id) : undefined;
+  const trust = deadline ? text(deadline.confirmed ? "provenance.verified" : "trust.recorded") : row.provenance ? cockpitLabel(row.provenance, text) : "";
   return (
-    <div className="lw-row lw-cols-wait">
-      <span className="lw-no">{index + 1}.</span>
-      <span className={row.date ? dayClass(row.date, now) : "lw-d"}>{row.date ? formatDay(row.date, locale) : cockpitLabel(row.kind, text)}</span>
-      <span className="lw-t">
-        {copy.title}
-        <small>
+    <div className="lw-x-alert" data-tone={red ? "red" : "amber"} data-lawoss-attention-row={row.id}>
+      <span className="lw-x-alert-icon">{row.kind === "lehota" || row.kind === "úloha" ? <Clock aria-hidden size={16} /> : <AlertTriangle aria-hidden size={16} />}</span>
+      <span className="lw-x-alert-body">
+        <b>{copy.title}</b>
+        <span>
           {copy.detail}
-          {row.provenance ? ` · ${cockpitLabel(row.provenance, text)}` : ""}
+          {trust ? ` · ${trust}` : ""}
           {row.scope ? ` · ${t(`lawoss.lite.scope_${row.scope}`, locale)}` : ""}
-        </small>
+        </span>
+        <span className="lw-x-alert-tags">
+          <span className="lw-x-pill" data-tone={red ? "red" : "amber"}>{cockpitLabel(row.state, text)}</span>
+          {row.date ? <span className="lw-x-pill" data-tone="line">{formatDay(row.date, locale)}{ISO_DAY.test(row.date) && row.date >= now ? ` · ${dueTextFromDays(daysBetween(now, row.date), locale)}` : ""}</span> : null}
+          <span className="lw-x-rec" title={row.file}>{lastName(row.file)}</span>
+        </span>
       </span>
-      <span className="lw-ref" title={row.file}>
-        {row.file.split("/").pop()}
-      </span>
-      <span className={`lw-st${row.state === "po termíne" || row.state === "neparsovateľné" ? " warn" : ""}`}>{cockpitLabel(row.state, text)}</span>
     </div>
   );
 }
@@ -379,79 +625,10 @@ function DeadlineGroup({ title, rows, now, empty }: { title: string; rows: reado
             </small>
           </span>
           <span className="lw-ref">{d.recordId}</span>
-          <span className={`lw-st${d.overdue ? " warn" : ""}`}>{d.overdue ? text("overdue") : cockpitLabel(d.provenance, text)}</span>
+          <span className={`lw-st${d.overdue ? " warn" : ""}`}>{d.overdue ? text("overdue") : text(d.confirmed ? "provenance.verified" : "trust.recorded")}</span>
         </div>
       ))}
     </>
-  );
-}
-
-// ── pás lehôt ─────────────────────────────────────────────────────────────
-
-
-/**
- * Jediný obrázok obrazovky: pás lehôt veci. Okno je od najstaršej lehoty (alebo
- * dneška) po najvzdialenejšiu (minimálne 14 dní dopredu). Plná značka =
- * zapísaná alebo overená lehota, čiarkovaná = kandidát od agenta.
- */
-function DeadlineStrip({ deadlines: unsorted, now }: { deadlines: readonly CockpitDeadline[]; now: string }) {
-  const { locale, text } = useMatterText();
-  const deadlines = [...unsorted].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  const dates = deadlines.map((d) => d.date).filter((d) => ISO_DAY.test(d));
-  const from = dates.reduce((min, d) => (d < min ? d : min), now);
-  const to = dates.reduce((max, d) => (d > max ? d : max), addDays(now, 14));
-  const span = Math.max(daysBetween(from, to), 1);
-  const x = (date: string): number => 20 + (daysBetween(from, date) / span) * 1120;
-
-  return (
-    <div className="lw-strip">
-      <svg viewBox="0 0 1160 132" aria-label={text("stripLabel", { from: formatDay(from, locale), to: formatDay(to, locale) })}>
-        <line x1="20" x2="1140" y1="92" y2="92" stroke="var(--lw-border-strong)" />
-        <line x1={x(now)} x2={x(now)} y1="14" y2="92" stroke="var(--lw-accent)" strokeWidth="1.5" />
-        <text x={x(now) + 6} y="24" fontSize="10.5" fill="var(--lw-accent)">
-          {text("today")}
-        </text>
-        <text x="20" y="112" fontSize="11" fill="var(--lw-text-tertiary)">
-          {formatDay(from, locale)}
-        </text>
-        <text x="1140" y="112" fontSize="11" textAnchor="end" fill="var(--lw-text-tertiary)">
-          {formatDay(to, locale)}
-        </text>
-        {deadlines.map((d, i) => {
-          const color = d.overdue ? "var(--lw-danger)" : !d.confirmed ? "var(--lw-accent)" : "var(--lw-text-secondary)";
-          const top = i % 2 === 0 ? 30 : 58;
-          // Popisok pri pravom okraji sa otočí doľava, inak by vytiekol mimo plochu.
-          const flip = x(d.date) > 860;
-          const anchor = flip ? "end" : "start";
-          const label = x(d.date) + (flip ? -8 : 8);
-          return (
-            <g key={`${d.recordId}/${d.date}`} fontSize="12">
-              <line
-                x1={x(d.date)}
-                x2={x(d.date)}
-                y1={top}
-                y2="92"
-                stroke={color}
-                strokeDasharray={!d.confirmed ? "3 3" : undefined}
-              />
-              <circle cx={x(d.date)} cy="92" r="4.5" fill={d.overdue ? color : "var(--lw-surface)"} stroke={color} strokeWidth="1.5" />
-              <text x={label} y={top + 4} textAnchor={anchor} fill={color} fontWeight="500">
-                {deadlineText(d)}
-              </text>
-              <text x={label} y={top + 17} textAnchor={anchor} fontSize="11" fill="var(--lw-text-secondary)">
-                {formatDay(d.date, locale)} · {d.overdue ? text("overdue") : cockpitLabel(d.provenance, text)}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-      <div className="lw-leg">
-        <span className="t">{text("overdue")}</span>
-        <span className="m">{text("humanConfirmed")}</span>
-        <span className="k">{text("awaitingConfirmation")}</span>
-      </div>
-      {deadlines.length === 0 ? <p className="lw-empty">{text("noMatterDeadlines")}</p> : null}
-    </div>
   );
 }
 
