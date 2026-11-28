@@ -58,12 +58,14 @@ export function createAlphaReportHandlers(deps) {
     return win && !win.isDestroyed() ? win : main && !main.isDestroyed() ? main : null;
   };
 
-  const redactor = async () => {
+  /** @param {string[]} [serverWorkspaces] priečinky, ktoré pozná lokálny server (aj klienti zo sprievodcu) */
+  const redactor = async (serverWorkspaces = []) => {
     const optional = (name) => { try { return app.getPath(name); } catch { return ""; } };
     // Domáci priečinok appky je v profile (`lawoss-home-workspace.mjs`), nie priečinok klienta.
     const userData = optional("userData");
     const insideProfile = (dir) => Boolean(userData) && !path.relative(userData, dir).startsWith("..") && !path.isAbsolute(path.relative(userData, dir));
-    const workspaces = (await deps.listWorkspacePaths().catch(() => [])).map((dir) => String(dir ?? "").trim()).filter((dir) => dir && !insideProfile(dir));
+    const known = [...(await deps.listWorkspacePaths().catch(() => [])), ...serverWorkspaces];
+    const workspaces = [...new Set(known.map((dir) => String(dir ?? "").trim()).filter((dir) => dir && !insideProfile(dir)))];
     /** @type {Array<[string, string]>} */
     const profile = [[userData, "<profile>"], [optional("logs"), "<logs>"], [optional("temp"), "<temp>"], [process.resourcesPath ?? "", "<app>"]];
     return createRedactor({
@@ -88,7 +90,7 @@ export function createAlphaReportHandlers(deps) {
       return collectReportDiagnostics({
         collectTechnical: async () => collectTechnicalSupportBundle({ app, runtimeManager: deps.runtimeManager, serverInfo: await deps.runtimeManager.legalworkServerInfo(), days: DIAGNOSTICS_DAYS }),
         collectBasic: () => buildSupportBundleText({ app, runtimeManager: deps.runtimeManager }),
-        redactor: await redactor(),
+        redactor,
       });
     },
     context: () => ({ version: app.getVersion(), locale: deps.getLocale() }),

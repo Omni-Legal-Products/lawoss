@@ -12,6 +12,7 @@ import {
   keepUtf8Tail,
   normalizeReportFields,
   reportEndpoint,
+  serverWorkspacePaths,
   submitReport,
 } from "./lawoss-alpha-report.mjs";
 import { buildSupportBundleText, collectTechnicalSupportBundle } from "./support-bundle.mjs";
@@ -80,7 +81,7 @@ test("JSON diagnostics: no tokens, keys, passwords, e-mails or client paths, and
   const result = await collectReportDiagnostics({
     collectTechnical: async () => JSON.stringify(technicalFixture()),
     collectBasic: async () => { throw new Error("not used"); },
-    redactor,
+    redactor: () => redactor,
   });
   assert.equal(result.name, "lawoss-diagnostika.json");
   assertClean(result.content);
@@ -95,6 +96,35 @@ test("JSON diagnostics: no tokens, keys, passwords, e-mails or client paths, and
   assert.match(lines, /<profile>\/app\/server\.js/);
   assert.match(lines, /<email>/);
   assert.match(lines, /ENOENT/, "the technical message stays readable");
+});
+
+test("client folders known only to the local server are redacted too, also outside the home folder", async () => {
+  const outside = "/srv/kancelaria/Kováčová Eva";
+  const fixture = {
+    server: { workspaces: [{ id: "ws_a", path: outside }, { id: "ws_b", path: `${PROFILE}/lawoss-domov` }, { id: "ws_c" }] },
+    logs: [`opened ${outside}/01_Podklady/zmluva.pdf`, "matter Kováčová Eva synced"],
+  };
+  /** @type {string[][]} */
+  const seen = [];
+  const result = await collectReportDiagnostics({
+    collectTechnical: async () => JSON.stringify(fixture),
+    collectBasic: async () => { throw new Error("not used"); },
+    redactor: (paths) => {
+      seen.push(paths);
+      const clients = paths.filter((dir) => !dir.startsWith(PROFILE));
+      return createRedactor({ home: HOME, clientRoots: clients, clientNames: clients.map((dir) => path.basename(dir)), profile: [[PROFILE, "<profile>"]] });
+    },
+  });
+  assert.deepEqual(seen, [[outside, `${PROFILE}/lawoss-domov`]]);
+  assert.ok(!result.content.includes("Kováčová"), "client name leaked");
+  assert.ok(!result.content.includes("/srv/kancelaria"), "office path leaked");
+  const parsed = JSON.parse(result.content);
+  assert.equal(parsed.server.workspaces[0].path, "<client-folder>");
+  assert.equal(parsed.server.workspaces[1].path, "<profile>/lawoss-domov");
+  assert.match(parsed.logs[0], /<client-folder>\/<path>\.pdf/);
+  assert.equal(parsed.logs[1], "matter <client> synced");
+  assert.deepEqual(serverWorkspacePaths({ server: { workspaces: "x" } }), []);
+  assert.deepEqual(serverWorkspacePaths(null), []);
 });
 
 test("Windows paths and JSON-escaped backslashes are shortened too", () => {
@@ -119,7 +149,7 @@ test("without the local service (boot error screen) the text support bundle is u
     const result = await collectReportDiagnostics({
       collectTechnical: async () => collectTechnicalSupportBundle({ app, runtimeManager, serverInfo: await runtimeManager.legalworkServerInfo(), days: 3 }),
       collectBasic: () => buildSupportBundleText({ app, runtimeManager }),
-      redactor: createRedactor({ home: HOME, clientRoots: [CLIENT], profile: [[logs, "<logs>"]] }),
+      redactor: () => createRedactor({ home: HOME, clientRoots: [CLIENT], profile: [[logs, "<logs>"]] }),
     });
     assert.equal(result.name, "lawoss-diagnostika.txt");
     assert.match(result.content, /boot failed in <client-folder>/);
@@ -129,7 +159,7 @@ test("without the local service (boot error screen) the text support bundle is u
 
 test("oversized diagnostics keep the newest end and fit the server limit", async () => {
   const big = JSON.stringify({ lines: Array.from({ length: 5000 }, (_, i) => `line ${i} ${"x".repeat(50)}`) });
-  const result = await collectReportDiagnostics({ collectTechnical: async () => big, collectBasic: async () => "", redactor, limit: 20_000 });
+  const result = await collectReportDiagnostics({ collectTechnical: async () => big, collectBasic: async () => "", redactor: () => redactor, limit: 20_000 });
   assert.equal(result.name, "lawoss-diagnostika.txt");
   assert.ok(Buffer.byteLength(result.content) <= 20_000);
   assert.match(result.content, /line 4999/);
@@ -315,4 +345,55 @@ test("the Electron handlers save a folder with the report and the screenshot, an
     assert.equal((await readFile(path.join(saved, "snimka-okna.png"))).toString(), "PNG");
     assert.deepEqual(revealed, [path.join(saved, "hlasenie.json")]);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("the Electron handlers redact client folders that only the local server knows (connected through onboarding)", async () => {
+  const { createAlphaReportHandlers } = await import("./lawoss-alpha-report-ipc.mjs");
+  const { createServer } = await import("node:http");
+  const root = await mkdtemp(path.join(tmpdir(), "alpha-report-server-"));
+  const userData = path.join(root, "profile");
+  // Mimo domovského priečinka a mimo zoznamu okien desktopu, ako klient pripojený cez sprievodcu.
+  const outside = path.join(root, "kancelaria", "Kováčová Eva");
+  const server = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      const { desktop, days } = JSON.parse(body);
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify({
+        format: "legalwork-technical-diagnostics", schemaVersion: 2, scope: { days }, desktop,
+        server: { workspaces: [{ id: "ws_client", path: outside }, { id: "ws_home", path: path.join(userData, "lawoss-domov") }], log: [`indexed ${outside}/spis.pdf`, "client Kováčová Eva ready"] },
+      }));
+    });
+  });
+  await /** @type {Promise<void>} */ (new Promise((resolve) => { server.listen(0, "127.0.0.1", () => resolve()); }));
+  try {
+    const { port } = /** @type {import("node:net").AddressInfo} */ (server.address());
+    const handlers = createAlphaReportHandlers({
+      app: { getVersion: () => "0.2.1-alpha.28", getName: () => "LAWOSS", isPackaged: true, getPath: (name) => name === "userData" ? userData : path.join(root, name) },
+      shell: { showItemInFolder: () => undefined, openExternal: async () => undefined },
+      dialog: { showSaveDialog: async () => ({ canceled: true }) },
+      BrowserWindow: { fromWebContents: () => null },
+      runtimeManager: {
+        legalworkServerInfo: async () => ({ running: true, baseUrl: `http://127.0.0.1:${port}`, hostToken: "host-token-fixture-123" }),
+        collectRuntimeDiagnostics: async () => ({ engine: { pid: 1 } }),
+      },
+      listWorkspacePaths: async () => [path.join(userData, "lawoss-domov")],
+      getMainWindow: () => null,
+      getLocale: () => "sk",
+      saveTitle: () => "Uložiť hlásenie",
+    });
+    const { id } = await handlers.lawossAlphaReportPrepare({ sender: {} });
+    const preview = await handlers.lawossAlphaReportPreview({}, { id });
+    assert.equal(preview.name, "lawoss-diagnostika.json");
+    assert.ok(!preview.text.includes("Kováčová"), "client name leaked");
+    assert.ok(!preview.text.includes(path.join(root, "kancelaria")), "office path leaked");
+    const parsed = JSON.parse(preview.text);
+    assert.equal(parsed.server.workspaces[0].path, "<client-folder>");
+    assert.equal(parsed.server.workspaces[1].path, "<profile>/lawoss-domov");
+    assert.equal(parsed.server.log[1], "client <client> ready");
+  } finally {
+    await /** @type {Promise<void>} */ (new Promise((resolve) => { server.close(() => resolve()); }));
+    await rm(root, { recursive: true, force: true });
+  }
 });

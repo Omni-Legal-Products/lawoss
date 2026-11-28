@@ -144,19 +144,40 @@ export function keepUtf8Tail(text, limit) {
 }
 
 /**
+ * Cesty pracovných priečinkov, ktoré pozná lokálny server (`server.workspaces[].path`). Klienti pripojení
+ * cez sprievodcu sú len tam, nie v zozname okien desktopu, a ich cesty sa musia redigovať tiež.
+ * @param {unknown} parsed
+ * @returns {string[]}
+ */
+export function serverWorkspacePaths(parsed) {
+  const list = /** @type {any} */ (parsed)?.server?.workspaces;
+  if (!Array.isArray(list)) return [];
+  return list.map((item) => (typeof item?.path === "string" ? item.path.trim() : "")).filter(Boolean);
+}
+
+/**
  * Diagnostika pre hlásenie. Technický export (JSON) potrebuje bežiaci lokálny server; na chybovej obrazovke
  * pri štarte server nebeží, preto sa použije textový balík podpory.
- * @param {{ collectTechnical: () => Promise<string>, collectBasic: () => Promise<string>, redactor: ReturnType<typeof createRedactor>, limit?: number }} options
+ * `redactor` dostane cesty priečinkov zo serverového exportu, aby redigoval aj klientov, ktorých desktop nepozná.
+ * @param {{ collectTechnical: () => Promise<string>, collectBasic: () => Promise<string>, redactor: (serverWorkspaces: string[]) => Promise<ReturnType<typeof createRedactor>> | ReturnType<typeof createRedactor>, limit?: number }} options
  */
 export async function collectReportDiagnostics({ collectTechnical, collectBasic, redactor, limit = MAX_DIAGNOSTICS_BYTES }) {
   let content = "";
   let json = false;
+  /** @type {unknown} */
+  let parsed;
   try {
-    const parsed = JSON.parse(await collectTechnical());
-    content = JSON.stringify(redactor.redactJson(parsed), null, 2);
-    json = true;
+    parsed = JSON.parse(await collectTechnical());
   } catch {
-    content = redactor.redactText(await collectBasic());
+    parsed = undefined;
+  }
+  if (parsed !== undefined) {
+    const rules = await redactor(serverWorkspacePaths(parsed));
+    content = JSON.stringify(rules.redactJson(parsed), null, 2);
+    json = true;
+  } else {
+    const rules = await redactor([]);
+    content = rules.redactText(await collectBasic());
   }
   if (Buffer.byteLength(content, "utf8") > limit) {
     // Skrátený JSON by nebol platný; pošle sa ako text s najnovším koncom.
